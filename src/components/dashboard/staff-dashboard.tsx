@@ -17,6 +17,9 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { AlertBanner } from "@/components/ui/alert-banner";
+import { EmptyState } from "@/components/ui/empty-state";
+import { StatusBadge } from "@/components/ui/status-badge";
 
 // ============================================================
 // API response types
@@ -99,12 +102,6 @@ function formatDayTime(iso: string | null): string {
   return `${DAY_LABELS[d.getDay()]} ${formatTime(iso)}`;
 }
 
-const certStatusStyles: Record<string, string> = {
-  verified: "bg-green-100 text-green-700",
-  pending: "bg-amber-100 text-amber-700",
-  rejected: "bg-red-100 text-red-700",
-};
-
 // ============================================================
 // Main component
 // ============================================================
@@ -162,12 +159,17 @@ export default function StaffDashboard({ orgId, orgName }: StaffDashboardProps) 
     return (
       <div>
         <h2 className="mb-6 text-2xl font-bold">{orgName}</h2>
-        <div className="rounded-lg bg-red-50 p-4 text-sm text-red-600">
-          {error || "Failed to load dashboard"}
-          <button onClick={fetchDashboard} className="ml-2 underline">
-            Retry
-          </button>
-        </div>
+        <AlertBanner
+          message={
+            <>
+              {error || "Failed to load dashboard"}
+              <button onClick={fetchDashboard} className="ml-2 underline">
+                Retry
+              </button>
+            </>
+          }
+          variant="error"
+        />
       </div>
     );
   }
@@ -186,17 +188,23 @@ export default function StaffDashboard({ orgId, orgName }: StaffDashboardProps) 
 
       {/* ---- Action Required ---- */}
       {pendingAssignments.length > 0 && (
-        <div className="mb-6 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          <span>
-            You have {pendingAssignments.length} new task assignment
-            {pendingAssignments.length !== 1 ? "s" : ""} to review
-          </span>
-          <Link href={`/org/${orgId}/my-tasks`} className="ml-2">
-            <Button variant="outline" size="sm" className="border-amber-200 text-amber-700 hover:bg-amber-100">
-              View
-            </Button>
-          </Link>
-        </div>
+        <AlertBanner
+          className="mb-6"
+          variant="warning"
+          message={
+            <>
+              <span>
+                You have {pendingAssignments.length} new task assignment
+                {pendingAssignments.length !== 1 ? "s" : ""} to review
+              </span>
+              <Link href={`/org/${orgId}/my-tasks`} className="ml-2">
+                <Button variant="outline" size="sm" className="border-yellow-500/50 text-yellow-700 hover:bg-yellow-100 dark:border-yellow-500/40 dark:text-yellow-300 dark:hover:bg-yellow-900">
+                  View
+                </Button>
+              </Link>
+            </>
+          }
+        />
       )}
 
       {/* ---- Key Metrics ---- */}
@@ -241,7 +249,7 @@ export default function StaffDashboard({ orgId, orgName }: StaffDashboardProps) 
           <p className="text-xs text-muted-foreground mb-1">Tasks this week</p>
           <p className="text-2xl font-semibold">{data.tasksThisWeek.total}</p>
           {data.tasksThisWeek.pending > 0 && (
-            <p className="text-xs text-amber-600 mt-1">
+            <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
               {data.tasksThisWeek.pending} pending
             </p>
           )}
@@ -270,9 +278,7 @@ export default function StaffDashboard({ orgId, orgName }: StaffDashboardProps) 
           </CardHeader>
           <CardContent>
             {data.certifications.length === 0 ? (
-              <p className="py-4 text-center text-sm text-muted-foreground">
-                No certifications submitted
-              </p>
+              <EmptyState title="No certifications submitted" className="py-4" />
             ) : (
               <div className="space-y-2">
                 {data.certifications.map((cert) => {
@@ -287,15 +293,12 @@ export default function StaffDashboard({ orgId, orgName }: StaffDashboardProps) 
                       className="flex items-center justify-between text-sm"
                     >
                       <span className="truncate mr-2">{cert.name}</span>
-                      <span
-                        className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${
-                          isExpiring
-                            ? "bg-amber-100 text-amber-700"
-                            : certStatusStyles[cert.status] || "bg-gray-100 text-gray-600"
-                        }`}
-                      >
-                        {isExpiring ? "Expires soon" : cert.status}
-                      </span>
+                      <StatusBadge
+                        value={isExpiring ? "expiring" : cert.status}
+                        palette="certification"
+                        label={isExpiring ? "Expires soon" : undefined}
+                        className="shrink-0"
+                      />
                     </div>
                   );
                 })}
@@ -384,7 +387,7 @@ function WeekView({
           <div
             key={`d-${d}`}
             className={`min-h-[60px] rounded-md p-1 text-xs ${
-              isAvailable ? "bg-blue-50" : "bg-muted/30"
+              isAvailable ? "bg-blue-50 dark:bg-blue-950/30" : "bg-muted/30"
             }`}
           >
             {isAvailable && !dayAssignments.length && (
@@ -395,7 +398,7 @@ function WeekView({
                 key={a.id}
                 className={`mb-0.5 rounded px-1 py-0.5 truncate ${
                   a.status === "pending"
-                    ? "bg-amber-200 text-amber-900"
+                    ? "bg-amber-200 text-amber-900 dark:bg-amber-800 dark:text-amber-100"
                     : "text-white"
                 }`}
                 style={

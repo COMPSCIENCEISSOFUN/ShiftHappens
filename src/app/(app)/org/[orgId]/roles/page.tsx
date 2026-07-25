@@ -19,6 +19,9 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { PageLoading } from "@/components/ui/page-loading";
+import { AlertBanner } from "@/components/ui/alert-banner";
+import { EmptyState } from "@/components/ui/empty-state";
 
 interface Permission {
   id: string;
@@ -211,7 +214,7 @@ export default function RolesPage() {
     setSelectedPermissions([]);
   }
 
-  if (loading) return <p>Loading...</p>;
+  if (loading) return <PageLoading />;
 
   const grouped = groupedPermissions();
 
@@ -224,11 +227,7 @@ export default function RolesPage() {
         </Button>
       </div>
 
-      {error && (
-        <div className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-600">
-          {error}
-        </div>
-      )}
+      {error && <AlertBanner message={error} variant="error" />}
 
       {/* Create role form */}
       {showCreate && (
@@ -303,10 +302,7 @@ export default function RolesPage() {
 
       {/* Roles list */}
       {roles.length === 0 ? (
-        <p className="text-muted-foreground">
-          No custom roles yet. Create your first role to define granular
-          permissions.
-        </p>
+        <EmptyState title="No custom roles yet" description="Create your first role to define granular permissions." />
       ) : (
         <div className="space-y-4">
           {roles.map((role) => (

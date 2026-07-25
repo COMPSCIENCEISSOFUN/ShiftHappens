@@ -19,6 +19,9 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { PageLoading } from "@/components/ui/page-loading";
+import { AlertBanner } from "@/components/ui/alert-banner";
+import { EmptyState } from "@/components/ui/empty-state";
 
 interface Department {
   id: string;
@@ -145,7 +148,7 @@ export default function DepartmentsPage() {
     }
   }
 
-  if (loading) return <p>Loading...</p>;
+  if (loading) return <PageLoading />;
 
   return (
     <div className="max-w-4xl">
@@ -156,11 +159,7 @@ export default function DepartmentsPage() {
         </Button>
       </div>
 
-      {error && (
-        <div className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-600">
-          {error}
-        </div>
-      )}
+      {error && <AlertBanner message={error} variant="error" />}
 
       {/* Create department form */}
       {showCreate && (
@@ -201,9 +200,7 @@ export default function DepartmentsPage() {
 
       {/* Department list */}
       {departments.length === 0 ? (
-        <p className="text-muted-foreground">
-          No departments yet. Create your first department to get started.
-        </p>
+        <EmptyState title="No departments yet" description="Create your first department to get started." />
       ) : (
         <div className="space-y-4">
           {departments.map((dept) => (

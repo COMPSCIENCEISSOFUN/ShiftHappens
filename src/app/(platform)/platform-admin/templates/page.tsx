@@ -20,6 +20,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { AlertBanner } from "@/components/ui/alert-banner";
+import { PageLoading } from "@/components/ui/page-loading";
 
 interface TemplateDepartment {
   name: string;
@@ -323,19 +325,15 @@ export default function TemplatesPage() {
   const aiCount = templates.filter((t) => t.isAiGenerated).length;
   const totalUsage = templates.reduce((sum, t) => sum + t.usageCount, 0);
 
-  if (loading) return <p className="text-gray-400">Loading...</p>;
+  if (loading) return <PageLoading label="Loading templates..." />;
 
   return (
     <div className="max-w-4xl">
       {error && (
-        <div className="mb-4 rounded-md bg-red-50 dark:bg-red-950 p-3 text-sm text-red-600 dark:text-red-300">
-          {error}
-        </div>
+        <AlertBanner message={error} variant="error" className="mb-4" />
       )}
       {success && (
-        <div className="mb-4 rounded-md bg-green-50 dark:bg-green-950 p-3 text-sm text-green-600 dark:text-green-300">
-          {success}
-        </div>
+        <AlertBanner message={success} variant="success" className="mb-4" />
       )}
 
       {/* ─── List View ───────────────────────────────────────── */}

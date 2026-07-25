@@ -10,6 +10,9 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { AlertBanner } from "@/components/ui/alert-banner";
+import { PageLoading } from "@/components/ui/page-loading";
+import { StatusBadge } from "@/components/ui/status-badge";
 
 interface Organization {
   id: string;
@@ -26,9 +29,9 @@ interface Organization {
 }
 
 const TIER_STYLES: Record<string, string> = {
-  free: "bg-gray-100 text-gray-700 border-gray-200",
-  pro: "bg-blue-50 text-blue-700 border-blue-200",
-  enterprise: "bg-purple-50 text-purple-700 border-purple-200",
+  free: "bg-gray-100 text-gray-700 border-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700",
+  pro: "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800",
+  enterprise: "bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950 dark:text-purple-300 dark:border-purple-800",
 };
 
 export default function PlatformOrganizationsPage() {
@@ -92,19 +95,22 @@ export default function PlatformOrganizationsPage() {
   }
 
   if (loading) {
-    return (
-      <div className="text-muted-foreground">Loading organizations...</div>
-    );
+    return <PageLoading label="Loading organizations..." />;
   }
 
   if (error) {
     return (
-      <div className="rounded-lg bg-red-50 p-4 text-sm text-red-600">
-        {error}
-        <button onClick={() => { setError(null); fetchOrgs(); }} className="ml-2 underline">
-          Retry
-        </button>
-      </div>
+      <AlertBanner
+        message={
+          <>
+            {error}
+            <button onClick={() => { setError(null); fetchOrgs(); }} className="ml-2 underline">
+              Retry
+            </button>
+          </>
+        }
+        variant="error"
+      />
     );
   }
 
@@ -136,15 +142,10 @@ export default function PlatformOrganizationsPage() {
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 mb-1">
                     <h3 className="font-semibold">{org.name}</h3>
-                    <span
-                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-                        org.status === "active"
-                          ? "bg-green-100 text-green-700"
-                          : "bg-red-100 text-red-700"
-                      }`}
-                    >
-                      {org.status}
-                    </span>
+                    <StatusBadge
+                      value={org.status}
+                      palette="membershipStatus"
+                    />
                   </div>
                   <p className="text-sm text-muted-foreground">
                     {org.industry || "No industry"} · {org._count.memberships}{" "}

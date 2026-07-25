@@ -17,6 +17,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { AlertBanner } from "@/components/ui/alert-banner";
+import { EmptyState } from "@/components/ui/empty-state";
 
 interface CompletionTrend {
   date: string;
@@ -95,11 +97,7 @@ export function DashboardCharts({ orgId }: { orgId: string }) {
   }
 
   if (error) {
-    return (
-      <div className="mb-8 rounded-md bg-red-50 p-3 text-sm text-red-600">
-        {error}
-      </div>
-    );
+    return <AlertBanner message={error} variant="error" className="mb-8" />;
   }
 
   if (!data) return null;
@@ -115,9 +113,7 @@ export function DashboardCharts({ orgId }: { orgId: string }) {
         </CardHeader>
         <CardContent>
           {data.completionTrend.every((d) => d.completed === 0) ? (
-            <p className="text-sm text-muted-foreground py-8 text-center">
-              No completed tasks in the last 7 days
-            </p>
+            <EmptyState title="No completed tasks in the last 7 days" />
           ) : (
             <div className="flex items-end gap-2" style={{ height: "120px" }}>
               {data.completionTrend.map((day) => (
@@ -152,13 +148,9 @@ export function DashboardCharts({ orgId }: { orgId: string }) {
         </CardHeader>
         <CardContent>
           {data.staffUtilization.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-8 text-center">
-              No staff members found
-            </p>
+            <EmptyState title="No staff members found" />
           ) : data.staffUtilization.every((s) => s.hoursWorked === 0) ? (
-            <p className="text-sm text-muted-foreground py-8 text-center">
-              No hours logged in the last 7 days
-            </p>
+            <EmptyState title="No hours logged in the last 7 days" />
           ) : (
             <div className="space-y-3">
               {data.staffUtilization.slice(0, 5).map((staff) => (
@@ -203,9 +195,7 @@ export function DashboardCharts({ orgId }: { orgId: string }) {
         </CardHeader>
         <CardContent>
           {data.departmentWorkload.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-8 text-center">
-              No departments found
-            </p>
+            <EmptyState title="No departments found" />
           ) : (
             <div className="space-y-3">
               {data.departmentWorkload.map((dept) => (

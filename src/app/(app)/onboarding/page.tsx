@@ -24,6 +24,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import { AlertBanner } from "@/components/ui/alert-banner";
+import { PageLoading } from "@/components/ui/page-loading";
 import {
   UtensilsCrossed,
   HeartPulse,
@@ -353,9 +355,7 @@ export default function OnboardingPage() {
             </CardHeader>
             <CardContent className="space-y-4">
               {templatesLoading ? (
-                <p className="text-sm text-muted-foreground text-center py-8">
-                  Loading templates...
-                </p>
+                <PageLoading label="Loading templates..." />
               ) : (
                 <>
                   {/* Template grid */}
@@ -542,9 +542,7 @@ export default function OnboardingPage() {
             <form onSubmit={createOrganization}>
               <CardContent className="space-y-4">
                 {error && (
-                  <div className="rounded-md bg-red-50 p-3 text-sm text-red-600 dark:bg-red-950 dark:text-red-300">
-                    {error}
-                  </div>
+                  <AlertBanner message={error} variant="error" />
                 )}
                 <div className="space-y-2">
                   <Label htmlFor="name">Organization name</Label>

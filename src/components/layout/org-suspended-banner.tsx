@@ -15,7 +15,7 @@ export function OrgSuspendedBanner() {
   return (
     <Card className="max-w-md w-full">
       <CardHeader>
-        <CardTitle className="text-center text-red-600">
+        <CardTitle className="text-center text-red-600 dark:text-red-400">
           Organization Suspended
         </CardTitle>
       </CardHeader>

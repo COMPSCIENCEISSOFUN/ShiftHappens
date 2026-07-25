@@ -1,6 +1,6 @@
 /**
  * Login Form Component (Boundary Layer)
- * 
+ *
  * Client-side login form using NextAuth's signIn function.
  * Uses the Credentials provider with redirect: false to handle
  * errors in-page rather than redirecting to an error page.
@@ -15,6 +15,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { AlertBanner } from "@/components/ui/alert-banner";
 import {
   Card,
   CardContent,
@@ -58,41 +59,58 @@ export function LoginForm() {
   }
 
   return (
-    <Card>
+    <Card className="ring-0 shadow-none">
       <CardHeader>
-        <CardTitle>Sign in</CardTitle>
+        <CardTitle className="text-2xl font-bold">Welcome back</CardTitle>
         <CardDescription>
           Enter your credentials to access your account
         </CardDescription>
       </CardHeader>
       <form onSubmit={onSubmit}>
         <CardContent className="space-y-4">
-          {error && (
-            <div className="rounded-md bg-red-50 p-3 text-sm text-red-600">
-              {error}
-            </div>
-          )}
+          {error && <AlertBanner message={error} variant="error" />}
           <div className="space-y-2">
-            <Label htmlFor="email">Email</Label>
-            <Input id="email" name="email" type="email" required />
+            <Label htmlFor="email">Email address</Label>
+            <Input
+              id="email"
+              name="email"
+              type="email"
+              placeholder="you@company.com"
+              required
+              className="focus-visible:ring-indigo-500"
+            />
           </div>
           <div className="space-y-2">
             <Label htmlFor="password">Password</Label>
-            <Input id="password" name="password" type="password" required />
+            <Input
+              id="password"
+              name="password"
+              type="password"
+              placeholder="Enter your password"
+              required
+              className="focus-visible:ring-indigo-500"
+            />
           </div>
         </CardContent>
-        <CardFooter className="flex flex-col space-y-4">
-          <Button type="submit" className="w-full" disabled={loading}>
+        <CardFooter className="flex-col gap-4 border-0 bg-transparent">
+          <Button
+            type="submit"
+            className="w-full bg-gradient-to-r from-indigo-600 to-indigo-500 text-white shadow-sm hover:from-indigo-700 hover:to-indigo-600"
+            disabled={loading}
+          >
             {loading ? "Signing in..." : "Sign in"}
           </Button>
-          <div className="flex justify-between text-sm">
+          <div className="flex w-full justify-between text-sm">
             <Link
               href="/forgot-password"
-              className="text-primary hover:underline"
+              className="text-indigo-600 hover:text-indigo-500 hover:underline dark:text-indigo-400"
             >
               Forgot password?
             </Link>
-            <Link href="/register" className="text-primary hover:underline">
+            <Link
+              href="/register"
+              className="text-indigo-600 hover:text-indigo-500 hover:underline dark:text-indigo-400"
+            >
               Create account
             </Link>
           </div>

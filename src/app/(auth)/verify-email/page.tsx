@@ -1,9 +1,20 @@
+/**
+ * Verify Email Page (Boundary Layer)
+ *
+ * Handles two states:
+ * - Just registered: shows "check your inbox" message
+ * - Token in URL: verifies the token via API
+ *
+ * Wrapped in Suspense for useSearchParams compatibility.
+ */
 "use client";
 
 import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { AlertBanner } from "@/components/ui/alert-banner";
+import { PageLoading } from "@/components/ui/page-loading";
 import {
   Card,
   CardContent,
@@ -35,9 +46,9 @@ function VerifyEmailContent() {
   }, [token]);
 
   return (
-    <Card>
+    <Card className="ring-0 shadow-none">
       <CardHeader>
-        <CardTitle>Email Verification</CardTitle>
+        <CardTitle className="text-2xl font-bold">Email Verification</CardTitle>
         <CardDescription>
           {status === "pending" && justRegistered
             ? "We sent a verification link to your email"
@@ -52,22 +63,26 @@ function VerifyEmailContent() {
           </p>
         )}
         {status === "loading" && (
-          <p className="text-sm text-muted-foreground">Verifying...</p>
+          <PageLoading label="Verifying..." />
         )}
         {status === "success" && (
           <>
-            <p className="text-sm text-green-600">
-              Your email has been verified successfully.
-            </p>
+            <AlertBanner
+              message="Your email has been verified successfully."
+              variant="success"
+            />
             <Link href="/login" className="w-full">
-                <Button className="w-full">Sign in to your account</Button>
+              <Button className="w-full bg-gradient-to-r from-indigo-600 to-indigo-500 text-white shadow-sm hover:from-indigo-700 hover:to-indigo-600">
+                Sign in to your account
+              </Button>
             </Link>
           </>
         )}
         {status === "error" && (
-          <p className="text-sm text-red-600">
-            Invalid or expired verification link. Please register again.
-          </p>
+          <AlertBanner
+            message="Invalid or expired verification link. Please register again."
+            variant="error"
+          />
         )}
       </CardContent>
     </Card>
@@ -76,7 +91,7 @@ function VerifyEmailContent() {
 
 export default function VerifyEmailPage() {
   return (
-    <Suspense fallback={<p>Loading...</p>}>
+    <Suspense fallback={<PageLoading label="Loading..." />}>
       <VerifyEmailContent />
     </Suspense>
   );

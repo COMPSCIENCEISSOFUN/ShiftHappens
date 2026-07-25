@@ -26,6 +26,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { NeedsAttention } from "@/components/dashboard/needs-attention";
 import type { NeedsAttentionItem } from "@/components/dashboard/needs-attention";
+import { AlertBanner } from "@/components/ui/alert-banner";
+import { EmptyState } from "@/components/ui/empty-state";
 
 // ============================================================
 // API response types (matches ReportingService output)
@@ -198,8 +200,8 @@ function trendArrow(trend: "up" | "down" | "flat"): string {
 }
 
 function trendColor(trend: "up" | "down" | "flat"): string {
-  if (trend === "up") return "text-green-600";
-  if (trend === "down") return "text-red-600";
+  if (trend === "up") return "text-green-600 dark:text-green-400";
+  if (trend === "down") return "text-red-600 dark:text-red-400";
   return "text-muted-foreground";
 }
 
@@ -264,12 +266,17 @@ export default function AdminDashboard({ orgId, orgName }: AdminDashboardProps) 
     return (
       <div>
         <h2 className="mb-6 text-2xl font-bold">{orgName}</h2>
-        <div className="rounded-lg bg-red-50 p-4 text-sm text-red-600">
-          {error}
-          <button onClick={fetchDashboard} className="ml-2 underline">
-            Retry
-          </button>
-        </div>
+        <AlertBanner
+          message={
+            <>
+              {error}
+              <button onClick={fetchDashboard} className="ml-2 underline">
+                Retry
+              </button>
+            </>
+          }
+          variant="error"
+        />
       </div>
     );
   }
@@ -371,7 +378,7 @@ export default function AdminDashboard({ orgId, orgName }: AdminDashboardProps) 
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
-            <span className="rounded bg-blue-100 px-1.5 py-0.5 text-xs font-medium text-blue-700">
+            <span className="rounded bg-blue-100 px-1.5 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-900 dark:text-blue-300">
               ✦ AI Insights
             </span>
             Recommendations
@@ -385,9 +392,7 @@ export default function AdminDashboard({ orgId, orgName }: AdminDashboardProps) 
               ))}
             </div>
           ) : !aiRecs || aiRecs.recommendations.length === 0 ? (
-            <p className="py-4 text-center text-sm text-muted-foreground">
-              No recommendations at this time
-            </p>
+            <EmptyState title="No recommendations at this time" className="py-4" />
           ) : (
             <div>
               <div className="space-y-3">
@@ -397,7 +402,7 @@ export default function AdminDashboard({ orgId, orgName }: AdminDashboardProps) 
                     className="flex items-start justify-between gap-3 text-sm"
                   >
                     <div className="flex items-start gap-2 min-w-0">
-                      <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
+                      <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700 dark:bg-blue-900 dark:text-blue-300">
                         {rec.priority}
                       </span>
                       <div>
@@ -632,19 +637,11 @@ function TomorrowsList({
   orgId: string;
 }) {
   if (!tasks) {
-    return (
-      <p className="py-6 text-center text-sm text-muted-foreground">
-        Could not load schedule
-      </p>
-    );
+    return <EmptyState title="Could not load schedule" />;
   }
 
   if (tasks.length === 0) {
-    return (
-      <p className="py-6 text-center text-sm text-muted-foreground">
-        No tasks scheduled for tomorrow
-      </p>
-    );
+    return <EmptyState title="No tasks scheduled for tomorrow" />;
   }
 
   return (
@@ -669,7 +666,7 @@ function TomorrowsList({
             )}
             {task.isUnderstaffed ? (
               <Link href={`/org/${orgId}/tasks`}>
-                <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-700 cursor-pointer hover:bg-amber-200">
+                <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-700 cursor-pointer hover:bg-amber-200 dark:bg-amber-900 dark:text-amber-300 dark:hover:bg-amber-800">
                   understaffed
                 </span>
               </Link>
@@ -688,19 +685,11 @@ function TomorrowsList({
 /** Completion bar chart (Mon–Sun) */
 function CompletionChart({ days }: { days: CompletionDay[] | null }) {
   if (!days) {
-    return (
-      <p className="py-6 text-center text-sm text-muted-foreground">
-        Could not load completions
-      </p>
-    );
+    return <EmptyState title="Could not load completions" />;
   }
 
   if (days.every((d) => d.count === 0)) {
-    return (
-      <p className="py-6 text-center text-sm text-muted-foreground">
-        No completed tasks in the last 7 days
-      </p>
-    );
+    return <EmptyState title="No completed tasks in the last 7 days" />;
   }
 
   const maxCount = Math.max(...days.map((d) => d.count), 1);
@@ -742,19 +731,11 @@ function UtilizationBars({
   staff: StaffUtilizationItem[] | null;
 }) {
   if (!staff) {
-    return (
-      <p className="py-6 text-center text-sm text-muted-foreground">
-        Could not load utilization
-      </p>
-    );
+    return <EmptyState title="Could not load utilization" />;
   }
 
   if (staff.length === 0) {
-    return (
-      <p className="py-6 text-center text-sm text-muted-foreground">
-        No staff members found
-      </p>
-    );
+    return <EmptyState title="No staff members found" />;
   }
 
   return (
@@ -796,19 +777,11 @@ function WorkloadBars({
   departments: DepartmentWorkloadItem[] | null;
 }) {
   if (!departments) {
-    return (
-      <p className="py-4 text-center text-sm text-muted-foreground">
-        Could not load workload
-      </p>
-    );
+    return <EmptyState title="Could not load workload" className="py-4" />;
   }
 
   if (departments.length === 0) {
-    return (
-      <p className="py-4 text-center text-sm text-muted-foreground">
-        No departments found
-      </p>
-    );
+    return <EmptyState title="No departments found" className="py-4" />;
   }
 
   return (
@@ -846,19 +819,11 @@ function RejectionTrends({
   orgId: string;
 }) {
   if (!trends) {
-    return (
-      <p className="py-4 text-center text-sm text-muted-foreground">
-        Could not load rejection data
-      </p>
-    );
+    return <EmptyState title="Could not load rejection data" className="py-4" />;
   }
 
   if (trends.length === 0) {
-    return (
-      <p className="py-4 text-center text-sm text-muted-foreground">
-        No rejections in the last 7 days
-      </p>
-    );
+    return <EmptyState title="No rejections in the last 7 days" className="py-4" />;
   }
 
   return (
@@ -872,7 +837,7 @@ function RejectionTrends({
           <div key={item.membershipId} className="text-sm">
             <div className="flex items-center gap-2 mb-0.5">
               <span className="font-medium">{item.staffName}</span>
-              <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
+              <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700 dark:bg-red-900 dark:text-red-300">
                 {item.rejectionCount}
               </span>
             </div>
@@ -882,10 +847,10 @@ function RejectionTrends({
                 <>
                   {" — "}
                   <Link
-                    href={`/org/${orgId}/availability`}
+                    href={`/org/${orgId}/members`}
                     className="underline hover:text-foreground"
                   >
-                    Update availability
+                    View members
                   </Link>
                 </>
               )}

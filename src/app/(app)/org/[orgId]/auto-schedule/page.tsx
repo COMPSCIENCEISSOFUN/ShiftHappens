@@ -12,6 +12,7 @@
 import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { AlertBanner } from "@/components/ui/alert-banner";
 
 interface DraftAssignment {
   taskId: string;
@@ -168,17 +169,9 @@ export default function AutoSchedulePage() {
         </Button>
       </div>
 
-      {error && (
-        <div className="mb-4 rounded-md bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 p-3 text-sm text-red-600 dark:text-red-300">
-          {error}
-        </div>
-      )}
+      {error && <AlertBanner message={error} variant="error" />}
 
-      {success && (
-        <div className="mb-4 rounded-md bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 p-3 text-sm text-green-600 dark:text-green-300">
-          {success}
-        </div>
-      )}
+      {success && <AlertBanner message={success} variant="success" />}
 
       {/* Week selector + generate — always visible when no draft */}
       {!draft && (

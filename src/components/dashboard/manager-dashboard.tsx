@@ -20,6 +20,9 @@ import {
 } from "@/components/ui/card";
 import { NeedsAttention } from "@/components/dashboard/needs-attention";
 import type { NeedsAttentionItem } from "@/components/dashboard/needs-attention";
+import { AlertBanner } from "@/components/ui/alert-banner";
+import { EmptyState } from "@/components/ui/empty-state";
+import { StatusBadge } from "@/components/ui/status-badge";
 
 // ============================================================
 // API response types
@@ -77,13 +80,6 @@ interface ManagerDashboardData {
 // Helpers
 // ============================================================
 
-const statusStyles: Record<string, string> = {
-  on_shift: "bg-green-100 text-green-700",
-  has_pending: "bg-amber-100 text-amber-700",
-  available: "bg-gray-100 text-gray-600",
-  off_today: "bg-gray-50 text-gray-400",
-};
-
 function trendArrow(trend: "up" | "down" | "flat"): string {
   if (trend === "up") return "↑";
   if (trend === "down") return "↓";
@@ -91,8 +87,8 @@ function trendArrow(trend: "up" | "down" | "flat"): string {
 }
 
 function trendColor(trend: "up" | "down" | "flat"): string {
-  if (trend === "up") return "text-green-600";
-  if (trend === "down") return "text-red-600";
+  if (trend === "up") return "text-green-600 dark:text-green-400";
+  if (trend === "down") return "text-red-600 dark:text-red-400";
   return "text-muted-foreground";
 }
 
@@ -148,12 +144,17 @@ export default function ManagerDashboard({ orgId, orgName }: ManagerDashboardPro
     return (
       <div>
         <h2 className="mb-6 text-2xl font-bold">{orgName}</h2>
-        <div className="rounded-lg bg-red-50 p-4 text-sm text-red-600">
-          {error}
-          <button onClick={fetchDashboard} className="ml-2 underline">
-            Retry
-          </button>
-        </div>
+        <AlertBanner
+          message={
+            <>
+              {error}
+              <button onClick={fetchDashboard} className="ml-2 underline">
+                Retry
+              </button>
+            </>
+          }
+          variant="error"
+        />
       </div>
     );
   }
@@ -212,13 +213,9 @@ export default function ManagerDashboard({ orgId, orgName }: ManagerDashboardPro
           </CardHeader>
           <CardContent>
             {!data.tomorrowsSchedule ? (
-              <p className="py-6 text-center text-sm text-muted-foreground">
-                Could not load schedule
-              </p>
+              <EmptyState title="Could not load schedule" />
             ) : data.tomorrowsSchedule.length === 0 ? (
-              <p className="py-6 text-center text-sm text-muted-foreground">
-                No tasks scheduled for tomorrow
-              </p>
+              <EmptyState title="No tasks scheduled for tomorrow" />
             ) : (
               <div className="space-y-2">
                 {data.tomorrowsSchedule.map((task) => (
@@ -247,13 +244,9 @@ export default function ManagerDashboard({ orgId, orgName }: ManagerDashboardPro
           </CardHeader>
           <CardContent>
             {!data.teamRoster ? (
-              <p className="py-6 text-center text-sm text-muted-foreground">
-                Could not load team data
-              </p>
+              <EmptyState title="Could not load team data" />
             ) : data.teamRoster.length === 0 ? (
-              <p className="py-6 text-center text-sm text-muted-foreground">
-                No team members found
-              </p>
+              <EmptyState title="No team members found" />
             ) : (
               <div className="space-y-2">
                 {data.teamRoster.map((member) => (
@@ -267,11 +260,11 @@ export default function ManagerDashboard({ orgId, orgName }: ManagerDashboardPro
                       </div>
                       <span>{member.name}</span>
                     </div>
-                    <span
-                      className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusStyles[member.status]}`}
-                    >
-                      {member.statusLabel}
-                    </span>
+                    <StatusBadge
+                      value={member.status}
+                      palette="teamStatus"
+                      label={member.statusLabel}
+                    />
                   </div>
                 ))}
               </div>

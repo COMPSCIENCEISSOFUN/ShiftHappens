@@ -27,6 +27,9 @@ import {
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { TIER_CONFIG } from "@/lib/subscription-tiers";
+import { PageLoading } from "@/components/ui/page-loading";
+import { AlertBanner } from "@/components/ui/alert-banner";
+import { StatusBadge } from "@/components/ui/status-badge";
 
 interface OrgDetails {
   id: string;
@@ -73,13 +76,6 @@ const FEATURE_LABELS: Record<string, string> = {
   mass_import: "Mass import (Excel)",
   audit_log: "Audit log",
   priority_support: "Priority support",
-};
-
-const TIER_BADGE_STYLES: Record<string, string> = {
-  free: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
-  pro: "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300",
-  enterprise:
-    "bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300",
 };
 
 export default function SettingsPage() {
@@ -354,7 +350,7 @@ export default function SettingsPage() {
     return `${h - 12} PM`;
   }
 
-  if (!settings) return <p>Loading...</p>;
+  if (!settings) return <PageLoading />;
 
   return (
     <div className="max-w-2xl space-y-6">
@@ -369,17 +365,7 @@ export default function SettingsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {orgMessage && (
-            <div
-              className={`rounded-md p-3 text-sm ${
-                orgMessage.type === "success"
-                  ? "bg-green-50 text-green-600 dark:bg-green-950 dark:text-green-300"
-                  : "bg-red-50 text-red-600 dark:bg-red-950 dark:text-red-300"
-              }`}
-            >
-              {orgMessage.text}
-            </div>
-          )}
+          {orgMessage && <AlertBanner message={orgMessage.text} variant={orgMessage.type === "success" ? "success" : "error"} />}
 
           <div className="space-y-2">
             <Label htmlFor="orgName">Organization Name</Label>
@@ -460,27 +446,13 @@ export default function SettingsPage() {
                   Your organization&apos;s current plan and resource usage
                 </CardDescription>
               </div>
-              <span
-                className={`rounded-full px-3 py-1 text-sm font-medium ${
-                  TIER_BADGE_STYLES[subscription.tier] || TIER_BADGE_STYLES.free
-                }`}
-              >
-                {subscription.displayName}
-              </span>
+              <StatusBadge value={subscription.tier} palette="tier" label={subscription.displayName} />
             </div>
           </CardHeader>
           <CardContent className="space-y-5">
             {/* Post-checkout banner */}
-            {checkoutBanner === "success" && (
-              <div className="rounded-md bg-green-50 p-3 text-sm text-green-700 dark:bg-green-950 dark:text-green-300">
-                Payment received — your plan will update to Pro momentarily. Refresh if it hasn&apos;t updated.
-              </div>
-            )}
-            {checkoutBanner === "canceled" && (
-              <div className="rounded-md bg-amber-50 p-3 text-sm text-amber-700 dark:bg-amber-950 dark:text-amber-300">
-                Checkout canceled — no charge was made. You&apos;re still on the {subscription.displayName} plan.
-              </div>
-            )}
+            {checkoutBanner === "success" && <AlertBanner message="Payment received — your plan will update to Pro momentarily. Refresh if it hasn't updated." variant="success" />}
+            {checkoutBanner === "canceled" && <AlertBanner message={`Checkout canceled — no charge was made. You're still on the ${subscription.displayName} plan.`} variant="warning" />}
 
             <div>
               <p className="text-sm font-medium mb-3">Resource Usage</p>
@@ -626,17 +598,7 @@ export default function SettingsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {message && (
-              <div
-                className={`rounded-md p-3 text-sm ${
-                  message.type === "success"
-                    ? "bg-green-50 text-green-600 dark:bg-green-950 dark:text-green-300"
-                    : "bg-red-50 text-red-600 dark:bg-red-950 dark:text-red-300"
-                }`}
-              >
-                {message.text}
-              </div>
-            )}
+            {message && <AlertBanner message={message.text} variant={message.type === "success" ? "success" : "error"} />}
 
             <div className="space-y-2">
               <Label htmlFor="allocationMode">Allocation Mode</Label>

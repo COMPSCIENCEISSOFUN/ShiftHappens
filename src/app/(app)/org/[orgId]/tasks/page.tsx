@@ -24,6 +24,10 @@ import {
   describeRecurrence,
   type RecurrenceFreq,
 } from "@/lib/recurrence";
+import { PageLoading } from "@/components/ui/page-loading";
+import { AlertBanner } from "@/components/ui/alert-banner";
+import { EmptyState } from "@/components/ui/empty-state";
+import { StatusBadge } from "@/components/ui/status-badge";
 
 const WEEKDAYS = [
   { value: 1, label: "Mon" },
@@ -610,34 +614,7 @@ export default function TasksPage() {
     );
   }
 
-  function statusColor(status: string) {
-    switch (status) {
-      // Task statuses
-      case "open": return "bg-blue-100 text-blue-700";
-      case "in_progress": return "bg-amber-100 text-amber-700";
-      case "completed": return "bg-green-100 text-green-700";
-      case "cancelled": return "bg-gray-100 text-gray-600";
-      // Assignment statuses (badges reuse this)
-      case "pending": return "bg-amber-100 text-amber-700";
-      case "accepted": return "bg-blue-100 text-blue-700";
-      case "rejected": return "bg-red-100 text-red-700";
-      case "clocked_out": return "bg-indigo-100 text-indigo-700";
-      case "withdrawal_requested": return "bg-orange-100 text-orange-700";
-      default: return "bg-gray-100 text-gray-600";
-    }
-  }
-
-  function priorityColor(priority: string) {
-    switch (priority) {
-      case "urgent": return "bg-red-100 text-red-700";
-      case "high": return "bg-amber-100 text-amber-700";
-      case "medium": return "bg-blue-100 text-blue-700";
-      case "low": return "bg-gray-100 text-gray-600";
-      default: return "bg-gray-100 text-gray-600";
-    }
-  }
-
-  if (loading) return <p>Loading...</p>;
+  if (loading) return <PageLoading />;
 
   return (
     <div className="max-w-5xl">
@@ -668,12 +645,8 @@ export default function TasksPage() {
         </Button>
       </div>
 
-      {error && (
-        <div className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-600">{error}</div>
-      )}
-      {success && (
-        <div className="mb-4 rounded-md bg-green-50 p-3 text-sm text-green-600">{success}</div>
-      )}
+      {error && <AlertBanner message={error} variant="error" />}
+      {success && <AlertBanner message={success} variant="success" />}
 
       {/* Filters */}
       <div className="mb-4 flex gap-4">
@@ -903,7 +876,7 @@ export default function TasksPage() {
 
       {/* Task list */}
       {tasks.length === 0 ? (
-        <p className="text-muted-foreground">No tasks found.</p>
+        <EmptyState title="No tasks found" />
       ) : (
         <div className="space-y-4">
           {tasks.map((task) => (
@@ -913,12 +886,8 @@ export default function TasksPage() {
                   <div>
                     <CardTitle className="flex items-center gap-2">
                       {task.title}
-                      <span className={`rounded-full px-2 py-0.5 text-xs ${statusColor(task.status)}`}>
-                        {task.status.replace("_", " ")}
-                      </span>
-                      <span className={`rounded-full px-2 py-0.5 text-xs ${priorityColor(task.priority)}`}>
-                        {task.priority}
-                      </span>
+                      <StatusBadge value={task.status} palette="taskStatus" />
+                      <StatusBadge value={task.priority} palette="priority" />
                       {task.isRecurring && (
                         <span
                           className="rounded-full bg-violet-100 px-2 py-0.5 text-xs text-violet-700 dark:bg-violet-950 dark:text-violet-300"
@@ -1130,9 +1099,7 @@ export default function TasksPage() {
                       <div key={a.id} className="text-sm">
                         <div className="flex items-center gap-2">
                           <span>{a.membership.user.name || "Unnamed"}</span>
-                          <span className={`rounded-full px-2 py-0.5 text-xs ${statusColor(a.status)}`}>
-                            {a.status.replace(/_/g, " ")}
-                          </span>
+                          <StatusBadge value={a.status} palette="assignmentStatus" />
                           {a.clockInTime && (
                             <span className="text-xs text-muted-foreground">
                               In: {new Date(a.clockInTime).toLocaleTimeString()}
@@ -1326,11 +1293,7 @@ export default function TasksPage() {
                       })}
                     </div>
                   )}
-                  {assignError && (
-                    <div className="mb-3 rounded-md bg-red-50 p-3 text-sm text-red-600 dark:bg-red-950 dark:text-red-300">
-                      {assignError}
-                    </div>
-                  )}
+                  {assignError && <AlertBanner message={assignError} variant="error" />}
                   <Button
                     size="sm"
                     onClick={() => onAssignStaff(task.id)}

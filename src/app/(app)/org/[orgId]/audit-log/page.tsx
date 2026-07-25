@@ -15,6 +15,9 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { PageLoading } from "@/components/ui/page-loading";
+import { AlertBanner } from "@/components/ui/alert-banner";
+import { EmptyState } from "@/components/ui/empty-state";
 
 interface AuditEntry {
   id: string;
@@ -114,9 +117,7 @@ export default function AuditLogPage() {
     <div className="max-w-5xl">
       <h2 className="mb-4 text-2xl font-bold">Audit Log</h2>
 
-      {error && (
-        <div className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-600">{error}</div>
-      )}
+      {error && <AlertBanner message={error} variant="error" />}
 
       {/* Filters */}
       <div className="mb-4 flex gap-3">
@@ -156,9 +157,9 @@ export default function AuditLogPage() {
 
       {/* Log entries */}
       {loading ? (
-        <p>Loading...</p>
+        <PageLoading />
       ) : entries.length === 0 ? (
-        <p className="text-muted-foreground">No audit entries found.</p>
+        <EmptyState title="No audit entries found" />
       ) : (
         <div className="space-y-2">
           {entries.map((entry) => (

@@ -17,6 +17,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { AlertBanner } from "@/components/ui/alert-banner";
 
 interface Insight {
   summary: string;
@@ -53,10 +54,10 @@ export function DashboardInsights({ orgId }: { orgId: string }) {
 
   function alertColor(type: string) {
     switch (type) {
-      case "warning": return "border-amber-200 bg-amber-50 text-amber-800";
-      case "success": return "border-green-200 bg-green-50 text-green-800";
-      case "info": return "border-blue-200 bg-blue-50 text-blue-800";
-      default: return "border-gray-200 bg-gray-50 text-gray-800";
+      case "warning": return "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-300";
+      case "success": return "border-green-200 bg-green-50 text-green-800 dark:border-green-800 dark:bg-green-950/50 dark:text-green-300";
+      case "info": return "border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-300";
+      default: return "border-gray-200 bg-gray-50 text-gray-800 dark:border-gray-700 dark:bg-gray-900/50 dark:text-gray-300";
     }
   }
 
@@ -96,9 +97,9 @@ export function DashboardInsights({ orgId }: { orgId: string }) {
       {loading && !insights && (
         <CardContent>
           <div className="animate-pulse space-y-3">
-            <div className="h-16 rounded-md bg-blue-50" />
-            <div className="h-10 rounded-md bg-gray-50" />
-            <div className="h-10 rounded-md bg-gray-50" />
+            <div className="h-16 rounded-md bg-muted" />
+            <div className="h-10 rounded-md bg-muted" />
+            <div className="h-10 rounded-md bg-muted" />
           </div>
         </CardContent>
       )}
@@ -106,7 +107,7 @@ export function DashboardInsights({ orgId }: { orgId: string }) {
       {/* Error state */}
       {error && !loading && (
         <CardContent>
-          <p className="text-sm text-red-500">{error}</p>
+          <AlertBanner message={error} variant="error" />
         </CardContent>
       )}
 
@@ -114,8 +115,8 @@ export function DashboardInsights({ orgId }: { orgId: string }) {
       {insights && !loading && (
         <CardContent className="space-y-4">
           {/* AI Summary */}
-          <div className="rounded-md border border-blue-200 bg-blue-50 p-4">
-            <p className="text-sm text-blue-800 leading-relaxed">
+          <div className="rounded-md border border-blue-200 bg-blue-50 p-4 dark:border-blue-800 dark:bg-blue-950/50">
+            <p className="text-sm text-blue-800 leading-relaxed dark:text-blue-300">
               {insights.summary}
             </p>
           </div>
@@ -143,7 +144,7 @@ export function DashboardInsights({ orgId }: { orgId: string }) {
               {insights.rejectionPatterns.map((pattern, i) => (
                 <div
                   key={i}
-                  className="rounded-md border border-orange-200 bg-orange-50 p-3 text-sm text-orange-800"
+                  className="rounded-md border border-orange-200 bg-orange-50 p-3 text-sm text-orange-800 dark:border-orange-800 dark:bg-orange-950/50 dark:text-orange-300"
                 >
                   <span className="font-medium">{pattern.staffName}:</span>{" "}
                   {pattern.pattern}

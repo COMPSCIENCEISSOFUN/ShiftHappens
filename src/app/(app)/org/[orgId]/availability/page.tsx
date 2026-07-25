@@ -18,6 +18,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { PageLoading } from "@/components/ui/page-loading";
+import { AlertBanner } from "@/components/ui/alert-banner";
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
@@ -147,18 +149,14 @@ export default function AvailabilityPage() {
     }
   }
 
-  if (loading) return <p>Loading...</p>;
+  if (loading) return <PageLoading />;
 
   return (
     <div className="max-w-3xl">
       <h2 className="mb-6 text-2xl font-bold">My Availability</h2>
 
-      {error && (
-        <div className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-600">{error}</div>
-      )}
-      {success && (
-        <div className="mb-4 rounded-md bg-green-50 p-3 text-sm text-green-600">{success}</div>
-      )}
+      {error && <AlertBanner message={error} variant="error" />}
+      {success && <AlertBanner message={success} variant="success" />}
 
       {/* Weekly schedule */}
       <Card className="mb-6">

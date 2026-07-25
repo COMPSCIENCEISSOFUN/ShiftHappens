@@ -22,6 +22,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { PageLoading } from "@/components/ui/page-loading";
+import { AlertBanner } from "@/components/ui/alert-banner";
 
 interface Task {
   id: string;
@@ -37,6 +39,16 @@ interface Task {
     status: string;
     membership: { user: { name: string | null } };
   }[];
+}
+
+/** Statuses that no longer occupy a staffing slot. */
+const INACTIVE_ASSIGNMENT_STATUSES = ["rejected", "withdrawn"];
+
+/** Assignments that still count toward the staffing headcount. */
+function activeAssignments(task: Task) {
+  return task.assignments.filter(
+    (a) => !INACTIVE_ASSIGNMENT_STATUSES.includes(a.status)
+  );
 }
 
 interface CoverageCell {
@@ -288,7 +300,7 @@ export default function CalendarPage() {
 
   const timePosition = getCurrentTimePosition();
 
-  if (loading) return <p>Loading...</p>;
+  if (loading) return <PageLoading />;
 
   // ===== DAY VIEW =====
   if (viewMode === "day") {
@@ -314,9 +326,7 @@ export default function CalendarPage() {
           </div>
         </div>
 
-        {error && (
-          <div className="mb-4 rounded-md bg-red-50 dark:bg-red-950 p-3 text-sm text-red-600 dark:text-red-300">{error}</div>
-        )}
+        {error && <AlertBanner message={error} variant="error" />}
 
         <div className="flex gap-0">
           {/* Day grid */}
@@ -362,7 +372,8 @@ export default function CalendarPage() {
                   const overlap = overlapMap.get(task.id) || { column: 0, totalColumns: 1 };
                   const widthPercent = 100 / overlap.totalColumns;
                   const leftPercent = overlap.column * widthPercent;
-                  const isUnderstaffed = task.assignments.length < task.requiredHeadcount;
+                  const active = activeAssignments(task);
+                  const isUnderstaffed = active.length < task.requiredHeadcount;
 
                   return (
                     <div key={task.id} className="absolute rounded px-2 py-1 text-xs cursor-pointer overflow-hidden hover:opacity-90 transition-opacity z-10"
@@ -379,7 +390,7 @@ export default function CalendarPage() {
                         {new Date(task.scheduledStart!).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} — {new Date(task.scheduledEnd!).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
                       </div>
                       <div className="text-muted-foreground" style={{ fontSize: "10px" }}>
-                        {task.assignments.map((a) => a.membership.user.name || "Unnamed").join(", ") || "No staff"} ({task.assignments.length}/{task.requiredHeadcount})
+                        {active.map((a) => a.membership.user.name || "Unnamed").join(", ") || "No staff"} ({active.length}/{task.requiredHeadcount})
                       </div>
                     </div>
                   );
@@ -416,26 +427,29 @@ export default function CalendarPage() {
               ))
             )}
 
-            {dayTasks.some((t) => t.assignments.length < t.requiredHeadcount) && (
+            {dayTasks.some((t) => activeAssignments(t).length < t.requiredHeadcount) && (
               <div className="border-t pt-2 mt-2 space-y-1.5">
-                {dayTasks.filter((t) => t.assignments.length < t.requiredHeadcount).map((t) => (
+                {dayTasks.filter((t) => activeAssignments(t).length < t.requiredHeadcount).map((t) => {
+                  const activeCount = activeAssignments(t).length;
+                  return (
                   <div key={t.id} className="flex items-start justify-between gap-1">
                     <p className="text-xs text-amber-600 dark:text-amber-400">
-                      {t.title} needs {t.requiredHeadcount - t.assignments.length} more
+                      {t.title} needs {t.requiredHeadcount - activeCount} more
                     </p>
                     <button
                       onClick={() => setAssignTask({
                         id: t.id,
                         title: t.title,
                         requiredHeadcount: t.requiredHeadcount,
-                        currentCount: t.assignments.length,
+                        currentCount: activeCount,
                       })}
                       className="text-xs text-blue-600 dark:text-blue-400 hover:underline whitespace-nowrap"
                     >
                       Assign
                     </button>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -492,7 +506,7 @@ export default function CalendarPage() {
         </div>
       </div>
 
-      {error && <div className="mb-4 rounded-md bg-red-50 dark:bg-red-950 p-3 text-sm text-red-600 dark:text-red-300">{error}</div>}
+      {error && <AlertBanner message={error} variant="error" />}
 
       <div className="rounded-lg border overflow-hidden">
         {/* Day headers — clickable for day view */}
@@ -553,7 +567,8 @@ export default function CalendarPage() {
                   const overlap = overlapMap.get(task.id) || { column: 0, totalColumns: 1 };
                   const widthPercent = 100 / overlap.totalColumns;
                   const leftPercent = overlap.column * widthPercent;
-                  const isUnderstaffed = task.assignments.length < task.requiredHeadcount;
+                  const activeCount = activeAssignments(task).length;
+                  const isUnderstaffed = activeCount < task.requiredHeadcount;
 
                   return (
                     <div key={task.id} className="absolute rounded px-1 py-0.5 text-xs cursor-pointer overflow-hidden hover:opacity-90 transition-opacity z-10"
@@ -567,7 +582,7 @@ export default function CalendarPage() {
                     >
                       <div className="font-medium truncate" style={{ color }}>{task.title}</div>
                       {parseFloat(pos.height) > 8 && (
-                        <div className="truncate text-muted-foreground" style={{ fontSize: "10px" }}>{task.assignments.length}/{task.requiredHeadcount} staff</div>
+                        <div className="truncate text-muted-foreground" style={{ fontSize: "10px" }}>{activeCount}/{task.requiredHeadcount} staff</div>
                       )}
                     </div>
                   );
@@ -630,7 +645,7 @@ function TaskDetailPanel({ task, onClose }: { task: Task; onClose: () => void })
         </div>
         <div className="text-sm">
           <span className="text-muted-foreground">Staff: </span>
-          {task.assignments.length}/{task.requiredHeadcount}
+          {activeAssignments(task).length}/{task.requiredHeadcount}
           {task.assignments.length > 0 && (
             <span>{" — "}{task.assignments.map((a) => `${a.membership.user.name || "Unnamed"} (${a.status})`).join(", ")}</span>
           )}

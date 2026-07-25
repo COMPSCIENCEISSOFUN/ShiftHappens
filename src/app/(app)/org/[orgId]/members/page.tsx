@@ -22,6 +22,9 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { PageLoading } from "@/components/ui/page-loading";
+import { AlertBanner } from "@/components/ui/alert-banner";
+import { StatusBadge } from "@/components/ui/status-badge";
 
 interface Member {
   id: string;
@@ -49,33 +52,6 @@ interface Invitation {
   acceptedAt: string | null;
   expires: string;
   invitedBy: { name: string | null; email: string };
-}
-
-function RoleBadge({ role }: { role: string }) {
-  const styles: Record<string, string> = {
-    company_admin: "bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300",
-    manager: "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300",
-    staff: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
-  };
-  const labels: Record<string, string> = {
-    company_admin: "Admin",
-    manager: "Manager",
-    staff: "Staff",
-  };
-  return (
-    <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${styles[role] || styles.staff}`}>
-      {labels[role] || role}
-    </span>
-  );
-}
-
-function StatusDot({ status }: { status: string }) {
-  return (
-    <span className="flex items-center gap-1.5 text-xs">
-      <span className={`inline-block h-2 w-2 rounded-full ${status === "active" ? "bg-green-500" : "bg-red-400"}`} />
-      <span className="text-muted-foreground capitalize">{status}</span>
-    </span>
-  );
 }
 
 export default function MembersPage() {
@@ -191,7 +167,7 @@ export default function MembersPage() {
   const inactiveMembers = members.filter((m) => m.status !== "active");
   const pendingInvitations = invitations.filter((i) => !i.acceptedAt);
 
-  if (loading) return <p>Loading...</p>;
+  if (loading) return <PageLoading />;
 
   return (
     <div className="max-w-5xl">
@@ -213,12 +189,8 @@ export default function MembersPage() {
         </div>
       </div>
 
-      {error && (
-        <div className="mb-4 rounded-md bg-red-50 dark:bg-red-950 p-3 text-sm text-red-600 dark:text-red-300">{error}</div>
-      )}
-      {success && (
-        <div className="mb-4 rounded-md bg-green-50 dark:bg-green-950 p-3 text-sm text-green-600 dark:text-green-300">{success}</div>
-      )}
+      {error && <AlertBanner message={error} variant="error" />}
+      {success && <AlertBanner message={success} variant="success" />}
 
       {showInvite && (
         <Card className="mb-6">
@@ -285,7 +257,7 @@ export default function MembersPage() {
                     </div>
                   </td>
                   <td className="px-4 py-3">
-                    <RoleBadge role={member.role} />
+                    <StatusBadge value={member.role} palette="role" />
                   </td>
                   <td className="px-4 py-3">
                     <select
@@ -300,7 +272,7 @@ export default function MembersPage() {
                     </select>
                   </td>
                   <td className="px-4 py-3">
-                    <StatusDot status={member.status} />
+                    <StatusBadge value={member.status} palette="membershipStatus" />
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center justify-end gap-2">
@@ -351,7 +323,7 @@ export default function MembersPage() {
                 {pendingInvitations.map((invitation) => (
                   <tr key={invitation.id} className="border-b last:border-b-0">
                     <td className="px-4 py-3 font-medium">{invitation.email}</td>
-                    <td className="px-4 py-3"><RoleBadge role={invitation.role} /></td>
+                    <td className="px-4 py-3"><StatusBadge value={invitation.role} palette="role" /></td>
                     <td className="px-4 py-3 text-muted-foreground">{invitation.invitedBy.name || invitation.invitedBy.email}</td>
                     <td className="px-4 py-3 text-right text-muted-foreground">{new Date(invitation.expires).toLocaleDateString()}</td>
                   </tr>

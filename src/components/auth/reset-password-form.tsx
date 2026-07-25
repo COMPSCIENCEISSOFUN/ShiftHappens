@@ -1,10 +1,10 @@
 /**
  * Reset Password Form Component (Boundary Layer)
- * 
+ *
  * Allows users to set a new password using a valid reset token
  * from the URL query string. Shows an error if no token is present.
  * On success, redirects to /login.
- * 
+ *
  * Wrapped in Suspense because useSearchParams requires it in
  * Next.js App Router server components.
  */
@@ -16,6 +16,8 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { AlertBanner } from "@/components/ui/alert-banner";
+import { PageLoading } from "@/components/ui/page-loading";
 import {
   Card,
   CardContent,
@@ -35,9 +37,9 @@ function ResetPasswordContent() {
   // No token in URL — show invalid link message
   if (!token) {
     return (
-      <Card>
+      <Card className="ring-0 shadow-none">
         <CardHeader>
-          <CardTitle>Invalid Link</CardTitle>
+          <CardTitle className="text-2xl font-bold">Invalid Link</CardTitle>
           <CardDescription>
             This password reset link is invalid or has expired.
           </CardDescription>
@@ -80,21 +82,24 @@ function ResetPasswordContent() {
   }
 
   return (
-    <Card>
+    <Card className="ring-0 shadow-none">
       <CardHeader>
-        <CardTitle>Reset your password</CardTitle>
+        <CardTitle className="text-2xl font-bold">Reset your password</CardTitle>
         <CardDescription>Enter your new password below</CardDescription>
       </CardHeader>
       <form onSubmit={onSubmit}>
         <CardContent className="space-y-4">
-          {error && (
-            <div className="rounded-md bg-red-50 p-3 text-sm text-red-600">
-              {error}
-            </div>
-          )}
+          {error && <AlertBanner message={error} variant="error" />}
           <div className="space-y-2">
             <Label htmlFor="password">New Password</Label>
-            <Input id="password" name="password" type="password" required />
+            <Input
+              id="password"
+              name="password"
+              type="password"
+              placeholder="Enter new password"
+              required
+              className="focus-visible:ring-indigo-500"
+            />
           </div>
           <div className="space-y-2">
             <Label htmlFor="confirmPassword">Confirm New Password</Label>
@@ -102,12 +107,18 @@ function ResetPasswordContent() {
               id="confirmPassword"
               name="confirmPassword"
               type="password"
+              placeholder="Confirm new password"
               required
+              className="focus-visible:ring-indigo-500"
             />
           </div>
         </CardContent>
-        <CardFooter>
-          <Button type="submit" className="w-full" disabled={loading}>
+        <CardFooter className="border-0 bg-transparent">
+          <Button
+            type="submit"
+            className="w-full bg-gradient-to-r from-indigo-600 to-indigo-500 text-white shadow-sm hover:from-indigo-700 hover:to-indigo-600"
+            disabled={loading}
+          >
             {loading ? "Resetting..." : "Reset password"}
           </Button>
         </CardFooter>
@@ -118,7 +129,7 @@ function ResetPasswordContent() {
 
 export default function ResetPasswordPage() {
   return (
-    <Suspense fallback={<p>Loading...</p>}>
+    <Suspense fallback={<PageLoading label="Loading..." />}>
       <ResetPasswordContent />
     </Suspense>
   );

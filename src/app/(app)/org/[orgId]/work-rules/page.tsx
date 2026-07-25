@@ -10,6 +10,9 @@
 import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { PageLoading } from "@/components/ui/page-loading";
+import { AlertBanner } from "@/components/ui/alert-banner";
+import { EmptyState } from "@/components/ui/empty-state";
 
 interface WorkRule {
   id: string;
@@ -184,16 +187,7 @@ export default function WorkRulesPage({
     return parts.length > 0 ? parts.join(" · ") : "All staff";
   }
 
-  if (loading) {
-    return (
-      <div>
-        <h2 className="mb-6 text-2xl font-bold">Work Rules</h2>
-        <div className="space-y-3">
-          {[1, 2, 3].map((i) => (<div key={i} className="h-20 rounded-lg bg-muted animate-pulse" />))}
-        </div>
-      </div>
-    );
-  }
+  if (loading) return <PageLoading />;
 
   return (
     <div>
@@ -207,11 +201,7 @@ export default function WorkRulesPage({
         {!showForm && <Button onClick={openCreateForm}>Add rule</Button>}
       </div>
 
-      {error && (
-        <div className="mb-4 rounded-lg bg-red-50 dark:bg-red-950 p-3 text-sm text-red-600 dark:text-red-300">
-          {error} <button onClick={fetchRules} className="ml-2 underline">Retry</button>
-        </div>
-      )}
+      {error && <AlertBanner message={error} variant="error" />}
 
       {showForm && (
         <Card className="mb-6">
@@ -288,7 +278,7 @@ export default function WorkRulesPage({
                 </p>
               </div>
 
-              {formError && <p className="text-sm text-red-600 dark:text-red-300">{formError}</p>}
+              {formError && <AlertBanner message={formError} variant="error" />}
 
               <div className="flex gap-2">
                 <Button onClick={handleSubmit} disabled={saving}>
@@ -302,16 +292,11 @@ export default function WorkRulesPage({
       )}
 
       {rules.length === 0 && !showForm ? (
-        <Card>
-          <CardContent className="py-12 text-center">
-            <p className="text-muted-foreground mb-2">No work rules configured yet</p>
-            <p className="text-sm text-muted-foreground mb-4">
-              Work rules enforce break intervals and hour limits during task assignment.
-              Staff who would violate a rule are automatically marked as ineligible.
-            </p>
-            <Button onClick={openCreateForm}>Create your first rule</Button>
-          </CardContent>
-        </Card>
+        <EmptyState
+          title="No work rules configured yet"
+          description="Work rules enforce break intervals and hour limits during task assignment. Staff who would violate a rule are automatically marked as ineligible."
+          action={<Button onClick={openCreateForm}>Create your first rule</Button>}
+        />
       ) : (
         <div className="space-y-2">
           {rules.map((rule) => (

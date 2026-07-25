@@ -9,6 +9,9 @@
 
 import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { AlertBanner } from "@/components/ui/alert-banner";
+import { PageLoading } from "@/components/ui/page-loading";
+import { StatusBadge } from "@/components/ui/status-badge";
 
 interface PlatformStats {
   totalOrganizations: number;
@@ -27,12 +30,6 @@ const TIER_LABELS: Record<string, string> = {
   free: "Free",
   pro: "Pro",
   enterprise: "Enterprise",
-};
-
-const TIER_COLORS: Record<string, string> = {
-  free: "text-gray-700 bg-gray-100",
-  pro: "text-blue-700 bg-blue-50",
-  enterprise: "text-purple-700 bg-purple-50",
 };
 
 export default function PlatformAdminDashboard() {
@@ -79,13 +76,11 @@ export default function PlatformAdminDashboard() {
   }, []);
 
   if (loading) {
-    return (
-      <div className="text-muted-foreground">Loading platform stats...</div>
-    );
+    return <PageLoading label="Loading platform stats..." />;
   }
 
   if (error) {
-    return <div className="text-red-500">{error}</div>;
+    return <AlertBanner message={error} variant="error" />;
   }
 
   if (!stats) return null;
@@ -133,11 +128,11 @@ export default function PlatformAdminDashboard() {
 
               return (
                 <div key={tier} className="flex items-center gap-3">
-                  <span
-                    className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${TIER_COLORS[tier]}`}
-                  >
-                    {TIER_LABELS[tier]}
-                  </span>
+                  <StatusBadge
+                    value={tier}
+                    palette="tier"
+                    label={TIER_LABELS[tier]}
+                  />
                   <div>
                     <p className="text-lg font-semibold">{count}</p>
                     <p className="text-xs text-muted-foreground">{pct}%</p>
@@ -148,7 +143,7 @@ export default function PlatformAdminDashboard() {
           </div>
 
           {totalOrgs > 0 && (
-            <div className="mt-4 flex h-2 overflow-hidden rounded-full bg-gray-100">
+            <div className="mt-4 flex h-2 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800">
               {(["free", "pro", "enterprise"] as const).map((tier) => {
                 const count = tierCounts[tier] || 0;
                 const pct = (count / totalOrgs) * 100;

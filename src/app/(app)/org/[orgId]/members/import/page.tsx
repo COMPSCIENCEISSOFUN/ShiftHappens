@@ -21,6 +21,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { AlertBanner } from "@/components/ui/alert-banner";
 import * as XLSX from "xlsx";
 import {
   SYSTEM_ROLE_LABELS,
@@ -687,11 +688,7 @@ export default function MemberImportPage() {
         </Button>
       </div>
 
-      {error && (
-        <div className="rounded-md p-3 text-sm bg-red-50 text-red-600 dark:bg-red-950 dark:text-red-300">
-          {error}
-        </div>
-      )}
+      {error && <AlertBanner message={error} variant="error" />}
 
       {/* ─── Upload Phase ──────────────────────────────────────── */}
       {phase === "upload" && (

@@ -17,6 +17,10 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { PageLoading } from "@/components/ui/page-loading";
+import { AlertBanner } from "@/components/ui/alert-banner";
+import { EmptyState } from "@/components/ui/empty-state";
+import { StatusBadge } from "@/components/ui/status-badge";
 
 interface Assignment {
   id: string;
@@ -189,27 +193,7 @@ export default function MyTasksPage() {
     }
   }
 
-  function statusColor(status: string) {
-    switch (status) {
-      case "pending": return "bg-amber-100 text-amber-700";
-      case "accepted": return "bg-blue-100 text-blue-700";
-      case "rejected": return "bg-red-100 text-red-700";
-      case "clocked_out": return "bg-indigo-100 text-indigo-700";
-      case "completed": return "bg-green-100 text-green-700";
-      case "withdrawal_requested": return "bg-orange-100 text-orange-700";
-      default: return "bg-gray-100 text-gray-600";
-    }
-  }
-
-  function statusLabel(status: string) {
-    return status === "withdrawal_requested"
-      ? "withdrawal requested"
-      : status === "clocked_out"
-        ? "clocked out"
-        : status;
-  }
-
-  if (loading) return <p>Loading...</p>;
+  if (loading) return <PageLoading />;
 
   const pending = assignments.filter((a) => a.status === "pending");
   const active = assignments.filter(
@@ -223,16 +207,10 @@ export default function MyTasksPage() {
     <div className="max-w-4xl">
       <h2 className="mb-6 text-2xl font-bold">My Tasks</h2>
 
-      {error && (
-        <div className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-600">{error}</div>
-      )}
-      {success && (
-        <div className="mb-4 rounded-md bg-green-50 p-3 text-sm text-green-600">{success}</div>
-      )}
+      {error && <AlertBanner message={error} variant="error" />}
+      {success && <AlertBanner message={success} variant="success" />}
 
-      {assignments.length === 0 && (
-        <p className="text-muted-foreground">No tasks assigned to you yet.</p>
-      )}
+      {assignments.length === 0 && <EmptyState title="No tasks assigned to you yet" />}
 
       {/* Pending assignments */}
       {pending.length > 0 && (
@@ -246,9 +224,7 @@ export default function MyTasksPage() {
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     {a.task.title}
-                    <span className={`rounded-full px-2 py-0.5 text-xs ${statusColor(a.status)}`}>
-                      {a.status}
-                    </span>
+                    <StatusBadge value={a.status} palette="assignmentStatus" />
                   </CardTitle>
                   <CardDescription>
                     {a.task.department?.name || "No department"}
@@ -332,9 +308,7 @@ export default function MyTasksPage() {
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     {a.task.title}
-                    <span className={`rounded-full px-2 py-0.5 text-xs ${statusColor(a.status)}`}>
-                      {statusLabel(a.status)}
-                    </span>
+                    <StatusBadge value={a.status} palette="assignmentStatus" />
                   </CardTitle>
                   <CardDescription>
                     {a.task.department?.name || "No department"}
@@ -419,9 +393,7 @@ export default function MyTasksPage() {
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     {a.task.title}
-                    <span className={`rounded-full px-2 py-0.5 text-xs ${statusColor(a.status)}`}>
-                      {statusLabel(a.status)}
-                    </span>
+                    <StatusBadge value={a.status} palette="assignmentStatus" />
                   </CardTitle>
                   <CardDescription>
                     {a.clockInTime && new Date(a.clockInTime).toLocaleTimeString()}
@@ -451,9 +423,7 @@ export default function MyTasksPage() {
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     {a.task.title}
-                    <span className={`rounded-full px-2 py-0.5 text-xs ${statusColor(a.status)}`}>
-                      completed
-                    </span>
+                    <StatusBadge value={a.status} palette="assignmentStatus" />
                   </CardTitle>
                   <CardDescription>
                     {a.clockInTime && new Date(a.clockInTime).toLocaleTimeString()}
@@ -478,9 +448,7 @@ export default function MyTasksPage() {
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     {a.task.title}
-                    <span className={`rounded-full px-2 py-0.5 text-xs ${statusColor(a.status)}`}>
-                      rejected
-                    </span>
+                    <StatusBadge value={a.status} palette="assignmentStatus" />
                   </CardTitle>
                   <CardDescription>
                     Reason: {a.rejectionReason?.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase())}

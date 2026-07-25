@@ -18,6 +18,10 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { PageLoading } from "@/components/ui/page-loading";
+import { AlertBanner } from "@/components/ui/alert-banner";
+import { EmptyState } from "@/components/ui/empty-state";
+import { StatusBadge } from "@/components/ui/status-badge";
 
 interface Certification {
   id: string;
@@ -91,15 +95,6 @@ export default function CertificationsPage() {
     }
   }
 
-  function statusColor(status: string) {
-    switch (status) {
-      case "pending": return "bg-amber-100 text-amber-700";
-      case "verified": return "bg-green-100 text-green-700";
-      case "rejected": return "bg-red-100 text-red-700";
-      default: return "bg-gray-100 text-gray-600";
-    }
-  }
-
   // Filter by member name (client-side)
   const filtered = certifications.filter((cert) => {
     if (!filterName) return true;
@@ -115,7 +110,7 @@ export default function CertificationsPage() {
     grouped[name].push(cert);
   }
 
-  if (loading) return <p>Loading...</p>;
+  if (loading) return <PageLoading />;
 
   const pendingCount = certifications.filter((c) => c.status === "pending").length;
 
@@ -132,12 +127,8 @@ export default function CertificationsPage() {
         </div>
       </div>
 
-      {error && (
-        <div className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-600">{error}</div>
-      )}
-      {success && (
-        <div className="mb-4 rounded-md bg-green-50 p-3 text-sm text-green-600">{success}</div>
-      )}
+      {error && <AlertBanner message={error} variant="error" />}
+      {success && <AlertBanner message={success} variant="success" />}
 
       {/* Filters */}
       <div className="mb-4 flex gap-4">
@@ -160,7 +151,7 @@ export default function CertificationsPage() {
       </div>
 
       {Object.keys(grouped).length === 0 ? (
-        <p className="text-muted-foreground">No certifications found.</p>
+        <EmptyState title="No certifications found" />
       ) : (
         <div className="space-y-6">
           {Object.entries(grouped).map(([memberName, certs]) => (
@@ -174,11 +165,7 @@ export default function CertificationsPage() {
                         <div>
                           <CardTitle className="flex items-center gap-2 text-base">
                             {cert.name}
-                            <span
-                              className={`rounded-full px-2 py-0.5 text-xs ${statusColor(cert.status)}`}
-                            >
-                              {cert.status}
-                            </span>
+                            <StatusBadge value={cert.status} palette="certification" />
                           </CardTitle>
                           <CardDescription>
                             Issued: {new Date(cert.issuedDate).toLocaleDateString()}

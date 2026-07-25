@@ -21,6 +21,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import { AlertBanner } from "@/components/ui/alert-banner";
+import { PageLoading } from "@/components/ui/page-loading";
 
 export default function ProfilePage() {
   const router = useRouter();
@@ -86,7 +88,7 @@ export default function ProfilePage() {
     }
   }
 
-  if (!profile) return <p>Loading...</p>;
+  if (!profile) return <PageLoading label="Loading profile..." />;
 
   return (
     <div className="max-w-2xl space-y-6">
@@ -99,15 +101,10 @@ export default function ProfilePage() {
           </CardHeader>
           <CardContent className="space-y-4">
             {message && (
-              <div
-                className={`rounded-md p-3 text-sm ${
-                  message.type === "success"
-                    ? "bg-green-50 text-green-600"
-                    : "bg-red-50 text-red-600"
-                }`}
-              >
-                {message.text}
-              </div>
+              <AlertBanner
+                message={message.text}
+                variant={message.type === "success" ? "success" : "error"}
+              />
             )}
             <div className="space-y-2">
               <Label htmlFor="name">Name</Label>

@@ -33,7 +33,6 @@ const MODERATE_PATTERNS = [
   "/dashboard-insights",
   "/ai-recommendations",
   "/tasks/parse",
-  "/api/platform",
   "/auto-schedule",
 ];
 

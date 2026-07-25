@@ -77,7 +77,12 @@ beforeEach(async () => {
   });
 });
 
-/** Records `hours` of worked time for the staff member, ending now. */
+/**
+ * Records `hours` of worked time for the staff member.
+ * Clock-in is clamped to today at midnight so the shift never crosses
+ * into yesterday — this keeps both the rolling-24h and calendar-day
+ * hour checks stable regardless of what time the test suite runs.
+ */
 async function seedWorkedHours(hours: number) {
   const task = await taskRepo.create({
     title: `Shift (${hours}h)`,
@@ -85,14 +90,22 @@ async function seedWorkedHours(hours: number) {
     createdById: adminUserId,
   });
 
+  const now = new Date();
+  const todayStart = new Date(now);
+  todayStart.setHours(0, 0, 0, 0);
+
+  const rawClockIn = new Date(now.getTime() - hours * 60 * 60 * 1000);
+  const clockIn = rawClockIn < todayStart ? todayStart : rawClockIn;
+  const clockOut = new Date(clockIn.getTime() + hours * 60 * 60 * 1000);
+
   await prisma.taskAssignment.create({
     data: {
       taskId: task.id,
       membershipId: staffMembershipId,
       assignedById: adminUserId,
       status: "clocked_out",
-      clockInTime: new Date(Date.now() - hours * 60 * 60 * 1000),
-      clockOutTime: new Date(),
+      clockInTime: clockIn,
+      clockOutTime: clockOut,
     },
   });
 }
