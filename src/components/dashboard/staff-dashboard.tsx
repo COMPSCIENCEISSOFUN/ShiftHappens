@@ -1,29 +1,39 @@
 /**
- * Staff Dashboard Component (Boundary Layer)
+ * Staff Dashboard Page (Boundary Layer)
  *
- * Client component for the Staff personal dashboard.
- * Shows: pending assignment alerts, weekly hours/next shift/task count,
- * personal weekly calendar with availability overlay,
- * certifications list, and quick stats (acceptance rate, on-time rate).
+ * Personal dashboard for staff members showing upcoming shifts,
+ * weekly schedule, certifications, and performance stats.
+ * Fetches data from the organization dashboard API endpoint.
  */
 "use client";
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
+  Clock,
+  CheckCircle2,
+  AlertTriangle,
+  ShieldCheck,
+  ChevronRight,
+  CalendarDays,
+  TrendingUp,
+  Award,
+  Timer,
+  BarChart3,
+} from "lucide-react";
+import {
   Card,
   CardContent,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { EmptyState } from "@/components/ui/empty-state";
 import { StatusBadge } from "@/components/ui/status-badge";
 
-// ============================================================
-// API response types
-// ============================================================
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
 interface StaffAssignment {
   id: string;
@@ -81,339 +91,643 @@ interface StaffDashboardResponse {
   staffData: StaffData | null;
 }
 
-// ============================================================
+// ---------------------------------------------------------------------------
 // Helpers
-// ============================================================
+// ---------------------------------------------------------------------------
 
-const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-function formatTime(iso: string | null): string {
-  if (!iso) return "";
+/** Format an ISO time string (HH:mm:ss or HH:mm) to 12-hour display. */
+function formatTime(time: string): string {
+  const [h, m] = time.split(":").map(Number);
+  const suffix = h >= 12 ? "pm" : "am";
+  const hour12 = h % 12 || 12;
+  return `${hour12}:${String(m).padStart(2, "0")}${suffix}`;
+}
+
+/** Format an ISO datetime string to a short day/time label. */
+function formatDayTime(iso: string): string {
   const d = new Date(iso);
-  const h = d.getHours() % 12 || 12;
+  const day = DAY_LABELS[((d.getDay() + 6) % 7)]; // Mon=0
+  const h = d.getHours();
   const m = d.getMinutes();
-  const p = d.getHours() >= 12 ? "pm" : "am";
-  return m > 0 ? `${h}:${String(m).padStart(2, "0")}${p}` : `${h}${p}`;
+  const suffix = h >= 12 ? "pm" : "am";
+  const hour12 = h % 12 || 12;
+  return `${day} ${hour12}:${String(m).padStart(2, "0")}${suffix}`;
 }
 
-function formatDayTime(iso: string | null): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  return `${DAY_LABELS[d.getDay()]} ${formatTime(iso)}`;
+/**
+ * Return an array of 7 Date objects for the current week (Mon-Sun).
+ */
+function getCurrentWeekDates(): Date[] {
+  const now = new Date();
+  const dayOfWeek = now.getDay(); // 0=Sun
+  const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+  const monday = new Date(now);
+  monday.setDate(now.getDate() + mondayOffset);
+  monday.setHours(0, 0, 0, 0);
+
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + i);
+    return d;
+  });
 }
 
-// ============================================================
-// Main component
-// ============================================================
+/** Check if two dates fall on the same calendar day. */
+function isSameDay(a: Date, b: Date): boolean {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
 
-interface StaffDashboardProps {
+// ---------------------------------------------------------------------------
+// Dot-grid overlay used on the hero card
+// ---------------------------------------------------------------------------
+
+function DotGrid() {
+  return (
+    <svg
+      className="absolute inset-0 h-full w-full"
+      aria-hidden="true"
+      style={{ opacity: 0.08 }}
+    >
+      <defs>
+        <pattern
+          id="dot-grid"
+          x="0"
+          y="0"
+          width="20"
+          height="20"
+          patternUnits="userSpaceOnUse"
+        >
+          <circle cx="2" cy="2" r="1.2" fill="white" />
+        </pattern>
+      </defs>
+      <rect width="100%" height="100%" fill="url(#dot-grid)" />
+    </svg>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
+
+export default function StaffDashboard({
+  orgId,
+  orgName,
+}: {
   orgId: string;
   orgName: string;
-}
-
-export default function StaffDashboard({ orgId, orgName }: StaffDashboardProps) {
+}) {
   const [data, setData] = useState<StaffData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
+
+    async function fetchDashboard() {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const res = await fetch(`/api/organizations/${orgId}/dashboard`);
+        if (!res.ok) {
+          throw new Error(
+            res.status === 404
+              ? "Dashboard data not found."
+              : `Failed to load dashboard (${res.status}).`
+          );
+        }
+
+        const json: StaffDashboardResponse = await res.json();
+
+        if (!cancelled) {
+          setData(json.staffData ?? null);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(
+            err instanceof Error ? err.message : "Something went wrong."
+          );
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
     fetchDashboard();
+    return () => {
+      cancelled = true;
+    };
   }, [orgId]);
 
-  async function fetchDashboard() {
-    try {
-      setLoading(true);
-      setError(null);
-      const res = await fetch(`/api/organizations/${orgId}/dashboard`);
-      if (!res.ok) {
-        setError("Failed to load dashboard");
-        return;
-      }
-      const result: StaffDashboardResponse = await res.json();
-      setData(result.staffData);
-    } catch {
-      setError("Failed to load dashboard");
-    } finally {
-      setLoading(false);
+  // -- Loading state --------------------------------------------------------
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-24">
+        <div className="flex flex-col items-center gap-3">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-indigo-600 border-t-transparent" />
+          <p className="text-sm text-muted-foreground">
+            Loading your dashboard...
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // -- Error state ----------------------------------------------------------
+  if (error) {
+    return (
+      <div className="mx-auto max-w-2xl py-12">
+        <AlertBanner message={error} variant="error" />
+      </div>
+    );
+  }
+
+  // -- Empty state ----------------------------------------------------------
+  if (!data) {
+    return (
+      <div className="py-12">
+        <EmptyState
+          title="No dashboard data"
+          description="We couldn't find any data for your account yet. Check back after your first assignment."
+          icon={CalendarDays}
+        />
+      </div>
+    );
+  }
+
+  // -- Derived values -------------------------------------------------------
+  const weekDates = getCurrentWeekDates();
+  const today = new Date();
+  const hoursPercent = data.weeklyCapacity
+    ? Math.min(100, Math.round((data.hoursThisWeek / data.weeklyCapacity) * 100))
+    : 0;
+  const completedTasks = data.tasksThisWeek.total - data.tasksThisWeek.pending;
+  const pendingCount = data.tasksThisWeek.pending;
+
+  // Build a lookup: dayIndex (0=Mon) -> assignments for that day
+  const assignmentsByDay: Record<number, StaffAssignment[]> = {};
+  for (const a of data.weekAssignments) {
+    if (!a.scheduledStart) continue;
+    const d = new Date(a.scheduledStart);
+    const idx = weekDates.findIndex((wd) => isSameDay(wd, d));
+    if (idx >= 0) {
+      (assignmentsByDay[idx] ??= []).push(a);
     }
   }
 
-  if (loading) {
-    return (
-      <div>
-        <h2 className="mb-6 text-2xl font-bold">{orgName}</h2>
-        <div className="space-y-4">
-          <div className="h-16 rounded-lg bg-muted animate-pulse" />
-          <div className="grid gap-4 md:grid-cols-3">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="h-24 rounded-lg bg-muted animate-pulse" />
-            ))}
-          </div>
-          <div className="h-64 rounded-lg bg-muted animate-pulse" />
-        </div>
-      </div>
-    );
+  // Build availability lookup: dayOfWeek (0=Mon in our UI) -> StaffAvailability
+  // API uses 0=Sunday, so remap
+  const availByDay: Record<number, StaffAvailability> = {};
+  for (const av of data.availability) {
+    const uiDay = av.dayOfWeek === 0 ? 6 : av.dayOfWeek - 1; // Sun→6, Mon→0 ...
+    availByDay[uiDay] = av;
   }
 
-  if (error || !data) {
-    return (
-      <div>
-        <h2 className="mb-6 text-2xl font-bold">{orgName}</h2>
-        <AlertBanner
-          message={
-            <>
-              {error || "Failed to load dashboard"}
-              <button onClick={fetchDashboard} className="ml-2 underline">
-                Retry
-              </button>
-            </>
-          }
-          variant="error"
-        />
-      </div>
-    );
-  }
-
-  const pendingAssignments = data.weekAssignments.filter(
-    (a) => a.status === "pending"
+  // Certifications with warning status
+  const certsWithWarning = data.certifications.filter(
+    (c) => c.status === "expired" || c.status === "expiring_soon"
   );
-  const hoursPercent =
-    data.weeklyCapacity > 0
-      ? Math.round((data.hoursThisWeek / data.weeklyCapacity) * 100)
-      : 0;
 
   return (
-    <div>
-      <h2 className="mb-6 text-2xl font-bold">{orgName}</h2>
-
-      {/* ---- Action Required ---- */}
-      {pendingAssignments.length > 0 && (
-        <AlertBanner
-          className="mb-6"
-          variant="warning"
-          message={
-            <>
-              <span>
-                You have {pendingAssignments.length} new task assignment
-                {pendingAssignments.length !== 1 ? "s" : ""} to review
-              </span>
-              <Link href={`/org/${orgId}/my-tasks`} className="ml-2">
-                <Button variant="outline" size="sm" className="border-yellow-500/50 text-yellow-700 hover:bg-yellow-100 dark:border-yellow-500/40 dark:text-yellow-300 dark:hover:bg-yellow-900">
-                  View
-                </Button>
-              </Link>
-            </>
-          }
-        />
-      )}
-
-      {/* ---- Key Metrics ---- */}
-      <div className="mb-6 grid gap-4 md:grid-cols-3">
-        {/* Hours this week */}
-        <div className="rounded-lg bg-secondary p-4">
-          <p className="text-xs text-muted-foreground mb-1">My hours this week</p>
-          <div className="flex items-baseline gap-2">
-            <p className="text-2xl font-semibold">{data.hoursThisWeek}h</p>
-            <span className="text-xs text-muted-foreground">
-              of {data.weeklyCapacity}h
-            </span>
-          </div>
-          <div className="mt-2 h-1.5 rounded-full bg-muted overflow-hidden">
-            <div
-              className="h-full rounded-full bg-blue-400"
-              style={{ width: `${Math.min(hoursPercent, 100)}%` }}
-            />
-          </div>
-        </div>
-
-        {/* Next shift */}
-        <div className="rounded-lg bg-secondary p-4">
-          <p className="text-xs text-muted-foreground mb-1">Next shift</p>
-          {data.nextShift ? (
-            <>
-              <p className="text-sm font-medium truncate">
-                {data.nextShift.taskName}
-              </p>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                {formatDayTime(data.nextShift.scheduledStart)}–
-                {formatTime(data.nextShift.scheduledEnd)}
-              </p>
-            </>
-          ) : (
-            <p className="text-sm text-muted-foreground">No upcoming shifts</p>
-          )}
-        </div>
-
-        {/* Tasks this week */}
-        <div className="rounded-lg bg-secondary p-4">
-          <p className="text-xs text-muted-foreground mb-1">Tasks this week</p>
-          <p className="text-2xl font-semibold">{data.tasksThisWeek.total}</p>
-          {data.tasksThisWeek.pending > 0 && (
-            <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-              {data.tasksThisWeek.pending} pending
-            </p>
-          )}
-        </div>
+    <div className="space-y-8">
+      {/* ------------------------------------------------------------------ */}
+      {/* Greeting                                                           */}
+      {/* ------------------------------------------------------------------ */}
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight">
+          Hey, {orgName}
+        </h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {data.nextShift
+            ? `You have ${data.tasksThisWeek.total} shift${data.tasksThisWeek.total !== 1 ? "s" : ""} this week`
+            : "No upcoming shifts scheduled"}
+          {pendingCount > 0 &&
+            ` · ${pendingCount} pending assignment${pendingCount !== 1 ? "s" : ""}`}
+        </p>
       </div>
 
-      {/* ---- My Week (calendar-style) ---- */}
-      <Card className="mb-6">
-        <CardHeader>
-          <CardTitle className="text-base">My week</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <WeekView
-            assignments={data.weekAssignments}
-            availability={data.availability}
+      {/* ------------------------------------------------------------------ */}
+      {/* Hero row: Next Shift + Mini Stats                                  */}
+      {/* ------------------------------------------------------------------ */}
+      <div className="grid gap-4 md:grid-cols-3">
+        {/* Next Shift Hero Card */}
+        <Card className="relative overflow-hidden border-0 md:col-span-2">
+          <div
+            className="absolute inset-0"
+            style={{
+              background: "linear-gradient(135deg, #4f46e5, #7c3aed)",
+            }}
           />
-        </CardContent>
-      </Card>
-
-      {/* ---- Certifications + Quick Stats ---- */}
-      <div className="grid gap-4 md:grid-cols-2">
-        {/* Certifications */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">My certifications</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {data.certifications.length === 0 ? (
-              <EmptyState title="No certifications submitted" className="py-4" />
-            ) : (
-              <div className="space-y-2">
-                {data.certifications.map((cert) => {
-                  const isExpiring =
-                    cert.status === "verified" &&
-                    cert.expiryDate &&
-                    new Date(cert.expiryDate).getTime() - Date.now() <
-                      30 * 24 * 60 * 60 * 1000;
-                  return (
-                    <div
-                      key={cert.id}
-                      className="flex items-center justify-between text-sm"
-                    >
-                      <span className="truncate mr-2">{cert.name}</span>
-                      <StatusBadge
-                        value={isExpiring ? "expiring" : cert.status}
-                        palette="certification"
-                        label={isExpiring ? "Expires soon" : undefined}
-                        className="shrink-0"
-                      />
-                    </div>
+          <DotGrid />
+          <CardContent className="relative z-10 flex flex-col justify-between p-6 min-h-[180px]">
+            {data.nextShift ? (
+              <>
+                <span
+                  className="text-[11px] font-semibold uppercase tracking-widest"
+                  style={{ color: "rgba(255,255,255,0.65)" }}
+                >
+                  Next shift
+                </span>
+                <div className="mt-3">
+                  <h2 className="text-[22px] font-bold leading-tight text-white">
+                    {data.nextShift.taskName}
+                  </h2>
+                  <p
+                    className="mt-1 text-[14px]"
+                    style={{ color: "rgba(255,255,255,0.75)" }}
+                  >
+                    {formatDayTime(data.nextShift.scheduledStart)} &ndash;{" "}
+                    {formatDayTime(data.nextShift.scheduledEnd)}
+                  </p>
+                </div>
+                {/* Department pill — pull from first matching assignment */}
+                {(() => {
+                  const match = data.weekAssignments.find(
+                    (a) => a.taskTitle === data.nextShift?.taskName
                   );
-                })}
+                  if (!match?.departmentName) return null;
+                  return (
+                    <span
+                      className="mt-4 inline-flex w-fit items-center rounded-full px-3 py-1 text-xs font-medium text-white"
+                      style={{ background: "rgba(255,255,255,0.15)" }}
+                    >
+                      {match.departmentName}
+                    </span>
+                  );
+                })()}
+              </>
+            ) : (
+              <div className="flex flex-1 flex-col items-center justify-center text-center">
+                <CalendarDays
+                  className="mb-2 h-8 w-8"
+                  style={{ color: "rgba(255,255,255,0.5)" }}
+                />
+                <p
+                  className="text-sm font-medium"
+                  style={{ color: "rgba(255,255,255,0.75)" }}
+                >
+                  No upcoming shifts
+                </p>
               </div>
             )}
           </CardContent>
         </Card>
 
-        {/* Quick Stats */}
+        {/* Mini stat cards */}
+        <div className="grid gap-4 grid-rows-2">
+          {/* Hours this week */}
+          <Card>
+            <CardContent className="flex flex-col justify-center p-5 h-full">
+              <div className="flex items-center justify-between">
+                <span className="text-2xl font-bold tabular-nums">
+                  {data.hoursThisWeek.toFixed(1)}h
+                </span>
+                <Clock className="h-5 w-5 text-muted-foreground" />
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                of {data.weeklyCapacity}h preferred
+              </p>
+              <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800">
+                <div
+                  className="h-full rounded-full transition-all"
+                  style={{
+                    width: `${hoursPercent}%`,
+                    background: "linear-gradient(90deg, #4f46e5, #7c3aed)",
+                  }}
+                />
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Tasks completed */}
+          <Card>
+            <CardContent className="flex flex-col justify-center p-5 h-full">
+              <div className="flex items-center justify-between">
+                <span className="text-2xl font-bold tabular-nums">
+                  {completedTasks}
+                </span>
+                <CheckCircle2 className="h-5 w-5 text-muted-foreground" />
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {completedTasks === 1 ? "task" : "tasks"} completed this week
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+
+      {/* ------------------------------------------------------------------ */}
+      {/* Action required                                                    */}
+      {/* ------------------------------------------------------------------ */}
+      {pendingCount > 0 && (
+        <section>
+          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Action required
+          </h3>
+          <Card>
+            <CardContent className="flex items-center gap-4 p-5">
+              <div
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg"
+                style={{ background: "#fffbeb" }}
+              >
+                <AlertTriangle className="h-5 w-5" style={{ color: "#d97706" }} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium">
+                  {pendingCount} pending assignment{pendingCount !== 1 ? "s" : ""}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Review and accept or decline your pending task
+                  {pendingCount !== 1 ? "s" : ""}
+                </p>
+              </div>
+              <Link
+                href={`/org/${orgId}/my-tasks`}
+                className="inline-flex items-center gap-1 rounded-lg px-4 py-2 text-sm font-medium text-white transition-colors hover:opacity-90"
+                style={{ background: "#4f46e5" }}
+              >
+                Review
+                <ChevronRight className="h-4 w-4" />
+              </Link>
+            </CardContent>
+          </Card>
+        </section>
+      )}
+
+      {/* ------------------------------------------------------------------ */}
+      {/* Week strip                                                          */}
+      {/* ------------------------------------------------------------------ */}
+      <section>
+        <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Your week
+        </h3>
+        <div className="grid grid-cols-7 gap-2">
+          {weekDates.map((date, i) => {
+            const isToday = isSameDay(date, today);
+            const dayAssignments = assignmentsByDay[i] ?? [];
+            const avail = availByDay[i];
+
+            return (
+              <Card
+                key={i}
+                className="relative overflow-hidden"
+                style={
+                  isToday
+                    ? { borderColor: "#4f46e5", borderWidth: 2 }
+                    : undefined
+                }
+              >
+                <CardContent className="flex flex-col items-center gap-2 p-3">
+                  <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                    {DAY_LABELS[i]}
+                  </span>
+                  <span
+                    className={`text-[18px] font-bold tabular-nums ${
+                      isToday ? "text-indigo-600" : ""
+                    }`}
+                  >
+                    {date.getDate()}
+                  </span>
+
+                  {/* Tags */}
+                  <div className="mt-1 flex flex-col items-center gap-1 w-full">
+                    {dayAssignments.map((a) => {
+                      if (a.status === "pending") {
+                        return (
+                          <span
+                            key={a.id}
+                            className="inline-flex w-full items-center justify-center rounded-full px-2 py-0.5 text-[10px] font-medium"
+                            style={{ background: "#fffbeb", color: "#d97706" }}
+                          >
+                            pending
+                          </span>
+                        );
+                      }
+                      const startLabel =
+                        a.scheduledStart
+                          ? formatDayTime(a.scheduledStart).split(" ")[1]
+                          : null;
+                      const endLabel =
+                        a.scheduledEnd
+                          ? formatDayTime(a.scheduledEnd).split(" ")[1]
+                          : null;
+                      return (
+                        <span
+                          key={a.id}
+                          className="inline-flex w-full items-center justify-center rounded-full px-2 py-0.5 text-[10px] font-medium text-white"
+                          style={{ background: "#4f46e5" }}
+                        >
+                          {startLabel && endLabel
+                            ? `${startLabel}-${endLabel}`
+                            : "shift"}
+                        </span>
+                      );
+                    })}
+
+                    {dayAssignments.length === 0 && avail && avail.isAvailable && (
+                      <span
+                        className="inline-flex w-full items-center justify-center rounded-full px-2 py-0.5 text-[10px] font-medium"
+                        style={{ background: "#ecfdf5", color: "#059669" }}
+                      >
+                        available
+                      </span>
+                    )}
+
+                    {dayAssignments.length === 0 &&
+                      (!avail || !avail.isAvailable) && (
+                        <span className="inline-flex w-full items-center justify-center rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-500 dark:bg-gray-800 dark:text-gray-400">
+                          off
+                        </span>
+                      )}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* ------------------------------------------------------------------ */}
+      {/* Bottom two-column grid: Certifications + Quick stats               */}
+      {/* ------------------------------------------------------------------ */}
+      <div className="grid gap-4 md:grid-cols-2">
+        {/* Certifications */}
         <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Quick stats</CardTitle>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <ShieldCheck className="h-4 w-4 text-muted-foreground" />
+              My certifications
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="space-y-2 text-sm">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Shifts this month</span>
-                <span className="font-medium">{data.stats.shiftsThisMonth}</span>
+            {data.certifications.length === 0 ? (
+              <p className="py-4 text-center text-sm text-muted-foreground">
+                No certifications on file.
+              </p>
+            ) : (
+              <ul className="divide-y">
+                {data.certifications.map((cert) => {
+                  const isWarning =
+                    cert.status === "expired" ||
+                    cert.status === "expiring_soon";
+                  return (
+                    <li
+                      key={cert.id}
+                      className="flex items-center gap-3 py-3 first:pt-0 last:pb-0"
+                    >
+                      {isWarning ? (
+                        <AlertTriangle
+                          className="h-4 w-4 shrink-0"
+                          style={{ color: "#d97706" }}
+                        />
+                      ) : (
+                        <CheckCircle2
+                          className="h-4 w-4 shrink-0"
+                          style={{ color: "#059669" }}
+                        />
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">
+                          {cert.name}
+                        </p>
+                        {cert.expiryDate && (
+                          <p className="text-xs text-muted-foreground">
+                            Expires{" "}
+                            {new Date(cert.expiryDate).toLocaleDateString(
+                              undefined,
+                              {
+                                month: "short",
+                                day: "numeric",
+                                year: "numeric",
+                              }
+                            )}
+                          </p>
+                        )}
+                      </div>
+                      <StatusBadge
+                        value={cert.status}
+                        palette="certification"
+                      />
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Quick stats */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <BarChart3 className="h-4 w-4 text-muted-foreground" />
+              Quick stats
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 gap-4">
+              {/* Acceptance rate */}
+              <div
+                className="rounded-xl p-4"
+                style={{ background: "#eef2ff" }}
+              >
+                <div className="flex items-center gap-2">
+                  <TrendingUp className="h-4 w-4" style={{ color: "#4f46e5" }} />
+                  <span
+                    className="text-xs font-medium"
+                    style={{ color: "#4338ca" }}
+                  >
+                    Acceptance
+                  </span>
+                </div>
+                <p
+                  className="mt-2 text-xl font-bold tabular-nums"
+                  style={{ color: "#4f46e5" }}
+                >
+                  {data.stats.acceptanceRate}%
+                </p>
               </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Hours this month</span>
-                <span className="font-medium">{data.stats.hoursThisMonth}h</span>
+
+              {/* On-time rate */}
+              <div
+                className="rounded-xl p-4"
+                style={{ background: "#ecfdf5" }}
+              >
+                <div className="flex items-center gap-2">
+                  <Timer className="h-4 w-4" style={{ color: "#059669" }} />
+                  <span
+                    className="text-xs font-medium"
+                    style={{ color: "#059669" }}
+                  >
+                    On time
+                  </span>
+                </div>
+                <p
+                  className="mt-2 text-xl font-bold tabular-nums"
+                  style={{ color: "#059669" }}
+                >
+                  {data.stats.onTimeRate}%
+                </p>
               </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Acceptance rate</span>
-                <span className="font-medium">{data.stats.acceptanceRate}%</span>
+
+              {/* Shifts this month */}
+              <div
+                className="rounded-xl p-4"
+                style={{ background: "#eef2ff" }}
+              >
+                <div className="flex items-center gap-2">
+                  <CalendarDays
+                    className="h-4 w-4"
+                    style={{ color: "#4f46e5" }}
+                  />
+                  <span
+                    className="text-xs font-medium"
+                    style={{ color: "#4338ca" }}
+                  >
+                    Shifts
+                  </span>
+                </div>
+                <p
+                  className="mt-2 text-xl font-bold tabular-nums"
+                  style={{ color: "#4f46e5" }}
+                >
+                  {data.stats.shiftsThisMonth}
+                </p>
+                <p className="text-[10px] text-muted-foreground">this month</p>
               </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">On-time clock-in</span>
-                <span className="font-medium">{data.stats.onTimeRate}%</span>
+
+              {/* Hours this month */}
+              <div
+                className="rounded-xl p-4"
+                style={{ background: "#eef2ff" }}
+              >
+                <div className="flex items-center gap-2">
+                  <Award className="h-4 w-4" style={{ color: "#4f46e5" }} />
+                  <span
+                    className="text-xs font-medium"
+                    style={{ color: "#4338ca" }}
+                  >
+                    Hours
+                  </span>
+                </div>
+                <p
+                  className="mt-2 text-xl font-bold tabular-nums"
+                  style={{ color: "#4f46e5" }}
+                >
+                  {data.stats.hoursThisMonth.toFixed(1)}
+                </p>
+                <p className="text-[10px] text-muted-foreground">this month</p>
               </div>
             </div>
           </CardContent>
         </Card>
       </div>
-    </div>
-  );
-}
-
-// ============================================================
-// Week View sub-component
-// ============================================================
-
-/** Compact weekly view showing assignments as colored blocks */
-function WeekView({
-  assignments,
-  availability,
-}: {
-  assignments: StaffAssignment[];
-  availability: StaffAvailability[];
-}) {
-  // Build availability lookup (dayOfWeek → schedule)
-  const availMap = new Map<number, StaffAvailability>();
-  for (const a of availability) {
-    availMap.set(a.dayOfWeek, a);
-  }
-
-  // Group assignments by day of week
-  const assignmentsByDay = new Map<number, StaffAssignment[]>();
-  for (const a of assignments) {
-    if (!a.scheduledStart) continue;
-    const day = new Date(a.scheduledStart).getDay();
-    if (!assignmentsByDay.has(day)) assignmentsByDay.set(day, []);
-    assignmentsByDay.get(day)!.push(a);
-  }
-
-  // Monday-first order
-  const dayOrder = [1, 2, 3, 4, 5, 6, 0];
-
-  return (
-    <div className="grid grid-cols-7 gap-1">
-      {/* Day headers */}
-      {dayOrder.map((d) => (
-        <div key={`h-${d}`} className="text-center text-xs font-medium text-muted-foreground pb-1">
-          {DAY_LABELS[d]}
-        </div>
-      ))}
-
-      {/* Day cells */}
-      {dayOrder.map((d) => {
-        const avail = availMap.get(d);
-        const dayAssignments = assignmentsByDay.get(d) || [];
-        const isAvailable = avail?.isAvailable ?? false;
-
-        return (
-          <div
-            key={`d-${d}`}
-            className={`min-h-[60px] rounded-md p-1 text-xs ${
-              isAvailable ? "bg-blue-50 dark:bg-blue-950/30" : "bg-muted/30"
-            }`}
-          >
-            {isAvailable && !dayAssignments.length && (
-              <span className="text-blue-400 text-[10px]">Available</span>
-            )}
-            {dayAssignments.map((a) => (
-              <div
-                key={a.id}
-                className={`mb-0.5 rounded px-1 py-0.5 truncate ${
-                  a.status === "pending"
-                    ? "bg-amber-200 text-amber-900 dark:bg-amber-800 dark:text-amber-100"
-                    : "text-white"
-                }`}
-                style={
-                  a.status !== "pending"
-                    ? { backgroundColor: a.departmentColor || "#3B82F6" }
-                    : undefined
-                }
-                title={`${a.taskTitle} (${a.status})`}
-              >
-                {a.taskTitle}
-              </div>
-            ))}
-          </div>
-        );
-      })}
     </div>
   );
 }
