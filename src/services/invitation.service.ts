@@ -85,11 +85,15 @@ export class InvitationService {
       throw new Error("Registration data required for new users");
     }
 
-    // Create org membership
+    // Create org membership (carry employmentType from invitation if set)
+    // TODO: Remove cast after running `npx prisma generate` — employmentType
+    // was added in migration 20260726000000; Prisma types will include it.
+    const invitationEmploymentType = (invitation as typeof invitation & { employmentType?: string | null }).employmentType;
     const membership = await this.membershipRepo.create({
       userId: user!.id,
       organizationId: invitation.organizationId,
       role: invitation.role,
+      employmentType: invitationEmploymentType ?? undefined,
     });
 
     // Assign department if specified in the invitation

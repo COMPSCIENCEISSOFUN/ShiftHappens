@@ -20,6 +20,12 @@ export const EMPLOYMENT_TYPE_LABELS: Record<string, string> = {
   casual: "Casual",
 };
 
+/** Employment type keys for iteration (select options, filters) */
+export const EMPLOYMENT_TYPE_KEYS = Object.keys(EMPLOYMENT_TYPE_LABELS);
+
+/** Default employment type for new staff members */
+export const DEFAULT_EMPLOYMENT_TYPE = "casual";
+
 /**
  * Builds the system role display label.
  * For staff, prepends employment type (e.g. "Full-time Staff", "Casual Staff").

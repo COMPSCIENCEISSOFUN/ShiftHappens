@@ -230,6 +230,124 @@ describe("InvitationService", () => {
     });
   });
 
+  describe("acceptInvitation — employmentType carry-through", () => {
+    it("carries employmentType from invitation to membership", async () => {
+      await prisma.invitationToken.create({
+        data: {
+          organizationId: orgId,
+          email: "ftuser@example.com",
+          role: "staff",
+          employmentType: "full_time",
+          token: "ft-invite-token",
+          invitedById: adminUserId,
+          expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        },
+      });
+
+      const result = await invitationService.acceptInvitation(
+        "ft-invite-token",
+        { name: "Full-time User", password: "SecurePass1!" }
+      );
+
+      const membership = await prisma.membership.findFirst({
+        where: {
+          userId: result.user.id,
+          organizationId: orgId,
+        },
+      });
+      expect(membership).not.toBeNull();
+      expect(membership!.employmentType).toBe("full_time");
+    });
+
+    it("carries casual employmentType from invitation to membership", async () => {
+      await prisma.invitationToken.create({
+        data: {
+          organizationId: orgId,
+          email: "casual@example.com",
+          role: "staff",
+          employmentType: "casual",
+          token: "casual-invite-token",
+          invitedById: adminUserId,
+          expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        },
+      });
+
+      const result = await invitationService.acceptInvitation(
+        "casual-invite-token",
+        { name: "Casual User", password: "SecurePass1!" }
+      );
+
+      const membership = await prisma.membership.findFirst({
+        where: {
+          userId: result.user.id,
+          organizationId: orgId,
+        },
+      });
+      expect(membership!.employmentType).toBe("casual");
+    });
+
+    it("sets null employmentType when invitation has none", async () => {
+      await prisma.invitationToken.create({
+        data: {
+          organizationId: orgId,
+          email: "noet@example.com",
+          role: "staff",
+          token: "no-et-invite-token",
+          invitedById: adminUserId,
+          expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        },
+      });
+
+      const result = await invitationService.acceptInvitation(
+        "no-et-invite-token",
+        { name: "No ET User", password: "SecurePass1!" }
+      );
+
+      const membership = await prisma.membership.findFirst({
+        where: {
+          userId: result.user.id,
+          organizationId: orgId,
+        },
+      });
+      expect(membership!.employmentType).toBeNull();
+    });
+
+    it("carries employmentType for existing user accepting invitation", async () => {
+      const existingUser = await userRepo.create({
+        name: "Existing FT",
+        email: "existingft@example.com",
+        hashedPassword: "hash",
+      });
+
+      await prisma.invitationToken.create({
+        data: {
+          organizationId: orgId,
+          email: "existingft@example.com",
+          role: "staff",
+          employmentType: "full_time",
+          token: "existing-ft-token",
+          invitedById: adminUserId,
+          expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        },
+      });
+
+      const result = await invitationService.acceptInvitation(
+        "existing-ft-token",
+        null
+      );
+
+      expect(result.user.id).toBe(existingUser.id);
+
+      const membership = await prisma.membership.findFirst({
+        where: {
+          userId: existingUser.id,
+          organizationId: orgId,
+        },
+      });
+      expect(membership!.employmentType).toBe("full_time");
+    });
+  });
+
   describe("acceptInvitation — error cases", () => {
     it("throws for invalid token", async () => {
       await expect(

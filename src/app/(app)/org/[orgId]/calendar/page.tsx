@@ -9,21 +9,22 @@
  *
  * Click a day header to drill into day view.
  * "Back to week" returns to the weekly overview.
+ *
+ * Phase 12 visual overhaul — stat tiles, accent corners, dept
+ * colour bars, avatar stacks, responsive breakpoints.
  */
 "use client";
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { Button } from "@/components/ui/button";
 import { CalendarAssignModal } from "@/components/calendar/calendar-assign-modal";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { PageLoading } from "@/components/ui/page-loading";
 import { AlertBanner } from "@/components/ui/alert-banner";
+import { StatusBadge } from "@/components/ui/status-badge";
+
+/* ------------------------------------------------------------------ */
+/*  Types                                                              */
+/* ------------------------------------------------------------------ */
 
 interface Task {
   id: string;
@@ -67,6 +68,10 @@ interface StaffSchedule {
     isAvailable: boolean;
   }[];
 }
+
+/* ------------------------------------------------------------------ */
+/*  Helpers                                                            */
+/* ------------------------------------------------------------------ */
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -135,6 +140,128 @@ function calculateOverlapColumns(dayTasks: Task[]): Map<string, { column: number
   }
   return result;
 }
+
+/** Generate a two-letter avatar from a name. */
+function initials(name: string | null): string {
+  if (!name) return "??";
+  const parts = name.trim().split(/\s+/);
+  if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  return name.slice(0, 2).toUpperCase();
+}
+
+/** Deterministic colour for avatar by name hash. */
+const AVATAR_COLOURS = [
+  "bg-indigo-600", "bg-cyan-600", "bg-emerald-600", "bg-amber-600",
+  "bg-rose-600", "bg-purple-600", "bg-teal-600", "bg-orange-600",
+];
+function avatarColour(name: string | null): string {
+  if (!name) return "bg-gray-400";
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) | 0;
+  return AVATAR_COLOURS[Math.abs(h) % AVATAR_COLOURS.length];
+}
+
+/* ------------------------------------------------------------------ */
+/*  Stat Tile                                                          */
+/* ------------------------------------------------------------------ */
+
+function StatTile({
+  label, value, detail, accentColour, valueColour,
+}: {
+  label: string; value: string | number; detail: string;
+  accentColour: string; valueColour?: string;
+}) {
+  return (
+    <div className="relative overflow-hidden rounded-xl border border-border bg-card p-3.5 sm:p-4">
+      <div className="absolute right-0 top-0 h-10 w-10 rounded-bl-[40px]" style={{ background: accentColour }} />
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</p>
+      <p className={`mt-1 text-xl font-bold tracking-tight sm:text-2xl ${valueColour ?? ""}`}>{value}</p>
+      <p className="mt-0.5 text-[11px] text-muted-foreground">{detail}</p>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Task Detail Panel (shared)                                         */
+/* ------------------------------------------------------------------ */
+
+function TaskDetailPanel({ task, onClose }: { task: Task; onClose: () => void }) {
+  const active = activeAssignments(task);
+  const color = task.department?.color || "#94A3B8";
+
+  return (
+    <div className="mt-4 overflow-hidden rounded-xl border border-border bg-card">
+      {/* Header */}
+      <div className="flex items-center justify-between border-b border-border px-4 py-3">
+        <div className="flex items-center gap-2.5 font-semibold">
+          <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: color }} />
+          <span className="text-[15px]">{task.title}</span>
+        </div>
+        <button
+          onClick={onClose}
+          className="rounded-lg border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-indigo-400 hover:text-foreground"
+        >
+          Close
+        </button>
+      </div>
+
+      {/* Body — responsive grid */}
+      <div className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-4">
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Department</p>
+          <p className="mt-1 text-[13px] font-medium">{task.department?.name || "None"}</p>
+        </div>
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Status</p>
+          <div className="mt-1">
+            <StatusBadge value={task.status} palette="taskStatus" />
+          </div>
+        </div>
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Priority</p>
+          <div className="mt-1">
+            <StatusBadge value={task.priority} palette="priority" />
+          </div>
+        </div>
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Staffing</p>
+          <p className={`mt-1 text-[13px] font-medium ${active.length >= task.requiredHeadcount ? "text-green-600 dark:text-green-400" : "text-amber-600 dark:text-amber-400"}`}>
+            {active.length}/{task.requiredHeadcount} {active.length >= task.requiredHeadcount ? "✓" : ""}
+          </p>
+        </div>
+        <div className="col-span-2">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Schedule</p>
+          <p className="mt-1 text-[13px] font-medium">
+            {task.scheduledStart && new Date(task.scheduledStart).toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+            {task.scheduledEnd && ` — ${new Date(task.scheduledEnd).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`}
+          </p>
+        </div>
+        <div className="col-span-2 sm:col-span-2">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Assigned Staff</p>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {task.assignments.length === 0 ? (
+              <span className="text-xs text-muted-foreground">No staff assigned</span>
+            ) : (
+              task.assignments.map((a) => (
+                <span key={a.id} className="inline-flex items-center gap-1.5 rounded-md bg-muted px-2 py-1 text-xs">
+                  <span className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-[8px] font-bold text-white ${avatarColour(a.membership.user.name)}`}>
+                    {initials(a.membership.user.name)}
+                  </span>
+                  <span className="font-medium">{a.membership.user.name || "Unnamed"}</span>
+                  <span className="text-muted-foreground">({a.status.replace(/_/g, " ")})</span>
+                </span>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Main Page                                                          */
+/* ------------------------------------------------------------------ */
 
 export default function CalendarPage() {
   const params = useParams();
@@ -293,16 +420,43 @@ export default function CalendarPage() {
         ...staff,
         isAvailable,
         availableHours: isAvailable ? `${schedule!.startTime}–${schedule!.endTime}` : null,
-        assignedTasks: assignments.map((t) => t.title),
+        assignedTasks: assignments.map((t) => ({
+          title: t.title,
+          color: t.department?.color || "#94A3B8",
+        })),
       };
     });
   }
 
   const timePosition = getCurrentTimePosition();
 
+  /* ---- Stat computations ---- */
+  const weekTasks = getScheduledTasks(weekStart, weekEnd);
+  const understaffedCount = (viewMode === "week" ? weekTasks : getTasksForDay(selectedDate)).filter(
+    (t) => activeAssignments(t).length < t.requiredHeadcount
+  ).length;
+
+  // Coverage percentage: scheduled hours with ≥ 1 staff / total scheduled hours
+  const coveragePercent = (() => {
+    if (coverage.length === 0) return null;
+    const relevant = coverage.filter((c) => c.hour >= opStart && c.hour < opEnd);
+    if (relevant.length === 0) return null;
+    const covered = relevant.filter((c) => c.count > 0).length;
+    return Math.round((covered / relevant.length) * 100);
+  })();
+
+  // On-duty today count
+  const todayDow = today.getDay();
+  const onDutyToday = staffData.filter((s) => {
+    const sched = s.schedules.find((sc) => sc.dayOfWeek === todayDow);
+    return sched?.isAvailable ?? false;
+  }).length;
+
   if (loading) return <PageLoading />;
 
-  // ===== DAY VIEW =====
+  /* ================================================================ */
+  /*  DAY VIEW                                                         */
+  /* ================================================================ */
   if (viewMode === "day") {
     const dayTasks = getTasksForDay(selectedDate);
     const overlapMap = calculateOverlapColumns(dayTasks);
@@ -310,62 +464,98 @@ export default function CalendarPage() {
     const dayStaff = getStaffForDay(selectedDate);
     const dow = selectedDate.getDay();
 
+    const dayUnderstaffed = dayTasks.filter((t) => activeAssignments(t).length < t.requiredHeadcount);
+
     return (
-      <div className="max-w-6xl">
-        <div className="mb-4 flex items-center justify-between">
+      <div className="w-full">
+        {/* ── Header ── */}
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
-            <Button variant="outline" size="sm" onClick={() => setViewMode("week")}>
+            <button
+              onClick={() => setViewMode("week")}
+              className="rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-400"
+            >
               ← Week
-            </Button>
-            <h2 className="text-2xl font-bold">{formatFullDate(selectedDate)}</h2>
+            </button>
+            <h2 className="text-xl font-bold tracking-tight sm:text-2xl">{formatFullDate(selectedDate)}</h2>
           </div>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={prevDay}>← Prev</Button>
-            <Button variant="outline" size="sm" onClick={() => { setSelectedDate(new Date()); }}>Today</Button>
-            <Button variant="outline" size="sm" onClick={nextDay}>Next →</Button>
+          <div className="flex items-center gap-1.5">
+            <button onClick={prevDay} className="rounded-lg border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-indigo-400 hover:text-foreground">
+              ← Prev
+            </button>
+            <button
+              onClick={() => setSelectedDate(new Date())}
+              className="rounded-lg border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950 px-3 py-1.5 text-xs font-semibold text-indigo-600 dark:text-indigo-400 transition-colors hover:bg-indigo-100 dark:hover:bg-indigo-900"
+            >
+              Today
+            </button>
+            <button onClick={nextDay} className="rounded-lg border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-indigo-400 hover:text-foreground">
+              Next →
+            </button>
           </div>
         </div>
 
         {error && <AlertBanner message={error} variant="error" />}
 
-        <div className="flex gap-0">
+        {/* ── Stat tiles ── */}
+        <div className="mb-4 grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">
+          <StatTile label="Tasks" value={dayTasks.length} detail={`scheduled for ${DAYS[dow]}`} accentColour="rgba(99,102,241,.08)" />
+          <StatTile
+            label="Coverage"
+            value={coveragePercent !== null ? `${coveragePercent}%` : "—"}
+            detail="of hours covered"
+            accentColour="rgba(34,197,94,.08)"
+            valueColour={coveragePercent !== null && coveragePercent >= 80 ? "text-green-600 dark:text-green-400" : coveragePercent !== null ? "text-amber-600 dark:text-amber-400" : ""}
+          />
+          <StatTile
+            label="Understaffed"
+            value={dayUnderstaffed.length}
+            detail="tasks need staff"
+            accentColour="rgba(245,158,11,.08)"
+            valueColour={dayUnderstaffed.length > 0 ? "text-amber-600 dark:text-amber-400" : ""}
+          />
+          <StatTile label="Available" value={dayStaff.filter((s) => s.isAvailable).length} detail={`of ${dayStaff.length} staff`} accentColour="rgba(59,130,246,.08)" valueColour="text-blue-600 dark:text-blue-400" />
+        </div>
+
+        {/* ── Day grid + staff sidebar ── */}
+        <div className="flex flex-col gap-0 lg:flex-row">
           {/* Day grid */}
-          <div className="flex-1 rounded-lg border border-r-0 rounded-r-none overflow-hidden">
+          <div className="flex-1 overflow-hidden rounded-xl border border-border bg-card lg:rounded-r-none lg:border-r-0">
             <div className="grid" style={{ gridTemplateColumns: "50px 1fr", minHeight: `${totalHours * 48}px` }}>
               {/* Hour labels */}
-              <div className="border-r">
+              <div className="border-r border-border">
                 {HOURS.map((hour) => (
-                  <div key={hour} className="border-b text-xs text-muted-foreground px-2 flex items-start pt-1" style={{ height: `${100 / totalHours}%` }}>
+                  <div key={hour} className="flex items-start border-b border-border px-2 pt-1 text-[11px] text-muted-foreground" style={{ height: `${100 / totalHours}%` }}>
                     {formatHourLabel(hour)}
                   </div>
                 ))}
               </div>
 
               {/* Day column */}
-              <div className={`relative ${isToday ? "bg-blue-50/30 dark:bg-blue-950/20" : ""}`}>
+              <div className={`relative ${isToday ? "bg-indigo-50/30 dark:bg-indigo-950/20" : ""}`}>
                 {HOURS.map((hour) => {
                   const count = getCoverageCount(dow, hour);
                   return (
-                    <div key={hour} className="border-b relative" style={{
+                    <div key={hour} className="relative border-b border-border" style={{
                       height: `${100 / totalHours}%`,
                       backgroundColor: showCoverage && coverage.length > 0 ? getCoverageTint(count, isDark) : undefined,
                     }}>
                       {showCoverage && coverage.length > 0 && (
-                        <span className="absolute bottom-0.5 right-1 text-[9px] text-muted-foreground/50 select-none">{count}</span>
+                        <span className="absolute bottom-0.5 right-1 select-none text-[9px] text-muted-foreground/50">{count}</span>
                       )}
                     </div>
                   );
                 })}
 
+                {/* Current time indicator */}
                 {isToday && timePosition !== null && (
-                  <div className="absolute left-0 right-0 z-20 pointer-events-none" style={{ top: `${timePosition}%` }}>
-                    <div className="flex items-center">
-                      <div className="h-2.5 w-2.5 rounded-full bg-red-500 -ml-1" />
-                      <div className="flex-1 border-t-2 border-red-500" />
-                    </div>
+                  <div className="absolute left-0 right-0 z-20 flex items-center pointer-events-none" style={{ top: `${timePosition}%` }}>
+                    <div className="h-2.5 w-2.5 rounded-full bg-red-500 -ml-1 shadow-[0_0_0_2px_rgba(239,68,68,0.2)] animate-pulse" />
+                    <div className="flex-1 h-[2px] bg-red-500" />
                   </div>
                 )}
 
+                {/* Task blocks */}
                 {dayTasks.map((task) => {
                   const pos = getTaskPosition(task);
                   const color = task.department?.color || "#94A3B8";
@@ -376,21 +566,39 @@ export default function CalendarPage() {
                   const isUnderstaffed = active.length < task.requiredHeadcount;
 
                   return (
-                    <div key={task.id} className="absolute rounded px-2 py-1 text-xs cursor-pointer overflow-hidden hover:opacity-90 transition-opacity z-10"
+                    <div
+                      key={task.id}
+                      className="absolute cursor-pointer overflow-hidden rounded-lg px-2.5 py-2 transition-all hover:shadow-md hover:-translate-y-px z-10"
                       style={{
                         top: pos.top, height: pos.height,
                         left: `calc(${leftPercent}% + 4px)`, width: `calc(${widthPercent}% - 8px)`,
-                        backgroundColor: `${color}20`, borderLeft: `3px solid ${color}`,
+                        backgroundColor: `${color}15`, borderLeft: `4px solid ${color}`,
                         ...(isUnderstaffed ? { outline: "1.5px dashed #F59E0B", outlineOffset: "-1px" } : {}),
                       }}
                       onClick={() => setSelectedTask(selectedTask?.id === task.id ? null : task)}
                     >
-                      <div className="font-medium truncate" style={{ color }}>{task.title}</div>
-                      <div className="text-muted-foreground mt-0.5" style={{ fontSize: "10px" }}>
+                      <div className="truncate text-[13px] font-semibold" style={{ color }}>{task.title}</div>
+                      <div className="mt-0.5 text-[11px] text-muted-foreground">
                         {new Date(task.scheduledStart!).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} — {new Date(task.scheduledEnd!).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
                       </div>
-                      <div className="text-muted-foreground" style={{ fontSize: "10px" }}>
-                        {active.map((a) => a.membership.user.name || "Unnamed").join(", ") || "No staff"} ({active.length}/{task.requiredHeadcount})
+                      {/* Staff avatars */}
+                      <div className="mt-1.5 flex items-center gap-1">
+                        {active.slice(0, 4).map((a, idx) => (
+                          <div
+                            key={a.id}
+                            className={`flex h-[22px] w-[22px] items-center justify-center rounded-full text-[9px] font-bold text-white ring-1.5 ring-white dark:ring-gray-800 ${avatarColour(a.membership.user.name)}`}
+                            style={idx > 0 ? { marginLeft: "-4px" } : {}}
+                            title={a.membership.user.name || "Unnamed"}
+                          >
+                            {initials(a.membership.user.name)}
+                          </div>
+                        ))}
+                        {active.length > 4 && (
+                          <span className="ml-0.5 text-[10px] font-medium text-muted-foreground">+{active.length - 4}</span>
+                        )}
+                        <span className={`ml-1 text-[10px] font-semibold ${isUnderstaffed ? "text-amber-600 dark:text-amber-400" : "text-green-600 dark:text-green-400"}`}>
+                          {active.length}/{task.requiredHeadcount}
+                        </span>
                       </div>
                     </div>
                   );
@@ -399,55 +607,83 @@ export default function CalendarPage() {
             </div>
           </div>
 
-          {/* Staff panel */}
-          <div className="w-52 border rounded-r-lg rounded-l-none p-3 bg-card space-y-2 overflow-y-auto" style={{ maxHeight: `${totalHours * 48 + 2}px` }}>
-            <p className="text-sm font-medium">Staff — {DAYS[dow]}</p>
+          {/* Staff sidebar */}
+          <div className="w-full overflow-hidden rounded-xl border border-border bg-card lg:w-[280px] lg:rounded-l-none lg:border-l-0" style={{ maxHeight: `${totalHours * 48 + 2}px` }}>
+            {/* Sidebar header */}
+            <div className="sticky top-0 z-[2] flex items-center justify-between border-b border-border bg-card px-4 py-3">
+              <h3 className="text-[13px] font-semibold">Staff — {DAYS[dow]}</h3>
+              <span className="text-[11px] text-muted-foreground">{dayStaff.filter((s) => s.isAvailable).length} available</span>
+            </div>
 
-            {dayStaff.length === 0 ? (
-              <p className="text-xs text-muted-foreground py-4">No staff data</p>
-            ) : (
-              dayStaff.map((staff) => (
-                <div key={staff.membershipId} className={`rounded-md p-2 text-xs ${staff.isAvailable ? "bg-green-50 dark:bg-green-950" : "bg-muted/50"}`}>
-                  <p className="font-medium text-foreground">{staff.name}</p>
-                  {staff.isAvailable ? (
-                    <p className="text-green-700 dark:text-green-300">{staff.availableHours}</p>
-                  ) : (
-                    <p className="text-muted-foreground">Off today</p>
-                  )}
-                  {staff.assignedTasks.length > 0 ? (
-                    <p className="text-muted-foreground mt-0.5">
-                      Assigned: {staff.assignedTasks.join(", ")}
-                    </p>
-                  ) : staff.isAvailable ? (
-                    <p className="text-blue-600 dark:text-blue-400 mt-0.5">
-                      Available — unassigned
-                    </p>
-                  ) : null}
-                </div>
-              ))
-            )}
+            {/* Staff list */}
+            <div className="overflow-y-auto p-2" style={{ maxHeight: `${totalHours * 48 - 80}px` }}>
+              {dayStaff.length === 0 ? (
+                <p className="py-6 text-center text-xs text-muted-foreground">No staff data</p>
+              ) : (
+                dayStaff.map((staff) => (
+                  <div key={staff.membershipId} className={`flex gap-2.5 rounded-lg p-2.5 transition-colors hover:bg-muted/60 ${!staff.isAvailable ? "opacity-50" : ""}`}>
+                    <div className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-[11px] font-bold text-white ${staff.isAvailable ? avatarColour(staff.name) : "bg-gray-400 dark:bg-gray-600"}`}>
+                      {initials(staff.name)}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[13px] font-medium">{staff.name}</p>
+                      {staff.isAvailable ? (
+                        <>
+                          <p className="text-[11px] text-muted-foreground">{staff.availableHours}</p>
+                          {/* Availability bar */}
+                          <div className="mt-1 h-1 overflow-hidden rounded-full bg-muted">
+                            <div
+                              className="h-full rounded-full"
+                              style={{
+                                width: `${Math.min(100, (staff.assignedTasks.length / Math.max(1, dayTasks.length)) * 100 + 20)}%`,
+                                backgroundColor: staff.assignedTasks.length > 0 ? (staff.assignedTasks[0].color || "#6366f1") : "#94a3b8",
+                              }}
+                            />
+                          </div>
+                          {/* Assignment badges */}
+                          {staff.assignedTasks.length > 0 ? (
+                            <div className="mt-1 flex flex-wrap gap-1">
+                              {staff.assignedTasks.map((at, i) => (
+                                <span key={i} className="inline-block rounded px-1.5 py-0.5 text-[10px] font-medium" style={{ backgroundColor: `${at.color}15`, color: at.color }}>
+                                  {at.title.length > 16 ? at.title.slice(0, 16) + "…" : at.title}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="mt-0.5 text-[10px] text-blue-600 dark:text-blue-400">Available — unassigned</p>
+                          )}
+                        </>
+                      ) : (
+                        <p className="text-[11px] text-red-500 dark:text-red-400">Off today</p>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
 
-            {dayTasks.some((t) => activeAssignments(t).length < t.requiredHeadcount) && (
-              <div className="border-t pt-2 mt-2 space-y-1.5">
-                {dayTasks.filter((t) => activeAssignments(t).length < t.requiredHeadcount).map((t) => {
+            {/* Understaffed alerts */}
+            {dayUnderstaffed.length > 0 && (
+              <div className="border-t border-border px-3 py-2.5">
+                <h4 className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400">⚠ Needs Staff</h4>
+                {dayUnderstaffed.map((t) => {
                   const activeCount = activeAssignments(t).length;
                   return (
-                  <div key={t.id} className="flex items-start justify-between gap-1">
-                    <p className="text-xs text-amber-600 dark:text-amber-400">
-                      {t.title} needs {t.requiredHeadcount - activeCount} more
-                    </p>
-                    <button
-                      onClick={() => setAssignTask({
-                        id: t.id,
-                        title: t.title,
-                        requiredHeadcount: t.requiredHeadcount,
-                        currentCount: activeCount,
-                      })}
-                      className="text-xs text-blue-600 dark:text-blue-400 hover:underline whitespace-nowrap"
-                    >
-                      Assign
-                    </button>
-                  </div>
+                    <div key={t.id} className="flex items-center justify-between border-b border-border py-1.5 last:border-b-0">
+                      <div>
+                        <p className="text-xs font-medium">{t.title}</p>
+                        <p className="text-[11px] text-amber-600 dark:text-amber-400">needs {t.requiredHeadcount - activeCount} more</p>
+                      </div>
+                      <button
+                        onClick={() => setAssignTask({
+                          id: t.id, title: t.title,
+                          requiredHeadcount: t.requiredHeadcount, currentCount: activeCount,
+                        })}
+                        className="text-[11px] font-medium text-indigo-600 dark:text-indigo-400 hover:underline"
+                      >
+                        Assign →
+                      </button>
+                    </div>
                   );
                 })}
               </div>
@@ -474,32 +710,90 @@ export default function CalendarPage() {
     );
   }
 
-  // ===== WEEK VIEW =====
-  const weekTasks = getScheduledTasks(weekStart, weekEnd);
-
+  /* ================================================================ */
+  /*  WEEK VIEW                                                        */
+  /* ================================================================ */
   return (
-    <div className="max-w-6xl">
-      <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-2xl font-bold">Calendar</h2>
-        <div className="flex items-center gap-2">
-          <Button variant={showCoverage ? "default" : "outline"} size="sm" onClick={() => setShowCoverage(!showCoverage)}>
-            {showCoverage ? "Coverage" : "Tasks only"}
-          </Button>
-          <Button variant="outline" size="sm" onClick={prevWeek}>← Prev</Button>
-          <Button variant="outline" size="sm" onClick={goToday}>Today</Button>
-          <Button variant="outline" size="sm" onClick={nextWeek}>Next →</Button>
+    <div className="w-full">
+      {/* ── Page header ── */}
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-xl font-bold tracking-tight sm:text-2xl">Calendar</h2>
+          <p className="mt-0.5 text-[13px] text-muted-foreground">Weekly schedule and staffing coverage overview</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {/* View toggle pill */}
+          <div className="flex overflow-hidden rounded-[10px] border border-border">
+            <button
+              onClick={() => setViewMode("week")}
+              className={`px-3.5 py-1.5 text-[13px] font-medium transition-colors ${viewMode === "week" ? "bg-indigo-600 text-white" : "bg-card text-muted-foreground hover:text-foreground"}`}
+            >
+              Week
+            </button>
+            <button
+              onClick={() => { setViewMode("day"); setSelectedDate(new Date()); }}
+              className="border-l border-border px-3.5 py-1.5 text-[13px] font-medium transition-colors bg-card text-muted-foreground hover:text-foreground"
+            >
+              Day
+            </button>
+          </div>
+          <button onClick={prevWeek} className="rounded-lg border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-indigo-400 hover:text-foreground">← Prev</button>
+          <button
+            onClick={goToday}
+            className="rounded-lg border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950 px-3 py-1.5 text-xs font-semibold text-indigo-600 dark:text-indigo-400 transition-colors hover:bg-indigo-100 dark:hover:bg-indigo-900"
+          >
+            Today
+          </button>
+          <button onClick={nextWeek} className="rounded-lg border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-indigo-400 hover:text-foreground">Next →</button>
         </div>
       </div>
 
-      <div className="mb-4 flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">{formatDate(weekDates[0])} — {formatDate(weekDates[6])}</p>
-        <div className="flex items-center gap-3">
+      {/* ── Stat tiles ── */}
+      <div className="mb-4 grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">
+        <StatTile label="This Week" value={weekTasks.length} detail="scheduled tasks" accentColour="rgba(99,102,241,.08)" />
+        <StatTile
+          label="Coverage"
+          value={coveragePercent !== null ? `${coveragePercent}%` : "—"}
+          detail="of hours covered"
+          accentColour="rgba(34,197,94,.08)"
+          valueColour={coveragePercent !== null && coveragePercent >= 80 ? "text-green-600 dark:text-green-400" : coveragePercent !== null ? "text-amber-600 dark:text-amber-400" : ""}
+        />
+        <StatTile
+          label="Understaffed"
+          value={understaffedCount}
+          detail="tasks need staff"
+          accentColour="rgba(245,158,11,.08)"
+          valueColour={understaffedCount > 0 ? "text-amber-600 dark:text-amber-400" : ""}
+        />
+        <StatTile label="On Duty Today" value={onDutyToday} detail={`of ${staffData.length} staff`} accentColour="rgba(59,130,246,.08)" valueColour="text-blue-600 dark:text-blue-400" />
+      </div>
+
+      {/* ── Toolbar ── */}
+      <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <span className="text-sm font-semibold">{formatDate(weekDates[0])} — {formatDate(weekDates[6])}, {weekDates[0].getFullYear()}</span>
+        <div className="flex flex-wrap items-center gap-2">
           {unscheduledCount > 0 && (
-            <span className="rounded-md bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 px-2 py-1 text-xs text-amber-700 dark:text-amber-300">
+            <span className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/50 px-2.5 py-1 text-[11px] font-medium text-amber-700 dark:text-amber-300">
               {unscheduledCount} unscheduled
             </span>
           )}
-          <select className="rounded-md border px-3 py-1.5 text-sm bg-background" value={filterDept} onChange={(e) => setFilterDept(e.target.value)}>
+          <button
+            onClick={() => setShowCoverage(!showCoverage)}
+            className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs transition-colors ${showCoverage ? "border-green-300 dark:border-green-800 bg-green-50/60 dark:bg-green-950/30 text-green-700 dark:text-green-400" : "border-border bg-card text-muted-foreground"}`}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /></svg>
+            Coverage
+          </button>
+          <select
+            className="rounded-[20px] border border-border bg-card px-2.5 py-1 pr-7 text-xs text-muted-foreground appearance-none"
+            value={filterDept}
+            onChange={(e) => setFilterDept(e.target.value)}
+            style={{
+              backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,
+              backgroundRepeat: "no-repeat",
+              backgroundPosition: "right 8px center",
+            }}
+          >
             <option value="">All departments</option>
             {departments.map((dept) => (<option key={dept.id} value={dept.id}>{dept.name}</option>))}
           </select>
@@ -508,28 +802,50 @@ export default function CalendarPage() {
 
       {error && <AlertBanner message={error} variant="error" />}
 
-      <div className="rounded-lg border overflow-hidden">
+      {/* ── Week grid ── */}
+      <div className="overflow-x-auto rounded-xl border border-border bg-card">
         {/* Day headers — clickable for day view */}
-        <div className="grid border-b bg-muted/30" style={{ gridTemplateColumns: `50px repeat(7, 1fr)` }}>
-          <div className="p-2 text-xs text-muted-foreground border-r" />
-          {weekDates.map((date, i) => (
-            <div key={i} className={`p-2 text-center text-sm border-r last:border-r-0 cursor-pointer hover:bg-accent/50 transition-colors ${date.toDateString() === todayStr ? "bg-blue-50 dark:bg-blue-950 font-semibold text-blue-700 dark:text-blue-300" : ""}`}
-              onClick={() => openDayView(date)}>
-              <div>{DAYS[date.getDay()]}</div>
-              <div className="text-xs text-muted-foreground">{date.getDate()}</div>
-            </div>
-          ))}
+        <div className="grid border-b border-border" style={{ gridTemplateColumns: "50px repeat(7, 1fr)", minWidth: "640px" }}>
+          <div className="border-r border-border p-2" />
+          {weekDates.map((date, i) => {
+            const dayTasksForHeader = getTasksForDay(date);
+            const dayDepts = Array.from(new Set(dayTasksForHeader.map((t) => t.department?.color).filter(Boolean)));
+            const isDateToday = date.toDateString() === todayStr;
+
+            return (
+              <div
+                key={i}
+                className={`cursor-pointer border-r border-border p-2 text-center transition-colors last:border-r-0 hover:bg-indigo-50/50 dark:hover:bg-indigo-950/30 ${isDateToday ? "bg-indigo-50/60 dark:bg-indigo-950/30" : ""}`}
+                onClick={() => openDayView(date)}
+              >
+                <div className={`text-xs font-semibold ${isDateToday ? "text-indigo-600 dark:text-indigo-400" : "text-muted-foreground"}`}>{DAYS[date.getDay()]}</div>
+                <div className={`text-lg font-bold ${isDateToday ? "text-indigo-600 dark:text-indigo-400" : ""}`}>{date.getDate()}</div>
+                <div className="text-[10px] text-muted-foreground">{dayTasksForHeader.length} {dayTasksForHeader.length === 1 ? "task" : "tasks"}</div>
+                {/* Department colour dots */}
+                {dayDepts.length > 0 && (
+                  <div className="mt-1 flex justify-center gap-[3px]">
+                    {dayDepts.slice(0, 4).map((c, j) => (
+                      <span key={j} className="h-[6px] w-[6px] rounded-full" style={{ backgroundColor: c as string }} />
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
 
-        <div className="grid" style={{ gridTemplateColumns: `50px repeat(7, 1fr)`, minHeight: `${totalHours * 40}px` }}>
-          <div className="border-r">
+        {/* Grid body */}
+        <div className="grid" style={{ gridTemplateColumns: "50px repeat(7, 1fr)", minHeight: `${totalHours * 40}px`, minWidth: "640px" }}>
+          {/* Hour labels */}
+          <div className="border-r border-border">
             {HOURS.map((hour) => (
-              <div key={hour} className="border-b text-xs text-muted-foreground px-2 flex items-start pt-1" style={{ height: `${100 / totalHours}%` }}>
+              <div key={hour} className="flex items-start border-b border-border px-2 pt-1 text-[11px] text-muted-foreground" style={{ height: `${100 / totalHours}%` }}>
                 {formatHourLabel(hour)}
               </div>
             ))}
           </div>
 
+          {/* Day columns */}
           {weekDates.map((date, dayIndex) => {
             const dayTasks = getTasksForDay(date);
             const overlapMap = calculateOverlapColumns(dayTasks);
@@ -537,30 +853,30 @@ export default function CalendarPage() {
             const dow = date.getDay();
 
             return (
-              <div key={dayIndex} className={`border-r last:border-r-0 relative ${isToday ? "bg-blue-50/30 dark:bg-blue-950/20" : ""}`}>
+              <div key={dayIndex} className={`relative border-r border-border last:border-r-0 ${isToday ? "bg-indigo-50/30 dark:bg-indigo-950/20" : ""}`}>
                 {HOURS.map((hour) => {
                   const count = getCoverageCount(dow, hour);
                   return (
-                    <div key={hour} className="border-b relative" style={{
+                    <div key={hour} className="relative border-b border-border" style={{
                       height: `${100 / totalHours}%`,
                       backgroundColor: showCoverage && coverage.length > 0 ? getCoverageTint(count, isDark) : undefined,
                     }}>
                       {showCoverage && coverage.length > 0 && (
-                        <span className="absolute bottom-0.5 right-1 text-[9px] text-muted-foreground/50 select-none">{count}</span>
+                        <span className="absolute bottom-0.5 right-1 select-none text-[9px] text-muted-foreground/50">{count}</span>
                       )}
                     </div>
                   );
                 })}
 
+                {/* Current time indicator */}
                 {isToday && timePosition !== null && (
-                  <div className="absolute left-0 right-0 z-20 pointer-events-none" style={{ top: `${timePosition}%` }}>
-                    <div className="flex items-center">
-                      <div className="h-2.5 w-2.5 rounded-full bg-red-500 -ml-1" />
-                      <div className="flex-1 border-t-2 border-red-500" />
-                    </div>
+                  <div className="absolute left-0 right-0 z-20 flex items-center pointer-events-none" style={{ top: `${timePosition}%` }}>
+                    <div className="h-2.5 w-2.5 rounded-full bg-red-500 -ml-1 shadow-[0_0_0_2px_rgba(239,68,68,0.2)] animate-pulse" />
+                    <div className="flex-1 h-[2px] bg-red-500" />
                   </div>
                 )}
 
+                {/* Task blocks */}
                 {dayTasks.map((task) => {
                   const pos = getTaskPosition(task);
                   const color = task.department?.color || "#94A3B8";
@@ -571,7 +887,9 @@ export default function CalendarPage() {
                   const isUnderstaffed = activeCount < task.requiredHeadcount;
 
                   return (
-                    <div key={task.id} className="absolute rounded px-1 py-0.5 text-xs cursor-pointer overflow-hidden hover:opacity-90 transition-opacity z-10"
+                    <div
+                      key={task.id}
+                      className="absolute cursor-pointer overflow-hidden rounded-md px-1 py-0.5 text-xs transition-opacity hover:opacity-90 z-10"
                       style={{
                         top: pos.top, height: pos.height,
                         left: `calc(${leftPercent}% + 2px)`, width: `calc(${widthPercent}% - 4px)`,
@@ -580,7 +898,7 @@ export default function CalendarPage() {
                       }}
                       onClick={() => setSelectedTask(selectedTask?.id === task.id ? null : task)}
                     >
-                      <div className="font-medium truncate" style={{ color }}>{task.title}</div>
+                      <div className="truncate font-medium" style={{ color }}>{task.title}</div>
                       {parseFloat(pos.height) > 8 && (
                         <div className="truncate text-muted-foreground" style={{ fontSize: "10px" }}>{activeCount}/{task.requiredHeadcount} staff</div>
                       )}
@@ -593,64 +911,34 @@ export default function CalendarPage() {
         </div>
       </div>
 
-      {/* Legend */}
-      <div className="mt-4 flex flex-wrap items-center gap-4">
+      {/* ── Legend ── */}
+      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-[10px] bg-muted/50 px-4 py-2.5">
         {departments.map((dept) => (
-          <div key={dept.id} className="flex items-center gap-2 text-sm">
-            <div className="h-3 w-3 rounded-full" style={{ backgroundColor: dept.color || "#94A3B8" }} />
-            <span className="text-muted-foreground">{dept.name}</span>
+          <div key={dept.id} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: dept.color || "#94A3B8" }} />
+            {dept.name}
           </div>
         ))}
+        {showCoverage && departments.length > 0 && <span className="mx-1 h-4 border-l border-border" />}
         {showCoverage && (
           <>
-            <div className="h-4 border-l mx-1" />
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <span className="inline-block h-3 w-3 rounded" style={{ backgroundColor: getCoverageTint(4, isDark) }} /> 4+
+            <div className="flex items-center gap-1 text-xs text-muted-foreground">
+              <span className="inline-block h-2.5 w-3.5 rounded" style={{ backgroundColor: getCoverageTint(4, isDark), border: "1px solid rgba(34,197,94,.2)" }} /> 4+ staff
             </div>
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <span className="inline-block h-3 w-3 rounded" style={{ backgroundColor: getCoverageTint(2, isDark) }} /> 1-3
+            <div className="flex items-center gap-1 text-xs text-muted-foreground">
+              <span className="inline-block h-2.5 w-3.5 rounded" style={{ backgroundColor: getCoverageTint(2, isDark), border: "1px solid rgba(245,158,11,.2)" }} /> 1–3
             </div>
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <span className="inline-block h-3 w-3 rounded" style={{ backgroundColor: getCoverageTint(0, isDark) }} /> None
+            <div className="flex items-center gap-1 text-xs text-muted-foreground">
+              <span className="inline-block h-2.5 w-3.5 rounded" style={{ backgroundColor: getCoverageTint(0, isDark), border: "1px solid rgba(239,68,68,.15)" }} /> None
             </div>
+            <span className="mx-1 h-4 border-l border-border" />
+            <div className="rounded border-[1.5px] border-dashed border-amber-500 px-2 py-0.5 text-[11px] text-muted-foreground">Understaffed</div>
           </>
         )}
       </div>
 
+      {/* Task detail panel */}
       {selectedTask && <TaskDetailPanel task={selectedTask} onClose={() => setSelectedTask(null)} />}
     </div>
-  );
-}
-
-function TaskDetailPanel({ task, onClose }: { task: Task; onClose: () => void }) {
-  return (
-    <Card className="mt-4">
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <CardTitle className="flex items-center gap-2">
-            {task.department && <div className="h-3 w-3 rounded-full" style={{ backgroundColor: task.department.color || "#94A3B8" }} />}
-            {task.title}
-          </CardTitle>
-          <Button variant="outline" size="sm" onClick={onClose}>Close</Button>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-2">
-        <div className="text-sm"><span className="text-muted-foreground">Department: </span>{task.department?.name || "None"}</div>
-        <div className="text-sm"><span className="text-muted-foreground">Status: </span>{task.status}</div>
-        <div className="text-sm"><span className="text-muted-foreground">Priority: </span>{task.priority}</div>
-        <div className="text-sm">
-          <span className="text-muted-foreground">Schedule: </span>
-          {task.scheduledStart && new Date(task.scheduledStart).toLocaleString()}
-          {task.scheduledEnd && ` — ${new Date(task.scheduledEnd).toLocaleString()}`}
-        </div>
-        <div className="text-sm">
-          <span className="text-muted-foreground">Staff: </span>
-          {activeAssignments(task).length}/{task.requiredHeadcount}
-          {task.assignments.length > 0 && (
-            <span>{" — "}{task.assignments.map((a) => `${a.membership.user.name || "Unnamed"} (${a.status})`).join(", ")}</span>
-          )}
-        </div>
-      </CardContent>
-    </Card>
   );
 }

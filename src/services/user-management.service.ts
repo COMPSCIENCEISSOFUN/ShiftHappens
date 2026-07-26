@@ -16,16 +16,21 @@ import bcrypt from "bcryptjs";
 import { MembershipRepository } from "@/repositories/membership.repository";
 import { InvitationRepository } from "@/repositories/invitation.repository";
 import { UserRepository } from "@/repositories/user.repository";
+import { OrganizationRepository } from "@/repositories/organization.repository";
+import { RoleRepository } from "@/repositories/role.repository";
+import { DepartmentRepository } from "@/repositories/department.repository";
 import { EmailService } from "@/services/email.service";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 import { SubscriptionService } from "@/services/subscription.service";
-import { prisma } from "@/lib/prisma";
 import type { InviteUserInput, UpdateUserRoleInput } from "@/lib/validations";
 
 export class UserManagementService {
   private membershipRepo = new MembershipRepository();
   private invitationRepo = new InvitationRepository();
   private userRepo = new UserRepository();
+  private orgRepo = new OrganizationRepository();
+  private roleRepo = new RoleRepository();
+  private deptRepo = new DepartmentRepository();
   private emailService = new EmailService();
   private auditService = new AuditLogService();
   private subscriptionService = new SubscriptionService();
@@ -93,6 +98,7 @@ export class UserManagementService {
       email: input.email,
       role: input.role,
       departmentId: input.departmentId,
+      employmentType: input.employmentType,
       token,
       invitedById,
     });
@@ -131,10 +137,7 @@ export class UserManagementService {
   ) {
     try {
       const [org, inviter] = await Promise.all([
-        prisma.organization.findUnique({
-          where: { id: organizationId },
-          select: { name: true },
-        }),
+        this.orgRepo.findById(organizationId),
         this.userRepo.findById(invitedById),
       ]);
 
@@ -195,11 +198,16 @@ export class UserManagementService {
     if (input.role === "company_admin") {
       const currentCustomRoleId = (membership as Record<string, unknown>).customRoleId as string | null;
       if (currentCustomRoleId) {
-        await prisma.membership.update({
-          where: { id: membership.id },
-          data: { customRoleId: null },
-        });
+        await this.membershipRepo.updateCustomRole(membership.id, null);
       }
+    }
+
+    // Update employment type if provided
+    if (input.employmentType !== undefined) {
+      await this.membershipRepo.updateEmploymentType(
+        membership.id,
+        input.employmentType
+      );
     }
 
     // Update department assignments if provided
@@ -216,7 +224,7 @@ export class UserManagementService {
       action: ACTIONS.MEMBER_ROLE_CHANGED,
       entityType: "member",
       entityId: userId,
-      details: { previousRole, newRole: input.role, departmentIds: input.departmentIds },
+      details: { previousRole, newRole: input.role, departmentIds: input.departmentIds, employmentType: input.employmentType },
     });
 
     return updated;
@@ -247,10 +255,7 @@ export class UserManagementService {
 
     // Validate custom role exists in the org if assigning (not clearing)
     if (customRoleId) {
-      const role = await prisma.role.findUnique({
-        where: { id: customRoleId },
-        select: { id: true, organizationId: true, isSystemRole: true },
-      });
+      const role = await this.roleRepo.findById(customRoleId);
       if (!role || role.organizationId !== organizationId) {
         throw new Error("Custom role not found");
       }
@@ -259,10 +264,7 @@ export class UserManagementService {
       }
     }
 
-    await prisma.membership.update({
-      where: { id: membership.id },
-      data: { customRoleId },
-    });
+    await this.membershipRepo.updateCustomRole(membership.id, customRoleId);
 
     await this.auditService.log({
       organizationId,
@@ -341,10 +343,7 @@ export class UserManagementService {
     performedById: string
   ): Promise<{ created: number; failed: number; errors: string[] }> {
     // Pre-fetch org departments for name → ID lookup
-    const departments = await prisma.department.findMany({
-      where: { organizationId },
-      select: { id: true, name: true },
-    });
+    const departments = await this.deptRepo.findByOrganizationId(organizationId);
     const deptMap = new Map(
       departments.map((d) => [d.name.toLowerCase(), d.id])
     );
@@ -405,31 +404,20 @@ export class UserManagementService {
             hashedPassword,
           });
           // Mark email as verified — admin is adding them directly
-          await prisma.user.update({
-            where: { id: user.id },
-            data: { emailVerified: new Date() },
-          });
+          await this.userRepo.verifyEmail(user.id);
         }
 
         // Create membership
-        const membership = await prisma.membership.create({
-          data: {
-            userId: user.id,
-            organizationId,
-            role: member.role,
-            employmentType: member.employmentType,
-            status: "active",
-          },
+        const membership = await this.membershipRepo.create({
+          userId: user.id,
+          organizationId,
+          role: member.role,
+          employmentType: member.employmentType,
         });
 
         // Assign department
         if (departmentId) {
-          await prisma.departmentMembership.create({
-            data: {
-              membershipId: membership.id,
-              departmentId,
-            },
-          });
+          await this.membershipRepo.assignDepartments(membership.id, [departmentId]);
         }
 
         // Audit log (fire-and-forget)

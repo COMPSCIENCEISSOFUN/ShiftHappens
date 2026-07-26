@@ -1,14 +1,22 @@
 /**
  * Company Settings Page (Boundary Layer)
  *
- * Displays organization details (editable), subscription plan info,
- * and allows Company Admin to configure organization settings:
- * - Organization name, industry, description
- * - Task allocation mode (manual, suggested, auto)
- * - Task acceptance mode (auto-accept or require confirmation)
- * - Break rules (hours worked before break, break duration)
- * - Operating hours (calendar display range)
- * - Notification preferences
+ * Redesigned settings page with:
+ * - Hero banner (settings icon, org name badge, plan badge)
+ * - Two-column card layout grouped by domain
+ * - Radio cards for allocation/acceptance modes
+ * - Toggle switches for notification preferences
+ * - Independent save per section
+ * - Full-width subscription card at the bottom
+ *
+ * Cards:
+ *   Left:  Organization Details | Notification Preferences
+ *   Right: Task Configuration
+ *   Full:  Subscription & Billing
+ *
+ * Note: Work Rules have their own dedicated page (/work-rules)
+ *
+ * Data flow: Settings page → SettingsService → SettingsRepository (BCE)
  */
 "use client";
 
@@ -26,10 +34,15 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
+import { Switch } from "@/components/ui/switch";
 import { TIER_CONFIG } from "@/lib/subscription-tiers";
 import { PageLoading } from "@/components/ui/page-loading";
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { StatusBadge } from "@/components/ui/status-badge";
+
+/* ------------------------------------------------------------------ */
+/*  Types                                                              */
+/* ------------------------------------------------------------------ */
 
 interface OrgDetails {
   id: string;
@@ -42,10 +55,6 @@ interface OrgDetails {
 interface Settings {
   allocationMode: string;
   taskAcceptanceMode: string;
-  breakRuleHoursWorked: number;
-  breakRuleBreakHours: number;
-  operatingHoursStart: number;
-  operatingHoursEnd: number;
   notificationPreferences: string | null;
 }
 
@@ -62,6 +71,10 @@ interface SubscriptionData {
   features: Record<string, boolean>;
 }
 
+/* ------------------------------------------------------------------ */
+/*  Constants                                                          */
+/* ------------------------------------------------------------------ */
+
 const RESOURCE_LABELS: Record<string, string> = {
   members: "Team members",
   active_tasks: "Active tasks",
@@ -77,6 +90,64 @@ const FEATURE_LABELS: Record<string, string> = {
   audit_log: "Audit log",
   priority_support: "Priority support",
 };
+
+/* ------------------------------------------------------------------ */
+/*  Radio Card sub-component                                           */
+/* ------------------------------------------------------------------ */
+
+function RadioCard({
+  name,
+  value,
+  selected,
+  onSelect,
+  title,
+  description,
+}: {
+  name: string;
+  value: string;
+  selected: boolean;
+  onSelect: (v: string) => void;
+  title: string;
+  description: string;
+}) {
+  return (
+    <label
+      className={`flex cursor-pointer items-start gap-3 rounded-lg border-2 px-4 py-3 transition-colors ${
+        selected
+          ? "border-primary bg-primary/5"
+          : "border-border hover:border-primary/40"
+      }`}
+    >
+      <input
+        type="radio"
+        name={name}
+        value={value}
+        checked={selected}
+        onChange={() => onSelect(value)}
+        className="mt-0.5 accent-primary"
+      />
+      <div>
+        <p className="text-sm font-medium">{title}</p>
+        <p className="text-xs text-muted-foreground">{description}</p>
+      </div>
+    </label>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Helpers                                                            */
+/* ------------------------------------------------------------------ */
+
+function usageColor(percentage: number | null): string {
+  if (percentage === null) return "bg-primary";
+  if (percentage >= 90) return "bg-red-500";
+  if (percentage >= 70) return "bg-amber-500";
+  return "bg-primary";
+}
+
+/* ------------------------------------------------------------------ */
+/*  Main Page                                                          */
+/* ------------------------------------------------------------------ */
 
 export default function SettingsPage() {
   const params = useParams();
@@ -102,10 +173,13 @@ export default function SettingsPage() {
   );
   const [allocationMode, setAllocationMode] = useState("manual");
   const [taskAcceptanceMode, setTaskAcceptanceMode] = useState("auto_accept");
-  const [breakHoursWorked, setBreakHoursWorked] = useState(6);
-  const [breakHours, setBreakHours] = useState(1);
-  const [opStart, setOpStart] = useState(6);
-  const [opEnd, setOpEnd] = useState(22);
+  const [taskMessage, setTaskMessage] = useState<{
+    type: "success" | "error";
+    text: string;
+  } | null>(null);
+  const [taskLoading, setTaskLoading] = useState(false);
+
+  // ─── Notification state ────────────────────────────────────
   const [notifPrefs, setNotifPrefs] = useState({
     emailNotifications: true,
     taskAssignment: true,
@@ -113,11 +187,11 @@ export default function SettingsPage() {
     hourLimitWarning: true,
     certificationExpiry: true,
   });
-  const [message, setMessage] = useState<{
+  const [notifMessage, setNotifMessage] = useState<{
     type: "success" | "error";
     text: string;
   } | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [notifLoading, setNotifLoading] = useState(false);
 
   // ─── Billing / upgrade ─────────────────────────────────────
   const [upgradeInterval, setUpgradeInterval] = useState<"month" | "year">(
@@ -128,6 +202,10 @@ export default function SettingsPage() {
     "success" | "canceled" | null
   >(null);
 
+  /* ────────────────────────────────────────────────────────────── */
+  /*  Data fetching                                                 */
+  /* ────────────────────────────────────────────────────────────── */
+
   useEffect(() => {
     fetchOrgDetails();
     fetchSettings();
@@ -135,38 +213,13 @@ export default function SettingsPage() {
     fetchIndustries();
   }, [orgId]);
 
-  // Reflect the ?checkout=success|canceled param Stripe redirects back with.
   useEffect(() => {
     const status = new URLSearchParams(window.location.search).get("checkout");
     if (status === "success" || status === "canceled") {
       setCheckoutBanner(status);
-      // Clean the URL so a refresh doesn't re-show the banner.
       window.history.replaceState({}, "", window.location.pathname);
     }
   }, []);
-
-  async function startUpgrade() {
-    setUpgrading(true);
-    try {
-      const res = await fetch(`/api/organizations/${orgId}/checkout`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ interval: upgradeInterval, source: "settings" }),
-      });
-      const data = await res.json();
-      if (res.ok && data.url) {
-        window.location.href = data.url;
-        return;
-      }
-      setMessage({ type: "error", text: data.error || "Couldn't start checkout" });
-    } catch {
-      setMessage({ type: "error", text: "Couldn't start checkout" });
-    } finally {
-      setUpgrading(false);
-    }
-  }
-
-  // ─── Org details fetching + saving ─────────────────────────
 
   async function fetchOrgDetails() {
     try {
@@ -205,6 +258,40 @@ export default function SettingsPage() {
     }
   }
 
+  async function fetchSettings() {
+    try {
+      const res = await fetch(`/api/organizations/${orgId}/settings`);
+      const data = await res.json();
+      setSettings(data);
+      setAllocationMode(data.allocationMode);
+      setTaskAcceptanceMode(data.taskAcceptanceMode);
+      if (data.notificationPreferences) {
+        setNotifPrefs((prev) => ({
+          ...prev,
+          ...JSON.parse(data.notificationPreferences),
+        }));
+      }
+    } catch {
+      setTaskMessage({ type: "error", text: "Failed to load settings" });
+    }
+  }
+
+  async function fetchSubscription() {
+    try {
+      const res = await fetch(`/api/organizations/${orgId}/subscription`);
+      if (res.ok) {
+        const data = await res.json();
+        setSubscription(data);
+      }
+    } catch {
+      // Non-critical
+    }
+  }
+
+  /* ────────────────────────────────────────────────────────────── */
+  /*  Save handlers (one per card)                                  */
+  /* ────────────────────────────────────────────────────────────── */
+
   async function onSaveOrgDetails() {
     setOrgMessage(null);
 
@@ -241,10 +328,7 @@ export default function SettingsPage() {
       }
 
       setOrgDetails(result);
-      setOrgMessage({
-        type: "success",
-        text: "Organization details updated",
-      });
+      setOrgMessage({ type: "success", text: "Organization details updated" });
     } catch {
       setOrgMessage({ type: "error", text: "Something went wrong" });
     } finally {
@@ -252,75 +336,25 @@ export default function SettingsPage() {
     }
   }
 
-  // ─── Settings fetching + saving ────────────────────────────
-
-  async function fetchSettings() {
-    try {
-      const res = await fetch(`/api/organizations/${orgId}/settings`);
-      const data = await res.json();
-      setSettings(data);
-      setAllocationMode(data.allocationMode);
-      setTaskAcceptanceMode(data.taskAcceptanceMode);
-      setBreakHoursWorked(data.breakRuleHoursWorked);
-      setBreakHours(data.breakRuleBreakHours);
-      setOpStart(data.operatingHoursStart ?? 6);
-      setOpEnd(data.operatingHoursEnd ?? 22);
-      if (data.notificationPreferences) {
-        setNotifPrefs({
-          ...notifPrefs,
-          ...JSON.parse(data.notificationPreferences),
-        });
-      }
-    } catch {
-      setMessage({ type: "error", text: "Failed to load settings" });
-    }
-  }
-
-  async function fetchSubscription() {
-    try {
-      const res = await fetch(`/api/organizations/${orgId}/subscription`);
-      if (res.ok) {
-        const data = await res.json();
-        setSubscription(data);
-      }
-    } catch {
-      // Non-critical
-    }
-  }
-
-  async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setMessage(null);
-
-    if (opEnd <= opStart) {
-      setMessage({
-        type: "error",
-        text: "Operating end hour must be after start hour",
-      });
-      return;
-    }
-
-    setLoading(true);
-
+  async function saveSettings(
+    body: Record<string, unknown>,
+    setMsg: (m: { type: "success" | "error"; text: string } | null) => void,
+    setLoad: (l: boolean) => void,
+    successText: string
+  ) {
+    setMsg(null);
+    setLoad(true);
     try {
       const res = await fetch(`/api/organizations/${orgId}/settings`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          allocationMode,
-          taskAcceptanceMode,
-          breakRuleHoursWorked: breakHoursWorked,
-          breakRuleBreakHours: breakHours,
-          operatingHoursStart: opStart,
-          operatingHoursEnd: opEnd,
-          notificationPreferences: notifPrefs,
-        }),
+        body: JSON.stringify(body),
       });
 
       const result = await res.json();
 
       if (!res.ok) {
-        setMessage({
+        setMsg({
           type: "error",
           text: result.error || "Failed to update settings",
         });
@@ -328,138 +362,531 @@ export default function SettingsPage() {
       }
 
       setSettings(result);
-      setMessage({ type: "success", text: "Settings updated successfully" });
+      setMsg({ type: "success", text: successText });
     } catch {
-      setMessage({ type: "error", text: "Something went wrong" });
+      setMsg({ type: "error", text: "Something went wrong" });
     } finally {
-      setLoading(false);
+      setLoad(false);
     }
   }
 
-  function usageColor(percentage: number | null): string {
-    if (percentage === null) return "bg-primary";
-    if (percentage >= 90) return "bg-red-500";
-    if (percentage >= 70) return "bg-amber-500";
-    return "bg-primary";
+  function onSaveTaskConfig(e: React.FormEvent) {
+    e.preventDefault();
+    saveSettings(
+      { allocationMode, taskAcceptanceMode },
+      setTaskMessage,
+      setTaskLoading,
+      "Task configuration updated"
+    );
   }
 
-  function formatHour(h: number): string {
-    if (h === 0 || h === 24) return "12 AM (midnight)";
-    if (h === 12) return "12 PM (noon)";
-    if (h < 12) return `${h} AM`;
-    return `${h - 12} PM`;
+  function onSaveNotifications(e: React.FormEvent) {
+    e.preventDefault();
+    saveSettings(
+      { notificationPreferences: notifPrefs },
+      setNotifMessage,
+      setNotifLoading,
+      "Notification preferences updated"
+    );
   }
+
+  async function startUpgrade() {
+    setUpgrading(true);
+    try {
+      const res = await fetch(`/api/organizations/${orgId}/checkout`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ interval: upgradeInterval, source: "settings" }),
+      });
+      const data = await res.json();
+      if (res.ok && data.url) {
+        window.location.href = data.url;
+        return;
+      }
+      setTaskMessage({
+        type: "error",
+        text: data.error || "Couldn't start checkout",
+      });
+    } catch {
+      setTaskMessage({ type: "error", text: "Couldn't start checkout" });
+    } finally {
+      setUpgrading(false);
+    }
+  }
+
+  /* ────────────────────────────────────────────────────────────── */
+  /*  Render                                                        */
+  /* ────────────────────────────────────────────────────────────── */
 
   if (!settings) return <PageLoading />;
 
   return (
-    <div className="max-w-2xl space-y-6">
-      <h2 className="text-2xl font-bold">Company Settings</h2>
+    <div className="space-y-6">
+      {/* ─── Hero Banner ──────────────────────────────────────── */}
+      <div className="relative overflow-hidden rounded-xl bg-gradient-to-br from-indigo-600 via-violet-600 to-purple-700 px-6 py-7 text-white">
+        {/* Dot-grid overlay */}
+        <div
+          className="absolute inset-0 opacity-[0.06]"
+          style={{
+            backgroundImage:
+              "radial-gradient(circle, rgba(255,255,255,0.8) 1px, transparent 1px)",
+            backgroundSize: "16px 16px",
+          }}
+          aria-hidden="true"
+        />
 
-      {/* ─── Organization Details ───────────────────────────────── */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Organization Details</CardTitle>
-          <CardDescription>
-            Update your organization&apos;s name, industry, and description
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {orgMessage && <AlertBanner message={orgMessage.text} variant={orgMessage.type === "success" ? "success" : "error"} />}
-
-          <div className="space-y-2">
-            <Label htmlFor="orgName">Organization Name</Label>
-            <Input
-              id="orgName"
-              value={orgName}
-              onChange={(e) => setOrgName(e.target.value)}
-              placeholder="e.g. Ocean Grill"
-              maxLength={100}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="orgIndustry">Industry</Label>
-            <select
-              id="orgIndustry"
-              className="w-full rounded-md border px-3 py-2 text-sm bg-background"
-              value={orgIndustry}
-              onChange={(e) => {
-                setOrgIndustry(e.target.value);
-                if (e.target.value !== "other") setOrgIndustryCustom("");
-              }}
+        <div className="relative z-[1] flex flex-col items-center gap-4 sm:flex-row">
+          {/* Settings icon */}
+          <div className="flex h-13 w-13 shrink-0 items-center justify-center rounded-xl bg-white/[0.18] backdrop-blur-sm">
+            <svg
+              width="28"
+              height="28"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              viewBox="0 0 24 24"
             >
-              <option value="">Not specified</option>
-              {industryOptions.map((opt) => (
-                <option key={opt} value={opt}>
-                  {opt}
-                </option>
-              ))}
-              <option value="other">Other</option>
-            </select>
-            {orgIndustry === "other" && (
-              <Input
-                value={orgIndustryCustom}
-                onChange={(e) => setOrgIndustryCustom(e.target.value)}
-                placeholder="Enter your industry"
-                maxLength={100}
-                className="mt-2"
-              />
-            )}
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            </svg>
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="orgDescription">Description</Label>
-            <textarea
-              id="orgDescription"
-              className="w-full rounded-md border px-3 py-2 text-sm bg-background min-h-[80px] resize-y"
-              value={orgDescription}
-              onChange={(e) => setOrgDescription(e.target.value)}
-              placeholder="Brief description of your organization"
-              maxLength={500}
-              rows={3}
-            />
-            <p className="text-xs text-muted-foreground">
-              {orgDescription.length}/500 characters
+          <div className="flex-1 text-center sm:text-left">
+            <h1 className="text-2xl font-bold">Company Settings</h1>
+            <p className="mt-0.5 text-sm text-white/70">
+              Manage your organization, task rules, and preferences
             </p>
           </div>
-        </CardContent>
-        <CardFooter>
-          <Button
-            type="button"
-            onClick={onSaveOrgDetails}
-            disabled={orgLoading}
-          >
-            {orgLoading ? "Saving..." : "Save Details"}
-          </Button>
-        </CardFooter>
-      </Card>
 
-      {/* ─── Subscription Plan Section ─────────────────────────── */}
+          {/* Tags */}
+          <div className="flex items-center gap-2">
+            {orgDetails && (
+              <span className="inline-flex items-center rounded-full bg-white/[0.15] px-3 py-1 text-xs font-medium backdrop-blur-sm">
+                {orgDetails.name}
+              </span>
+            )}
+            {subscription && (
+              <span className="inline-flex items-center rounded-full bg-white/[0.15] px-3 py-1 text-xs font-medium backdrop-blur-sm">
+                {subscription.displayName}
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ─── Two-column grid ──────────────────────────────────── */}
+      <div className="grid gap-6 lg:grid-cols-2">
+        {/* ─── LEFT COLUMN: Org Details + Notifications ───────── */}
+        <div className="space-y-6">
+          {/* Card 1: Organization Details */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center gap-3">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-50 dark:bg-indigo-950/30">
+                  <svg
+                    width="18"
+                    height="18"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    viewBox="0 0 24 24"
+                    className="text-indigo-500"
+                  >
+                    <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                    <polyline points="9 22 9 12 15 12 15 22" />
+                  </svg>
+                </div>
+                <div>
+                  <CardTitle>Organization Details</CardTitle>
+                  <CardDescription>
+                    Name, industry, and description
+                  </CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {orgMessage && (
+                <AlertBanner
+                  message={orgMessage.text}
+                  variant={
+                    orgMessage.type === "success" ? "success" : "error"
+                  }
+                />
+              )}
+
+              <div className="space-y-2">
+                <Label htmlFor="orgName">Organization Name</Label>
+                <Input
+                  id="orgName"
+                  value={orgName}
+                  onChange={(e) => setOrgName(e.target.value)}
+                  placeholder="e.g. Ocean Grill"
+                  maxLength={100}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="orgIndustry">Industry</Label>
+                <select
+                  id="orgIndustry"
+                  className="w-full rounded-md border px-3 py-2 text-sm bg-background"
+                  value={orgIndustry}
+                  onChange={(e) => {
+                    setOrgIndustry(e.target.value);
+                    if (e.target.value !== "other") setOrgIndustryCustom("");
+                  }}
+                >
+                  <option value="">Not specified</option>
+                  {industryOptions.map((opt) => (
+                    <option key={opt} value={opt}>
+                      {opt}
+                    </option>
+                  ))}
+                  <option value="other">Other</option>
+                </select>
+                {orgIndustry === "other" && (
+                  <Input
+                    value={orgIndustryCustom}
+                    onChange={(e) => setOrgIndustryCustom(e.target.value)}
+                    placeholder="Enter your industry"
+                    maxLength={100}
+                    className="mt-2"
+                  />
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="orgDescription">Description</Label>
+                <textarea
+                  id="orgDescription"
+                  className="w-full rounded-md border px-3 py-2 text-sm bg-background min-h-[80px] resize-y"
+                  value={orgDescription}
+                  onChange={(e) => setOrgDescription(e.target.value)}
+                  placeholder="Brief description of your organization"
+                  maxLength={500}
+                  rows={3}
+                />
+                <p className="text-xs text-muted-foreground">
+                  {orgDescription.length}/500 characters
+                </p>
+              </div>
+            </CardContent>
+            <CardFooter>
+              <Button
+                type="button"
+                onClick={onSaveOrgDetails}
+                disabled={orgLoading}
+              >
+                {orgLoading ? "Saving..." : "Save Details"}
+              </Button>
+            </CardFooter>
+          </Card>
+
+          {/* Card 2: Notification Preferences */}
+          <form onSubmit={onSaveNotifications}>
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-3">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-pink-50 dark:bg-pink-950/30">
+                    <svg
+                      width="18"
+                      height="18"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      viewBox="0 0 24 24"
+                      className="text-pink-600"
+                    >
+                      <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                      <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+                    </svg>
+                  </div>
+                  <div>
+                    <CardTitle>Notification Preferences</CardTitle>
+                    <CardDescription>
+                      Choose which notifications are sent
+                    </CardDescription>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {notifMessage && (
+                  <AlertBanner
+                    message={notifMessage.text}
+                    variant={
+                      notifMessage.type === "success" ? "success" : "error"
+                    }
+                    className="mb-4"
+                  />
+                )}
+
+                <div className="divide-y">
+                  {/* Email notifications */}
+                  <div className="flex items-center justify-between py-3.5 first:pt-0 last:pb-0">
+                    <div className="pr-4">
+                      <p className="text-sm font-medium">
+                        Email notifications
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Send notifications via email
+                      </p>
+                    </div>
+                    <Switch
+                      checked={notifPrefs.emailNotifications}
+                      onCheckedChange={(v) =>
+                        setNotifPrefs({ ...notifPrefs, emailNotifications: v })
+                      }
+                    />
+                  </div>
+
+                  {/* Task assignment */}
+                  <div className="flex items-center justify-between py-3.5 first:pt-0 last:pb-0">
+                    <div className="pr-4">
+                      <p className="text-sm font-medium">Task assignment</p>
+                      <p className="text-xs text-muted-foreground">
+                        When tasks are assigned, unassigned, or rescheduled
+                      </p>
+                    </div>
+                    <Switch
+                      checked={notifPrefs.taskAssignment}
+                      onCheckedChange={(v) =>
+                        setNotifPrefs({ ...notifPrefs, taskAssignment: v })
+                      }
+                    />
+                  </div>
+
+                  {/* Task rejection */}
+                  <div className="flex items-center justify-between py-3.5 first:pt-0 last:pb-0">
+                    <div className="pr-4">
+                      <p className="text-sm font-medium">Task rejection</p>
+                      <p className="text-xs text-muted-foreground">
+                        When staff reject an assigned task
+                      </p>
+                    </div>
+                    <Switch
+                      checked={notifPrefs.taskRejection}
+                      onCheckedChange={(v) =>
+                        setNotifPrefs({ ...notifPrefs, taskRejection: v })
+                      }
+                    />
+                  </div>
+
+                  {/* Hour limit warnings */}
+                  <div className="flex items-center justify-between py-3.5 first:pt-0 last:pb-0">
+                    <div className="pr-4">
+                      <p className="text-sm font-medium">
+                        Hour limit warnings
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        When staff approach their weekly hour limit
+                      </p>
+                    </div>
+                    <Switch
+                      checked={notifPrefs.hourLimitWarning}
+                      onCheckedChange={(v) =>
+                        setNotifPrefs({ ...notifPrefs, hourLimitWarning: v })
+                      }
+                    />
+                  </div>
+
+                  {/* Certification expiry */}
+                  <div className="flex items-center justify-between py-3.5 first:pt-0 last:pb-0">
+                    <div className="pr-4">
+                      <p className="text-sm font-medium">
+                        Certification expiry
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        When staff certifications are about to expire
+                      </p>
+                    </div>
+                    <Switch
+                      checked={notifPrefs.certificationExpiry}
+                      onCheckedChange={(v) =>
+                        setNotifPrefs({ ...notifPrefs, certificationExpiry: v })
+                      }
+                    />
+                  </div>
+                </div>
+              </CardContent>
+              <CardFooter>
+                <Button type="submit" disabled={notifLoading}>
+                  {notifLoading ? "Saving..." : "Save Preferences"}
+                </Button>
+              </CardFooter>
+            </Card>
+          </form>
+        </div>
+
+        {/* ─── RIGHT COLUMN: Task Configuration ──────────────── */}
+        <div className="space-y-6">
+          {/* Card 3: Task Configuration */}
+          <form onSubmit={onSaveTaskConfig}>
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-3">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-50 dark:bg-amber-950/30">
+                    <svg
+                      width="18"
+                      height="18"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      viewBox="0 0 24 24"
+                      className="text-amber-600"
+                    >
+                      <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <CardTitle>Task Configuration</CardTitle>
+                    <CardDescription>
+                      How tasks are allocated and accepted
+                    </CardDescription>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-5">
+                {taskMessage && (
+                  <AlertBanner
+                    message={taskMessage.text}
+                    variant={
+                      taskMessage.type === "success" ? "success" : "error"
+                    }
+                  />
+                )}
+
+                {/* Allocation Mode */}
+                <div className="space-y-2">
+                  <Label>Allocation Mode</Label>
+                  <div className="space-y-2">
+                    <RadioCard
+                      name="allocationMode"
+                      value="manual"
+                      selected={allocationMode === "manual"}
+                      onSelect={setAllocationMode}
+                      title="Manual"
+                      description="Admin assigns staff directly to each task"
+                    />
+                    <RadioCard
+                      name="allocationMode"
+                      value="suggested"
+                      selected={allocationMode === "suggested"}
+                      onSelect={setAllocationMode}
+                      title="Suggested"
+                      description="AI recommends staff, admin confirms assignment"
+                    />
+                    <RadioCard
+                      name="allocationMode"
+                      value="auto"
+                      selected={allocationMode === "auto"}
+                      onSelect={setAllocationMode}
+                      title="Auto"
+                      description="AI assigns staff automatically based on rules"
+                    />
+                  </div>
+                </div>
+
+                <Separator />
+
+                {/* Task Acceptance */}
+                <div className="space-y-2">
+                  <Label>Task Acceptance</Label>
+                  <div className="space-y-2">
+                    <RadioCard
+                      name="taskAcceptanceMode"
+                      value="auto_accept"
+                      selected={taskAcceptanceMode === "auto_accept"}
+                      onSelect={setTaskAcceptanceMode}
+                      title="Auto Accept"
+                      description="Staff are automatically assigned without needing to confirm"
+                    />
+                    <RadioCard
+                      name="taskAcceptanceMode"
+                      value="require_acceptance"
+                      selected={taskAcceptanceMode === "require_acceptance"}
+                      onSelect={setTaskAcceptanceMode}
+                      title="Require Acceptance"
+                      description="Staff must accept or reject each assigned task"
+                    />
+                  </div>
+                </div>
+              </CardContent>
+              <CardFooter>
+                <Button type="submit" disabled={taskLoading}>
+                  {taskLoading ? "Saving..." : "Save Configuration"}
+                </Button>
+              </CardFooter>
+            </Card>
+          </form>
+        </div>
+      </div>
+
+      {/* ─── Subscription & Billing (full-width) ──────────────── */}
       {subscription && (
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between">
-              <div>
-                <CardTitle>Subscription Plan</CardTitle>
-                <CardDescription>
-                  Your organization&apos;s current plan and resource usage
-                </CardDescription>
+              <div className="flex items-center gap-3">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-50 dark:bg-violet-950/30">
+                  <svg
+                    width="18"
+                    height="18"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    viewBox="0 0 24 24"
+                    className="text-violet-600"
+                  >
+                    <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
+                    <line x1="1" y1="10" x2="23" y2="10" />
+                  </svg>
+                </div>
+                <div>
+                  <CardTitle>Subscription & Billing</CardTitle>
+                  <CardDescription>
+                    Current plan, resource usage, and feature access
+                  </CardDescription>
+                </div>
               </div>
-              <StatusBadge value={subscription.tier} palette="tier" label={subscription.displayName} />
+              <StatusBadge
+                value={subscription.tier}
+                palette="tier"
+                label={subscription.displayName}
+              />
             </div>
           </CardHeader>
           <CardContent className="space-y-5">
             {/* Post-checkout banner */}
-            {checkoutBanner === "success" && <AlertBanner message="Payment received — your plan will update to Pro momentarily. Refresh if it hasn't updated." variant="success" />}
-            {checkoutBanner === "canceled" && <AlertBanner message={`Checkout canceled — no charge was made. You're still on the ${subscription.displayName} plan.`} variant="warning" />}
+            {checkoutBanner === "success" && (
+              <AlertBanner
+                message="Payment received — your plan will update to Pro momentarily. Refresh if it hasn't updated."
+                variant="success"
+              />
+            )}
+            {checkoutBanner === "canceled" && (
+              <AlertBanner
+                message={`Checkout canceled — no charge was made. You're still on the ${subscription.displayName} plan.`}
+                variant="warning"
+              />
+            )}
 
+            {/* Resource usage */}
             <div>
               <p className="text-sm font-medium mb-3">Resource Usage</p>
               <div className="space-y-3">
                 {Object.entries(subscription.resources).map(([key, usage]) => (
                   <div key={key} className="flex items-center gap-3">
-                    <span className="text-sm w-28 shrink-0">
+                    <span className="text-sm w-28 shrink-0 text-muted-foreground">
                       {RESOURCE_LABELS[key] || key}
                     </span>
                     <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
@@ -485,9 +912,10 @@ export default function SettingsPage() {
 
             <Separator />
 
+            {/* Feature Access */}
             <div>
               <p className="text-sm font-medium mb-3">Feature Access</p>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
                 {Object.entries(subscription.features).map(
                   ([key, available]) => (
                     <div key={key} className="flex items-center gap-2 text-sm">
@@ -500,7 +928,9 @@ export default function SettingsPage() {
                       >
                         {available ? "✓" : "✗"}
                       </span>
-                      <span className={available ? "" : "text-muted-foreground"}>
+                      <span
+                        className={available ? "" : "text-muted-foreground"}
+                      >
                         {FEATURE_LABELS[key] || key}
                       </span>
                     </div>
@@ -574,7 +1004,7 @@ export default function SettingsPage() {
               </>
             )}
 
-            {/* Pro tier — enterprise is contact-sales */}
+            {/* Pro tier */}
             {subscription.tier === "pro" && (
               <>
                 <Separator />
@@ -587,219 +1017,6 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
       )}
-
-      {/* ─── Settings Form ─────────────────────────────────────── */}
-      <form onSubmit={onSubmit}>
-        <Card>
-          <CardHeader>
-            <CardTitle>Task Allocation</CardTitle>
-            <CardDescription>
-              Configure how tasks are allocated to staff
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {message && <AlertBanner message={message.text} variant={message.type === "success" ? "success" : "error"} />}
-
-            <div className="space-y-2">
-              <Label htmlFor="allocationMode">Allocation Mode</Label>
-              <select
-                id="allocationMode"
-                className="w-full rounded-md border px-3 py-2 text-sm bg-background"
-                value={allocationMode}
-                onChange={(e) => setAllocationMode(e.target.value)}
-              >
-                <option value="manual">
-                  Manual — Admin assigns staff directly
-                </option>
-                <option value="suggested">
-                  Suggested — AI recommends, admin confirms
-                </option>
-                <option value="auto">
-                  Auto — AI assigns automatically
-                </option>
-              </select>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="taskAcceptanceMode">Task Acceptance</Label>
-              <select
-                id="taskAcceptanceMode"
-                className="w-full rounded-md border px-3 py-2 text-sm bg-background"
-                value={taskAcceptanceMode}
-                onChange={(e) => setTaskAcceptanceMode(e.target.value)}
-              >
-                <option value="auto_accept">
-                  Auto Accept — Staff auto-assigned
-                </option>
-                <option value="require_acceptance">
-                  Require Acceptance — Staff must confirm
-                </option>
-              </select>
-            </div>
-
-            <Separator />
-
-            <p className="text-base font-medium">Break Rules</p>
-            <p className="text-sm text-muted-foreground">
-              Mandatory break requirements after consecutive hours worked
-            </p>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="breakRuleHoursWorked">
-                  Hours before break required
-                </Label>
-                <Input
-                  id="breakRuleHoursWorked"
-                  type="number"
-                  min={1}
-                  max={24}
-                  value={breakHoursWorked}
-                  onChange={(e) => setBreakHoursWorked(Number(e.target.value))}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="breakRuleBreakHours">
-                  Minimum break duration (hours)
-                </Label>
-                <Input
-                  id="breakRuleBreakHours"
-                  type="number"
-                  min={1}
-                  max={24}
-                  value={breakHours}
-                  onChange={(e) => setBreakHours(Number(e.target.value))}
-                />
-              </div>
-            </div>
-
-            <Separator />
-
-            <p className="text-base font-medium">Operating Hours</p>
-            <p className="text-sm text-muted-foreground">
-              The daily operating window shown on the calendar. Tasks outside
-              these hours won&apos;t appear in the calendar grid.
-            </p>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="opStart">Opens at</Label>
-                <select
-                  id="opStart"
-                  className="w-full rounded-md border px-3 py-2 text-sm bg-background"
-                  value={opStart}
-                  onChange={(e) => setOpStart(Number(e.target.value))}
-                >
-                  {Array.from({ length: 24 }, (_, i) => (
-                    <option key={i} value={i}>
-                      {formatHour(i)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="opEnd">Closes at</Label>
-                <select
-                  id="opEnd"
-                  className="w-full rounded-md border px-3 py-2 text-sm bg-background"
-                  value={opEnd}
-                  onChange={(e) => setOpEnd(Number(e.target.value))}
-                >
-                  {Array.from({ length: 24 }, (_, i) => i + 1).map((h) => (
-                    <option key={h} value={h}>
-                      {formatHour(h)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Currently set to {formatHour(opStart)} — {formatHour(opEnd)} (
-              {opEnd - opStart} hours)
-            </p>
-
-            <Separator />
-
-            <p className="text-base font-medium">Notifications</p>
-            <p className="text-sm text-muted-foreground">
-              Configure which notifications are enabled
-            </p>
-
-            <div className="space-y-2">
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={notifPrefs.emailNotifications}
-                  onChange={(e) =>
-                    setNotifPrefs({
-                      ...notifPrefs,
-                      emailNotifications: e.target.checked,
-                    })
-                  }
-                />
-                Email notifications
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={notifPrefs.taskAssignment}
-                  onChange={(e) =>
-                    setNotifPrefs({
-                      ...notifPrefs,
-                      taskAssignment: e.target.checked,
-                    })
-                  }
-                />
-                Task assignment notifications
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={notifPrefs.taskRejection}
-                  onChange={(e) =>
-                    setNotifPrefs({
-                      ...notifPrefs,
-                      taskRejection: e.target.checked,
-                    })
-                  }
-                />
-                Task rejection notifications
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={notifPrefs.hourLimitWarning}
-                  onChange={(e) =>
-                    setNotifPrefs({
-                      ...notifPrefs,
-                      hourLimitWarning: e.target.checked,
-                    })
-                  }
-                />
-                Hour limit warning notifications
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={notifPrefs.certificationExpiry}
-                  onChange={(e) =>
-                    setNotifPrefs({
-                      ...notifPrefs,
-                      certificationExpiry: e.target.checked,
-                    })
-                  }
-                />
-                Certification expiry notifications
-              </label>
-            </div>
-          </CardContent>
-          <CardFooter>
-            <Button type="submit" disabled={loading}>
-              {loading ? "Saving..." : "Save Settings"}
-            </Button>
-          </CardFooter>
-        </Card>
-      </form>
     </div>
   );
 }

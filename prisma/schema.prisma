@@ -166,6 +166,7 @@ model InvitationToken {
   email          String
   role           String
   departmentId   String?
+  employmentType String?   // "casual" | "full_time" — carried to membership on accept
   token          String    @unique
   invitedById    String
   expires        DateTime

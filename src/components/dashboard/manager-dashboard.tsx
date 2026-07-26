@@ -87,6 +87,7 @@ interface ManagerDashboardData {
 interface ManagerDashboardProps {
   orgId: string;
   orgName: string;
+  userName?: string;
 }
 
 // ============================================================
@@ -144,6 +145,7 @@ function getStatusPillInfo(items: NeedsAttentionItem[] | null): {
 export default function ManagerDashboard({
   orgId,
   orgName,
+  userName,
 }: ManagerDashboardProps) {
   const [data, setData] = useState<ManagerDashboardData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -257,7 +259,7 @@ export default function ManagerDashboard({
       {/* ---- Greeting with status pill ---- */}
       <div>
         <h2 className="text-2xl font-bold tracking-tight">
-          {getGreeting()}, {orgName}
+          {getGreeting()}{userName ? `, ${userName}` : ""}
         </h2>
         <p className="mt-1 text-sm text-muted-foreground">
           Your team for today &mdash; {availableCount} of {totalStaff} staff

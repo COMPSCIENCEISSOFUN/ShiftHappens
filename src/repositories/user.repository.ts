@@ -63,6 +63,48 @@ export class UserRepository {
     });
   }
 
+  /**
+   * Finds a user by ID with their org memberships included.
+   * Used by the Profile page to show which orgs the user belongs to.
+   */
+  async findByIdWithMemberships(id: string) {
+    return prisma.user.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        emailVerified: true,
+        image: true,
+        createdAt: true,
+        memberships: {
+          select: {
+            id: true,
+            role: true,
+            status: true,
+            employmentType: true,
+            createdAt: true,
+            organization: {
+              select: {
+                id: true,
+                name: true,
+                slug: true,
+              },
+            },
+            customRole: {
+              select: {
+                id: true,
+                name: true,
+                displayLabel: true,
+              },
+            },
+          },
+          orderBy: { createdAt: "asc" },
+        },
+      },
+    });
+  }
+
   /** Sets the emailVerified timestamp — called after token verification */
   async verifyEmail(id: string) {
     return prisma.user.update({

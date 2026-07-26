@@ -178,9 +178,11 @@ function DotGrid() {
 export default function StaffDashboard({
   orgId,
   orgName,
+  userName,
 }: {
   orgId: string;
   orgName: string;
+  userName?: string;
 }) {
   const [data, setData] = useState<StaffData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -301,7 +303,7 @@ export default function StaffDashboard({
       {/* ------------------------------------------------------------------ */}
       <div>
         <h1 className="text-2xl font-bold tracking-tight">
-          Hey, {orgName}
+          Hey{userName ? `, ${userName}` : ""}
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
           {data.nextShift
@@ -433,10 +435,9 @@ export default function StaffDashboard({
           <Card>
             <CardContent className="flex items-center gap-4 p-5">
               <div
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg"
-                style={{ background: "#fffbeb" }}
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-amber-50 dark:bg-amber-950"
               >
-                <AlertTriangle className="h-5 w-5" style={{ color: "#d97706" }} />
+                <AlertTriangle className="h-5 w-5 text-amber-600" />
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium">
@@ -502,8 +503,7 @@ export default function StaffDashboard({
                         return (
                           <span
                             key={a.id}
-                            className="inline-flex w-full items-center justify-center rounded-full px-2 py-0.5 text-[10px] font-medium"
-                            style={{ background: "#fffbeb", color: "#d97706" }}
+                            className="inline-flex w-full items-center justify-center rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-600 dark:bg-amber-950 dark:text-amber-400"
                           >
                             pending
                           </span>
@@ -532,8 +532,7 @@ export default function StaffDashboard({
 
                     {dayAssignments.length === 0 && avail && avail.isAvailable && (
                       <span
-                        className="inline-flex w-full items-center justify-center rounded-full px-2 py-0.5 text-[10px] font-medium"
-                        style={{ background: "#ecfdf5", color: "#059669" }}
+                        className="inline-flex w-full items-center justify-center rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-600 dark:bg-emerald-950 dark:text-emerald-400"
                       >
                         available
                       </span>
@@ -633,93 +632,54 @@ export default function StaffDashboard({
           <CardContent>
             <div className="grid grid-cols-2 gap-4">
               {/* Acceptance rate */}
-              <div
-                className="rounded-xl p-4"
-                style={{ background: "#eef2ff" }}
-              >
+              <div className="rounded-xl bg-indigo-50 p-4 dark:bg-indigo-950">
                 <div className="flex items-center gap-2">
-                  <TrendingUp className="h-4 w-4" style={{ color: "#4f46e5" }} />
-                  <span
-                    className="text-xs font-medium"
-                    style={{ color: "#4338ca" }}
-                  >
+                  <TrendingUp className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+                  <span className="text-xs font-medium text-indigo-700 dark:text-indigo-300">
                     Acceptance
                   </span>
                 </div>
-                <p
-                  className="mt-2 text-xl font-bold tabular-nums"
-                  style={{ color: "#4f46e5" }}
-                >
+                <p className="mt-2 text-xl font-bold tabular-nums text-indigo-600 dark:text-indigo-400">
                   {data.stats.acceptanceRate}%
                 </p>
               </div>
 
               {/* On-time rate */}
-              <div
-                className="rounded-xl p-4"
-                style={{ background: "#ecfdf5" }}
-              >
+              <div className="rounded-xl bg-emerald-50 p-4 dark:bg-emerald-950">
                 <div className="flex items-center gap-2">
-                  <Timer className="h-4 w-4" style={{ color: "#059669" }} />
-                  <span
-                    className="text-xs font-medium"
-                    style={{ color: "#059669" }}
-                  >
+                  <Timer className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                  <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
                     On time
                   </span>
                 </div>
-                <p
-                  className="mt-2 text-xl font-bold tabular-nums"
-                  style={{ color: "#059669" }}
-                >
+                <p className="mt-2 text-xl font-bold tabular-nums text-emerald-600 dark:text-emerald-400">
                   {data.stats.onTimeRate}%
                 </p>
               </div>
 
               {/* Shifts this month */}
-              <div
-                className="rounded-xl p-4"
-                style={{ background: "#eef2ff" }}
-              >
+              <div className="rounded-xl bg-indigo-50 p-4 dark:bg-indigo-950">
                 <div className="flex items-center gap-2">
-                  <CalendarDays
-                    className="h-4 w-4"
-                    style={{ color: "#4f46e5" }}
-                  />
-                  <span
-                    className="text-xs font-medium"
-                    style={{ color: "#4338ca" }}
-                  >
+                  <CalendarDays className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+                  <span className="text-xs font-medium text-indigo-700 dark:text-indigo-300">
                     Shifts
                   </span>
                 </div>
-                <p
-                  className="mt-2 text-xl font-bold tabular-nums"
-                  style={{ color: "#4f46e5" }}
-                >
+                <p className="mt-2 text-xl font-bold tabular-nums text-indigo-600 dark:text-indigo-400">
                   {data.stats.shiftsThisMonth}
                 </p>
                 <p className="text-[10px] text-muted-foreground">this month</p>
               </div>
 
               {/* Hours this month */}
-              <div
-                className="rounded-xl p-4"
-                style={{ background: "#eef2ff" }}
-              >
+              <div className="rounded-xl bg-indigo-50 p-4 dark:bg-indigo-950">
                 <div className="flex items-center gap-2">
-                  <Award className="h-4 w-4" style={{ color: "#4f46e5" }} />
-                  <span
-                    className="text-xs font-medium"
-                    style={{ color: "#4338ca" }}
-                  >
+                  <Award className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+                  <span className="text-xs font-medium text-indigo-700 dark:text-indigo-300">
                     Hours
                   </span>
                 </div>
-                <p
-                  className="mt-2 text-xl font-bold tabular-nums"
-                  style={{ color: "#4f46e5" }}
-                >
+                <p className="mt-2 text-xl font-bold tabular-nums text-indigo-600 dark:text-indigo-400">
                   {data.stats.hoursThisMonth.toFixed(1)}
                 </p>
                 <p className="text-[10px] text-muted-foreground">this month</p>

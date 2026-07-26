@@ -182,6 +182,84 @@ describe("MembershipRepository", () => {
     });
   });
 
+  describe("updateEmploymentType", () => {
+    it("updates a member's employment type", async () => {
+      const user2 = await userRepo.create({
+        name: "Staff User",
+        email: "staff@example.com",
+        hashedPassword: "hash",
+      });
+
+      const membership = await membershipRepo.create({
+        userId: user2.id,
+        organizationId: orgId,
+        role: "staff",
+      });
+
+      const updated = await membershipRepo.updateEmploymentType(
+        membership.id,
+        "full_time"
+      );
+      expect(updated.employmentType).toBe("full_time");
+    });
+
+    it("changes employment type from full_time to casual", async () => {
+      const user2 = await userRepo.create({
+        name: "Staff User",
+        email: "staff@example.com",
+        hashedPassword: "hash",
+      });
+
+      const membership = await membershipRepo.create({
+        userId: user2.id,
+        organizationId: orgId,
+        role: "staff",
+        employmentType: "full_time",
+      });
+
+      const updated = await membershipRepo.updateEmploymentType(
+        membership.id,
+        "casual"
+      );
+      expect(updated.employmentType).toBe("casual");
+    });
+  });
+
+  describe("create with employmentType", () => {
+    it("creates membership with employmentType", async () => {
+      const user2 = await userRepo.create({
+        name: "FT Staff",
+        email: "ftstaff@example.com",
+        hashedPassword: "hash",
+      });
+
+      const membership = await membershipRepo.create({
+        userId: user2.id,
+        organizationId: orgId,
+        role: "staff",
+        employmentType: "full_time",
+      });
+
+      expect(membership.employmentType).toBe("full_time");
+    });
+
+    it("defaults employmentType to null when not provided", async () => {
+      const user2 = await userRepo.create({
+        name: "No ET Staff",
+        email: "noet@example.com",
+        hashedPassword: "hash",
+      });
+
+      const membership = await membershipRepo.create({
+        userId: user2.id,
+        organizationId: orgId,
+        role: "staff",
+      });
+
+      expect(membership.employmentType).toBeNull();
+    });
+  });
+
   describe("assignDepartments", () => {
     it("assigns a member to departments", async () => {
       const dept1 = await deptRepo.create({
@@ -265,6 +343,76 @@ describe("MembershipRepository", () => {
 
       const depts = await membershipRepo.getDepartments(membership!.id);
       expect(depts).toHaveLength(2);
+    });
+  });
+
+  describe("findByOrgId — customRole include", () => {
+    it("returns customRole data when a custom role is assigned", async () => {
+      const staff = await userRepo.create({
+        name: "Staff User",
+        email: "staff@example.com",
+        hashedPassword: "hash",
+      });
+      const membership = await membershipRepo.create({
+        userId: staff.id,
+        organizationId: orgId,
+        role: "staff",
+      });
+
+      const customRole = await prisma.role.create({
+        data: {
+          name: "shift_lead",
+          displayLabel: "Shift Lead",
+          organizationId: orgId,
+          isSystemRole: false,
+        },
+      });
+
+      await membershipRepo.updateCustomRole(membership.id, customRole.id);
+
+      const members = await membershipRepo.findByOrgId(orgId);
+      const staffMember = members.find((m) => m.user.email === "staff@example.com");
+
+      expect(staffMember).toBeDefined();
+      expect(staffMember!.customRole).not.toBeNull();
+      expect(staffMember!.customRole!.id).toBe(customRole.id);
+      expect(staffMember!.customRole!.displayLabel).toBe("Shift Lead");
+      expect(staffMember!.customRole!.name).toBe("shift_lead");
+    });
+
+    it("returns customRole as null when not assigned", async () => {
+      const members = await membershipRepo.findByOrgId(orgId);
+      expect(members).toHaveLength(1);
+      expect(members[0].customRole).toBeNull();
+    });
+
+    it("returns customRole as null after clearing assignment", async () => {
+      const staff = await userRepo.create({
+        name: "Staff User",
+        email: "staff@example.com",
+        hashedPassword: "hash",
+      });
+      const membership = await membershipRepo.create({
+        userId: staff.id,
+        organizationId: orgId,
+        role: "staff",
+      });
+
+      const customRole = await prisma.role.create({
+        data: {
+          name: "bartender",
+          displayLabel: "Bartender",
+          organizationId: orgId,
+          isSystemRole: false,
+        },
+      });
+
+      await membershipRepo.updateCustomRole(membership.id, customRole.id);
+      await membershipRepo.updateCustomRole(membership.id, null);
+
+      const members = await membershipRepo.findByOrgId(orgId);
+      const staffMember = members.find((m) => m.user.email === "staff@example.com");
+      expect(staffMember!.customRole).toBeNull();
     });
   });
 });

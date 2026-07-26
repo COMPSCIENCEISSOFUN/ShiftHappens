@@ -47,6 +47,17 @@ export async function PATCH(
       parsed.data,
       user.id
     );
+
+    // Handle custom role assignment if provided (separate from system role update)
+    if (parsed.data.customRoleId !== undefined) {
+      await userMgmtService.assignCustomRole(
+        userId,
+        orgId,
+        parsed.data.customRoleId,
+        user.id
+      );
+    }
+
     return NextResponse.json(updated);
   } catch (error) {
     if (error instanceof Error) {
@@ -54,6 +65,15 @@ export async function PATCH(
         return NextResponse.json({ error: error.message }, { status: 404 });
       }
       if (error.message.includes("Cannot demote")) {
+        return NextResponse.json({ error: error.message }, { status: 400 });
+      }
+      if (error.message === "Company Admins cannot be assigned custom roles") {
+        return NextResponse.json({ error: error.message }, { status: 400 });
+      }
+      if (error.message === "Custom role not found") {
+        return NextResponse.json({ error: error.message }, { status: 404 });
+      }
+      if (error.message === "Cannot assign system roles as custom roles") {
         return NextResponse.json({ error: error.message }, { status: 400 });
       }
     }

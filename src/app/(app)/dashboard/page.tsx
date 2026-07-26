@@ -29,13 +29,14 @@ export default async function DashboardPage() {
 
   const org = orgs[0];
   const role = org.memberships[0]?.role;
+  const firstName = session.user.name?.split(" ")[0] || "";
 
   switch (role) {
     case "staff":
-      return <StaffDashboard orgId={org.id} orgName={org.name} />;
+      return <StaffDashboard orgId={org.id} orgName={org.name} userName={firstName} />;
     case "manager":
-      return <ManagerDashboard orgId={org.id} orgName={org.name} />;
+      return <ManagerDashboard orgId={org.id} orgName={org.name} userName={firstName} />;
     default:
-      return <AdminDashboard orgId={org.id} orgName={org.name} />;
+      return <AdminDashboard orgId={org.id} orgName={org.name} userName={firstName} />;
   }
 }

@@ -36,6 +36,9 @@ export class MembershipRepository {
             },
           },
         },
+        customRole: {
+          select: { id: true, name: true, displayLabel: true },
+        },
       },
       orderBy: { createdAt: "asc" },
     });
@@ -67,6 +70,7 @@ export class MembershipRepository {
     userId: string;
     organizationId: string;
     role: string;
+    employmentType?: string;
   }) {
     return prisma.membership.create({
       data: {
@@ -74,6 +78,7 @@ export class MembershipRepository {
         organizationId: data.organizationId,
         role: data.role,
         status: "active",
+        employmentType: data.employmentType || null,
       },
     });
   }
@@ -83,6 +88,22 @@ export class MembershipRepository {
     return prisma.membership.update({
       where: { id: membershipId },
       data: { role },
+    });
+  }
+
+  /** Sets or clears a member's custom role assignment */
+  async updateCustomRole(membershipId: string, customRoleId: string | null) {
+    return prisma.membership.update({
+      where: { id: membershipId },
+      data: { customRoleId },
+    });
+  }
+
+  /** Updates a member's employment type (full_time / casual) */
+  async updateEmploymentType(membershipId: string, employmentType: string) {
+    return prisma.membership.update({
+      where: { id: membershipId },
+      data: { employmentType },
     });
   }
 

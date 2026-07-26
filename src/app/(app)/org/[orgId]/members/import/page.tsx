@@ -7,26 +7,26 @@
  * Client-side: SheetJS parses the file, algorithmic column mapping and validation.
  * Server-side: AI column mapping + department matching (enhancement, wired later).
  * Constrained fields (role, department, employment type) use dropdowns from org data.
+ *
+ * Phase 12 visual overhaul — stat tiles, styled drag-drop,
+ * responsive layout, full-width.
  */
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { AlertBanner } from "@/components/ui/alert-banner";
 import * as XLSX from "xlsx";
 import {
-  SYSTEM_ROLE_LABELS,
-  EMPLOYMENT_TYPE_LABELS,
-} from "@/lib/role-config";
+  INVITABLE_ROLES,
+  EMPLOYMENT_TYPES,
+  ROLE_DISPLAY,
+  EMPLOYMENT_DISPLAY,
+  HEADER_ALIASES,
+  ROLE_ALIASES,
+  EMPLOYMENT_ALIASES,
+} from "@/lib/import-config";
 
 // ─── Types ────────────────────────────────────────────────────
 
@@ -63,61 +63,27 @@ interface ImportRow {
 
 type Phase = "upload" | "preview" | "importing" | "complete";
 
-// ─── Constants ────────────────────────────────────────────────
+// Constants imported from @/lib/import-config (single source of truth)
 
-const INVITABLE_ROLES = ["staff", "manager"];
-const EMPLOYMENT_TYPES = ["full_time", "casual"];
+/* ------------------------------------------------------------------ */
+/*  Stat Tile                                                          */
+/* ------------------------------------------------------------------ */
 
-const ROLE_DISPLAY: Record<string, string> = {
-  staff: SYSTEM_ROLE_LABELS.staff || "Staff",
-  manager: SYSTEM_ROLE_LABELS.manager || "Manager",
-};
-
-const EMPLOYMENT_DISPLAY: Record<string, string> = {
-  full_time: EMPLOYMENT_TYPE_LABELS.full_time || "Full-time",
-  casual: EMPLOYMENT_TYPE_LABELS.casual || "Casual",
-};
-
-/** Header aliases for algorithmic column mapping fallback */
-const HEADER_ALIASES: Record<string, string[]> = {
-  name: ["name", "full name", "employee name", "staff name", "member name", "first name"],
-  email: ["email", "e-mail", "email address", "mail"],
-  role: ["role", "position", "job title", "type"],
-  department: ["department", "dept", "team", "section", "unit"],
-  employmentType: [
-    "employment type", "work type", "contract type", "emp type",
-    "employment", "contract", "status",
-  ],
-};
-
-/** Map common role variations to system values */
-const ROLE_ALIASES: Record<string, string> = {
-  staff: "staff",
-  employee: "staff",
-  worker: "staff",
-  team_member: "staff",
-  "team member": "staff",
-  manager: "manager",
-  supervisor: "manager",
-  lead: "manager",
-  "team lead": "manager",
-};
-
-/** Map common employment type variations to system values */
-const EMPLOYMENT_ALIASES: Record<string, string> = {
-  full_time: "full_time",
-  fulltime: "full_time",
-  "full-time": "full_time",
-  "full time": "full_time",
-  permanent: "full_time",
-  casual: "casual",
-  "part-time": "casual",
-  "part time": "casual",
-  parttime: "casual",
-  temporary: "casual",
-  contract: "casual",
-  temp: "casual",
-};
+function StatTile({
+  label, value, detail, accentColour, valueColour,
+}: {
+  label: string; value: string | number; detail: string;
+  accentColour: string; valueColour?: string;
+}) {
+  return (
+    <div className="relative overflow-hidden rounded-xl border border-border bg-card p-3.5 sm:p-4">
+      <div className="absolute right-0 top-0 h-10 w-10 rounded-bl-[40px]" style={{ background: accentColour }} />
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</p>
+      <p className={`mt-1 text-xl font-bold tracking-tight sm:text-2xl ${valueColour ?? ""}`}>{value}</p>
+      <p className="mt-0.5 text-[11px] text-muted-foreground">{detail}</p>
+    </div>
+  );
+}
 
 // ─── Component ────────────────────────────────────────────────
 
@@ -672,43 +638,45 @@ export default function MemberImportPage() {
   // ─── Render ─────────────────────────────────────────────────
 
   return (
-    <div className="max-w-5xl space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="w-full">
+      {/* ── Header ── */}
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-2xl font-bold">Import members</h2>
-          <p className="text-sm text-muted-foreground mt-1">
+          <h2 className="text-xl font-bold tracking-tight sm:text-2xl">Import Members</h2>
+          <p className="mt-0.5 text-[13px] text-muted-foreground">
             Bulk import staff and managers from an Excel or CSV file
           </p>
         </div>
-        <Button
-          variant="outline"
+        <button
           onClick={() => router.push(`/org/${orgId}/members`)}
+          className="rounded-lg border border-border bg-card px-3.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
         >
-          Back to members
-        </Button>
+          ← Back to Members
+        </button>
       </div>
 
       {error && <AlertBanner message={error} variant="error" />}
 
-      {/* ─── Upload Phase ──────────────────────────────────────── */}
+      {/* ═══════════════════════════════════════════════════════════ */}
+      {/*  Upload Phase                                              */}
+      {/* ═══════════════════════════════════════════════════════════ */}
       {phase === "upload" && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Upload file</CardTitle>
-            <CardDescription>
-              Upload an Excel (.xlsx) or CSV file with your team data.
-              Download the template for the expected format.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
+        <div className="overflow-hidden rounded-xl border border-border bg-card">
+          <div className="border-b border-border px-4 py-3">
+            <h3 className="text-[13px] font-semibold">Upload File</h3>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">
+              Upload an Excel (.xlsx) or CSV file with your team data
+            </p>
+          </div>
+          <div className="p-4 space-y-4">
+            {/* Drag-drop zone */}
             <div
               className={`
-                border-2 border-dashed rounded-lg p-10 text-center cursor-pointer
-                transition-colors
-                ${
-                  dragActive
-                    ? "border-primary bg-primary/5"
-                    : "border-muted-foreground/25 hover:border-muted-foreground/50"
+                rounded-xl border-2 border-dashed p-8 sm:p-12 text-center cursor-pointer
+                transition-all duration-200
+                ${dragActive
+                  ? "border-indigo-400 bg-indigo-50/50 dark:bg-indigo-950/20"
+                  : "border-border hover:border-indigo-300 hover:bg-muted/30 dark:hover:border-indigo-800"
                 }
               `}
               onDragEnter={handleDrag}
@@ -724,407 +692,459 @@ export default function MemberImportPage() {
                 onChange={handleFileSelect}
                 className="hidden"
               />
-              <p className="text-muted-foreground">
-                Drag and drop your file here, or click to browse
+              {/* Upload icon */}
+              <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-100 dark:bg-indigo-900/30">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-indigo-600 dark:text-indigo-400">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="17 8 12 3 7 8" />
+                  <line x1="12" y1="3" x2="12" y2="15" />
+                </svg>
+              </div>
+              <p className="text-sm font-medium text-foreground">
+                Drag and drop your file here, or{" "}
+                <span className="text-indigo-600 dark:text-indigo-400 underline underline-offset-2">browse</span>
               </p>
-              <p className="text-xs text-muted-foreground mt-2">
+              <p className="mt-1.5 text-[11px] text-muted-foreground">
                 Supports .xlsx, .xls, and .csv — max 200 rows, 5 MB
               </p>
             </div>
 
-            <div className="flex items-center justify-between">
-              <Button variant="outline" size="sm" onClick={downloadTemplate}>
-                Download template
-              </Button>
-              <p className="text-xs text-muted-foreground">
+            {/* Bottom bar: template + slot counter */}
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <button
+                onClick={downloadTemplate}
+                className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-indigo-400 hover:text-foreground"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-muted-foreground">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="7 10 12 15 17 10" />
+                  <line x1="12" y1="15" x2="12" y2="3" />
+                </svg>
+                Download Template
+              </button>
+              <p className="text-[11px] text-muted-foreground">
                 {memberLimit !== null
                   ? `${currentMemberCount} of ${memberLimit} member slots used`
                   : `${currentMemberCount} members`}
               </p>
             </div>
 
-            <div className="text-xs text-muted-foreground space-y-1 pt-2">
-              <p className="font-medium">Expected columns:</p>
+            {/* Expected columns hint */}
+            <div className="rounded-lg bg-muted/40 p-3 text-[11px] text-muted-foreground">
+              <p className="font-medium text-foreground text-xs mb-1">Expected columns</p>
               <p>
                 Name (required), Email (required), Role (staff or manager — defaults to staff),
                 Department (must match existing), Employment Type (full_time or casual — defaults to casual)
               </p>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       )}
 
-      {/* ─── Preview Phase ─────────────────────────────────────── */}
+      {/* ═══════════════════════════════════════════════════════════ */}
+      {/*  Preview Phase                                             */}
+      {/* ═══════════════════════════════════════════════════════════ */}
       {phase === "preview" && (
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
+        <>
+          {/* Stat tiles */}
+          <div className="mb-4 grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">
+            <StatTile label="Ready" value={validCount} detail="valid rows" accentColour="rgba(34,197,94,.08)" valueColour="text-green-600 dark:text-green-400" />
+            <StatTile label="Corrected" value={correctedCount} detail="auto-fixed" accentColour="rgba(245,158,11,.08)" valueColour={correctedCount > 0 ? "text-amber-600 dark:text-amber-400" : ""} />
+            <StatTile label="Errors" value={errorCount} detail="fix or skip" accentColour="rgba(239,68,68,.08)" valueColour={errorCount > 0 ? "text-red-500 dark:text-red-400" : ""} />
+            <StatTile label="Skipped" value={skippedCount} detail="excluded" accentColour="rgba(148,163,184,.08)" />
+          </div>
+
+          <div className="overflow-hidden rounded-xl border border-border bg-card">
+            {/* Card header */}
+            <div className="flex flex-col gap-2 border-b border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <CardTitle>Import preview</CardTitle>
-                <CardDescription>{fileName} — {rows.length} rows parsed</CardDescription>
+                <h3 className="text-[13px] font-semibold">Import Preview</h3>
+                <p className="mt-0.5 text-[11px] text-muted-foreground">{fileName} — {rows.length} rows parsed</p>
               </div>
-              <div className="flex gap-2">
-                <span className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-md bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300 font-medium">
+              {/* Status badges */}
+              <div className="flex flex-wrap gap-1.5">
+                <span className="inline-flex items-center gap-1 rounded-md bg-green-100 px-2 py-0.5 text-[10px] font-semibold text-green-700 dark:bg-green-900/50 dark:text-green-300">
                   {validCount} ready
                 </span>
                 {correctedCount > 0 && (
-                  <span className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-md bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300 font-medium">
-                    {correctedCount} auto-corrected
+                  <span className="inline-flex items-center gap-1 rounded-md bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/50 dark:text-amber-300">
+                    {correctedCount} corrected
                   </span>
                 )}
                 {errorCount > 0 && (
-                  <span className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-md bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300 font-medium">
+                  <span className="inline-flex items-center gap-1 rounded-md bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700 dark:bg-red-900/50 dark:text-red-300">
                     {errorCount} errors
                   </span>
                 )}
                 {skippedCount > 0 && (
-                  <span className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-md bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300 font-medium">
+                  <span className="inline-flex items-center gap-1 rounded-md bg-gray-100 px-2 py-0.5 text-[10px] font-semibold text-gray-600 dark:bg-gray-800 dark:text-gray-300">
                     {skippedCount} skipped
                   </span>
                 )}
               </div>
             </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {/* Legend */}
-            <div className="flex gap-6 text-xs text-muted-foreground pb-2 border-b">
-              <div className="flex items-center gap-2">
-                <span className="w-3 h-3 rounded-sm bg-green-100 dark:bg-green-900 border border-green-200 dark:border-green-800" />
-                Ready to import
+
+            <div className="p-4 space-y-3">
+              {/* Legend */}
+              <div className="flex flex-wrap gap-4 text-[11px] text-muted-foreground border-b border-border/50 pb-3">
+                <div className="flex items-center gap-1.5">
+                  <span className="h-2.5 w-2.5 rounded-sm bg-green-200 dark:bg-green-800" />
+                  Ready to import
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="h-2.5 w-2.5 rounded-sm bg-amber-200 dark:bg-amber-800" />
+                  Auto-corrected — review
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="h-2.5 w-2.5 rounded-sm bg-red-200 dark:bg-red-800" />
+                  Error — fix or skip
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="w-3 h-3 rounded-sm bg-amber-100 dark:bg-amber-900 border border-amber-200 dark:border-amber-800" />
-                Auto-corrected — review changes
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="w-3 h-3 rounded-sm bg-red-100 dark:bg-red-900 border border-red-200 dark:border-red-800" />
-                Error — fix or skip row
-              </div>
-            </div>
 
-            {/* Column mapping banner */}
-            {columnMappings.some((m) => m.method === "alias" || m.method === "ai") && (
-              <div className="rounded-md p-3 text-xs bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300">
-                <span className="font-medium">Column mapping: </span>
-                {columnMappings
-                  .filter((m) => m.method !== "exact")
-                  .map((m, i) => (
-                    <span key={m.source}>
-                      {i > 0 && ", "}
-                      &quot;{m.source}&quot; → {m.target}
-                    </span>
-                  ))}
-              </div>
-            )}
+              {/* Column mapping banner */}
+              {columnMappings.some((m) => m.method === "alias" || m.method === "ai") && (
+                <div className="rounded-lg bg-blue-50 dark:bg-blue-950/30 p-2.5 text-[11px] text-blue-700 dark:text-blue-300">
+                  <span className="font-semibold">Column mapping: </span>
+                  {columnMappings
+                    .filter((m) => m.method !== "exact")
+                    .map((m, i) => (
+                      <span key={m.source}>
+                        {i > 0 && ", "}
+                        &quot;{m.source}&quot; → {m.target}
+                      </span>
+                    ))}
+                </div>
+              )}
 
-            {/* Preview table */}
-            <div className="overflow-x-auto border rounded-lg">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b bg-muted/50">
-                    <th className="text-left px-3 py-2 font-medium text-muted-foreground w-10">#</th>
-                    <th className="text-left px-3 py-2 font-medium text-muted-foreground">Name</th>
-                    <th className="text-left px-3 py-2 font-medium text-muted-foreground">Email</th>
-                    <th className="text-left px-3 py-2 font-medium text-muted-foreground w-28">Role</th>
-                    <th className="text-left px-3 py-2 font-medium text-muted-foreground">Department</th>
-                    <th className="text-left px-3 py-2 font-medium text-muted-foreground w-28">Emp. type</th>
-                    <th className="text-left px-3 py-2 font-medium text-muted-foreground w-16" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row) => (
-                    <tr
-                      key={row.rowNum}
-                      className={`border-b last:border-0 ${rowBgClass(row)}`}
-                    >
-                      <td className="px-3 py-2 text-muted-foreground text-xs">
-                        {row.rowNum}
-                      </td>
-
-                      {/* Name */}
-                      <td className="px-3 py-2">
-                        {row.errors.name || row.status === "error" ? (
-                          <div>
-                            <Input
-                              value={row.name}
-                              onChange={(e) =>
-                                updateRow(row.rowNum, "name", e.target.value)
-                              }
-                              className={`h-7 text-sm ${
-                                row.errors.name
-                                  ? "border-red-400 dark:border-red-600"
-                                  : ""
-                              }`}
-                            />
-                            {row.errors.name && (
-                              <p className="text-xs text-red-500 mt-1">
-                                {row.errors.name}
-                              </p>
-                            )}
-                          </div>
-                        ) : (
-                          row.name
-                        )}
-                      </td>
-
-                      {/* Email */}
-                      <td className="px-3 py-2">
-                        {row.errors.email || row.status === "error" ? (
-                          <div>
-                            <Input
-                              value={row.email}
-                              onChange={(e) =>
-                                updateRow(row.rowNum, "email", e.target.value)
-                              }
-                              className={`h-7 text-sm ${
-                                row.errors.email
-                                  ? "border-red-400 dark:border-red-600"
-                                  : ""
-                              }`}
-                            />
-                            {row.errors.email && (
-                              <p className="text-xs text-red-500 mt-1">
-                                {row.errors.email}
-                              </p>
-                            )}
-                          </div>
-                        ) : (
-                          <span className="text-muted-foreground">{row.email}</span>
-                        )}
-                      </td>
-
-                      {/* Role */}
-                      <td className="px-3 py-2">
-                        {correctionFor(row, "role") || row.status === "error" ? (
-                          <div>
-                            {correctionFor(row, "role") && (
-                              <span className="text-xs line-through text-muted-foreground mr-1">
-                                {correctionFor(row, "role")!.from}
-                              </span>
-                            )}
-                            <select
-                              className="w-full rounded-md border px-2 py-1 text-sm bg-background"
-                              value={row.role}
-                              onChange={(e) =>
-                                updateRow(row.rowNum, "role", e.target.value)
-                              }
-                            >
-                              {INVITABLE_ROLES.map((r) => (
-                                <option key={r} value={r}>
-                                  {ROLE_DISPLAY[r]}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                        ) : (
-                          ROLE_DISPLAY[row.role] || row.role
-                        )}
-                      </td>
-
-                      {/* Department */}
-                      <td className="px-3 py-2">
-                        {correctionFor(row, "department") ||
-                        row.errors.department ||
-                        row.status === "error" ? (
-                          <div>
-                            {correctionFor(row, "department") && (
-                              <span className="text-xs line-through text-muted-foreground mr-1">
-                                {correctionFor(row, "department")!.from}
-                              </span>
-                            )}
-                            <select
-                              className={`w-full rounded-md border px-2 py-1 text-sm bg-background ${
-                                row.errors.department
-                                  ? "border-red-400 dark:border-red-600"
-                                  : ""
-                              }`}
-                              value={row.department}
-                              onChange={(e) =>
-                                updateRow(row.rowNum, "department", e.target.value)
-                              }
-                            >
-                              <option value="">No department</option>
-                              {departments.map((d) => (
-                                <option key={d.id} value={d.name}>
-                                  {d.name}
-                                </option>
-                              ))}
-                            </select>
-                            {row.errors.department && (
-                              <p className="text-xs text-red-500 mt-1">
-                                {row.errors.department}
-                              </p>
-                            )}
-                          </div>
-                        ) : (
-                          row.department || (
-                            <span className="text-muted-foreground">—</span>
-                          )
-                        )}
-                      </td>
-
-                      {/* Employment Type */}
-                      <td className="px-3 py-2">
-                        {correctionFor(row, "employmentType") ||
-                        row.status === "error" ? (
-                          <div>
-                            {correctionFor(row, "employmentType") && (
-                              <span className="text-xs line-through text-muted-foreground mr-1">
-                                {correctionFor(row, "employmentType")!.from}
-                              </span>
-                            )}
-                            <select
-                              className="w-full rounded-md border px-2 py-1 text-sm bg-background"
-                              value={row.employmentType}
-                              onChange={(e) =>
-                                updateRow(
-                                  row.rowNum,
-                                  "employmentType",
-                                  e.target.value
-                                )
-                              }
-                            >
-                              {EMPLOYMENT_TYPES.map((t) => (
-                                <option key={t} value={t}>
-                                  {EMPLOYMENT_DISPLAY[t]}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                        ) : (
-                          EMPLOYMENT_DISPLAY[row.employmentType] ||
-                          row.employmentType
-                        )}
-                      </td>
-
-                      {/* Status / actions */}
-                      <td className="px-3 py-2 text-center">
-                        {row.skipped ? (
-                          <button
-                            className="text-xs text-blue-600 dark:text-blue-400 underline"
-                            onClick={() => toggleSkip(row.rowNum)}
-                          >
-                            undo
-                          </button>
-                        ) : (
-                          <div className="flex flex-col items-center gap-1">
-                            {row.status === "valid" && (
-                              <span className="text-xs px-2 py-0.5 rounded bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300">
-                                ✓
-                              </span>
-                            )}
-                            {row.status === "corrected" && (
-                              <span className="text-xs px-2 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300">
-                                ✦
-                              </span>
-                            )}
-                            {row.status === "error" && (
-                              <span className="text-xs px-2 py-0.5 rounded bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300">
-                                !
-                              </span>
-                            )}
-                            {row.status === "error" && (
-                              <button
-                                className="text-xs text-muted-foreground underline"
-                                onClick={() => toggleSkip(row.rowNum)}
-                              >
-                                skip
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </td>
+              {/* Preview table */}
+              <div className="overflow-x-auto rounded-lg border border-border">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border bg-muted/30">
+                      <th className="px-3 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground w-10">#</th>
+                      <th className="px-3 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Name</th>
+                      <th className="px-3 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Email</th>
+                      <th className="px-3 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground w-28">Role</th>
+                      <th className="px-3 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Department</th>
+                      <th className="px-3 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground w-28">Type</th>
+                      <th className="px-3 py-2.5 text-center text-[10px] font-semibold uppercase tracking-wider text-muted-foreground w-16" />
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {rows.map((row) => (
+                      <tr
+                        key={row.rowNum}
+                        className={`border-b border-border last:border-0 transition-colors ${rowBgClass(row)}`}
+                      >
+                        <td className="px-3 py-2 text-[11px] text-muted-foreground">
+                          {row.rowNum}
+                        </td>
 
-            {/* Footer actions */}
-            <div className="flex items-center justify-between pt-2">
-              <p className="text-xs text-muted-foreground">
-                {memberLimit !== null
-                  ? `${currentMemberCount} of ${memberLimit} member slots used — importing ${importableCount}`
-                  : `${currentMemberCount} current members — importing ${importableCount}`}
-              </p>
-              <div className="flex gap-3">
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setPhase("upload");
-                    setRows([]);
-                    setColumnMappings([]);
-                    setFileName("");
-                    setError(null);
-                  }}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  onClick={handleImport}
-                  disabled={importableCount === 0}
-                >
-                  Import {importableCount} member{importableCount !== 1 ? "s" : ""}
-                </Button>
+                        {/* Name */}
+                        <td className="px-3 py-2">
+                          {row.errors.name || row.status === "error" ? (
+                            <div>
+                              <Input
+                                value={row.name}
+                                onChange={(e) =>
+                                  updateRow(row.rowNum, "name", e.target.value)
+                                }
+                                className={`h-7 text-sm ${
+                                  row.errors.name
+                                    ? "border-red-400 dark:border-red-600"
+                                    : ""
+                                }`}
+                              />
+                              {row.errors.name && (
+                                <p className="text-[10px] text-red-500 mt-0.5">
+                                  {row.errors.name}
+                                </p>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-[13px]">{row.name}</span>
+                          )}
+                        </td>
+
+                        {/* Email */}
+                        <td className="px-3 py-2">
+                          {row.errors.email || row.status === "error" ? (
+                            <div>
+                              <Input
+                                value={row.email}
+                                onChange={(e) =>
+                                  updateRow(row.rowNum, "email", e.target.value)
+                                }
+                                className={`h-7 text-sm ${
+                                  row.errors.email
+                                    ? "border-red-400 dark:border-red-600"
+                                    : ""
+                                }`}
+                              />
+                              {row.errors.email && (
+                                <p className="text-[10px] text-red-500 mt-0.5">
+                                  {row.errors.email}
+                                </p>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-[13px] text-muted-foreground">{row.email}</span>
+                          )}
+                        </td>
+
+                        {/* Role */}
+                        <td className="px-3 py-2">
+                          {correctionFor(row, "role") || row.status === "error" ? (
+                            <div>
+                              {correctionFor(row, "role") && (
+                                <span className="text-[10px] line-through text-muted-foreground mr-1">
+                                  {correctionFor(row, "role")!.from}
+                                </span>
+                              )}
+                              <select
+                                className="w-full rounded-lg border border-border bg-background px-2 py-1 text-xs"
+                                value={row.role}
+                                onChange={(e) =>
+                                  updateRow(row.rowNum, "role", e.target.value)
+                                }
+                              >
+                                {INVITABLE_ROLES.map((r) => (
+                                  <option key={r} value={r}>
+                                    {ROLE_DISPLAY[r]}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          ) : (
+                            <span className="text-[13px]">{ROLE_DISPLAY[row.role] || row.role}</span>
+                          )}
+                        </td>
+
+                        {/* Department */}
+                        <td className="px-3 py-2">
+                          {correctionFor(row, "department") ||
+                          row.errors.department ||
+                          row.status === "error" ? (
+                            <div>
+                              {correctionFor(row, "department") && (
+                                <span className="text-[10px] line-through text-muted-foreground mr-1">
+                                  {correctionFor(row, "department")!.from}
+                                </span>
+                              )}
+                              <select
+                                className={`w-full rounded-lg border bg-background px-2 py-1 text-xs ${
+                                  row.errors.department
+                                    ? "border-red-400 dark:border-red-600"
+                                    : "border-border"
+                                }`}
+                                value={row.department}
+                                onChange={(e) =>
+                                  updateRow(row.rowNum, "department", e.target.value)
+                                }
+                              >
+                                <option value="">No department</option>
+                                {departments.map((d) => (
+                                  <option key={d.id} value={d.name}>
+                                    {d.name}
+                                  </option>
+                                ))}
+                              </select>
+                              {row.errors.department && (
+                                <p className="text-[10px] text-red-500 mt-0.5">
+                                  {row.errors.department}
+                                </p>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-[13px]">
+                              {row.department || (
+                                <span className="text-muted-foreground">—</span>
+                              )}
+                            </span>
+                          )}
+                        </td>
+
+                        {/* Employment Type */}
+                        <td className="px-3 py-2">
+                          {correctionFor(row, "employmentType") ||
+                          row.status === "error" ? (
+                            <div>
+                              {correctionFor(row, "employmentType") && (
+                                <span className="text-[10px] line-through text-muted-foreground mr-1">
+                                  {correctionFor(row, "employmentType")!.from}
+                                </span>
+                              )}
+                              <select
+                                className="w-full rounded-lg border border-border bg-background px-2 py-1 text-xs"
+                                value={row.employmentType}
+                                onChange={(e) =>
+                                  updateRow(
+                                    row.rowNum,
+                                    "employmentType",
+                                    e.target.value
+                                  )
+                                }
+                              >
+                                {EMPLOYMENT_TYPES.map((t) => (
+                                  <option key={t} value={t}>
+                                    {EMPLOYMENT_DISPLAY[t]}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          ) : (
+                            <span className="text-[13px]">
+                              {EMPLOYMENT_DISPLAY[row.employmentType] ||
+                              row.employmentType}
+                            </span>
+                          )}
+                        </td>
+
+                        {/* Status / actions */}
+                        <td className="px-3 py-2 text-center">
+                          {row.skipped ? (
+                            <button
+                              className="text-[10px] text-indigo-600 dark:text-indigo-400 underline underline-offset-2 font-medium"
+                              onClick={() => toggleSkip(row.rowNum)}
+                            >
+                              undo
+                            </button>
+                          ) : (
+                            <div className="flex flex-col items-center gap-1">
+                              {row.status === "valid" && (
+                                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-green-100 text-[10px] font-bold text-green-700 dark:bg-green-900/50 dark:text-green-300">
+                                  ✓
+                                </span>
+                              )}
+                              {row.status === "corrected" && (
+                                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-amber-100 text-[10px] font-bold text-amber-700 dark:bg-amber-900/50 dark:text-amber-300">
+                                  ✦
+                                </span>
+                              )}
+                              {row.status === "error" && (
+                                <>
+                                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-red-100 text-[10px] font-bold text-red-700 dark:bg-red-900/50 dark:text-red-300">
+                                    !
+                                  </span>
+                                  <button
+                                    className="text-[10px] text-muted-foreground underline underline-offset-2"
+                                    onClick={() => toggleSkip(row.rowNum)}
+                                  >
+                                    skip
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Footer actions */}
+              <div className="flex flex-col gap-2 border-t border-border/50 pt-3 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-[11px] text-muted-foreground">
+                  {memberLimit !== null
+                    ? `${currentMemberCount} of ${memberLimit} member slots used — importing ${importableCount}`
+                    : `${currentMemberCount} current members — importing ${importableCount}`}
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      setPhase("upload");
+                      setRows([]);
+                      setColumnMappings([]);
+                      setFileName("");
+                      setError(null);
+                    }}
+                    className="rounded-lg border border-border bg-card px-3.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleImport}
+                    disabled={importableCount === 0}
+                    className="rounded-lg bg-gradient-to-r from-indigo-600 to-indigo-500 px-4 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:from-indigo-700 hover:to-indigo-600 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Import {importableCount} member{importableCount !== 1 ? "s" : ""}
+                  </button>
+                </div>
               </div>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </>
       )}
 
-      {/* ─── Importing Phase ───────────────────────────────────── */}
+      {/* ═══════════════════════════════════════════════════════════ */}
+      {/*  Importing Phase                                           */}
+      {/* ═══════════════════════════════════════════════════════════ */}
       {phase === "importing" && (
-        <Card>
-          <CardContent className="py-12 text-center">
-            <p className="text-muted-foreground">
-              Importing {importableCount} members...
+        <div className="overflow-hidden rounded-xl border border-border bg-card">
+          <div className="flex flex-col items-center justify-center py-16 text-center">
+            {/* Spinner */}
+            <div className="mb-4 h-8 w-8 animate-spin rounded-full border-2 border-indigo-200 border-t-indigo-600" />
+            <p className="text-sm font-medium text-foreground">
+              Importing {importableCount} members…
             </p>
-          </CardContent>
-        </Card>
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              Sending invitations and creating accounts
+            </p>
+          </div>
+        </div>
       )}
 
-      {/* ─── Complete Phase ────────────────────────────────────── */}
+      {/* ═══════════════════════════════════════════════════════════ */}
+      {/*  Complete Phase                                            */}
+      {/* ═══════════════════════════════════════════════════════════ */}
       {phase === "complete" && importResults && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Import complete</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex gap-4">
-              <div className="rounded-md p-4 bg-green-50 dark:bg-green-950 flex-1 text-center">
-                <p className="text-2xl font-bold text-green-700 dark:text-green-300">
+        <div className="overflow-hidden rounded-xl border border-border bg-card">
+          <div className="border-b border-border px-4 py-3">
+            <h3 className="text-[13px] font-semibold">Import Complete</h3>
+          </div>
+          <div className="p-4 space-y-4">
+            {/* Result tiles */}
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="rounded-xl border border-green-200 dark:border-green-900 bg-green-50 dark:bg-green-950/30 p-5 text-center">
+                <p className="text-3xl font-bold text-green-700 dark:text-green-300">
                   {importResults.created}
                 </p>
-                <p className="text-sm text-green-600 dark:text-green-400">
+                <p className="mt-1 text-sm font-medium text-green-600 dark:text-green-400">
                   members created
                 </p>
               </div>
               {importResults.failed > 0 && (
-                <div className="rounded-md p-4 bg-red-50 dark:bg-red-950 flex-1 text-center">
-                  <p className="text-2xl font-bold text-red-700 dark:text-red-300">
+                <div className="rounded-xl border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/30 p-5 text-center">
+                  <p className="text-3xl font-bold text-red-700 dark:text-red-300">
                     {importResults.failed}
                   </p>
-                  <p className="text-sm text-red-600 dark:text-red-400">failed</p>
+                  <p className="mt-1 text-sm font-medium text-red-600 dark:text-red-400">
+                    failed
+                  </p>
                 </div>
               )}
             </div>
 
             {importResults.errors.length > 0 && (
-              <div className="text-sm space-y-1">
-                <p className="font-medium">Errors:</p>
+              <div className="rounded-lg bg-red-50 dark:bg-red-950/20 p-3 space-y-1">
+                <p className="text-xs font-semibold text-red-700 dark:text-red-400">Errors</p>
                 {importResults.errors.map((err, i) => (
-                  <p key={i} className="text-red-500 text-xs">
+                  <p key={i} className="text-[11px] text-red-600 dark:text-red-400">
                     {err}
                   </p>
                 ))}
               </div>
             )}
 
-            <Button onClick={() => router.push(`/org/${orgId}/members`)}>
-              Back to members
-            </Button>
-          </CardContent>
-        </Card>
+            <button
+              onClick={() => router.push(`/org/${orgId}/members`)}
+              className="rounded-lg bg-gradient-to-r from-indigo-600 to-indigo-500 px-4 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:from-indigo-700 hover:to-indigo-600"
+            >
+              Back to Members
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );

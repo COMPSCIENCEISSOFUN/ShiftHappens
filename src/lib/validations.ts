@@ -140,6 +140,7 @@ export const inviteUserSchema = z.object({
   email: z.string().email("Invalid email address"),
   role: z.enum(["manager", "staff"]),
   departmentId: z.string().optional(),
+  employmentType: z.enum(["full_time", "casual"]).optional(),
 });
 
 /**
@@ -150,6 +151,8 @@ export const inviteUserSchema = z.object({
 export const updateUserRoleSchema = z.object({
   role: z.enum(["company_admin", "manager", "staff"]),
   departmentIds: z.array(z.string()).optional(),
+  employmentType: z.enum(["full_time", "casual"]).optional(),
+  customRoleId: z.string().nullable().optional(),
 });
 
 /** 

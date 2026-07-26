@@ -1,11 +1,11 @@
 /**
  * Profile API Endpoint (Boundary Layer)
  * PATCH /api/profile — Update user profile (name and/or password)
- * GET /api/profile — Get current user's profile
- * 
+ * GET /api/profile — Get current user's profile (with org memberships)
+ *
  * Both endpoints require authentication.
  * Password change requires current password verification.
- * 
+ *
  * BCE compliant: Route → ProfileService → UserRepository
  */
 import { NextRequest, NextResponse } from "next/server";
@@ -50,7 +50,7 @@ export async function GET() {
     const sessionUser = await getAuthenticatedUser();
     if (!sessionUser) return unauthorizedResponse();
 
-    const profile = await profileService.getProfile(sessionUser.id);
+    const profile = await profileService.getFullProfile(sessionUser.id);
     if (!profile) return unauthorizedResponse();
 
     return NextResponse.json(profile);

@@ -204,6 +204,26 @@ describe("inviteUserSchema", () => {
     const result = inviteUserSchema.safeParse({ email: "john@example.com", role: "manager", departmentId: "dept-123" });
     expect(result.success).toBe(true);
   });
+
+  it("accepts invitation with employmentType full_time", () => {
+    const result = inviteUserSchema.safeParse({ email: "john@example.com", role: "staff", employmentType: "full_time" });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts invitation with employmentType casual", () => {
+    const result = inviteUserSchema.safeParse({ email: "john@example.com", role: "staff", employmentType: "casual" });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects invalid employmentType", () => {
+    const result = inviteUserSchema.safeParse({ email: "john@example.com", role: "staff", employmentType: "contract" });
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts invitation without employmentType (optional)", () => {
+    const result = inviteUserSchema.safeParse({ email: "john@example.com", role: "staff" });
+    expect(result.success).toBe(true);
+  });
 });
 
 describe("updateUserRoleSchema", () => {
@@ -215,6 +235,40 @@ describe("updateUserRoleSchema", () => {
   it("rejects invalid role", () => {
     const result = updateUserRoleSchema.safeParse({ role: "owner" });
     expect(result.success).toBe(false);
+  });
+
+  it("accepts role update with employmentType", () => {
+    const result = updateUserRoleSchema.safeParse({ role: "staff", employmentType: "full_time" });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects invalid employmentType on role update", () => {
+    const result = updateUserRoleSchema.safeParse({ role: "staff", employmentType: "permanent" });
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts role update with customRoleId string", () => {
+    const result = updateUserRoleSchema.safeParse({ role: "staff", customRoleId: "role-123" });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.customRoleId).toBe("role-123");
+    }
+  });
+
+  it("accepts role update with customRoleId null (clears custom role)", () => {
+    const result = updateUserRoleSchema.safeParse({ role: "staff", customRoleId: null });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.customRoleId).toBeNull();
+    }
+  });
+
+  it("accepts role update without customRoleId (optional)", () => {
+    const result = updateUserRoleSchema.safeParse({ role: "staff" });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.customRoleId).toBeUndefined();
+    }
   });
 });
 

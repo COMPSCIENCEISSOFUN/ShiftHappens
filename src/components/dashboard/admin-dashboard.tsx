@@ -228,9 +228,10 @@ function DashboardSkeleton({ orgName }: { orgName: string }) {
 interface AdminDashboardProps {
   orgId: string;
   orgName: string;
+  userName?: string;
 }
 
-export default function AdminDashboard({ orgId, orgName }: AdminDashboardProps) {
+export default function AdminDashboard({ orgId, orgName, userName }: AdminDashboardProps) {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -311,7 +312,7 @@ export default function AdminDashboard({ orgId, orgName }: AdminDashboardProps) 
       {/* ════════════════════════════════════════════════════ */}
       <div className="mb-7">
         <h2 className="text-2xl font-bold text-foreground">
-          {getGreeting()}, Admin
+          {getGreeting()}{userName ? `, ${userName}` : ""}
         </h2>
         <p className="mt-1 text-sm text-muted-foreground">
           Here&apos;s what needs your attention at {orgName} today.
@@ -346,21 +347,13 @@ export default function AdminDashboard({ orgId, orgName }: AdminDashboardProps) 
               className="mb-2 flex items-center gap-3.5 rounded-xl border border-border bg-card p-3.5 transition-shadow hover:shadow-sm"
             >
               <div
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] text-base"
-                style={{
-                  backgroundColor:
-                    item.severity === "danger"
-                      ? "#fef2f2"
-                      : item.severity === "warning"
-                        ? "#fffbeb"
-                        : "#eef2ff",
-                  color:
-                    item.severity === "danger"
-                      ? "#dc2626"
-                      : item.severity === "warning"
-                        ? "#d97706"
-                        : "#4f46e5",
-                }}
+                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] text-base ${
+                  item.severity === "danger"
+                    ? "bg-red-50 text-red-600 dark:bg-red-950 dark:text-red-400"
+                    : item.severity === "warning"
+                      ? "bg-amber-50 text-amber-600 dark:bg-amber-950 dark:text-amber-400"
+                      : "bg-indigo-50 text-indigo-600 dark:bg-indigo-950 dark:text-indigo-400"
+                }`}
               >
                 {severityIcon[item.severity] || "📋"}
               </div>
@@ -396,12 +389,7 @@ export default function AdminDashboard({ orgId, orgName }: AdminDashboardProps) 
               {aiRecs.recommendations.map((rec) => (
                 <div
                   key={rec.priority}
-                  className="mb-2 flex items-center gap-3.5 rounded-xl border p-3.5 transition-shadow hover:shadow-sm"
-                  style={{
-                    borderColor: "#e0e7ff",
-                    background:
-                      "linear-gradient(135deg, rgba(79,70,229,0.02), rgba(124,58,237,0.02))",
-                  }}
+                  className="mb-2 flex items-center gap-3.5 rounded-xl border border-indigo-200 bg-indigo-50/30 p-3.5 transition-shadow hover:shadow-sm dark:border-indigo-800 dark:bg-indigo-950/30"
                 >
                   <div
                     className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] text-sm text-white"

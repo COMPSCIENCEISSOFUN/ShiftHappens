@@ -24,6 +24,7 @@ export class InvitationRepository {
     email: string;
     role: string;
     departmentId?: string;
+    employmentType?: string;
     token: string;
     invitedById: string;
   }) {
@@ -36,6 +37,7 @@ export class InvitationRepository {
         email: data.email,
         role: data.role,
         departmentId: data.departmentId,
+        employmentType: data.employmentType,
         token: data.token,
         invitedById: data.invitedById,
         expires,

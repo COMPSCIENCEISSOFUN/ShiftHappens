@@ -27,6 +27,44 @@ export class ProfileService {
   }
 
   /**
+   * Retrieves full profile data including org memberships.
+   * Used by the redesigned Profile page to show the user's
+   * organisations, roles, and account details in one view.
+   */
+  async getFullProfile(userId: string) {
+    const user = await this.userRepo.findByIdWithMemberships(userId);
+    if (!user) return null;
+
+    return {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      emailVerified: user.emailVerified,
+      image: user.image,
+      createdAt: user.createdAt,
+      memberships: user.memberships.map((m) => ({
+        id: m.id,
+        role: m.role,
+        status: m.status,
+        employmentType: m.employmentType,
+        joinedAt: m.createdAt,
+        organization: {
+          id: m.organization.id,
+          name: m.organization.name,
+          slug: m.organization.slug,
+        },
+        customRole: m.customRole
+          ? {
+              id: m.customRole.id,
+              name: m.customRole.name,
+              displayLabel: m.customRole.displayLabel,
+            }
+          : null,
+      })),
+    };
+  }
+
+  /**
    * Updates user profile (name and/or password).
    * Password change requires verifying the current password first.
    */

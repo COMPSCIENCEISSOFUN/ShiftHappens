@@ -24,6 +24,7 @@ import { TaskAssignmentRepository } from "@/repositories/task-assignment.reposit
 import { MembershipRepository } from "@/repositories/membership.repository";
 import { WorkRuleRepository } from "@/repositories/work-rule.repository";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
+import { DEFAULT_EMPLOYMENT_TYPE } from "@/lib/role-config";
 import { prisma } from "@/lib/prisma";
 
 interface EligibilityCheck {
@@ -108,8 +109,10 @@ export class EligibilityService {
     const results: StaffEligibility[] = [];
 
     for (const member of eligibleMembers) {
+      // TODO: Remove cast after running `npx prisma generate` — employmentType
+      // is on the Membership model; Prisma types will include it natively.
       const memberEmploymentType =
-        (member as Record<string, unknown>).employmentType as string || "casual";
+        (member as typeof member & { employmentType?: string | null }).employmentType || DEFAULT_EMPLOYMENT_TYPE;
 
       const memberOverrides = overridesByMember.get(member.id) ?? new Set<string>();
       // A member is waived on a dimension by a matching key or a blanket "all".
