@@ -843,12 +843,12 @@ function WorkloadBars({
           key={dept.id}
           className="flex items-center gap-3 border-b border-muted py-2.5 last:border-b-0"
         >
-          <div className="flex w-[100px] items-center gap-2 shrink-0">
+          <div className="flex w-[80px] items-center gap-2 shrink-0 md:w-[100px]">
             <div
               className="h-2.5 w-2.5 shrink-0 rounded-sm"
               style={{ backgroundColor: dept.color }}
             />
-            <span className="truncate text-[13px] font-medium text-foreground">
+            <span className="truncate text-[12px] md:text-[13px] font-medium text-foreground">
               {dept.name}
             </span>
           </div>
@@ -862,7 +862,7 @@ function WorkloadBars({
             />
           </div>
           <span
-            className={`text-xs whitespace-nowrap text-right min-w-[90px] ${
+            className={`text-xs whitespace-nowrap text-right min-w-[60px] md:min-w-[90px] ${
               dept.isImbalanced
                 ? "font-semibold text-amber-600 dark:text-amber-400"
                 : "text-muted-foreground"

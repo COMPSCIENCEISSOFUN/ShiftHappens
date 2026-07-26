@@ -467,7 +467,7 @@ export default function StaffDashboard({
         <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           Your week
         </h3>
-        <div className="grid grid-cols-7 gap-2">
+        <div className="flex gap-2 overflow-x-auto pb-2 md:grid md:grid-cols-7 md:overflow-visible md:pb-0">
           {weekDates.map((date, i) => {
             const isToday = isSameDay(date, today);
             const dayAssignments = assignmentsByDay[i] ?? [];
@@ -476,7 +476,7 @@ export default function StaffDashboard({
             return (
               <Card
                 key={i}
-                className="relative overflow-hidden"
+                className="relative min-w-[90px] flex-1 overflow-hidden md:min-w-0"
                 style={
                   isToday
                     ? { borderColor: "#4f46e5", borderWidth: 2 }

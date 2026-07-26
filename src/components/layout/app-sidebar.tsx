@@ -243,6 +243,25 @@ interface AppSidebarProps {
 // Component
 // ============================================================
 
+function HamburgerIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+      <line x1="4" y1="6" x2="20" y2="6" />
+      <line x1="4" y1="12" x2="20" y2="12" />
+      <line x1="4" y1="18" x2="20" y2="18" />
+    </svg>
+  );
+}
+
+function CloseIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+      <line x1="18" y1="6" x2="6" y2="18" />
+      <line x1="6" y1="6" x2="18" y2="18" />
+    </svg>
+  );
+}
+
 export function AppSidebar({
   user,
   orgId,
@@ -257,10 +276,16 @@ export function AppSidebar({
   const [features, setFeatures] = useState<Record<string, boolean> | null>(null);
   const [tier, setTier] = useState<{ name: string; displayName: string } | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  // Close sidebar on route change (mobile navigation)
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [pathname]);
 
   // Fetch subscription features for sidebar gating
   useEffect(() => {
@@ -376,9 +401,38 @@ export function AppSidebar({
   const roleLabel = role ? getSystemRoleLabel(role, employmentType) : undefined;
 
   return (
-    <aside className="app-sidebar">
-      {/* Dot-grid overlay */}
-      <div className="app-sidebar-dots" aria-hidden="true" />
+    <>
+      {/* Mobile hamburger button — visible only on small screens */}
+      <button
+        onClick={() => setMobileOpen(true)}
+        className="fixed top-4 left-4 z-40 flex h-10 w-10 items-center justify-center rounded-lg text-white shadow-lg md:hidden"
+        style={{ background: "linear-gradient(135deg, #4338ca, #5b21b6)" }}
+        aria-label="Open menu"
+      >
+        <HamburgerIcon />
+      </button>
+
+      {/* Mobile backdrop */}
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/50 md:hidden"
+          onClick={() => setMobileOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+
+      <aside className={`app-sidebar ${mobileOpen ? "app-sidebar-mobile-open" : ""}`}>
+        {/* Mobile close button */}
+        <button
+          onClick={() => setMobileOpen(false)}
+          className="absolute top-5 right-4 z-[2] flex h-8 w-8 items-center justify-center rounded-lg bg-white/10 text-white md:hidden"
+          aria-label="Close menu"
+        >
+          <CloseIcon />
+        </button>
+
+        {/* Dot-grid overlay */}
+        <div className="app-sidebar-dots" aria-hidden="true" />
 
       {/* Logo */}
       <div className="relative z-[1] mb-9 flex items-center gap-2.5">
@@ -478,5 +532,6 @@ export function AppSidebar({
         </div>
       </div>
     </aside>
+    </>
   );
 }

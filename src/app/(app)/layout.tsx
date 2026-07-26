@@ -96,7 +96,7 @@ export default async function AppLayout({
         employmentType={employmentType}
         customRoleLabel={customRoleLabel}
       />
-      <main className="flex-1 p-6">{children}</main>
+      <main className="flex-1 overflow-x-hidden px-4 pt-18 pb-6 md:p-6">{children}</main>
     </div>
   );
 }
