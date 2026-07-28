@@ -15,7 +15,6 @@
 
 import { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -272,6 +271,10 @@ export default function ProfilePage() {
 
   if (!profile) return <PageLoading label="Loading profile..." />;
 
+  // Saving an unchanged name is a no-op; the button reflects that.
+  const nameChanged = name.trim() !== (profile.name ?? "").trim();
+  const nameValid = name.trim().length > 0;
+
   // ── Derived display values ──
   const initials = profile.name
     ? profile.name
@@ -385,10 +388,28 @@ export default function ProfilePage() {
         <form onSubmit={onSaveName} className="h-full">
           <Card className="h-full">
             <CardHeader>
-              <CardTitle>Personal Information</CardTitle>
-              <CardDescription>
-                Update your display name
-              </CardDescription>
+              <div className="flex items-center gap-3">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-50 dark:bg-indigo-950/30">
+                  <svg
+                    width="18"
+                    height="18"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    viewBox="0 0 24 24"
+                    className="text-indigo-600"
+                  >
+                      <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
+                      <circle cx="12" cy="7" r="4" />
+                  </svg>
+                </div>
+                <div>
+                  <CardTitle>Personal Information</CardTitle>
+                  <CardDescription>Update your display name</CardDescription>
+                </div>
+              </div>
             </CardHeader>
             <CardContent className="flex-1 space-y-4">
               {nameMessage && (
@@ -416,9 +437,22 @@ export default function ProfilePage() {
               </div>
             </CardContent>
             <CardFooter>
-              <Button type="submit" disabled={nameLoading}>
+              <button
+                type="submit"
+                // Nothing to save while the field still holds the stored value —
+                // an enabled button that does nothing reads as a broken save.
+                disabled={nameLoading || !nameChanged || !nameValid}
+                title={
+                  !nameValid
+                    ? "Name cannot be empty"
+                    : !nameChanged
+                      ? "No changes to save"
+                      : undefined
+                }
+                className="rounded-lg bg-gradient-to-r from-indigo-600 to-indigo-500 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:from-indigo-700 hover:to-indigo-600 disabled:cursor-default disabled:opacity-45"
+              >
                 {nameLoading ? "Saving..." : "Save name"}
-              </Button>
+              </button>
             </CardFooter>
           </Card>
         </form>
@@ -427,10 +461,28 @@ export default function ProfilePage() {
         <form onSubmit={onSavePassword} className="h-full">
           <Card className="h-full">
             <CardHeader>
-              <CardTitle>Change Password</CardTitle>
-              <CardDescription>
-                Update your password
-              </CardDescription>
+              <div className="flex items-center gap-3">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-50 dark:bg-amber-950/30">
+                  <svg
+                    width="18"
+                    height="18"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    viewBox="0 0 24 24"
+                    className="text-amber-600"
+                  >
+                      <rect width="18" height="11" x="3" y="11" rx="2" ry="2" />
+                      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                  </svg>
+                </div>
+                <div>
+                  <CardTitle>Change Password</CardTitle>
+                  <CardDescription>Update your password</CardDescription>
+                </div>
+              </div>
             </CardHeader>
             <CardContent className="space-y-4">
               {passwordMessage && (
@@ -506,12 +558,25 @@ export default function ProfilePage() {
               </div>
             </CardContent>
             <CardFooter>
-              <Button
+              <button
                 type="submit"
-                disabled={passwordLoading || !currentPassword || !newPassword}
+                // Also requires the confirm field — without it the form could be
+                // submitted only to fail the "passwords do not match" rule.
+                disabled={
+                  passwordLoading ||
+                  !currentPassword ||
+                  !newPassword ||
+                  !confirmNewPassword
+                }
+                title={
+                  !currentPassword || !newPassword || !confirmNewPassword
+                    ? "Fill in all three password fields"
+                    : undefined
+                }
+                className="rounded-lg bg-gradient-to-r from-indigo-600 to-indigo-500 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:from-indigo-700 hover:to-indigo-600 disabled:cursor-default disabled:opacity-45"
               >
                 {passwordLoading ? "Changing..." : "Change password"}
-              </Button>
+              </button>
             </CardFooter>
           </Card>
         </form>
@@ -521,12 +586,33 @@ export default function ProfilePage() {
       {profile.memberships.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle>Organisation Memberships</CardTitle>
-            <CardDescription>
-              {profile.memberships.length === 1
-                ? "The organisation you belong to"
-                : "Organisations you belong to"}
-            </CardDescription>
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-50 dark:bg-violet-950/30">
+                <svg
+                  width="18"
+                  height="18"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  viewBox="0 0 24 24"
+                  className="text-violet-600"
+                >
+                  <path d="M3 21h18" />
+                  <path d="M5 21V7l7-4 7 4v14" />
+                  <path d="M9 9h.01M9 13h.01M9 17h.01M15 9h.01M15 13h.01M15 17h.01" />
+                </svg>
+              </div>
+              <div>
+                <CardTitle>Organisation Memberships</CardTitle>
+                <CardDescription>
+                  {profile.memberships.length === 1
+                    ? "The organisation you belong to"
+                    : "Organisations you belong to"}
+                </CardDescription>
+              </div>
+            </div>
           </CardHeader>
           <CardContent>
             <div className="divide-y divide-border rounded-lg border">
@@ -579,10 +665,31 @@ export default function ProfilePage() {
       {/* ─── Account Details ─────────────────────────────────── */}
       <Card>
         <CardHeader>
-          <CardTitle>Account Details</CardTitle>
-          <CardDescription>
-            Technical details about your account
-          </CardDescription>
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 dark:bg-slate-800/50">
+              <svg
+                width="18"
+                height="18"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                viewBox="0 0 24 24"
+                className="text-slate-600 dark:text-slate-400"
+              >
+                <circle cx="12" cy="12" r="10" />
+                <path d="M12 16v-4" />
+                <path d="M12 8h.01" />
+              </svg>
+            </div>
+            <div>
+              <CardTitle>Account Details</CardTitle>
+              <CardDescription>
+                Technical details about your account
+              </CardDescription>
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           <dl className="grid gap-3 sm:grid-cols-2">

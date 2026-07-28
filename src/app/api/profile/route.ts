@@ -12,6 +12,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { ProfileService } from "@/services/profile.service";
 import { updateProfileSchema } from "@/lib/validations";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
+import { validationErrorResponse } from "@/lib/api-utils";
 
 const profileService = new ProfileService();
 
@@ -24,10 +25,8 @@ export async function PATCH(request: NextRequest) {
     const parsed = updateProfileSchema.safeParse(body);
 
     if (!parsed.success) {
-      return NextResponse.json(
-        { error: "Validation failed", details: parsed.error.flatten() },
-        { status: 400 }
-      );
+      // Surface the specific rule that failed, not a generic "Validation failed".
+      return validationErrorResponse(parsed.error);
     }
 
     const updated = await profileService.updateProfile(sessionUser.id, {
