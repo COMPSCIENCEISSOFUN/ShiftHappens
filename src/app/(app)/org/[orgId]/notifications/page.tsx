@@ -17,6 +17,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { BellOff, CheckCheck, SearchX } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { PageLoading } from "@/components/ui/page-loading";
 import { AlertBanner } from "@/components/ui/alert-banner";
@@ -64,6 +65,16 @@ const FILTERS: { key: FilterKey; label: string }[] = [
 ];
 
 const PAGE_SIZE = 20;
+
+/** Lower-case nouns for the "No ___ yet" empty state. */
+const FILTER_NOUNS: Record<FilterKey, string> = {
+  all: "notifications",
+  unread: "unread notifications",
+  task: "task notifications",
+  assignment: "assignment updates",
+  certification: "certification updates",
+  alert: "alerts",
+};
 
 /** Emoji + tint per type. Mirrors the bell so the two never look like different features. */
 function iconFor(type: string): { glyph: string; tint: string } {
@@ -359,8 +370,6 @@ export default function NotificationsPage() {
     else groups.push({ label, items: [item] });
   }
 
-  const isFiltered = filter !== "all" || search.length > 0;
-
   return (
     <div className="w-full">
       {/* ── Header ── */}
@@ -479,16 +488,57 @@ export default function NotificationsPage() {
 
       {/* ── Feed ── */}
       {items.length === 0 ? (
-        isFiltered ? (
+        // Three distinct empty states. "Nothing has ever happened" and "nothing
+        // matches what you just typed" are completely different situations, and
+        // a single generic message leaves the user unsure which one they are in.
+        filter === "unread" ? (
           <EmptyState
-            title={
-              filter === "unread"
-                ? "You're all caught up"
-                : "No matching notifications"
+            icon={CheckCheck}
+            title="You're all caught up"
+            description="No unread notifications. Everything here has been read."
+            action={
+              <button
+                onClick={() => setFilter("all")}
+                className="rounded-lg border border-border bg-card px-3.5 py-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:text-foreground"
+              >
+                View all notifications
+              </button>
+            }
+          />
+        ) : search ? (
+          <EmptyState
+            icon={SearchX}
+            title="No notifications match your search"
+            description={`Nothing found for "${search}". Try a shorter word, or check a different category.`}
+            action={
+              <button
+                onClick={() => setSearchInput("")}
+                className="rounded-lg border border-border bg-card px-3.5 py-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:text-foreground"
+              >
+                Clear search
+              </button>
+            }
+          />
+        ) : filter !== "all" ? (
+          <EmptyState
+            icon={BellOff}
+            title={`No ${FILTER_NOUNS[filter]} yet`}
+            description="Nothing in this category so far. Other categories may still have activity."
+            action={
+              <button
+                onClick={() => setFilter("all")}
+                className="rounded-lg border border-border bg-card px-3.5 py-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:text-foreground"
+              >
+                View all notifications
+              </button>
             }
           />
         ) : (
-          <EmptyState title="No notifications yet" />
+          <EmptyState
+            icon={BellOff}
+            title="No notifications yet"
+            description="When you're assigned a task, or a colleague responds to one, or a certification is reviewed, it will appear here."
+          />
         )
       ) : (
         <div className="space-y-5">
