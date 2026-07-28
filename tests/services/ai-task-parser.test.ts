@@ -9,6 +9,7 @@ import { OrganizationRepository } from "@/repositories/organization.repository";
 import { UserRepository } from "@/repositories/user.repository";
 import { prisma } from "@/lib/prisma";
 import { cleanDatabase } from "../helpers/cleanup";
+import { hourInTimeZone, localDateInTimeZone } from "@/lib/timezone";
 
 const parser = new AITaskParserService();
 const orgRepo = new OrganizationRepository();
@@ -134,9 +135,31 @@ describe("AITaskParserService", () => {
         orgId
       );
 
-      // Should have a scheduled start
+      // Assert the ORGANISATION's hour, not the UTC wall clock. The old
+      // assertion was toContain("T07:00"), which only held while the parser
+      // mislabelled local times as UTC — it would have passed for a task that
+      // actually landed at 3pm Singapore time.
       if (result.scheduledStart) {
-        expect(result.scheduledStart).toContain("T07:00");
+        expect(hourInTimeZone(new Date(result.scheduledStart))).toBe(7);
+      }
+    });
+
+    it("schedules for tomorrow in the organisation's timezone", async () => {
+      const result = await parser.parseTaskDescription(
+        "Need kitchen staff tomorrow morning",
+        orgId
+      );
+
+      if (result.scheduledStart) {
+        const expected = localDateInTimeZone(
+          new Date(Date.now() + 24 * 60 * 60 * 1000)
+        );
+        expect(localDateInTimeZone(new Date(result.scheduledStart))).toBe(expected);
+
+        // A real instant, not a naive local string mislabelled as UTC.
+        expect(new Date(result.scheduledStart).toISOString()).toBe(
+          result.scheduledStart
+        );
       }
     });
 
@@ -147,7 +170,7 @@ describe("AITaskParserService", () => {
       );
 
       if (result.scheduledStart) {
-        expect(result.scheduledStart).toContain("T17:00");
+        expect(hourInTimeZone(new Date(result.scheduledStart))).toBe(17);
       }
     });
 

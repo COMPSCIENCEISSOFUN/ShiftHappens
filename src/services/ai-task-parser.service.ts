@@ -14,6 +14,12 @@
  * layers of defense against prompt injection.
  */
 import { prisma } from "@/lib/prisma";
+import {
+  DEFAULT_TIMEZONE,
+  endOfDayInTimeZone,
+  localDateInTimeZone,
+  utcOffsetLabel,
+} from "@/lib/timezone";
 
 interface ParsedTask {
   title: string;
@@ -72,12 +78,16 @@ export class AITaskParserService {
     }
 
     const deptNames = departments.map((d) => d.name).join(", ");
-    const today = new Date().toISOString().split("T")[0];
+    // The organisation's calendar date, not the server's. On Vercel (UTC) the
+    // two differ for the whole Singapore morning, which would tell the model
+    // "today" is yesterday and shift every relative date it infers.
+    const today = localDateInTimeZone();
+    const offset = utcOffsetLabel();
 
     const prompt = `Parse this task request into structured data.
 
 AVAILABLE DEPARTMENTS: ${deptNames || "None"}
-TODAY'S DATE: ${today}
+TODAY'S DATE: ${today} (${DEFAULT_TIMEZONE}, UTC${offset})
 
 USER REQUEST: "${sanitizedText}"
 
@@ -97,6 +107,8 @@ RULES:
 - Infer priority from urgency words (ASAP/urgent = urgent, important = high, default = medium).
 - If "tomorrow" is mentioned, use tomorrow's date.
 - If "morning" is mentioned, use 07:00-12:00. "afternoon" = 12:00-17:00. "evening" = 17:00-22:00.
+- ALL times are local to ${DEFAULT_TIMEZONE}. Return ISO 8601 WITH the offset, e.g. "${today}T07:00:00${offset}".
+  Never return a bare "Z" time — it would be read as UTC and land hours away from what the user asked for.
 - If headcount not specified, default to 1.
 - Always provide a concise title and a more detailed description.`;
 
@@ -225,19 +237,27 @@ RULES:
 
     let scheduledStart: string | null = null;
     let scheduledEnd: string | null = null;
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const dateStr = tomorrow.toISOString().split("T")[0];
+    // Tomorrow's midnight in the organisation's timezone. The previous version
+    // built "${date}T07:00:00.000Z", which asserts 07:00 UTC — 15:00 in
+    // Singapore — while meaning 7am local. It only looked right because the
+    // create form dropped the "Z" and read the value back as local time.
+    //
+    // Adding whole hours to a local midnight is exact for a fixed-offset zone
+    // such as Asia/Singapore. A DST zone would need the offset resolved at each
+    // target hour instead.
+    const tomorrowMidnight = endOfDayInTimeZone();
+    const atLocalHour = (hour: number) =>
+      new Date(tomorrowMidnight.getTime() + hour * 60 * 60 * 1000).toISOString();
 
     if (lower.includes("morning")) {
-      scheduledStart = `${dateStr}T07:00:00.000Z`;
-      scheduledEnd = `${dateStr}T12:00:00.000Z`;
+      scheduledStart = atLocalHour(7);
+      scheduledEnd = atLocalHour(12);
     } else if (lower.includes("afternoon")) {
-      scheduledStart = `${dateStr}T12:00:00.000Z`;
-      scheduledEnd = `${dateStr}T17:00:00.000Z`;
+      scheduledStart = atLocalHour(12);
+      scheduledEnd = atLocalHour(17);
     } else if (lower.includes("evening")) {
-      scheduledStart = `${dateStr}T17:00:00.000Z`;
-      scheduledEnd = `${dateStr}T22:00:00.000Z`;
+      scheduledStart = atLocalHour(17);
+      scheduledEnd = atLocalHour(22);
     }
 
     return {

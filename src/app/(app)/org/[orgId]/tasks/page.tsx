@@ -30,6 +30,7 @@ import { PageLoading } from "@/components/ui/page-loading";
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { EmptyState } from "@/components/ui/empty-state";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { toDateTimeLocalValue } from "@/lib/timezone";
 
 // ============================================================
 // Constants
@@ -341,11 +342,15 @@ export default function TasksPage() {
         if (deptSelect && parsed.departmentId) deptSelect.value = parsed.departmentId;
         if (prioritySelect) prioritySelect.value = parsed.priority || "medium";
         if (headcountInput) headcountInput.value = String(parsed.requiredHeadcount || 1);
+        // slice(0, 16) used to strip the offset and hand the UTC wall clock to
+        // a local input — wrong, but it cancelled the parser emitting local
+        // times labelled as UTC. Both sides are now correct: the parser returns
+        // a true instant, and this converts it to the viewer's local time.
         if (startInput && parsed.scheduledStart) {
-          startInput.value = parsed.scheduledStart.slice(0, 16);
+          startInput.value = toDateTimeLocalValue(new Date(parsed.scheduledStart));
         }
         if (endInput && parsed.scheduledEnd) {
-          endInput.value = parsed.scheduledEnd.slice(0, 16);
+          endInput.value = toDateTimeLocalValue(new Date(parsed.scheduledEnd));
         }
       }, 100);
     } catch {
@@ -1282,11 +1287,11 @@ export default function TasksPage() {
                             </div>
                             <div className="space-y-1">
                               <Label className="text-xs font-semibold text-muted-foreground">Start time</Label>
-                              <Input name="editStart" type="datetime-local" defaultValue={task.scheduledStart ? new Date(task.scheduledStart).toISOString().slice(0, 16) : ""} />
+                              <Input name="editStart" type="datetime-local" defaultValue={task.scheduledStart ? toDateTimeLocalValue(new Date(task.scheduledStart)) : ""} />
                             </div>
                             <div className="space-y-1">
                               <Label className="text-xs font-semibold text-muted-foreground">End time</Label>
-                              <Input name="editEnd" type="datetime-local" defaultValue={task.scheduledEnd ? new Date(task.scheduledEnd).toISOString().slice(0, 16) : ""} />
+                              <Input name="editEnd" type="datetime-local" defaultValue={task.scheduledEnd ? toDateTimeLocalValue(new Date(task.scheduledEnd)) : ""} />
                             </div>
                           </div>
                           <div className="flex gap-2 pt-1">

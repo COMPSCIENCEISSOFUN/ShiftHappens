@@ -19,6 +19,9 @@ import {
   endOfDayInTimeZone,
   hourInTimeZone,
   dayOfWeekInTimeZone,
+  toDateTimeLocalValue,
+  localDateInTimeZone,
+  utcOffsetLabel,
 } from "@/lib/timezone";
 
 describe("timezone utilities", () => {
@@ -113,6 +116,103 @@ describe("timezone utilities", () => {
       expect(dayOfWeekInTimeZone(new Date("2026-07-28T17:00:00Z"))).toBe(3);
       // ...whereas UTC still says Tuesday.
       expect(dayOfWeekInTimeZone(new Date("2026-07-28T17:00:00Z"), "UTC")).toBe(2);
+    });
+  });
+
+  describe("toDateTimeLocalValue", () => {
+    // The regression: the edit dialog was filled with toISOString().slice(0,16),
+    // which is the UTC wall clock, while the input parses its value as local.
+    // Every save therefore shifted the task by the UTC offset, compounding.
+    it("round-trips exactly through Date, in whatever timezone the test runs", () => {
+      const instants = [
+        new Date("2026-07-28T09:00:00Z"),
+        new Date("2026-07-28T17:30:00Z"),
+        new Date("2026-01-01T00:00:00Z"),
+        new Date("2026-12-31T23:59:00Z"),
+      ];
+
+      for (const instant of instants) {
+        const parsedBack = new Date(toDateTimeLocalValue(instant));
+        const truncatedToMinute = new Date(instant);
+        truncatedToMinute.setSeconds(0, 0);
+
+        expect(parsedBack.getTime()).toBe(truncatedToMinute.getTime());
+      }
+    });
+
+    it("produces the local wall clock, not the UTC one", () => {
+      const instant = new Date("2026-07-28T09:00:00Z");
+      const value = toDateTimeLocalValue(instant);
+
+      expect(value).toBe(
+        `${instant.getFullYear()}-${String(instant.getMonth() + 1).padStart(2, "0")}-` +
+          `${String(instant.getDate()).padStart(2, "0")}T` +
+          `${String(instant.getHours()).padStart(2, "0")}:` +
+          `${String(instant.getMinutes()).padStart(2, "0")}`
+      );
+
+      // On any machine not running UTC, the old approach disagrees — which is
+      // precisely the bug. On a UTC machine both agree and there is nothing to
+      // assert, which is why this never failed in CI or on a UTC server.
+      if (instant.getTimezoneOffset() !== 0) {
+        expect(value).not.toBe(instant.toISOString().slice(0, 16));
+      }
+    });
+
+    it("emits the exact format a datetime-local input requires", () => {
+      const value = toDateTimeLocalValue(new Date("2026-03-05T04:07:00Z"));
+      expect(value).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
+    });
+
+    it("zero-pads single-digit months, days, hours and minutes", () => {
+      // Build from local parts so the assertion holds in any timezone.
+      const d = new Date(2026, 2, 5, 4, 7); // 5 March 2026, 04:07 local
+      expect(toDateTimeLocalValue(d)).toBe("2026-03-05T04:07");
+    });
+  });
+
+  describe("localDateInTimeZone", () => {
+    it("returns the Singapore date, not the UTC date", () => {
+      // 23:59 UTC on the 27th is already 07:59 on the 28th in Singapore.
+      expect(localDateInTimeZone(new Date("2026-07-27T23:59:00Z"))).toBe("2026-07-28");
+    });
+
+    it("does not roll over until Singapore midnight", () => {
+      expect(localDateInTimeZone(new Date("2026-07-28T15:59:00Z"))).toBe("2026-07-28");
+      expect(localDateInTimeZone(new Date("2026-07-28T16:00:00Z"))).toBe("2026-07-29");
+    });
+
+    it("zero-pads month and day", () => {
+      expect(localDateInTimeZone(new Date("2026-03-05T04:00:00Z"))).toBe("2026-03-05");
+    });
+
+    it("honours an explicit timezone", () => {
+      expect(localDateInTimeZone(new Date("2026-07-27T23:59:00Z"), "UTC")).toBe(
+        "2026-07-27"
+      );
+    });
+  });
+
+  describe("utcOffsetLabel", () => {
+    it("returns +08:00 for Singapore", () => {
+      expect(utcOffsetLabel(new Date("2026-07-28T00:00:00Z"))).toBe("+08:00");
+    });
+
+    it("returns +00:00 for UTC", () => {
+      expect(utcOffsetLabel(new Date("2026-07-28T00:00:00Z"), "UTC")).toBe("+00:00");
+    });
+
+    it("signs negative offsets correctly", () => {
+      // New York in July is UTC-4.
+      expect(utcOffsetLabel(new Date("2026-07-28T00:00:00Z"), "America/New_York")).toBe(
+        "-04:00"
+      );
+    });
+
+    it("handles a half-hour offset", () => {
+      expect(utcOffsetLabel(new Date("2026-07-28T00:00:00Z"), "Asia/Kolkata")).toBe(
+        "+05:30"
+      );
     });
   });
 });

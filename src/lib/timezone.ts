@@ -105,3 +105,67 @@ export function dayOfWeekInTimeZone(
   const offset = zoneOffsetMs(date, timeZone);
   return new Date(date.getTime() + offset).getUTCDay();
 }
+
+/**
+ * Formats an instant for a `<input type="datetime-local">` value.
+ *
+ * The input renders and parses its value as the BROWSER'S local time, with no
+ * timezone marker. The obvious-looking `date.toISOString().slice(0, 16)` is
+ * therefore wrong: it yields the UTC wall clock, which the input then displays
+ * as though it were local. In Singapore that shows a 17:00 shift as 09:00, and
+ * submitting the form converts that 09:00 back to an instant eight hours
+ * earlier — so simply opening a task and saving it walks the time backwards,
+ * compounding on every edit.
+ *
+ * Building the string from the local getters keeps the round trip exact:
+ * `new Date(toDateTimeLocalValue(d))` equals `d` truncated to the minute, in
+ * every timezone.
+ */
+export function toDateTimeLocalValue(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+
+  return (
+    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` +
+    `T${pad(date.getHours())}:${pad(date.getMinutes())}`
+  );
+}
+
+/**
+ * The calendar date at the given instant, in `timeZone`, as "YYYY-MM-DD".
+ *
+ * `new Date().toISOString().split("T")[0]` looks equivalent and is not: it
+ * yields the UTC date, so from 08:00 Singapore time backwards it names the
+ * previous day. Anything that tells a user — or a language model — what "today"
+ * is must use this instead.
+ */
+export function localDateInTimeZone(
+  date: Date = new Date(),
+  timeZone: string = DEFAULT_TIMEZONE
+): string {
+  const offset = zoneOffsetMs(date, timeZone);
+  const wallClock = new Date(date.getTime() + offset);
+  const pad = (n: number) => String(n).padStart(2, "0");
+
+  return (
+    `${wallClock.getUTCFullYear()}-` +
+    `${pad(wallClock.getUTCMonth() + 1)}-` +
+    `${pad(wallClock.getUTCDate())}`
+  );
+}
+
+/**
+ * The UTC offset at the given instant, in `timeZone`, as "+08:00" / "-05:00".
+ * Used to state the offset explicitly in an ISO 8601 string, so a timestamp
+ * cannot be misread as UTC by whatever consumes it.
+ */
+export function utcOffsetLabel(
+  date: Date = new Date(),
+  timeZone: string = DEFAULT_TIMEZONE
+): string {
+  const totalMinutes = Math.round(zoneOffsetMs(date, timeZone) / 60000);
+  const sign = totalMinutes < 0 ? "-" : "+";
+  const abs = Math.abs(totalMinutes);
+  const pad = (n: number) => String(n).padStart(2, "0");
+
+  return `${sign}${pad(Math.floor(abs / 60))}:${pad(abs % 60)}`;
+}
