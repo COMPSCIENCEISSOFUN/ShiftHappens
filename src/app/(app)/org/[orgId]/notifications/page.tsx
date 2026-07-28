@@ -17,6 +17,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { Input } from "@/components/ui/input";
 import { PageLoading } from "@/components/ui/page-loading";
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -420,51 +421,58 @@ export default function NotificationsPage() {
       </div>
 
       {/* ── Filters ── */}
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        {FILTERS.map(({ key, label }) => {
-          const active = filter === key;
-          return (
-            <button
-              key={key}
-              onClick={() => setFilter(key)}
-              className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs transition-colors ${
-                active
-                  ? "bg-gradient-to-r from-indigo-600 to-indigo-500 font-semibold text-white shadow-sm"
-                  : "border border-border bg-card font-medium text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {label}
-              <span
-                className={`rounded-full px-1.5 py-px text-[10px] font-semibold ${
-                  active ? "bg-white/20 text-white" : "bg-muted text-muted-foreground"
+      <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center">
+        {/* Pills scroll horizontally rather than wrapping — six of them would
+            otherwise stack into three rows on a phone, pushing the feed off
+            screen. Same treatment as the tasks page. */}
+        <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto pb-1">
+          {FILTERS.map(({ key, label }) => {
+            const active = filter === key;
+            return (
+              <button
+                key={key}
+                onClick={() => setFilter(key)}
+                className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-[13px] font-medium transition-all ${
+                  active
+                    ? "border-indigo-500 bg-indigo-50 text-indigo-700 dark:border-indigo-400 dark:bg-indigo-950 dark:text-indigo-300"
+                    : "border-border bg-card text-muted-foreground hover:border-indigo-300 hover:text-indigo-600 dark:hover:border-indigo-600 dark:hover:text-indigo-400"
                 }`}
               >
-                {countFor(key)}
-              </span>
-            </button>
-          );
-        })}
+                {label}
+                <span
+                  className={`inline-flex min-w-[18px] items-center justify-center rounded-full px-1 py-0 text-[11px] font-bold ${
+                    active
+                      ? "bg-indigo-600 text-white dark:bg-indigo-500"
+                      : "bg-muted text-muted-foreground"
+                  }`}
+                >
+                  {countFor(key)}
+                </span>
+              </button>
+            );
+          })}
+        </div>
 
-        <div className="relative sm:ml-auto">
+        <div className="relative shrink-0 sm:w-56">
           <svg
-            className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
-            width="13"
-            height="13"
-            viewBox="0 0 24 24"
+            className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
             fill="none"
+            viewBox="0 0 24 24"
             stroke="currentColor"
-            strokeWidth="2.5"
-            strokeLinecap="round"
+            strokeWidth={2}
           >
-            <circle cx="11" cy="11" r="7" />
-            <path d="m20 20-3.5-3.5" />
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"
+            />
           </svg>
-          <input
+          <Input
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
-            placeholder="Search notifications…"
+            placeholder="Search notifications..."
             aria-label="Search notifications"
-            className="w-full rounded-lg border border-border bg-card py-1.5 pl-8 pr-3 text-xs outline-none transition-colors focus:border-indigo-500 sm:w-56"
+            className="h-9 pl-9 text-sm"
           />
         </div>
       </div>
@@ -527,7 +535,7 @@ export default function NotificationsPage() {
 
                       <div className="min-w-0 flex-1">
                         <p
-                          className={`truncate text-[13.5px] ${
+                          className={`truncate text-[13px] ${
                             notification.isRead ? "font-medium" : "font-semibold"
                           }`}
                         >
@@ -544,7 +552,7 @@ export default function NotificationsPage() {
                         </p>
                       </div>
 
-                      <div className="flex shrink-0 items-center gap-2 pt-1">
+                      <div className="flex shrink-0 items-center gap-0.5 pt-0.5">
                         {!notification.isRead && (
                           <button
                             onClick={(e) => {
@@ -554,11 +562,17 @@ export default function NotificationsPage() {
                             disabled={busyIds.includes(notification.id)}
                             title="Mark as read"
                             aria-label={`Mark "${notification.title}" as read`}
-                            className="h-2 w-2 shrink-0 rounded-full bg-indigo-500 transition-transform hover:scale-150 disabled:opacity-50"
-                          />
+                            // The dot stays 8px visually, but the hit area is a
+                            // full 32px — an 8px tap target is unusable on touch.
+                            className="flex h-8 w-8 items-center justify-center rounded-full transition-colors hover:bg-indigo-500/10 disabled:opacity-50"
+                          >
+                            <span className="h-2 w-2 rounded-full bg-indigo-500" />
+                          </button>
                         )}
+                        {/* Faintly visible by default: touch devices have no
+                            hover, so a hover-only chevron never appears there. */}
                         <svg
-                          className="text-muted-foreground opacity-0 transition-opacity group-hover:opacity-60"
+                          className="text-muted-foreground opacity-40 transition-opacity sm:opacity-0 sm:group-hover:opacity-60"
                           width="15"
                           height="15"
                           viewBox="0 0 24 24"
