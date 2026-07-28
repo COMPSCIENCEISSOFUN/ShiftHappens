@@ -240,6 +240,7 @@ export class HourAlertService {
     // ── Staff member (US-85) ──
     const alreadyToldStaff = await this.notificationService.wasNotifiedSince(
       status.userId,
+      organizationId,
       NOTIFICATION_TYPES.HOUR_LIMIT_WARNING,
       since,
       status.membershipId
@@ -271,6 +272,7 @@ export class HourAlertService {
     for (const manager of managers) {
       const already = await this.notificationService.wasNotifiedSince(
         manager.userId,
+        organizationId,
         NOTIFICATION_TYPES.HOUR_LIMIT_WARNING,
         since,
         status.membershipId

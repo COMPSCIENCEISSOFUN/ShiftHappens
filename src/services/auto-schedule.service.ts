@@ -476,7 +476,7 @@ Use the exact task numbers (1, 2, 3...) and staff letters (A, B, C...) from abov
         const member = await this.membershipRepo.findById(draft.membershipId);
         if (member) {
           void this.notificationService.notify(
-            member.userId, NOTIFICATION_TYPES.TASK_ASSIGNED,
+            organizationId, member.userId, NOTIFICATION_TYPES.TASK_ASSIGNED,
             "New task assignment", `You've been assigned to "${draft.taskTitle}"`,
             "assignment", draft.taskId
           );

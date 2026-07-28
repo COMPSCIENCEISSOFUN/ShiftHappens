@@ -201,7 +201,7 @@ export default function TasksPage() {
     try {
       const res = await fetch(`/api/organizations/${orgId}/departments`);
       const data = await res.json();
-      setDepartments(data);
+      setDepartments(Array.isArray(data) ? data : []);
     } catch {}
   }
 

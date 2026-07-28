@@ -73,7 +73,8 @@ export async function GET(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const depts = await deptService.getByOrganization(orgId);
+    const includeArchived = request.nextUrl.searchParams.get("includeArchived") === "true";
+    const depts = await deptService.getByOrganization(orgId, includeArchived);
     return NextResponse.json(depts);
   } catch {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

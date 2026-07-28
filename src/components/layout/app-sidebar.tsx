@@ -300,16 +300,24 @@ export function AppSidebar({
     }
   }, [orgId]);
 
-  // Poll unread notification count
+  // Poll unread notification count.
+  // Notifications are org-scoped, so there is nothing to poll outside an org.
   useEffect(() => {
+    if (!orgId) {
+      setUnreadCount(0);
+      return;
+    }
     fetchUnreadCount();
     const interval = setInterval(fetchUnreadCount, 30000);
     return () => clearInterval(interval);
-  }, []);
+  }, [orgId]);
 
   async function fetchUnreadCount() {
+    if (!orgId) return;
     try {
-      const res = await fetch("/api/notifications/unread-count");
+      const res = await fetch(
+        `/api/organizations/${orgId}/notifications/unread-count`
+      );
       if (res.ok) {
         const data = await res.json();
         setUnreadCount(data.count);

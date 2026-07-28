@@ -528,6 +528,7 @@ export class TaskService {
         // Notify admin that no replacements are available
         if (adminUserId) {
           void this.notificationService.notify(
+            organizationId,
             adminUserId,
             NOTIFICATION_TYPES.TASK_ASSIGNED,
             "Staff unassigned — no replacements",
@@ -545,6 +546,7 @@ export class TaskService {
 
       if (adminUserId) {
         void this.notificationService.notify(
+          organizationId,
           adminUserId,
           NOTIFICATION_TYPES.TASK_ASSIGNED,
           "Smart swap — replacement suggested",

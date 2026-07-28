@@ -37,6 +37,8 @@ const ACTIONS = {
   // Departments
   DEPARTMENT_CREATED: "department.created",
   DEPARTMENT_UPDATED: "department.updated",
+  DEPARTMENT_ARCHIVED: "department.archived",
+  DEPARTMENT_UNARCHIVED: "department.unarchived",
   DEPARTMENT_DELETED: "department.deleted",
   // Settings
   SETTINGS_UPDATED: "settings.updated",

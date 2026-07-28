@@ -4,6 +4,10 @@
  * Creates realistic demo data for the Ocean Grill demo organization.
  * Fully idempotent — safe to run repeatedly on any database state.
  *
+ * All queries run inside a single interactive $transaction so that
+ * PgBouncer (Supabase) keeps one backend connection throughout,
+ * avoiding "prepared statement already exists" errors.
+ *
  * Data created:
  * - 1 Company Admin (admin@oceangrill.com)
  * - 2 Managers (with department assignments)
@@ -16,16 +20,19 @@
  * - Availability schedules
  * - Certifications
  * - Company settings
+ * - Work rules
  * - 1 Platform Admin (platform@smarttask.com)
  *
  * Run with: npx tsx prisma/seed-demo.ts
  */
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, Prisma } from "@prisma/client";
 import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
 
-async function main() {
+type Tx = Prisma.TransactionClient;
+
+async function seedAll(tx: Tx) {
   console.log("Seeding demo data...");
 
   const hashedPassword = await bcrypt.hash("TestPass1!", 12);
@@ -33,7 +40,7 @@ async function main() {
   // ============================================================
   // Admin user + Organization (upsert — always correct state)
   // ============================================================
-  const adminUser = await prisma.user.upsert({
+  const adminUser = await tx.user.upsert({
     where: { email: "admin@oceangrill.com" },
     update: {
       name: "Darryn Wan",
@@ -48,11 +55,11 @@ async function main() {
     },
   });
 
-  let org = await prisma.organization.findUnique({
+  let org = await tx.organization.findUnique({
     where: { slug: "ocean-grill" },
   });
   if (!org) {
-    org = await prisma.organization.create({
+    org = await tx.organization.create({
       data: {
         name: "Ocean Grill",
         slug: "ocean-grill",
@@ -63,7 +70,7 @@ async function main() {
   }
 
   // Ensure admin membership exists and is correct
-  const adminMembership = await prisma.membership.upsert({
+  const adminMembership = await tx.membership.upsert({
     where: {
       userId_organizationId: {
         userId: adminUser.id,
@@ -82,7 +89,7 @@ async function main() {
   const orgId = org.id;
 
   // Set subscription tier for demo (Pro enables all features except audit log)
-  await prisma.organization.update({
+  await tx.organization.update({
     where: { id: orgId },
     data: { subscriptionTier: "pro" },
   });
@@ -99,17 +106,17 @@ async function main() {
   ];
 
   for (const dept of deptNames) {
-    const existing = await prisma.department.findUnique({
+    const existing = await tx.department.findUnique({
       where: { organizationId_name: { organizationId: orgId, name: dept.name } },
     });
     if (existing) {
-      await prisma.department.update({
+      await tx.department.update({
         where: { id: existing.id },
         data: { color: dept.color },
       });
       departments.push({ id: existing.id, name: existing.name, color: dept.color });
     } else {
-      const created = await prisma.department.create({
+      const created = await tx.department.create({
         data: { ...dept, organizationId: orgId },
       });
       departments.push({ id: created.id, name: created.name, color: dept.color });
@@ -127,7 +134,7 @@ async function main() {
   ];
 
   for (const mgr of managers) {
-    const user = await prisma.user.upsert({
+    const user = await tx.user.upsert({
       where: { email: mgr.email },
       update: { name: mgr.name, hashedPassword, emailVerified: new Date() },
       create: {
@@ -138,7 +145,7 @@ async function main() {
       },
     });
 
-    const membership = await prisma.membership.upsert({
+    const membership = await tx.membership.upsert({
       where: {
         userId_organizationId: { userId: user.id, organizationId: orgId },
       },
@@ -153,11 +160,11 @@ async function main() {
 
     const dept = departments.find((d) => d.name === mgr.dept);
     if (dept) {
-      const existing = await prisma.departmentMembership.findUnique({
+      const existing = await tx.departmentMembership.findUnique({
         where: { membershipId_departmentId: { membershipId: membership.id, departmentId: dept.id } },
       });
       if (!existing) {
-        await prisma.departmentMembership.create({
+        await tx.departmentMembership.create({
           data: { membershipId: membership.id, departmentId: dept.id },
         });
       }
@@ -180,7 +187,7 @@ async function main() {
   const staffMembershipIds: string[] = [];
 
   for (const staff of staffMembers) {
-    const user = await prisma.user.upsert({
+    const user = await tx.user.upsert({
       where: { email: staff.email },
       update: { name: staff.name, hashedPassword, emailVerified: new Date() },
       create: {
@@ -193,7 +200,7 @@ async function main() {
 
     const isFullTime = ["Alex Rivera", "Jamie Park", "Taylor Smith"].includes(staff.name);
 
-    const membership = await prisma.membership.upsert({
+    const membership = await tx.membership.upsert({
       where: {
         userId_organizationId: { userId: user.id, organizationId: orgId },
       },
@@ -230,7 +237,7 @@ async function main() {
     }
 
     for (const sched of schedules) {
-      await prisma.availability.upsert({
+      await tx.availability.upsert({
         where: {
           membershipId_dayOfWeek: { membershipId: membership.id, dayOfWeek: sched.dayOfWeek },
         },
@@ -256,7 +263,7 @@ async function main() {
   for (const assignment of staffDeptAssignments) {
     const dept = departments.find((d) => d.name === assignment.dept);
     if (dept) {
-      const existing = await prisma.departmentMembership.findUnique({
+      const existing = await tx.departmentMembership.findUnique({
         where: {
           membershipId_departmentId: {
             membershipId: staffMembershipIds[assignment.staffIndex],
@@ -265,7 +272,7 @@ async function main() {
         },
       });
       if (!existing) {
-        await prisma.departmentMembership.create({
+        await tx.departmentMembership.create({
           data: {
             membershipId: staffMembershipIds[assignment.staffIndex],
             departmentId: dept.id,
@@ -287,7 +294,7 @@ async function main() {
   ];
 
   for (const staff of extraStaff) {
-    const user = await prisma.user.upsert({
+    const user = await tx.user.upsert({
       where: { email: staff.email },
       update: { name: staff.name, hashedPassword, emailVerified: new Date() },
       create: {
@@ -298,7 +305,7 @@ async function main() {
       },
     });
 
-    const membership = await prisma.membership.upsert({
+    const membership = await tx.membership.upsert({
       where: {
         userId_organizationId: { userId: user.id, organizationId: orgId },
       },
@@ -313,11 +320,11 @@ async function main() {
 
     const dept = departments.find((d) => d.name === staff.dept);
     if (dept) {
-      const existing = await prisma.departmentMembership.findUnique({
+      const existing = await tx.departmentMembership.findUnique({
         where: { membershipId_departmentId: { membershipId: membership.id, departmentId: dept.id } },
       });
       if (!existing) {
-        await prisma.departmentMembership.create({
+        await tx.departmentMembership.create({
           data: { membershipId: membership.id, departmentId: dept.id },
         });
       }
@@ -341,11 +348,11 @@ async function main() {
   ];
 
   for (const cert of certData) {
-    const existing = await prisma.certification.findFirst({
+    const existing = await tx.certification.findFirst({
       where: { membershipId: staffMembershipIds[cert.staffIndex], name: cert.name },
     });
     if (!existing) {
-      await prisma.certification.create({
+      await tx.certification.create({
         data: {
           membershipId: staffMembershipIds[cert.staffIndex],
           name: cert.name,
@@ -365,8 +372,8 @@ async function main() {
   // Clean old demo tasks for fresh data
   // ============================================================
   console.log("Cleaning old task data for fresh charts...");
-  await prisma.task.deleteMany({ where: { organizationId: orgId } });
-  await prisma.auditLog.deleteMany({ where: { organizationId: orgId } });
+  await tx.task.deleteMany({ where: { organizationId: orgId } });
+  await tx.auditLog.deleteMany({ where: { organizationId: orgId } });
   console.log("Cleaned old tasks and audit logs");
 
   // ============================================================
@@ -430,7 +437,7 @@ async function main() {
     const end = new Date(tomorrow);
     end.setHours(t.endHour);
 
-    await prisma.task.create({
+    await tx.task.create({
       data: {
         title: t.title,
         description: t.description,
@@ -450,11 +457,11 @@ async function main() {
   // ============================================================
   // Company settings
   // ============================================================
-  const existingSettings = await prisma.companySettings.findUnique({
+  const existingSettings = await tx.companySettings.findUnique({
     where: { organizationId: orgId },
   });
   if (!existingSettings) {
-    await prisma.companySettings.create({
+    await tx.companySettings.create({
       data: {
         organizationId: orgId,
         allocationMode: "suggested",
@@ -464,6 +471,52 @@ async function main() {
       },
     });
   }
+
+  // ============================================================
+  // Work Rules (demo rules for Ocean Grill)
+  // ============================================================
+  const workRules = [
+    {
+      name: "Kitchen daily limit",
+      type: "max_hours_daily",
+      departmentId: departments[0].id,
+      maxHours: 10,
+    },
+    {
+      name: "Service break interval",
+      type: "break_interval",
+      departmentId: null,
+      hoursThreshold: 6,
+      breakHours: 1,
+    },
+    {
+      name: "Weekly hour cap",
+      type: "max_hours_weekly",
+      departmentId: null,
+      maxHours: 48,
+    },
+  ];
+
+  for (const rule of workRules) {
+    const existing = await tx.workRule.findUnique({
+      where: { organizationId_name: { organizationId: orgId, name: rule.name } },
+    });
+    if (!existing) {
+      await tx.workRule.create({
+        data: {
+          organizationId: orgId,
+          name: rule.name,
+          type: rule.type,
+          departmentId: rule.departmentId,
+          hoursThreshold: rule.hoursThreshold ?? null,
+          breakHours: rule.breakHours ?? null,
+          maxHours: rule.maxHours ?? null,
+        },
+      });
+    }
+  }
+
+  console.log("Created 3 work rules");
 
   // ============================================================
   // Historical completed tasks (for reporting charts)
@@ -494,7 +547,7 @@ async function main() {
       const dateLabel = taskDate.toLocaleDateString("en-US", { month: "short", day: "numeric" });
       const taskTitle = `${departments[deptIndex].name} - ${dateLabel} #${t + 1}`;
 
-      const task = await prisma.task.create({
+      const task = await tx.task.create({
         data: {
           title: taskTitle,
           description: "Historical task for reporting data",
@@ -519,7 +572,7 @@ async function main() {
         const clockOut = new Date(endTime);
         clockOut.setMinutes(clockOut.getMinutes() - 10 + a * 3);
 
-        await prisma.taskAssignment.create({
+        await tx.taskAssignment.create({
           data: {
             taskId: task.id,
             membershipId,
@@ -540,7 +593,7 @@ async function main() {
   // ============================================================
   console.log("Creating rejection data...");
 
-  const recentTasks = await prisma.task.findMany({
+  const recentTasks = await tx.task.findMany({
     where: { organizationId: orgId, status: "open" },
     take: 5,
   });
@@ -559,12 +612,12 @@ async function main() {
     const membershipId = staffMembershipIds[rej.staffIndex];
     const taskId = recentTasks[rej.taskIndex].id;
 
-    const existingAssignment = await prisma.taskAssignment.findUnique({
+    const existingAssignment = await tx.taskAssignment.findUnique({
       where: { taskId_membershipId: { taskId, membershipId } },
     });
     if (existingAssignment) continue;
 
-    await prisma.taskAssignment.create({
+    await tx.taskAssignment.create({
       data: {
         taskId,
         membershipId,
@@ -581,7 +634,7 @@ async function main() {
   // ============================================================
   // Unaffiliated user (for onboarding demo)
   // ============================================================
-  await prisma.user.upsert({
+  await tx.user.upsert({
     where: { email: "new@smarttask.com" },
     update: {
       name: "New User",
@@ -600,7 +653,7 @@ async function main() {
   // ============================================================
   // Platform Admin
   // ============================================================
-  await prisma.user.upsert({
+  await tx.user.upsert({
     where: { email: "platform@smarttask.com" },
     update: {
       name: "Platform Admin",
@@ -640,7 +693,11 @@ async function main() {
   console.log("  New user: new@smarttask.com (No org — lands on onboarding)");
 }
 
-main()
+// Run everything inside a single interactive transaction.
+// This keeps PgBouncer on one backend connection, avoiding
+// "prepared statement already exists" errors.
+prisma
+  .$transaction(seedAll, { maxWait: 30000, timeout: 120000 })
   .catch((e) => {
     console.error(e);
     process.exit(1);

@@ -717,7 +717,7 @@ CRITICAL RULES:
     });
 
     const departments = await prisma.department.findMany({
-      where: { organizationId },
+      where: { organizationId, archivedAt: null },
       include: {
         _count: { select: { departmentMemberships: true, tasks: true } },
       },

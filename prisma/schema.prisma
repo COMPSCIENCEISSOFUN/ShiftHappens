@@ -24,7 +24,7 @@ model User {
   memberships            Membership[]
   invitationsSent        InvitationToken[]
   tasksCreated           Task[]
-  taskAssignedBy         TaskAssignment[] @relation("AssignedByUser")
+  taskAssignedBy         TaskAssignment[]       @relation("AssignedByUser")
   certificationsVerified Certification[]        @relation("CertificationVerifier")
   eligibilityOverrides   EligibilityOverride[]  @relation("EligibilityOverrider")
   auditLogs              AuditLog[]
@@ -43,7 +43,7 @@ model Organization {
   status              String   @default("active")
   subscriptionTier    String   @default("free")   // "free" | "pro" | "enterprise"
   // Stripe billing (test mode). Set by the checkout webhook, not by users.
-  stripeCustomerId     String?  @unique
+  stripeCustomerId     String? @unique
   stripeSubscriptionId String?
   subscriptionStatus   String?  // "active" | "past_due" | "canceled" | ... (mirrors Stripe)
   billingInterval      String?  // "month" | "year"
@@ -58,6 +58,7 @@ model Organization {
   tasks            Task[]
   auditLogs        AuditLog[]
   workRules        WorkRule[]
+  notifications    Notification[]
 }
 
 model Membership {
@@ -130,13 +131,14 @@ model PasswordResetToken {
 }
 
 model Department {
-  id             String   @id @default(cuid())
+  id             String    @id @default(cuid())
   organizationId String
   name           String
   description    String?
   color          String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  archivedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   organization          Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   workRules             WorkRule[]             @relation("WorkRuleDepartment")
@@ -267,7 +269,7 @@ model Task {
   createdBy    User             @relation(fields: [createdById], references: [id])
   assignments  TaskAssignment[]
   eligibilityOverrides EligibilityOverride[]
-  parentTask        Task?  @relation("TaskRecurrence", fields: [parentTaskId], references: [id], onDelete: Cascade)
+  parentTask         Task?  @relation("TaskRecurrence", fields: [parentTaskId], references: [id], onDelete: Cascade)
   recurringInstances Task[] @relation("TaskRecurrence")
 
   @@index([organizationId])
@@ -390,20 +392,23 @@ model AuditLog {
 }
 
 model Notification {
-  id         String   @id @default(cuid())
-  userId     String
-  type       String
-  title      String
-  message    String
-  entityType String?
-  entityId   String?
-  isRead     Boolean  @default(false)
-  createdAt  DateTime @default(now())
+  id             String   @id @default(cuid())
+  userId         String
+  organizationId String
+  type           String
+  title          String
+  message        String
+  entityType     String?
+  entityId       String?
+  isRead         Boolean  @default(false)
+  createdAt      DateTime @default(now())
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  @@index([userId, isRead])
-  @@index([userId, createdAt])
+  @@index([userId, organizationId, isRead])
+  @@index([userId, organizationId, createdAt])
+  @@index([organizationId])
 }
 
 model WorkRule {

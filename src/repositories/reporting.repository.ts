@@ -554,7 +554,7 @@ export class ReportingRepository {
     organizationId: string
   ): Promise<DepartmentMetricRecord[]> {
     const departments = await prisma.department.findMany({
-      where: { organizationId },
+      where: { organizationId, archivedAt: null },
       select: {
         id: true,
         name: true,

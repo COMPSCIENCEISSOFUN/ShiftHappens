@@ -4,8 +4,13 @@
  * Business logic for department management within an organization.
  * Enforces rules:
  * - No duplicate department names within the same org
- * - Cannot delete a department that has assigned members
  * - Subscription tier limits on department count
+ *
+ * Supports soft-delete (archive) lifecycle:
+ *  1. Archive: sets archivedAt, hides from active views
+ *  2. Unarchive: clears archivedAt, restores to active
+ *  3. Permanent delete: only allowed on already-archived departments
+ *  4. Impact summary: counts affected entities before archive
  */
 import { DepartmentRepository } from "@/repositories/department.repository";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
@@ -51,9 +56,15 @@ export class DepartmentService {
     return department;
   }
 
-  /** Retrieves all departments for an organization */
-  async getByOrganization(organizationId: string) {
-    return this.deptRepo.findByOrganizationId(organizationId);
+  /**
+   * Retrieves all active departments for an organization.
+   * Archived departments are excluded by default.
+   *
+   * @param includeArchived  When true, returns archived departments too
+   *                         (used by the Departments management page).
+   */
+  async getByOrganization(organizationId: string, includeArchived = false) {
+    return this.deptRepo.findByOrganizationId(organizationId, includeArchived);
   }
 
   /** Retrieves a single department by ID */
@@ -101,10 +112,85 @@ export class DepartmentService {
   }
 
   /**
-   * Deletes a department if it has no assigned members.
-   * Blocks deletion with a clear error message when members exist.
+   * Returns counts of entities that would be affected by archiving a department.
+   * Shown to the admin as an impact summary before they confirm.
+   */
+  async getImpactSummary(departmentId: string) {
+    return this.deptRepo.getImpactSummary(departmentId);
+  }
+
+  /**
+   * Archives a department (soft-delete).
+   * Sets archivedAt timestamp — department is hidden from active views
+   * but all data (tasks, memberships, work rules) is preserved.
+   */
+  async archive(departmentId: string, organizationId: string, userId?: string) {
+    const dept = await this.deptRepo.findById(departmentId);
+    if (!dept) {
+      throw new Error("Department not found");
+    }
+    if (dept.archivedAt) {
+      throw new Error("Department is already archived");
+    }
+
+    const archived = await this.deptRepo.archive(departmentId);
+
+    await this.auditService.log({
+      organizationId,
+      userId,
+      action: ACTIONS.DEPARTMENT_ARCHIVED,
+      entityType: "department",
+      entityId: departmentId,
+      details: { name: dept.name },
+    });
+
+    return archived;
+  }
+
+  /**
+   * Unarchives a department — restores it to active status.
+   * Clears the archivedAt timestamp so the department reappears
+   * in active views, dropdowns, and task assignment.
+   */
+  async unarchive(departmentId: string, organizationId: string, userId?: string) {
+    const dept = await this.deptRepo.findById(departmentId);
+    if (!dept) {
+      throw new Error("Department not found");
+    }
+    if (!dept.archivedAt) {
+      throw new Error("Department is not archived");
+    }
+
+    const unarchived = await this.deptRepo.unarchive(departmentId);
+
+    await this.auditService.log({
+      organizationId,
+      userId,
+      action: ACTIONS.DEPARTMENT_UNARCHIVED,
+      entityType: "department",
+      entityId: departmentId,
+      details: { name: dept.name },
+    });
+
+    return unarchived;
+  }
+
+  /**
+   * Permanently deletes an archived department.
+   * Only allowed on departments that have already been archived.
+   * Also checks that no members are still assigned.
    */
   async delete(departmentId: string, organizationId: string, userId?: string) {
+    const dept = await this.deptRepo.findById(departmentId);
+    if (!dept) {
+      throw new Error("Department not found");
+    }
+    if (!dept.archivedAt) {
+      throw new Error(
+        "Department must be archived before it can be permanently deleted"
+      );
+    }
+
     const hasMembers = await this.deptRepo.hasMembers(departmentId);
     if (hasMembers) {
       throw new Error(
@@ -112,7 +198,7 @@ export class DepartmentService {
       );
     }
 
-    const department = await this.deptRepo.delete(departmentId);
+    const deleted = await this.deptRepo.delete(departmentId);
 
     await this.auditService.log({
       organizationId,
@@ -120,8 +206,9 @@ export class DepartmentService {
       action: ACTIONS.DEPARTMENT_DELETED,
       entityType: "department",
       entityId: departmentId,
+      details: { name: dept.name },
     });
 
-    return department;
+    return deleted;
   }
 }

@@ -122,7 +122,7 @@ export default function MemberImportPage() {
       const res = await fetch(`/api/organizations/${orgId}/departments`);
       if (res.ok) {
         const data = await res.json();
-        setDepartments(data);
+        setDepartments(Array.isArray(data) ? data : []);
       }
     } catch {
       // Non-critical — departments list may be empty

@@ -1,15 +1,20 @@
 /**
  * Database Seed Script
- * 
+ *
  * Seeds the Permission table with all predefined permissions
- * organized by category. These permissions are used by the RBAC
- * system to control access to features across the application.
- * 
+ * organized by category, and industry templates.
+ *
+ * All queries run inside a single interactive $transaction so that
+ * PgBouncer (Supabase) keeps one backend connection throughout,
+ * avoiding "prepared statement already exists" errors.
+ *
  * Run with: npx prisma db seed
  */
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, Prisma } from "@prisma/client";
 
 const prisma = new PrismaClient();
+
+type Tx = Prisma.TransactionClient;
 
 const permissions = [
   // Department management
@@ -152,11 +157,11 @@ const industryTemplates = [
   },
 ];
 
-async function main() {
+async function seedAll(tx: Tx) {
   console.log("Seeding permissions...");
 
   for (const perm of permissions) {
-    await prisma.permission.upsert({
+    await tx.permission.upsert({
       where: { name: perm.name },
       update: { description: perm.description, category: perm.category },
       create: perm,
@@ -168,7 +173,7 @@ async function main() {
   console.log("Seeding industry templates...");
 
   for (const template of industryTemplates) {
-    await prisma.industryTemplate.upsert({
+    await tx.industryTemplate.upsert({
       where: { name: template.name },
       update: {
         icon: template.icon,
@@ -193,7 +198,11 @@ async function main() {
   console.log(`Seeded ${industryTemplates.length} industry templates.`);
 }
 
-main()
+// Run everything inside a single interactive transaction.
+// This keeps PgBouncer on one backend connection, avoiding
+// "prepared statement already exists" errors.
+prisma
+  .$transaction(seedAll, { maxWait: 30000, timeout: 120000 })
   .catch((e) => {
     console.error(e);
     process.exit(1);

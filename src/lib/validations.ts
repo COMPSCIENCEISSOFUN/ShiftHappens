@@ -373,6 +373,27 @@ export const batchImportSchema = z.object({
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
+/**
+ * Notification feed query parameters.
+ *
+ * Query strings arrive as strings or not at all, so limit/offset are coerced
+ * and clamped here rather than in the route. An out-of-range page size is a
+ * client mistake, not a server error — it is clamped, not rejected, so the
+ * feed always renders.
+ */
+export const notificationFeedQuerySchema = z.object({
+  category: z
+    .enum(["task", "assignment", "certification", "alert"])
+    .optional(),
+  unread: z
+    .enum(["true", "false"])
+    .optional()
+    .transform((value) => value === "true"),
+  search: z.string().trim().max(100).optional(),
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+  offset: z.coerce.number().int().min(0).default(0),
+});
+
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
 export type CreateOrganizationInput = z.infer<typeof createOrganizationSchema>;
 export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
@@ -398,3 +419,4 @@ export type CreateWorkRuleInput = z.infer<typeof createWorkRuleSchema>;
 export type UpdateWorkRuleInput = z.infer<typeof updateWorkRuleSchema>;
 export type ImportMemberInput = z.infer<typeof importMemberSchema>;
 export type BatchImportInput = z.infer<typeof batchImportSchema>;
+export type NotificationFeedQuery = z.infer<typeof notificationFeedQuerySchema>;

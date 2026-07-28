@@ -65,12 +65,14 @@ export function NotificationBell({ orgId }: { orgId?: string }) {
   const [loading, setLoading] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
 
-  // Poll unread count every 30 seconds
+  // Poll unread count every 30 seconds.
+  // Notifications are org-scoped, so outside an org there is nothing to count.
   useEffect(() => {
+    if (!orgId) return;
     fetchUnreadCount();
     const interval = setInterval(fetchUnreadCount, 30000);
     return () => clearInterval(interval);
-  }, []);
+  }, [orgId]);
 
   // Close panel when clicking outside
   useEffect(() => {
@@ -86,8 +88,11 @@ export function NotificationBell({ orgId }: { orgId?: string }) {
   }, [isOpen]);
 
   async function fetchUnreadCount() {
+    if (!orgId) return;
     try {
-      const res = await fetch("/api/notifications/unread-count");
+      const res = await fetch(
+        `/api/organizations/${orgId}/notifications/unread-count`
+      );
       if (res.ok) {
         const data = await res.json();
         setUnreadCount(data.count);
@@ -98,9 +103,12 @@ export function NotificationBell({ orgId }: { orgId?: string }) {
   }
 
   async function fetchNotifications() {
+    if (!orgId) return;
     setLoading(true);
     try {
-      const res = await fetch("/api/notifications?limit=10");
+      const res = await fetch(
+        `/api/organizations/${orgId}/notifications?limit=10`
+      );
       if (res.ok) {
         const data = await res.json();
         setNotifications(data.notifications);
@@ -124,9 +132,10 @@ export function NotificationBell({ orgId }: { orgId?: string }) {
     // Mark as read
     if (!notification.isRead) {
       try {
-        await fetch(`/api/notifications/${notification.id}/read`, {
-          method: "PATCH",
-        });
+        await fetch(
+          `/api/organizations/${orgId}/notifications/${notification.id}/read`,
+          { method: "PATCH" }
+        );
         setNotifications((prev) =>
           prev.map((n) =>
             n.id === notification.id ? { ...n, isRead: true } : n
@@ -160,7 +169,9 @@ export function NotificationBell({ orgId }: { orgId?: string }) {
 
   async function handleMarkAllRead() {
     try {
-      await fetch("/api/notifications/mark-all-read", { method: "POST" });
+      await fetch(`/api/organizations/${orgId}/notifications/mark-all-read`, {
+        method: "POST",
+      });
       setNotifications((prev) =>
         prev.map((n) => ({ ...n, isRead: true }))
       );

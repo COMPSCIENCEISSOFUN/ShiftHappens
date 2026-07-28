@@ -108,7 +108,7 @@ describe("Smart-Swap", () => {
     // Wait for fire-and-forget notification
     await new Promise((r) => setTimeout(r, 500));
 
-    const notifications = await notificationRepo.findByUserId(adminUserId);
+    const notifications = await notificationRepo.findByUserId(adminUserId, orgId);
     expect(notifications.length).toBeGreaterThanOrEqual(1);
 
     const swapNotif = notifications.find((n) => n.title === "Smart swap — replacement suggested");
@@ -145,7 +145,7 @@ describe("Smart-Swap", () => {
 
     await new Promise((r) => setTimeout(r, 500));
 
-    const notifications = await notificationRepo.findByUserId(adminUserId);
+    const notifications = await notificationRepo.findByUserId(adminUserId, orgId);
     const swapNotif = notifications.find((n) => n.title === "Smart swap — replacement suggested");
     expect(swapNotif).toBeUndefined();
   });
@@ -174,7 +174,7 @@ describe("Smart-Swap", () => {
 
     await new Promise((r) => setTimeout(r, 500));
 
-    const notifications = await notificationRepo.findByUserId(adminUserId);
+    const notifications = await notificationRepo.findByUserId(adminUserId, orgId);
     const noReplace = notifications.find((n) => n.title === "Staff unassigned — no replacements");
     expect(noReplace).toBeDefined();
     expect(noReplace!.message).toContain("Sunday Task");

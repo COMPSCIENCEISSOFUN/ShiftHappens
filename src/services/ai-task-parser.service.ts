@@ -63,7 +63,7 @@ export class AITaskParserService {
     const sanitizedText = this.sanitizeInput(text);
 
     const departments = await prisma.department.findMany({
-      where: { organizationId },
+      where: { organizationId, archivedAt: null },
       select: { id: true, name: true },
     });
 

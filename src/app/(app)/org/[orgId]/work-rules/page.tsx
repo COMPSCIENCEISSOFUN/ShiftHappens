@@ -100,7 +100,7 @@ export default function WorkRulesPage({
   async function fetchDepartments() {
     try {
       const res = await fetch(`/api/organizations/${orgId}/departments`);
-      if (res.ok) setDepartments(await res.json());
+      if (res.ok) { const d = await res.json(); setDepartments(Array.isArray(d) ? d : []); }
     } catch { /* optional */ }
   }
 

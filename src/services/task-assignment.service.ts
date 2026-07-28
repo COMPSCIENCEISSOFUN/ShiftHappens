@@ -56,6 +56,7 @@ export class TaskAssignmentService {
     // Notify the admin/manager who assigned the task
     const staffName = assignment.membership.user?.name || "A staff member";
     void this.notificationService.notify(
+      assignment.task.organizationId,
       assignment.assignedById,
       NOTIFICATION_TYPES.ASSIGNMENT_ACCEPTED,
       "Assignment accepted",
@@ -97,6 +98,7 @@ export class TaskAssignmentService {
     // Notify the admin/manager who assigned the task
     const staffName = assignment.membership.user?.name || "A staff member";
     void this.notificationService.notify(
+      assignment.task.organizationId,
       assignment.assignedById,
       NOTIFICATION_TYPES.ASSIGNMENT_REJECTED,
       "Assignment rejected",
@@ -213,6 +215,7 @@ export class TaskAssignmentService {
 
     const staffName = assignment.membership.user?.name || "A staff member";
     void this.notificationService.notify(
+      assignment.task.organizationId,
       assignment.assignedById,
       NOTIFICATION_TYPES.TASK_COMPLETED,
       "Task completed",
@@ -254,6 +257,7 @@ export class TaskAssignmentService {
 
     const staffName = assignment.membership.user?.name || "A staff member";
     void this.notificationService.notify(
+      assignment.task.organizationId,
       assignment.assignedById,
       NOTIFICATION_TYPES.WITHDRAWAL_REQUESTED,
       "Withdrawal requested",
@@ -304,6 +308,7 @@ export class TaskAssignmentService {
       });
 
       void this.notificationService.notify(
+        assignment.task.organizationId,
         staffUserId,
         NOTIFICATION_TYPES.WITHDRAWAL_APPROVED,
         "Withdrawal approved",
@@ -328,6 +333,7 @@ export class TaskAssignmentService {
     });
 
     void this.notificationService.notify(
+      assignment.task.organizationId,
       staffUserId,
       NOTIFICATION_TYPES.WITHDRAWAL_DENIED,
       "Withdrawal declined",
