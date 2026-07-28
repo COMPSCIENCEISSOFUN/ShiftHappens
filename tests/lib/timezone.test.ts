@@ -22,6 +22,7 @@ import {
   toDateTimeLocalValue,
   localDateInTimeZone,
   utcOffsetLabel,
+  timeOfDayInTimeZone,
 } from "@/lib/timezone";
 
 describe("timezone utilities", () => {
@@ -213,6 +214,76 @@ describe("timezone utilities", () => {
       expect(utcOffsetLabel(new Date("2026-07-28T00:00:00Z"), "Asia/Kolkata")).toBe(
         "+05:30"
       );
+    });
+  });
+
+  describe("timeOfDayInTimeZone", () => {
+    it("returns the Singapore wall clock, not the UTC one", () => {
+      // This is the comparison that broke eligibility: a 09:00 Singapore shift
+      // read as "01:00" on a UTC server and fell outside every 09:00-17:00
+      // availability window, so every casual employee looked unavailable.
+      expect(timeOfDayInTimeZone(new Date("2026-07-29T01:00:00Z"))).toBe("09:00");
+      expect(timeOfDayInTimeZone(new Date("2026-07-29T09:00:00Z"))).toBe("17:00");
+    });
+
+    it("zero-pads to the HH:MM format availability is stored in", () => {
+      expect(timeOfDayInTimeZone(new Date("2026-07-28T20:05:00Z"))).toBe("04:05");
+      expect(timeOfDayInTimeZone(new Date("2026-07-28T16:00:00Z"))).toBe("00:00");
+    });
+
+    it("sorts correctly as a string, which is how the window check compares", () => {
+      const start = timeOfDayInTimeZone(new Date("2026-07-29T01:00:00Z")); // 09:00
+      const end = timeOfDayInTimeZone(new Date("2026-07-29T09:00:00Z")); // 17:00
+
+      expect(start < end).toBe(true);
+      expect(start >= "09:00").toBe(true);
+      expect(end <= "17:00").toBe(true);
+    });
+
+    it("honours an explicit timezone", () => {
+      expect(timeOfDayInTimeZone(new Date("2026-07-29T01:00:00Z"), "UTC")).toBe("01:00");
+    });
+  });
+
+  describe("millisecond precision", () => {
+    // Regression: the offset was computed from an Intl-formatted wall clock,
+    // which only goes down to seconds. The dropped milliseconds made every
+    // derived boundary late by that amount, so a day started at 00:00:00.123
+    // and an assignment clocked in at exactly midnight fell outside it — which
+    // is precisely how a work-rule test began reporting zero hours worked.
+    it("startOfDayInTimeZone returns an exact midnight, whatever the input ms", () => {
+      for (const iso of [
+        "2026-07-28T18:00:10.123Z",
+        "2026-07-28T16:00:00.999Z",
+        "2026-07-29T03:45:59.001Z",
+      ]) {
+        const start = startOfDayInTimeZone(new Date(iso));
+        expect(start.getUTCMilliseconds()).toBe(0);
+        expect(start.getUTCSeconds()).toBe(0);
+      }
+    });
+
+    it("includes an instant falling exactly on the day boundary", () => {
+      const withMs = new Date("2026-07-28T18:00:10.123Z"); // 02:00:10.123 SGT
+      const dayStart = startOfDayInTimeZone(withMs);
+      const exactlyMidnight = new Date("2026-07-28T16:00:00.000Z"); // 00:00 SGT
+
+      expect(exactlyMidnight.getTime()).toBe(dayStart.getTime());
+      expect(exactlyMidnight < dayStart).toBe(false);
+    });
+
+    it("keeps the day exactly 24 hours long regardless of input ms", () => {
+      const d = new Date("2026-07-28T18:00:10.123Z");
+      expect(
+        endOfDayInTimeZone(d).getTime() - startOfDayInTimeZone(d).getTime()
+      ).toBe(24 * 60 * 60 * 1000);
+    });
+
+    it("is unaffected in the other helpers", () => {
+      const d = new Date("2026-07-28T18:00:10.123Z"); // 02:00:10.123 SGT
+      expect(hourInTimeZone(d)).toBe(2);
+      expect(timeOfDayInTimeZone(d)).toBe("02:00");
+      expect(localDateInTimeZone(d)).toBe("2026-07-29");
     });
   });
 });

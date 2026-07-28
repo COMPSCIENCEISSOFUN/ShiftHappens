@@ -19,6 +19,7 @@ import { UserRepository } from "@/repositories/user.repository";
 import { AvailabilityRepository } from "@/repositories/availability.repository";
 import { prisma } from "@/lib/prisma";
 import { cleanDatabase } from "../helpers/cleanup";
+import { sgt } from "../helpers/time";
 
 const eligibilityService = new EligibilityService();
 const taskRepo = new TaskRepository();
@@ -130,8 +131,8 @@ describe("EligibilityService", () => {
         title: "Monday task",
         organizationId: orgId,
         createdById: adminUserId,
-        scheduledStart: new Date(2026, 5, 15, 9, 0, 0),
-        scheduledEnd: new Date(2026, 5, 15, 12, 0, 0),
+        scheduledStart: sgt("2026-06-15T09:00"),
+        scheduledEnd: sgt("2026-06-15T12:00"),
       });
 
       const results = await eligibilityService.checkEligibilityForTask(
@@ -569,8 +570,8 @@ describe("EligibilityService", () => {
         title: "Scheduled task",
         organizationId: orgId,
         createdById: adminUserId,
-        scheduledStart: new Date(2026, 5, 15, 9, 0, 0),
-        scheduledEnd: new Date(2026, 5, 15, 12, 0, 0),
+        scheduledStart: sgt("2026-06-15T09:00"),
+        scheduledEnd: sgt("2026-06-15T12:00"),
       });
 
       const results = await eligibilityService.checkEligibilityForTask(
@@ -591,8 +592,8 @@ describe("EligibilityService", () => {
         title: "Scheduled task",
         organizationId: orgId,
         createdById: adminUserId,
-        scheduledStart: new Date(2026, 5, 15, 9, 0, 0),
-        scheduledEnd: new Date(2026, 5, 15, 12, 0, 0),
+        scheduledStart: sgt("2026-06-15T09:00"),
+        scheduledEnd: sgt("2026-06-15T12:00"),
       });
 
       const results = await eligibilityService.checkEligibilityForTask(
@@ -618,8 +619,8 @@ describe("EligibilityService", () => {
         title: "Morning shift",
         organizationId: orgId,
         createdById: adminUserId,
-        scheduledStart: new Date(2026, 5, 15, 9, 0, 0),
-        scheduledEnd: new Date(2026, 5, 15, 12, 0, 0),
+        scheduledStart: sgt("2026-06-15T09:00"),
+        scheduledEnd: sgt("2026-06-15T12:00"),
       });
       await prisma.taskAssignment.create({
         data: {
@@ -634,8 +635,8 @@ describe("EligibilityService", () => {
         title: "Overlapping task",
         organizationId: orgId,
         createdById: adminUserId,
-        scheduledStart: new Date(2026, 5, 15, 10, 0, 0),
-        scheduledEnd: new Date(2026, 5, 15, 14, 0, 0),
+        scheduledStart: sgt("2026-06-15T10:00"),
+        scheduledEnd: sgt("2026-06-15T14:00"),
       });
 
       const results = await eligibilityService.checkEligibilityForTask(
@@ -672,8 +673,8 @@ describe("EligibilityService", () => {
         title: "Long shift",
         organizationId: orgId,
         createdById: adminUserId,
-        scheduledStart: new Date(2026, 5, 15, 8, 0, 0),
-        scheduledEnd: new Date(2026, 5, 15, 17, 0, 0),
+        scheduledStart: sgt("2026-06-15T08:00"),
+        scheduledEnd: sgt("2026-06-15T17:00"),
       });
       await prisma.taskAssignment.create({
         data: {
@@ -681,8 +682,8 @@ describe("EligibilityService", () => {
           membershipId: staffMembershipId,
           assignedById: adminUserId,
           status: "completed",
-          clockInTime: new Date(2026, 5, 15, 8, 0, 0),
-          clockOutTime: new Date(2026, 5, 15, 17, 0, 0),
+          clockInTime: sgt("2026-06-15T08:00"),
+          clockOutTime: sgt("2026-06-15T17:00"),
         },
       });
 
@@ -690,8 +691,8 @@ describe("EligibilityService", () => {
         title: "Evening shift",
         organizationId: orgId,
         createdById: adminUserId,
-        scheduledStart: new Date(2026, 5, 15, 18, 0, 0),
-        scheduledEnd: new Date(2026, 5, 15, 21, 0, 0),
+        scheduledStart: sgt("2026-06-15T18:00"),
+        scheduledEnd: sgt("2026-06-15T21:00"),
       });
 
       const results = await eligibilityService.checkEligibilityForTask(

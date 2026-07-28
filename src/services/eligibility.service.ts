@@ -26,6 +26,12 @@ import { WorkRuleRepository } from "@/repositories/work-rule.repository";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 import { DEFAULT_EMPLOYMENT_TYPE } from "@/lib/role-config";
 import { prisma } from "@/lib/prisma";
+import {
+  dayOfWeekInTimeZone,
+  endOfDayInTimeZone,
+  startOfDayInTimeZone,
+  timeOfDayInTimeZone,
+} from "@/lib/timezone";
 
 interface EligibilityCheck {
   eligible: boolean;
@@ -144,9 +150,12 @@ export class EligibilityService {
         task.scheduledStart &&
         task.scheduledEnd
       ) {
-        const pad = (n: number) => String(n).padStart(2, "0");
-        const startTime = `${pad(task.scheduledStart.getHours())}:${pad(task.scheduledStart.getMinutes())}`;
-        const endTime = `${pad(task.scheduledEnd.getHours())}:${pad(task.scheduledEnd.getMinutes())}`;
+        // Availability windows are stored as local wall-clock strings ("09:00"),
+        // so the task must be expressed the same way. getHours() returns the
+        // SERVER's hour: on Vercel a 09:00 shift reads as 01:00 and falls
+        // outside every daytime window, marking all casual staff unavailable.
+        const startTime = timeOfDayInTimeZone(task.scheduledStart);
+        const endTime = timeOfDayInTimeZone(task.scheduledEnd);
 
         const availResult = await this.availRepo.isAvailableAt(
           member.id,
@@ -558,10 +567,11 @@ export class EligibilityService {
     date: Date,
     excludeTaskId?: string
   ): Promise<number> {
-    const dayStart = new Date(date);
-    dayStart.setHours(0, 0, 0, 0);
-    const dayEnd = new Date(dayStart);
-    dayEnd.setDate(dayEnd.getDate() + 1);
+    // The organisation's calendar day, not the server's. On Vercel a naive
+    // setHours(0,0,0,0) starts the day at 08:00 Singapore time, so a morning
+    // shift counts against the previous day's cap.
+    const dayStart = startOfDayInTimeZone(date);
+    const dayEnd = endOfDayInTimeZone(date);
 
     const assignments = await this.loadCommittedAssignments(membershipId, excludeTaskId);
     return this.sumHoursInWindow(assignments, dayStart, dayEnd);
@@ -576,14 +586,15 @@ export class EligibilityService {
     date: Date,
     excludeTaskId?: string
   ): Promise<number> {
-    const weekStart = new Date(date);
-    const day = weekStart.getDay();
+    // Monday-start week in the organisation's timezone. Both the weekday and
+    // the day boundary have to be resolved there: near midnight the server's
+    // weekday can be a different day, which would shift the whole window.
+    const day = dayOfWeekInTimeZone(date);
     const diff = day === 0 ? -6 : 1 - day;
-    weekStart.setDate(weekStart.getDate() + diff);
-    weekStart.setHours(0, 0, 0, 0);
 
-    const weekEnd = new Date(weekStart);
-    weekEnd.setDate(weekEnd.getDate() + 7);
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    const weekStart = startOfDayInTimeZone(new Date(date.getTime() + diff * DAY_MS));
+    const weekEnd = new Date(weekStart.getTime() + 7 * DAY_MS);
 
     const assignments = await this.loadCommittedAssignments(membershipId, excludeTaskId);
     return this.sumHoursInWindow(assignments, weekStart, weekEnd);

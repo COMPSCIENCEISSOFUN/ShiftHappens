@@ -46,13 +46,20 @@ function zoneOffsetMs(date: Date, timeZone: string): number {
   // Intl can emit hour 24 for midnight in some environments — normalise to 0.
   const hour = parts.hour === 24 ? 0 : parts.hour;
 
+  // Milliseconds must be carried through. Intl only formats down to seconds, so
+  // omitting them makes the computed offset short by the instant's millisecond
+  // component, and every derived boundary inherits that error: a "start of day"
+  // would land on 00:00:00.123 rather than 00:00:00.000, silently excluding
+  // anything that begins exactly at midnight. Zone offsets are always a whole
+  // number of minutes, so the wall clock shares the instant's milliseconds.
   const wallClockAsUtc = Date.UTC(
     parts.year,
     parts.month - 1,
     parts.day,
     hour,
     parts.minute,
-    parts.second
+    parts.second,
+    date.getUTCMilliseconds()
   );
 
   return wallClockAsUtc - date.getTime();
@@ -168,4 +175,24 @@ export function utcOffsetLabel(
   const pad = (n: number) => String(n).padStart(2, "0");
 
   return `${sign}${pad(Math.floor(abs / 60))}:${pad(abs % 60)}`;
+}
+
+/**
+ * The wall-clock time at the given instant, in `timeZone`, as "HH:MM".
+ *
+ * This is the format weekly availability is stored in (`Availability.startTime`
+ * / `endTime` are plain strings such as "09:00", meaning 9am where the staff
+ * member works). Comparing a task's time against those strings therefore
+ * requires the task's LOCAL time — `date.getHours()` gives the server's, which
+ * on Vercel is UTC and eight hours out.
+ */
+export function timeOfDayInTimeZone(
+  date: Date,
+  timeZone: string = DEFAULT_TIMEZONE
+): string {
+  const offset = zoneOffsetMs(date, timeZone);
+  const wallClock = new Date(date.getTime() + offset);
+  const pad = (n: number) => String(n).padStart(2, "0");
+
+  return `${pad(wallClock.getUTCHours())}:${pad(wallClock.getUTCMinutes())}`;
 }

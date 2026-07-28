@@ -9,6 +9,7 @@
  * Times stored as "HH:MM" strings for simplicity.
  */
 import { prisma } from "@/lib/prisma";
+import { dayOfWeekInTimeZone, localDateInTimeZone } from "@/lib/timezone";
 
 export class AvailabilityRepository {
   /** Sets availability for a specific day of the week (upserts) */
@@ -105,8 +106,12 @@ export class AvailabilityRepository {
     startTime: string,
     endTime: string
   ): Promise<{ available: boolean; reason?: string }> {
-    // Check for date-specific override first
-    const dateOnly = new Date(date.toISOString().split("T")[0] + "T00:00:00.000Z");
+    // Check for date-specific override first.
+    // Overrides are keyed by the LOCAL calendar date, stored as UTC midnight.
+    // Deriving the date from toISOString() would use the UTC calendar day, so
+    // any shift between midnight and 08:00 Singapore time would look up the
+    // previous day's override — or miss one entirely.
+    const dateOnly = new Date(`${localDateInTimeZone(date)}T00:00:00.000Z`);
     const override = await this.getOverrideForDate(membershipId, dateOnly);
 
     if (override) {
@@ -118,8 +123,10 @@ export class AvailabilityRepository {
       };
     }
 
-    // Fall back to weekly schedule
-    const dayOfWeek = date.getDay();
+    // Fall back to weekly schedule.
+    // getDay() is the SERVER's weekday. A 01:00 Sunday shift in Singapore is
+    // still Saturday in UTC, so on Vercel this read the wrong day's row.
+    const dayOfWeek = dayOfWeekInTimeZone(date);
     const schedule = await prisma.availability.findUnique({
       where: {
         membershipId_dayOfWeek: { membershipId, dayOfWeek },

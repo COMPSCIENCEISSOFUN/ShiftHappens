@@ -18,6 +18,7 @@ import { OrganizationRepository } from "@/repositories/organization.repository";
 import { UserRepository } from "@/repositories/user.repository";
 import { prisma } from "@/lib/prisma";
 import { cleanDatabase } from "../helpers/cleanup";
+import { sgt } from "../helpers/time";
 
 const eligibilityService = new EligibilityService();
 const taskRepo = new TaskRepository();
@@ -68,9 +69,16 @@ beforeEach(async () => {
  * (getHoursOnDate/getHoursInWeek use setHours), so tests are timezone-stable.
  */
 function at(dayOffset: number, startHour: number, endHour: number) {
-  const start = new Date(2026, 5, 15 + dayOffset, startHour, 0, 0);
-  const end = new Date(2026, 5, 15 + dayOffset, endHour, 0, 0);
-  return { start, end };
+  // Singapore wall-clock, stated explicitly. The local `new Date(y, m, d, h)`
+  // constructor used here before made these fixtures mean different instants
+  // depending on the machine's timezone, so on a UTC runner an 08:00-16:00
+  // shift became 16:00-24:00 SGT and the "same day" tasks straddled midnight.
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const day = pad(15 + dayOffset);
+  return {
+    start: sgt(`2026-06-${day}T${pad(startHour)}:00`),
+    end: sgt(`2026-06-${day}T${pad(endHour)}:00`),
+  };
 }
 
 /** Creates a scheduled task and assigns the staff member with the given status. */

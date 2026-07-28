@@ -16,6 +16,7 @@ import { TaskRepository } from "@/repositories/task.repository";
 import { NOTIFICATION_TYPES } from "@/services/notification.service";
 import { prisma } from "@/lib/prisma";
 import { cleanDatabase } from "../helpers/cleanup";
+import { startOfTodaySgt } from "../helpers/time";
 
 const hourAlertService = new HourAlertService();
 const orgRepo = new OrganizationRepository();
@@ -91,8 +92,10 @@ async function seedWorkedHours(hours: number) {
   });
 
   const now = new Date();
-  const todayStart = new Date(now);
-  todayStart.setHours(0, 0, 0, 0);
+  // The organisation's midnight, not the runner's. getHoursOnDate() sums the
+  // Singapore day, so clamping to a local midnight put the shift in the
+  // previous org-day whenever the two disagreed.
+  const todayStart = startOfTodaySgt(now);
 
   const rawClockIn = new Date(now.getTime() - hours * 60 * 60 * 1000);
   const clockIn = rawClockIn < todayStart ? todayStart : rawClockIn;

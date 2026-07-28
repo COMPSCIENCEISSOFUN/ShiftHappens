@@ -11,6 +11,7 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
+    "test:utc": "vitest run --config vitest.utc.config.ts",
     "test:watch": "vitest"
   },
   "dependencies": {

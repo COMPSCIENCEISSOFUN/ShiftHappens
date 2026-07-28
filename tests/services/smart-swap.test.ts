@@ -10,6 +10,7 @@ import { NotificationRepository } from "@/repositories/notification.repository";
 import { prisma } from "@/lib/prisma";
 import { cleanDatabase } from "../helpers/cleanup";
 import bcrypt from "bcryptjs";
+import { atHourSgt, nextMondaySgt, nextSundaySgt } from "../helpers/time";
 
 const taskService = new TaskService();
 const notificationRepo = new NotificationRepository();
@@ -108,7 +109,7 @@ describe("Smart-Swap", () => {
     // Wait for fire-and-forget notification
     await new Promise((r) => setTimeout(r, 500));
 
-    const notifications = await notificationRepo.findByUserId(adminUserId, orgId);
+    const notifications = await notificationRepo.findByUserId(adminUserId);
     expect(notifications.length).toBeGreaterThanOrEqual(1);
 
     const swapNotif = notifications.find((n) => n.title === "Smart swap — replacement suggested");
@@ -145,7 +146,7 @@ describe("Smart-Swap", () => {
 
     await new Promise((r) => setTimeout(r, 500));
 
-    const notifications = await notificationRepo.findByUserId(adminUserId, orgId);
+    const notifications = await notificationRepo.findByUserId(adminUserId);
     const swapNotif = notifications.find((n) => n.title === "Smart swap — replacement suggested");
     expect(swapNotif).toBeUndefined();
   });
@@ -174,7 +175,7 @@ describe("Smart-Swap", () => {
 
     await new Promise((r) => setTimeout(r, 500));
 
-    const notifications = await notificationRepo.findByUserId(adminUserId, orgId);
+    const notifications = await notificationRepo.findByUserId(adminUserId);
     const noReplace = notifications.find((n) => n.title === "Staff unassigned — no replacements");
     expect(noReplace).toBeDefined();
     expect(noReplace!.message).toContain("Sunday Task");
@@ -205,26 +206,21 @@ describe("Smart-Swap", () => {
   });
 });
 
+// Weekday and midnight both have to be resolved in the organisation's
+// timezone: near midnight the runner's weekday can be a different day, which
+// would place these fixtures on the wrong side of an availability window.
 function getNextMonday(): Date {
-  const d = new Date();
-  const day = d.getDay();
-  const diff = day === 0 ? 1 : 8 - day;
-  d.setDate(d.getDate() + diff);
-  d.setHours(0, 0, 0, 0);
-  return d;
+  return nextMondaySgt();
 }
 
 function getNextSunday(): Date {
-  const d = new Date();
-  const day = d.getDay();
-  const diff = day === 0 ? 0 : 7 - day;
-  d.setDate(d.getDate() + diff);
-  d.setHours(0, 0, 0, 0);
-  return d;
+  return nextSundaySgt();
 }
 
 function setHour(date: Date, hour: number): Date {
-  const d = new Date(date);
-  d.setHours(hour, 0, 0, 0);
-  return d;
+  // Singapore hour. setHours() would set the runner's hour, so on a UTC
+  // runner a "09:00 shift" became 17:00 SGT and fell outside the staff
+  // member's availability window — making every candidate ineligible and
+  // suppressing the smart-swap suggestion this file exists to test.
+  return atHourSgt(date, hour);
 }
