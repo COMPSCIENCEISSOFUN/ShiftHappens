@@ -59,7 +59,20 @@ export async function POST(
     if (error instanceof SubscriptionLimitError || error instanceof FeatureNotAvailableError) {
       return NextResponse.json({ error: error.message }, { status: 403 });
     }
-    if (error instanceof Error && error.message === "End time must be after start time") {
+    // Every validation error TaskService.create can raise, mapped to 400.
+    // Previously only "End time must be after start time" was handled, so the
+    // other three reached the client as a 500 — a server-fault status for what
+    // is squarely a bad request, and no usable message. The sibling PATCH on
+    // tasks/[taskId] already caught its equivalents.
+    //
+    // Source: task.service.ts create() — lines 43, 50, 58, 61.
+    if (
+      error instanceof Error &&
+      (error.message === "End time must be after start time" ||
+        error.message === "Must provide both start and end time, or neither" ||
+        error.message === "A recurring task must have a start and end time" ||
+        error.message === "Invalid recurrence pattern")
+    ) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
