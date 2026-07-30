@@ -287,3 +287,61 @@ export function validateCustomTemplate(data: unknown): data is CustomTemplateDat
 
   return true;
 }
+// ============================================================
+// Industry selection — <select> value ⇄ stored string
+// ============================================================
+
+/**
+ * Sentinel for the "Other" option in an industry `<select>`.
+ *
+ * Deliberately not the bare string "other": platform admins can create
+ * templates with arbitrary names, and a template literally named "other"
+ * would otherwise be indistinguishable from the free-text escape hatch —
+ * selecting it would submit an empty industry and silently clear the field.
+ * A double-underscore sentinel cannot collide with a human-entered name.
+ */
+export const OTHER_INDUSTRY = "__other__";
+
+/** The two control values an industry string maps onto. */
+export interface IndustrySelection {
+  /** Bound to the `<select>`: a known option, OTHER_INDUSTRY, or "" for unset. */
+  select: string;
+  /** Bound to the free-text input. Only meaningful when select is OTHER_INDUSTRY. */
+  custom: string;
+}
+
+/**
+ * Maps a stored industry string onto the dropdown + free-text pair.
+ *
+ * `options` MUST be the resolved list, not a value that is still loading. If it
+ * is empty because the option fetch has not finished, every industry — including
+ * one chosen from the dropdown itself — classifies as "Other". That was the
+ * settings-page bug: the classification ran against an empty array captured on
+ * the first render, so the control reverted to Other on every reload while the
+ * stored value stayed correct.
+ *
+ * Degrading to "Other" when the option list genuinely fails to load is the
+ * intended behaviour: the value is shown, is editable, and re-saves byte for
+ * byte, so a failed fetch cannot lose data.
+ */
+export function resolveIndustrySelection(
+  industry: string | null | undefined,
+  options: readonly string[]
+): IndustrySelection {
+  const value = (industry ?? "").trim();
+  if (!value) return { select: "", custom: "" };
+
+  return options.includes(value)
+    ? { select: value, custom: "" }
+    : { select: OTHER_INDUSTRY, custom: value };
+}
+
+/**
+ * The inverse of resolveIndustrySelection — what to persist for a given pair.
+ *
+ * Returns "" rather than null for an unset industry: the API treats an empty
+ * string as an explicit clear, and Prisma ignores `undefined`.
+ */
+export function industryFromSelection(select: string, custom: string): string {
+  return select === OTHER_INDUSTRY ? custom.trim() : select.trim();
+}

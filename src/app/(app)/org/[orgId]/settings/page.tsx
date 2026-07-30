@@ -20,7 +20,7 @@
  */
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -36,6 +36,11 @@ import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { TIER_CONFIG } from "@/lib/subscription-tiers";
+import {
+  OTHER_INDUSTRY,
+  industryFromSelection,
+  resolveIndustrySelection,
+} from "@/lib/industry-templates";
 import { PageLoading } from "@/components/ui/page-loading";
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -165,6 +170,14 @@ export default function SettingsPage() {
   } | null>(null);
   const [orgLoading, setOrgLoading] = useState(false);
   const [industryOptions, setIndustryOptions] = useState<string[]>([]);
+  /**
+   * The same list as `industryOptions`, readable from a callback without a
+   * closure over a particular render. State is for rendering the <option>s;
+   * this is for classifying a value inside an async handler, where reading the
+   * state variable is precisely what caused the bug this file's loadOrgIdentity
+   * comment describes.
+   */
+  const industryOptionsRef = useRef<string[]>([]);
 
   // ─── Settings state ────────────────────────────────────────
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -207,10 +220,9 @@ export default function SettingsPage() {
   /* ────────────────────────────────────────────────────────────── */
 
   useEffect(() => {
-    fetchOrgDetails();
+    loadOrgIdentity();
     fetchSettings();
     fetchSubscription();
-    fetchIndustries();
   }, [orgId]);
 
   useEffect(() => {
@@ -221,40 +233,67 @@ export default function SettingsPage() {
     }
   }, []);
 
-  async function fetchOrgDetails() {
+  /**
+   * Loads the organization and the industry option list as one unit.
+   *
+   * They must resolve together, because classifying the stored industry needs
+   * both. When these were two independent fetches, fetchOrgDetails read
+   * `industryOptions` out of a closure captured on the first render — always
+   * the initial `[]`, regardless of which request finished first — so every
+   * industry, including one picked from this very dropdown, fell through to
+   * "Other". The saved value was always correct; only the control was wrong,
+   * which is why the page looked right until it was reloaded.
+   *
+   * Passing the resolved array to resolveIndustrySelection removes the ordering
+   * dependency entirely rather than papering over it with an extra effect.
+   */
+  async function loadOrgIdentity() {
+    const [org, options] = await Promise.all([
+      fetchOrgDetails(),
+      fetchIndustries(),
+    ]);
+
+    industryOptionsRef.current = options;
+    setIndustryOptions(options);
+    if (!org) return;
+
+    setOrgDetails(org);
+    setOrgName(org.name);
+    setOrgDescription(org.description || "");
+    applyIndustry(org.industry, options);
+  }
+
+  /** Drives both industry controls from a stored value. */
+  function applyIndustry(
+    industry: string | null | undefined,
+    options: readonly string[]
+  ) {
+    const selection = resolveIndustrySelection(industry, options);
+    setOrgIndustry(selection.select);
+    setOrgIndustryCustom(selection.custom);
+  }
+
+  async function fetchOrgDetails(): Promise<OrgDetails | null> {
     try {
       const res = await fetch(`/api/organizations/${orgId}`);
-      if (!res.ok) return;
-      const data: OrgDetails = await res.json();
-      setOrgDetails(data);
-      setOrgName(data.name);
-      setOrgDescription(data.description || "");
-
-      const industry = data.industry || "";
-      if (industryOptions.includes(industry)) {
-        setOrgIndustry(industry);
-        setOrgIndustryCustom("");
-      } else if (industry) {
-        setOrgIndustry("other");
-        setOrgIndustryCustom(industry);
-      } else {
-        setOrgIndustry("");
-        setOrgIndustryCustom("");
-      }
+      if (!res.ok) return null;
+      return (await res.json()) as OrgDetails;
     } catch {
-      // Non-critical on initial load
+      return null; // Non-critical on initial load
     }
   }
 
-  async function fetchIndustries() {
+  async function fetchIndustries(): Promise<string[]> {
     try {
       const res = await fetch("/api/platform/templates");
-      if (res.ok) {
-        const data = await res.json();
-        setIndustryOptions(data.map((t: { name: string }) => t.name));
-      }
+      if (!res.ok) return [];
+      const data = await res.json();
+      if (!Array.isArray(data)) return [];
+      return data
+        .map((t: { name?: string }) => t?.name)
+        .filter((name): name is string => typeof name === "string" && name.length > 0);
     } catch {
-      // Non-critical
+      return []; // Non-critical — the free-text fallback still holds the value
     }
   }
 
@@ -301,8 +340,7 @@ export default function SettingsPage() {
       return;
     }
 
-    const industryValue =
-      orgIndustry === "other" ? orgIndustryCustom.trim() : orgIndustry;
+    const industryValue = industryFromSelection(orgIndustry, orgIndustryCustom);
 
     setOrgLoading(true);
 
@@ -310,9 +348,11 @@ export default function SettingsPage() {
       const res = await fetch(`/api/organizations/${orgId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
+        // industry is sent even when empty: the API reads "" as an explicit
+        // clear, and omitting it would leave the old value in place.
         body: JSON.stringify({
           name: trimmedName,
-          industry: industryValue || "",
+          industry: industryValue,
           description: orgDescription.trim(),
         }),
       });
@@ -328,6 +368,12 @@ export default function SettingsPage() {
       }
 
       setOrgDetails(result);
+      // Re-derive the controls from what was actually persisted, so the state
+      // after Save is identical to the state after a reload. A future mismatch
+      // between the two is then visible immediately instead of only on refresh.
+      setOrgName(result.name);
+      setOrgDescription(result.description || "");
+      applyIndustry(result.industry, industryOptionsRef.current);
       setOrgMessage({ type: "success", text: "Organization details updated" });
     } catch {
       setOrgMessage({ type: "error", text: "Something went wrong" });
@@ -537,7 +583,8 @@ export default function SettingsPage() {
                   value={orgIndustry}
                   onChange={(e) => {
                     setOrgIndustry(e.target.value);
-                    if (e.target.value !== "other") setOrgIndustryCustom("");
+                    if (e.target.value !== OTHER_INDUSTRY)
+                      setOrgIndustryCustom("");
                   }}
                 >
                   <option value="">Not specified</option>
@@ -546,9 +593,9 @@ export default function SettingsPage() {
                       {opt}
                     </option>
                   ))}
-                  <option value="other">Other</option>
+                  <option value={OTHER_INDUSTRY}>Other</option>
                 </select>
-                {orgIndustry === "other" && (
+                {orgIndustry === OTHER_INDUSTRY && (
                   <Input
                     value={orgIndustryCustom}
                     onChange={(e) => setOrgIndustryCustom(e.target.value)}
