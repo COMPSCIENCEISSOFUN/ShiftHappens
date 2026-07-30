@@ -14,6 +14,8 @@ import { OrganizationRepository } from "@/repositories/organization.repository";
 import { UserRepository } from "@/repositories/user.repository";
 import { prisma } from "@/lib/prisma";
 import { cleanDatabase } from "../helpers/cleanup";
+import { todaySgtAt } from "../helpers/time";
+import { dayOfWeekInTimeZone, hourInTimeZone } from "@/lib/timezone";
 
 const recurringService = new RecurringTaskService();
 const taskService = new TaskService();
@@ -25,11 +27,10 @@ let userId: string;
 
 /** A start/end a few hours from now, so occurrences land inside the horizon. */
 function soon(offsetDays = 0) {
-  const start = new Date();
-  start.setDate(start.getDate() + offsetDays);
-  start.setHours(9, 0, 0, 0);
-  const end = new Date(start);
-  end.setHours(13, 0, 0, 0);
+  // 09:00-13:00 Singapore time. Recurrence preserves the organisation's
+  // time-of-day, so the fixture has to state which timezone it means.
+  const start = todaySgtAt(9, offsetDays);
+  const end = todaySgtAt(13, offsetDays);
   return { start: start.toISOString(), end: end.toISOString() };
 }
 
@@ -94,7 +95,7 @@ describe("RecurringTaskService", () => {
         where: { parentTaskId: template.id },
       });
 
-      expect(instance!.scheduledStart!.getHours()).toBe(9);
+      expect(hourInTimeZone(instance!.scheduledStart!)).toBe(9);
       const durationMs =
         instance!.scheduledEnd!.getTime() - instance!.scheduledStart!.getTime();
       expect(durationMs).toBe(4 * 60 * 60 * 1000);
@@ -112,7 +113,7 @@ describe("RecurringTaskService", () => {
       });
 
       for (const inst of instances) {
-        expect([1, 3]).toContain(inst.scheduledStart!.getDay());
+        expect([1, 3]).toContain(dayOfWeekInTimeZone(inst.scheduledStart!));
       }
     });
 

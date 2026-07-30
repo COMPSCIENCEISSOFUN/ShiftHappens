@@ -21,6 +21,11 @@ import { MembershipRepository } from "@/repositories/membership.repository";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 import { NotificationService, NOTIFICATION_TYPES } from "@/services/notification.service";
 import { prisma } from "@/lib/prisma";
+import {
+  DEFAULT_TIMEZONE,
+  dayOfWeekInTimeZone,
+  timeOfDayInTimeZone,
+} from "@/lib/timezone";
 
 interface StaffInfo {
   membershipId: string;
@@ -210,10 +215,14 @@ export class AutoScheduleService {
       const taskStart = task.scheduledStart.getTime();
       const taskEnd = task.scheduledEnd.getTime();
       const taskDuration = (taskEnd - taskStart) / 3600000;
-      const taskDayOfWeek = task.scheduledStart.getDay();
-      const pad = (n: number) => String(n).padStart(2, "0");
-      const taskStartHour = `${pad(task.scheduledStart.getHours())}:${pad(task.scheduledStart.getMinutes())}`;
-      const taskEndHour = `${pad(task.scheduledEnd.getHours())}:${pad(task.scheduledEnd.getMinutes())}`;
+      // Weekday and wall-clock must both be resolved in the organisation's
+      // timezone, because that is what the availability rows mean: dayOfWeek is
+      // the staff member's local day and startTime/endTime are local "HH:MM"
+      // strings. Reading them off the server clock made a 09:00 Singapore shift
+      // look like 01:00 on Vercel, so no candidate ever matched.
+      const taskDayOfWeek = dayOfWeekInTimeZone(task.scheduledStart);
+      const taskStartHour = timeOfDayInTimeZone(task.scheduledStart);
+      const taskEndHour = timeOfDayInTimeZone(task.scheduledEnd);
 
       const assignedToThisTask: DraftAssignment[] = [];
 
@@ -300,9 +309,23 @@ export class AutoScheduleService {
     const taskLines = context.tasks.map((t, i) => {
       const num = i + 1;
       taskMap.set(num, t.id);
-      const day = t.scheduledStart.toLocaleDateString("en-US", { weekday: "short" });
-      const start = t.scheduledStart.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
-      const end = t.scheduledEnd.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+      // Pin the timezone: without it these format in the server's zone, so the
+      // model is shown shift times eight hours from what the roster actually
+      // says and reasons about the wrong part of the day.
+      const day = t.scheduledStart.toLocaleDateString("en-US", {
+        weekday: "short",
+        timeZone: DEFAULT_TIMEZONE,
+      });
+      const start = t.scheduledStart.toLocaleTimeString("en-US", {
+        hour: "numeric",
+        minute: "2-digit",
+        timeZone: DEFAULT_TIMEZONE,
+      });
+      const end = t.scheduledEnd.toLocaleTimeString("en-US", {
+        hour: "numeric",
+        minute: "2-digit",
+        timeZone: DEFAULT_TIMEZONE,
+      });
       return `  Task ${num}: "${t.title}" (${t.departmentName || "no dept"}, ${t.priority}, needs ${t.requiredHeadcount - t.currentAssignments} staff, ${day} ${start}-${end})`;
     }).join("\n");
 

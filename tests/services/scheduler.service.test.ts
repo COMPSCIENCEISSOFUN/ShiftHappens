@@ -19,6 +19,7 @@ import { UserRepository } from "@/repositories/user.repository";
 import { NOTIFICATION_TYPES } from "@/services/notification.service";
 import { prisma } from "@/lib/prisma";
 import { cleanDatabase } from "../helpers/cleanup";
+import { todaySgtAt } from "../helpers/time";
 
 const scheduler = new SchedulerService();
 const taskRepo = new TaskRepository();
@@ -47,10 +48,8 @@ async function makeOrg(slug: string, status: "active" | "suspended" = "active") 
 
 /** A daily recurring template starting today at 09:00–13:00 (no instances yet). */
 async function addDailyTemplate(orgId: string, createdById: string) {
-  const start = new Date();
-  start.setHours(9, 0, 0, 0);
-  const end = new Date(start);
-  end.setHours(13, 0, 0, 0);
+  const start = todaySgtAt(9);
+  const end = todaySgtAt(13);
   return taskRepo.create({
     title: "Daily prep",
     organizationId: orgId,

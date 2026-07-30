@@ -19,6 +19,7 @@ import { UserRepository } from "@/repositories/user.repository";
 import { TaskRepository } from "@/repositories/task.repository";
 import { prisma } from "@/lib/prisma";
 import { cleanDatabase } from "../helpers/cleanup";
+import { atHourSgt, startOfTodaySgt, todaySgtAt } from "../helpers/time";
 
 const reportingService = new ReportingService();
 const orgRepo = new OrganizationRepository();
@@ -375,12 +376,11 @@ describe("ReportingService", () => {
 
   describe("getTomorrowsSchedule", () => {
     it("returns tasks scheduled for tomorrow", async () => {
-      const tomorrow = new Date();
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      const start = new Date(tomorrow);
-      start.setHours(8, 0, 0, 0);
-      const end = new Date(tomorrow);
-      end.setHours(12, 0, 0, 0);
+      // 08:00-12:00 tomorrow, Singapore time. The service formats time ranges in
+      // the organisation's timezone, so a fixture built on the runner's clock
+      // rendered as "4pm-8pm" on a UTC runner.
+      const start = todaySgtAt(8, 1);
+      const end = todaySgtAt(12, 1);
 
       await createTaskAndAssignment({
         title: "Morning prep",
@@ -399,12 +399,8 @@ describe("ReportingService", () => {
     });
 
     it("flags understaffed tasks", async () => {
-      const tomorrow = new Date();
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      const start = new Date(tomorrow);
-      start.setHours(14, 0, 0, 0);
-      const end = new Date(tomorrow);
-      end.setHours(18, 0, 0, 0);
+      const start = todaySgtAt(14, 1);
+      const end = todaySgtAt(18, 1);
 
       await createTaskAndAssignment({
         title: "Big dinner",
@@ -719,10 +715,8 @@ describe("ReportingService", () => {
 
   describe("getCoverageSummary", () => {
     it("classifies upcoming tasks as fully staffed, understaffed, or unassigned", async () => {
-      const inTwoDays = new Date();
-      inTwoDays.setDate(inTwoDays.getDate() + 2);
-      const end = new Date(inTwoDays);
-      end.setHours(end.getHours() + 4);
+      const inTwoDays = todaySgtAt(9, 2);
+      const end = new Date(inTwoDays.getTime() + 4 * 60 * 60 * 1000);
 
       const staff2 = await createStaff("Staff Two", "staff2@example.com");
 
@@ -771,10 +765,8 @@ describe("ReportingService", () => {
     });
 
     it("ignores tasks outside the 7-day window", async () => {
-      const farOut = new Date();
-      farOut.setDate(farOut.getDate() + 30);
-      const end = new Date(farOut);
-      end.setHours(end.getHours() + 4);
+      const farOut = todaySgtAt(9, 30);
+      const end = new Date(farOut.getTime() + 4 * 60 * 60 * 1000);
 
       await createTaskAndAssignment({
         title: "Next month",

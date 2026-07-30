@@ -15,6 +15,20 @@
  */
 import { ReportingRepository } from "@/repositories/reporting.repository";
 import { SettingsRepository } from "@/repositories/settings.repository";
+import {
+  DEFAULT_TIMEZONE,
+  dayOfWeekInTimeZone,
+  endOfDayInTimeZone,
+  localDateInTimeZone,
+  startOfDayInTimeZone,
+} from "@/lib/timezone";
+
+/**
+ * One day in milliseconds. Adding whole days to a day boundary resolved in a
+ * fixed-offset zone (Asia/Singapore) is exact; a DST zone would need each
+ * boundary re-resolved rather than offset arithmetic.
+ */
+const DAY_MS = 24 * 60 * 60 * 1000;
 import type {
   StaffAssignmentRecord,
   StaffAvailabilityRecord,
@@ -228,13 +242,13 @@ export class ReportingService {
    * Will be deprecated once the new dashboard endpoints are active.
    */
   async getDashboardReports(organizationId: string): Promise<ReportingData> {
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    sevenDaysAgo.setHours(0, 0, 0, 0);
-
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    tomorrow.setHours(0, 0, 0, 0);
+    // Day boundaries in the organisation's timezone. A bare setHours(0,0,0,0)
+    // starts the day at 08:00 Singapore time on a UTC server, so every morning's
+    // activity lands in the previous day's bucket.
+    const now = new Date();
+    const todayStart = startOfDayInTimeZone(now);
+    const sevenDaysAgo = new Date(todayStart.getTime() - 7 * DAY_MS);
+    const tomorrow = new Date(todayStart.getTime() + DAY_MS);
 
     const [completionChart, staffUtilization, deptMetrics, settings, clockData, staffCount] =
       await Promise.all([
@@ -382,15 +396,11 @@ export class ReportingService {
 
     // Week boundaries (Monday-based)
     const weekStart = this.getWeekStart(now);
-    const weekEnd = new Date(weekStart);
-    weekEnd.setDate(weekStart.getDate() + 7);
-
-    const lastWeekStart = new Date(weekStart);
-    lastWeekStart.setDate(lastWeekStart.getDate() - 7);
-
-    const sevenDaysAgo = new Date(now);
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    sevenDaysAgo.setHours(0, 0, 0, 0);
+    const weekEnd = new Date(weekStart.getTime() + 7 * DAY_MS);
+    const lastWeekStart = new Date(weekStart.getTime() - 7 * DAY_MS);
+    const sevenDaysAgo = new Date(
+      startOfDayInTimeZone(now).getTime() - 7 * DAY_MS
+    );
 
     const [statusCounts, thisWeekCount, lastWeekCount, clockData, staffCount, settings] =
       await Promise.all([
@@ -466,14 +476,9 @@ export class ReportingService {
     organizationId: string,
     departmentIds?: string[]
   ): Promise<TomorrowTask[]> {
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-
-    const dayStart = new Date(tomorrow);
-    dayStart.setHours(0, 0, 0, 0);
-
-    const dayEnd = new Date(tomorrow);
-    dayEnd.setHours(23, 59, 59, 999);
+    // "Tomorrow" is the organisation's next calendar day.
+    const dayStart = endOfDayInTimeZone(new Date());
+    const dayEnd = new Date(dayStart.getTime() + DAY_MS - 1);
 
     const tasks = await this.reportingRepo.getTasksForDateRange(
       organizationId,
@@ -507,13 +512,10 @@ export class ReportingService {
   ): Promise<CompletionDay[]> {
     const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-    const endDate = new Date();
-    endDate.setDate(endDate.getDate() + 1);
-    endDate.setHours(0, 0, 0, 0);
-
-    const startDate = new Date();
-    startDate.setDate(startDate.getDate() - 6);
-    startDate.setHours(0, 0, 0, 0);
+    const now = new Date();
+    const todayStart = startOfDayInTimeZone(now);
+    const endDate = new Date(todayStart.getTime() + DAY_MS);
+    const startDate = new Date(todayStart.getTime() - 6 * DAY_MS);
 
     const timestamps = await this.reportingRepo.getCompletionTimestamps(
       organizationId,
@@ -532,14 +534,12 @@ export class ReportingService {
     // Build 7-day array with zero-fill
     const days: CompletionDay[] = [];
     for (let i = 6; i >= 0; i--) {
-      const date = new Date();
-      date.setDate(date.getDate() - i);
-      date.setHours(0, 0, 0, 0);
+      const date = new Date(todayStart.getTime() - i * DAY_MS);
       const dateKey = this.formatLocalDate(date);
 
       days.push({
         date: dateKey,
-        label: dayNames[date.getDay()],
+        label: dayNames[dayOfWeekInTimeZone(date)],
         count: countMap.get(dateKey) || 0,
       });
     }
@@ -558,9 +558,9 @@ export class ReportingService {
     organizationId: string,
     departmentIds?: string[]
   ): Promise<StaffUtilizationItem[]> {
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    sevenDaysAgo.setHours(0, 0, 0, 0);
+    const sevenDaysAgo = new Date(
+      startOfDayInTimeZone(new Date()).getTime() - 7 * DAY_MS
+    );
 
     const [clockData, allStaff, settings] = await Promise.all([
       this.reportingRepo.getClockData(organizationId, sevenDaysAgo, departmentIds),
@@ -632,9 +632,9 @@ export class ReportingService {
     organizationId: string,
     departmentIds?: string[]
   ): Promise<RejectionTrendItem[]> {
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    sevenDaysAgo.setHours(0, 0, 0, 0);
+    const sevenDaysAgo = new Date(
+      startOfDayInTimeZone(new Date()).getTime() - 7 * DAY_MS
+    );
 
     const rejections = await this.reportingRepo.getRejectionData(
       organizationId,
@@ -690,11 +690,9 @@ export class ReportingService {
     departmentIds: string[]
   ): Promise<TeamMemberItem[]> {
     const now = new Date();
-    const todayStart = new Date(now);
-    todayStart.setHours(0, 0, 0, 0);
-    const todayEnd = new Date(now);
-    todayEnd.setHours(23, 59, 59, 999);
-    const dayOfWeek = now.getDay();
+    const todayStart = startOfDayInTimeZone(now);
+    const todayEnd = new Date(endOfDayInTimeZone(now).getTime() - 1);
+    const dayOfWeek = dayOfWeekInTimeZone(now);
 
     const members = await this.reportingRepo.getTeamMembers(
       organizationId,
@@ -750,10 +748,16 @@ export class ReportingService {
   ): Promise<StaffDashboardData> {
     const now = new Date();
     const weekStart = this.getWeekStart(now);
-    const weekEnd = new Date(weekStart);
-    weekEnd.setDate(weekStart.getDate() + 7);
+    const weekEnd = new Date(weekStart.getTime() + 7 * DAY_MS);
 
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    // First of the month, organisation time. The local Date constructor would
+    // use the server's month, which flips a day early at the boundary.
+    const [monthYear, monthNumber] = localDateInTimeZone(now)
+      .split("-")
+      .map(Number);
+    const monthStart = startOfDayInTimeZone(
+      new Date(Date.UTC(monthYear, monthNumber - 1, 1, 12))
+    );
 
     const [
       weekAssignments,
@@ -943,14 +947,16 @@ export class ReportingService {
 
   // ===== Private Helpers =====
 
-  /** Gets Monday 00:00 of the week containing the given date */
+  /**
+   * Gets Monday 00:00 of the week containing the given date, in the
+   * organisation's timezone. Both the weekday and the boundary have to be
+   * resolved there — on a UTC server the weekday flips eight hours early, so
+   * Monday morning in Singapore reports the previous week.
+   */
   private getWeekStart(date: Date): Date {
-    const d = new Date(date);
-    const day = d.getDay();
-    const diff = day === 0 ? -6 : 1 - day; // Monday = 1, Sunday wraps to previous Monday
-    d.setDate(d.getDate() + diff);
-    d.setHours(0, 0, 0, 0);
-    return d;
+    const day = dayOfWeekInTimeZone(date);
+    const diff = day === 0 ? -6 : 1 - day; // Monday = 1, Sunday wraps back
+    return startOfDayInTimeZone(new Date(date.getTime() + diff * DAY_MS));
   }
 
   /** Formats a time range string from two dates, e.g. "7:00am–10:00am" */
@@ -960,12 +966,21 @@ export class ReportingService {
   ): string | null {
     if (!start || !end) return null;
 
+    // Rendered in the organisation's timezone: a shift shown as "7:00am" must
+    // be 7am to the staff member, not 7am wherever the function happens to run.
     const fmt = (d: Date) => {
-      const hours = d.getHours();
-      const minutes = d.getMinutes();
+      const parts = d.toLocaleTimeString("en-US", {
+        timeZone: DEFAULT_TIMEZONE,
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: false,
+      });
+      const [hours, minutes] = parts.split(":").map(Number);
       const period = hours >= 12 ? "pm" : "am";
       const h = hours % 12 || 12;
-      return minutes > 0 ? `${h}:${String(minutes).padStart(2, "0")}${period}` : `${h}${period}`;
+      return minutes > 0
+        ? `${h}:${String(minutes).padStart(2, "0")}${period}`
+        : `${h}${period}`;
     };
 
     return `${fmt(start)}–${fmt(end)}`;
@@ -984,12 +999,14 @@ export class ReportingService {
   }
 
   /**
-   * Formats a Date as YYYY-MM-DD using local timezone.
-   * Avoids toISOString() which converts to UTC and can shift the date
-   * in timezones ahead of UTC (e.g. SGT/UTC+8).
+   * Formats a Date as YYYY-MM-DD in the ORGANISATION's timezone.
+   *
+   * The original avoided toISOString() for the right reason — it shifts the date
+   * in zones ahead of UTC — but reached for the local getters, which are the
+   * server's zone. Correct on a Singapore laptop, eight hours out on Vercel.
    */
   private formatLocalDate(d: Date): string {
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    return localDateInTimeZone(d);
   }
 
   // ─── Company-admin dashboard summaries (PRD 3.15) ─────────────────────────

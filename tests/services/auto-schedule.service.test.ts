@@ -11,6 +11,7 @@ import { AutoScheduleService } from "@/services/auto-schedule.service";
 import { prisma } from "@/lib/prisma";
 import { cleanDatabase } from "../helpers/cleanup";
 import bcrypt from "bcryptjs";
+import { atHourSgt, nextMondaySgt } from "../helpers/time";
 
 let orgId: string;
 let adminUserId: string;
@@ -313,17 +314,13 @@ describe("AutoScheduleService", () => {
 });
 
 // Helpers
+// Weekday and midnight resolved in the organisation's timezone. The runner's
+// clock would place these fixtures on a different day, and the scheduler now
+// matches availability using Singapore time — so nothing matched at all.
 function getNextMonday(): Date {
-  const d = new Date();
-  const day = d.getDay();
-  const diff = day === 0 ? 1 : 8 - day;
-  d.setDate(d.getDate() + diff);
-  d.setHours(0, 0, 0, 0);
-  return d;
+  return nextMondaySgt();
 }
 
 function setHour(date: Date, hour: number): Date {
-  const d = new Date(date);
-  d.setHours(hour, 0, 0, 0);
-  return d;
+  return atHourSgt(date, hour);
 }

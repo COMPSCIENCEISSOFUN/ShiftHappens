@@ -7,6 +7,8 @@
  * horizon window.
  */
 import { describe, it, expect } from "vitest";
+import { sgt } from "../helpers/time";
+import { hourInTimeZone } from "@/lib/timezone";
 import {
   parseRecurrencePattern,
   serializeRecurrencePattern,
@@ -16,8 +18,8 @@ import {
 } from "@/lib/recurrence";
 
 /** 1 June 2026 is a Monday. 09:00–13:00 (4h). */
-const BASE_START = new Date(2026, 5, 1, 9, 0, 0);
-const BASE_END = new Date(2026, 5, 1, 13, 0, 0);
+const BASE_START = sgt("2026-06-01T09:00");
+const BASE_END = sgt("2026-06-01T13:00");
 
 function starts(occs: { start: Date }[]): string[] {
   return occs.map((o) => o.start.toISOString());
@@ -70,11 +72,13 @@ describe("occurrencesBetween — daily", () => {
       BASE_START,
       BASE_END,
       BASE_START,
-      new Date(2026, 5, 4, 23, 59)
+      sgt("2026-06-04T23:59")
     );
 
     expect(occs).toHaveLength(4); // Jun 1,2,3,4
-    expect(occs[0].start.getHours()).toBe(9);
+    // The organisation's hour. getHours() is the runner's, so this asserted
+    // 9 only while the test machine happened to be on Singapore time.
+    expect(hourInTimeZone(occs[0].start)).toBe(9);
     // 4-hour duration carried over
     expect(occs[2].end.getTime() - occs[2].start.getTime()).toBe(4 * 60 * 60 * 1000);
     expect(occs[3].start.getDate()).toBe(4);
@@ -86,7 +90,7 @@ describe("occurrencesBetween — daily", () => {
       BASE_START,
       BASE_END,
       BASE_START,
-      new Date(2026, 5, 7, 23, 59)
+      sgt("2026-06-07T23:59")
     );
 
     expect(occs.map((o) => o.start.getDate())).toEqual([1, 3, 5, 7]);
@@ -101,7 +105,7 @@ describe("occurrencesBetween — weekly", () => {
       BASE_START,
       BASE_END,
       BASE_START,
-      new Date(2026, 5, 12, 23, 59)
+      sgt("2026-06-12T23:59")
     );
 
     // Jun 1(Mon) 3(Wed) 5(Fri) 8(Mon) 10(Wed) 12(Fri)
@@ -115,8 +119,8 @@ describe("occurrencesBetween — weekly", () => {
       { freq: "weekly", interval: 1, days: [0, 1] },
       BASE_START,
       BASE_END,
-      new Date(2026, 4, 1), // window opens well before the series
-      new Date(2026, 5, 8, 23, 59)
+      sgt("2026-05-01T00:00"), // window opens well before the series
+      sgt("2026-06-08T23:59")
     );
 
     // Jun 1 (Mon, base), Jun 7 (Sun), Jun 8 (Mon) — NOT May 31 (Sun).
@@ -129,7 +133,7 @@ describe("occurrencesBetween — weekly", () => {
       BASE_START,
       BASE_END,
       BASE_START,
-      new Date(2026, 5, 15, 23, 59)
+      sgt("2026-06-15T23:59")
     );
 
     // Every Monday: Jun 1, 8, 15
@@ -142,7 +146,7 @@ describe("occurrencesBetween — weekly", () => {
       BASE_START,
       BASE_END,
       BASE_START,
-      new Date(2026, 5, 29, 23, 59)
+      sgt("2026-06-29T23:59")
     );
 
     // Mondays every 2 weeks: Jun 1, 15, 29
@@ -157,7 +161,7 @@ describe("occurrencesBetween — monthly", () => {
       BASE_START,
       BASE_END,
       BASE_START,
-      new Date(2026, 8, 30) // through September
+      sgt("2026-09-30T00:00") // through September
     );
 
     // 1 Jun, 1 Jul, 1 Aug, 1 Sep
@@ -166,15 +170,15 @@ describe("occurrencesBetween — monthly", () => {
   });
 
   it("skips months that don't have the requested day (e.g. the 31st)", () => {
-    const jan31 = new Date(2027, 0, 31, 9, 0);
-    const jan31End = new Date(2027, 0, 31, 13, 0);
+    const jan31 = sgt("2027-01-31T09:00");
+    const jan31End = sgt("2027-01-31T13:00");
 
     const occs = occurrencesBetween(
       { freq: "monthly", interval: 1, dayOfMonth: 31 },
       jan31,
       jan31End,
       jan31,
-      new Date(2027, 3, 30) // through April
+      sgt("2027-04-30T00:00") // through April
     );
 
     // Jan 31 and Mar 31 exist; February has no 31st, April has no 31st.
@@ -189,7 +193,7 @@ describe("occurrencesBetween — bounds", () => {
       BASE_START,
       BASE_END,
       BASE_START,
-      new Date(2026, 5, 30) // horizon is far out; `until` should win
+      sgt("2026-06-30T00:00") // horizon is far out; `until` should win
     );
 
     expect(occs.map((o) => o.start.getDate())).toEqual([1, 2, 3]);
@@ -201,7 +205,7 @@ describe("occurrencesBetween — bounds", () => {
       BASE_START,
       BASE_END,
       BASE_START,
-      new Date(2026, 5, 2, 23, 59)
+      sgt("2026-06-02T23:59")
     );
 
     expect(occs).toHaveLength(2);
@@ -212,8 +216,8 @@ describe("occurrencesBetween — bounds", () => {
       { freq: "daily", interval: 1 },
       BASE_START,
       BASE_END,
-      new Date(2026, 5, 5), // window opens on the 5th
-      new Date(2026, 5, 7, 23, 59)
+      sgt("2026-06-05T00:00"), // window opens on the 5th
+      sgt("2026-06-07T23:59")
     );
 
     expect(occs.map((o) => o.start.getDate())).toEqual([5, 6, 7]);

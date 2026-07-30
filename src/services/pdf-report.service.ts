@@ -14,6 +14,11 @@
  */
 import { jsPDF } from "jspdf";
 import { ReportingService } from "./reporting.service";
+import {
+  DEFAULT_TIMEZONE,
+  dayOfWeekInTimeZone,
+  startOfDayInTimeZone,
+} from "@/lib/timezone";
 import type {
   KeyMetrics,
   StaffUtilizationItem,
@@ -155,8 +160,8 @@ export class PdfReportService {
   ): number {
     const now = new Date();
     const weekStart = this.getWeekStart(now);
-    const weekEnd = new Date(weekStart);
-    weekEnd.setDate(weekStart.getDate() + 6);
+    // Six whole days after the Monday boundary — exact for a fixed-offset zone.
+    const weekEnd = new Date(weekStart.getTime() + 6 * 24 * 60 * 60 * 1000);
 
     // Title
     doc.setFont("helvetica", "bold");
@@ -792,32 +797,40 @@ export class PdfReportService {
 
   // ===== Utility Helpers =====
 
-  /** Gets Monday 00:00 of the week containing the given date */
+  /**
+   * Gets Monday 00:00 of the week containing the given date, in the
+   * organisation's timezone. Resolved there rather than on the server clock:
+   * on Vercel the weekday flips eight hours early, so a report generated on a
+   * Monday morning in Singapore would cover the *previous* week.
+   */
   private getWeekStart(date: Date): Date {
-    const d = new Date(date);
-    const day = d.getDay();
+    const day = dayOfWeekInTimeZone(date);
     const diff = day === 0 ? -6 : 1 - day;
-    d.setDate(d.getDate() + diff);
-    d.setHours(0, 0, 0, 0);
-    return d;
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    return startOfDayInTimeZone(new Date(date.getTime() + diff * DAY_MS));
   }
 
-  /** Formats a date as "Jul 14, 2026" */
+  /**
+   * Formats a date as "Jul 14, 2026" in the organisation's timezone.
+   * A printed report must show the reader's dates, not the server's.
+   */
   private formatDateShort(date: Date): string {
-    const months = [
-      "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-      "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-    ];
-    return `${months[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
+    return date.toLocaleDateString("en-US", {
+      timeZone: DEFAULT_TIMEZONE,
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
   }
 
-  /** Formats time as "10:30 AM" */
+  /** Formats time as "10:30 AM" in the organisation's timezone. */
   private formatTime(date: Date): string {
-    const hours = date.getHours();
-    const minutes = date.getMinutes();
-    const period = hours >= 12 ? "PM" : "AM";
-    const h = hours % 12 || 12;
-    return `${h}:${String(minutes).padStart(2, "0")} ${period}`;
+    return date.toLocaleTimeString("en-US", {
+      timeZone: DEFAULT_TIMEZONE,
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    });
   }
 
   /** Converts hex color string to RGB tuple */

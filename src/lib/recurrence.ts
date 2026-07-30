@@ -20,6 +20,15 @@
  * Occurrences preserve the start's time-of-day and the original duration.
  */
 
+import {
+  dayOfWeekInTimeZone,
+  endOfDayInTimeZone,
+  localDateInTimeZone,
+  startOfDayInTimeZone,
+} from "@/lib/timezone";
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 export const RECURRENCE_FREQS = ["daily", "weekly", "monthly"] as const;
 export type RecurrenceFreq = (typeof RECURRENCE_FREQS)[number];
 
@@ -91,16 +100,19 @@ export function serializeRecurrencePattern(pattern: RecurrencePattern): string {
   return JSON.stringify(pattern);
 }
 
-/** Copies the time-of-day from `timeSource` onto `date`. */
+/**
+ * Copies the time-of-day from `timeSource` onto the day containing `date`,
+ * measured in the organisation's timezone.
+ *
+ * Expressed as "milliseconds since that day began locally" rather than via
+ * setHours(), which applies the SERVER's clock. A 09:00 Singapore series must
+ * generate 09:00 Singapore occurrences whether it runs on a laptop here or in
+ * a UTC function.
+ */
 function atTimeOf(date: Date, timeSource: Date): Date {
-  const d = new Date(date);
-  d.setHours(
-    timeSource.getHours(),
-    timeSource.getMinutes(),
-    timeSource.getSeconds(),
-    0
-  );
-  return d;
+  const msIntoDay =
+    timeSource.getTime() - startOfDayInTimeZone(timeSource).getTime();
+  return new Date(startOfDayInTimeZone(date).getTime() + msIntoDay);
 }
 
 /**
@@ -123,8 +135,13 @@ export function occurrencesBetween(
   // The window closes at whichever comes first: the caller's horizon or `until`.
   let hardEnd = to;
   if (pattern.until) {
-    const until = new Date(pattern.until);
-    until.setHours(23, 59, 59, 999);
+    // The last instant of the `until` day in the organisation's timezone.
+    // setHours(23,59,59,999) closes the window at the SERVER's midnight, which
+    // on Vercel is 08:00 the next morning in Singapore — quietly admitting an
+    // extra occurrence the user never asked for.
+    const until = new Date(
+      endOfDayInTimeZone(new Date(pattern.until)).getTime() - 1
+    );
     if (until < hardEnd) hardEnd = until;
   }
 
@@ -135,51 +152,63 @@ export function occurrencesBetween(
   };
 
   if (pattern.freq === "daily") {
-    const cursor = new Date(baseStart);
+    // Whole-day steps from the anchor. Equivalent to setDate() in a fixed-offset
+    // zone, but stated in terms that do not consult the server clock at all.
+    let cursor = new Date(baseStart);
     for (let i = 0; i < MAX_OCCURRENCES && cursor <= hardEnd; i++) {
       add(new Date(cursor));
-      cursor.setDate(cursor.getDate() + interval);
+      cursor = new Date(cursor.getTime() + interval * DAY_MS);
     }
   } else if (pattern.freq === "weekly") {
+    // The weekday the user picked is their LOCAL one. Read off the server clock,
+    // a 01:00 Singapore shift reports the previous day and the whole series
+    // generates a day early.
     const days =
-      pattern.days && pattern.days.length > 0 ? pattern.days : [baseStart.getDay()];
+      pattern.days && pattern.days.length > 0
+        ? pattern.days
+        : [dayOfWeekInTimeZone(baseStart)];
 
-    // Anchor on the Sunday of the week containing baseStart, then step whole weeks.
-    const weekCursor = new Date(baseStart);
-    weekCursor.setDate(weekCursor.getDate() - weekCursor.getDay());
-    weekCursor.setHours(0, 0, 0, 0);
+    // Anchor on the Sunday of baseStart's week, in organisation time, then step
+    // whole weeks. Adding whole days to a local midnight is exact for a
+    // fixed-offset zone such as Asia/Singapore.
+    let weekCursor = new Date(
+      startOfDayInTimeZone(baseStart).getTime() -
+        dayOfWeekInTimeZone(baseStart) * DAY_MS
+    );
 
     let guard = 0;
     while (weekCursor <= hardEnd && guard < MAX_OCCURRENCES) {
       for (const dow of days) {
-        const day = new Date(weekCursor);
-        day.setDate(weekCursor.getDate() + dow);
+        const day = new Date(weekCursor.getTime() + dow * DAY_MS);
         add(atTimeOf(day, baseStart));
         guard++;
       }
-      weekCursor.setDate(weekCursor.getDate() + 7 * interval);
+      weekCursor = new Date(weekCursor.getTime() + 7 * interval * DAY_MS);
     }
   } else {
     // monthly
-    const dayOfMonth = pattern.dayOfMonth ?? baseStart.getDate();
-    const monthCursor = new Date(
-      baseStart.getFullYear(),
-      baseStart.getMonth(),
-      1
-    );
+    // Day-of-month and the starting month come from the organisation's calendar,
+    // not the server's — they disagree for any shift between midnight and 08:00
+    // Singapore time.
+    const [baseYear, baseMonth, baseDay] = localDateInTimeZone(baseStart)
+      .split("-")
+      .map(Number);
+    const dayOfMonth = pattern.dayOfMonth ?? baseDay;
+    // Noon UTC anchors a calendar date unambiguously for any offset within 12h.
+    const monthCursor = new Date(Date.UTC(baseYear, baseMonth - 1, 1, 12));
 
     for (let i = 0; i < MAX_OCCURRENCES; i++) {
-      const year = monthCursor.getFullYear();
-      const month = monthCursor.getMonth();
+      const year = monthCursor.getUTCFullYear();
+      const month = monthCursor.getUTCMonth();
 
       // Day 0 of the next month == last day of this one.
-      const daysInMonth = new Date(year, month + 1, 0).getDate();
+      const daysInMonth = new Date(Date.UTC(year, month + 1, 0, 12)).getUTCDate();
       if (dayOfMonth <= daysInMonth) {
-        add(atTimeOf(new Date(year, month, dayOfMonth), baseStart));
+        add(atTimeOf(new Date(Date.UTC(year, month, dayOfMonth, 12)), baseStart));
       }
 
-      monthCursor.setMonth(monthCursor.getMonth() + interval);
-      if (new Date(year, month, 1) > hardEnd) break;
+      monthCursor.setUTCMonth(monthCursor.getUTCMonth() + interval);
+      if (new Date(Date.UTC(year, month, 1, 12)) > hardEnd) break;
       if (monthCursor > hardEnd) break;
     }
   }
