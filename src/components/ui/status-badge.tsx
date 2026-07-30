@@ -74,6 +74,11 @@ const CERTIFICATION_STYLES: Record<string, string> = {
   verified:
     "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300",
   rejected: "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300",
+  // Revoked was verified once and has been withdrawn. Grey rather than red:
+  // the certificate was legitimate, it simply no longer counts — the same
+  // practical meaning as expired.
+  revoked:
+    "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400",
   expired:
     "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400",
   expiring:

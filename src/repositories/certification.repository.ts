@@ -5,8 +5,15 @@
  * Certifications are submitted by staff, verified by managers,
  * and used by the eligibility engine to determine task fitness.
  * 
- * Status lifecycle: pending → verified/rejected
- * Expired certifications are determined by expiryDate at check time.
+ * Status lifecycle: pending → verified → revoked
+ *                   pending → rejected
+ *
+ * rejected = never accepted. revoked = was verified, later withdrawn.
+ * Nothing is hard-deleted once reviewed: the eligibility engine used these rows
+ * to decide who could work which shifts, so they have to survive as an audit
+ * trail. Only a still-pending submission may be removed, by its owner.
+ *
+ * Expiry is derived from expiryDate at check time, never stored.
  */
 import { prisma } from "@/lib/prisma";
 
@@ -76,14 +83,27 @@ export class CertificationRepository {
     });
   }
 
-  /** Verifies or rejects a certification */
-  async updateStatus(id: string, status: string, verifiedById: string) {
+  /**
+   * Records a status decision — verify, reject, or revoke.
+   * `verifiedById`/`verifiedAt` hold the LAST reviewer and time; the audit log
+   * carries the full history, so the row does not duplicate it.
+   */
+  async updateStatus(
+    id: string,
+    status: string,
+    verifiedById: string,
+    reason?: { rejectionReason?: string; rejectionNotes?: string }
+  ) {
     return prisma.certification.update({
       where: { id },
       data: {
         status,
         verifiedById,
         verifiedAt: new Date(),
+        // Prisma ignores `undefined`, so an approval explicitly CLEARS any
+        // reason left over from an earlier rejection rather than keeping it.
+        rejectionReason: reason?.rejectionReason ?? null,
+        rejectionNotes: reason?.rejectionNotes ?? null,
       },
     });
   }
@@ -91,6 +111,27 @@ export class CertificationRepository {
   /** Deletes a certification */
   async delete(id: string) {
     return prisma.certification.delete({ where: { id } });
+  }
+
+  /**
+   * Certifications expiring within `days`, across an organisation.
+   * Verified only — a pending or revoked certificate confers nothing, so its
+   * expiry is not worth anyone's attention.
+   */
+  async findExpiringSoon(organizationId: string, from: Date, until: Date) {
+    return prisma.certification.findMany({
+      where: {
+        membership: { organizationId, status: "active" },
+        status: "verified",
+        expiryDate: { gte: from, lte: until },
+      },
+      include: {
+        membership: {
+          include: { user: { select: { id: true, name: true, email: true } } },
+        },
+      },
+      orderBy: { expiryDate: "asc" },
+    });
   }
 
   /**

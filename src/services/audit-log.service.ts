@@ -40,6 +40,12 @@ const ACTIONS = {
   DEPARTMENT_ARCHIVED: "department.archived",
   DEPARTMENT_UNARCHIVED: "department.unarchived",
   DEPARTMENT_DELETED: "department.deleted",
+  // Certifications
+  CERTIFICATION_SUBMITTED: "certification.submitted",
+  CERTIFICATION_VERIFIED: "certification.verified",
+  CERTIFICATION_REJECTED: "certification.rejected",
+  CERTIFICATION_REVOKED: "certification.revoked",
+  CERTIFICATION_WITHDRAWN: "certification.withdrawn",
   // Settings
   SETTINGS_UPDATED: "settings.updated",
   // Roles

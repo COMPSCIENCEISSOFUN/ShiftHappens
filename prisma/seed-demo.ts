@@ -18,7 +18,9 @@
  * - Completed assignments with clock in/out data
  * - Rejected assignments (for AI rejection pattern detection)
  * - Availability schedules
- * - Certifications
+ * - Certifications across the whole lifecycle — awaiting review, verified,
+ *   expiring, expired, rejected and revoked — so the review workflow is
+ *   visible in a demo rather than just its finished state
  * - Company settings
  * - Work rules
  * - 1 Platform Admin (platform@smarttask.com)
@@ -133,6 +135,11 @@ async function seedAll(tx: Tx) {
     { name: "Marcus Johnson", email: "marcus@oceangrill.com", dept: "Bar" },
   ];
 
+  // Captured so certification reviews can be attributed to a manager rather
+  // than always the company admin — the "Reviewed by" line on a certification
+  // card is otherwise the same name on every row, which reads like a stub.
+  const managerUserIds: Record<string, string> = {};
+
   for (const mgr of managers) {
     const user = await tx.user.upsert({
       where: { email: mgr.email },
@@ -157,6 +164,8 @@ async function seedAll(tx: Tx) {
         status: "active",
       },
     });
+
+    managerUserIds[mgr.name] = user.id;
 
     const dept = departments.find((d) => d.name === mgr.dept);
     if (dept) {
@@ -336,37 +345,242 @@ async function seedAll(tx: Tx) {
   // ============================================================
   // Certifications
   // ============================================================
-  const certData = [
-    { staffIndex: 0, name: "Food Safety Level 2", issued: "2026-01-15" },
-    { staffIndex: 0, name: "First Aid", issued: "2025-06-01" },
-    { staffIndex: 1, name: "Food Safety Level 2", issued: "2026-03-01" },
-    { staffIndex: 2, name: "Food Safety Level 2", issued: "2025-11-01" },
-    { staffIndex: 2, name: "First Aid", issued: "2026-02-01" },
-    { staffIndex: 2, name: "RSA Certification", issued: "2026-01-01", expiry: "2027-01-01" },
-    { staffIndex: 4, name: "Food Safety Level 2", issued: "2026-04-01" },
-    { staffIndex: 4, name: "Barista Certificate", issued: "2026-03-15" },
+  //
+  // Deliberately spread across the WHOLE lifecycle, not just the happy end
+  // state. Every certification used to be seeded as "verified" with almost no
+  // expiry dates, so a fresh database showed eight identical green rows: the
+  // review queue was empty, nothing was expiring, and nothing had ever been
+  // rejected or revoked. None of the workflow the page exists for was visible.
+  //
+  // Expiry-relative rows are computed from TODAY rather than hardcoded, so the
+  // "Expiring soon" tile is still populated whenever this is next run instead of
+  // quietly ageing into "Expired".
+  //
+  // Note the pending row with a lapsed expiry (Alex's Fire Safety Warden): a
+  // non-verified certification shows as "Pending", never "Expired", and it gives
+  // a reviewer an obvious reason to reach for "Certificate expired".
+
+  const SGT_OFFSET_MS = 8 * 60 * 60 * 1000;
+  const DAY_MS = 24 * 60 * 60 * 1000;
+
+  /**
+   * Midnight today in Singapore, as an instant.
+   *
+   * The +08:00 offset is written out rather than imported from src/lib/timezone
+   * so this script has no dependency on the application's path aliases, matching
+   * the reasoning in tests/helpers/time.ts. Singapore has no DST, so a fixed
+   * offset is exact.
+   */
+  const sgtMidnightToday = new Date(
+    Math.floor((Date.now() + SGT_OFFSET_MS) / DAY_MS) * DAY_MS - SGT_OFFSET_MS
+  );
+
+  /** Singapore midnight, `days` from today. Negative for the past. */
+  const daysFromToday = (days: number) =>
+    new Date(sgtMidnightToday.getTime() + days * DAY_MS);
+
+  /** An instant `hours` before now — used for realistic "submitted N ago". */
+  const hoursAgo = (hours: number) =>
+    new Date(Date.now() - hours * 60 * 60 * 1000);
+
+  /**
+   * When a review happened, at 10:00 organisation time.
+   *
+   * Previously every reviewed certification was stamped `new Date()`, so the
+   * whole list read "Reviewed by … <the day you seeded>" — including a
+   * certificate issued in 2024, reviewed two years later. That reads as
+   * placeholder data on a demo screen.
+   *
+   * Rejections and revocations pass an explicit `daysAgo`, since those are
+   * recent decisions. Everything else is reviewed a couple of days after issue,
+   * which is what happens in practice, clamped so a certificate issued today is
+   * never reviewed in the future.
+   */
+  const reviewedAt = (issued: Date, daysAgo?: number) => {
+    const TEN_AM = 10 * 60 * 60 * 1000;
+    if (daysAgo !== undefined) {
+      return new Date(daysFromToday(-daysAgo).getTime() + TEN_AM);
+    }
+    return new Date(
+      Math.min(issued.getTime() + 2 * DAY_MS + TEN_AM, Date.now())
+    );
+  };
+
+  const sarahId = managerUserIds["Sarah Chen"] ?? adminUser.id;
+  const marcusId = managerUserIds["Marcus Johnson"] ?? adminUser.id;
+
+  // Placeholder document links. They exist so the "View submitted document"
+  // action is visible on the pending rows a reviewer clicks through; swap in a
+  // real file if you want the link followed on camera.
+  const DOC = "https://example.com/certificates/sample.pdf";
+
+  interface SeedCert {
+    staffIndex: number;
+    name: string;
+    /** Issued date. Number = days from today, string = fixed calendar date. */
+    issued: number | string;
+    /** Expiry. Omit for "never expires". */
+    expiry?: number | string;
+    status: "pending" | "verified" | "rejected" | "revoked";
+    /** Who reviewed it. Omit for pending. */
+    reviewedBy?: string;
+    rejectionReason?: string;
+    rejectionNotes?: string;
+    documentUrl?: string;
+    /** When it was submitted, in hours before now. Drives "submitted N ago". */
+    submittedHoursAgo?: number;
+    /**
+     * Days before today that the review happened. Omit to have it fall a couple
+     * of days after the issue date, which suits certificates that were simply
+     * checked and accepted.
+     */
+    reviewedDaysAgo?: number;
+  }
+
+  const certData: SeedCert[] = [
+    // ---- Verified, valid indefinitely (the existing baseline) ----
+    { staffIndex: 0, name: "Food Safety Level 2", issued: "2026-01-15", status: "verified", reviewedBy: adminUser.id },
+    { staffIndex: 0, name: "First Aid", issued: "2025-06-01", status: "verified", reviewedBy: adminUser.id },
+    { staffIndex: 1, name: "Food Safety Level 2", issued: "2026-03-01", status: "verified", reviewedBy: adminUser.id },
+    { staffIndex: 2, name: "Food Safety Level 2", issued: "2025-11-01", status: "verified", reviewedBy: adminUser.id },
+    { staffIndex: 2, name: "First Aid", issued: "2026-02-01", status: "verified", reviewedBy: adminUser.id },
+    { staffIndex: 2, name: "RSA Certification", issued: "2026-01-01", expiry: "2027-01-01", status: "verified", reviewedBy: adminUser.id },
+    { staffIndex: 4, name: "Food Safety Level 2", issued: "2026-04-01", status: "verified", reviewedBy: adminUser.id },
+    { staffIndex: 4, name: "Barista Certificate", issued: "2026-03-15", status: "verified", reviewedBy: sarahId },
+
+    // ---- Awaiting review — populates the queue the page is built around ----
+    {
+      staffIndex: 1,
+      name: "Bar Service Certification",
+      issued: -40,
+      expiry: 1055,
+      status: "pending",
+      documentUrl: DOC,
+      submittedHoursAgo: 48,
+    },
+    {
+      staffIndex: 4,
+      name: "Allergen Awareness",
+      issued: -10,
+      status: "pending",
+      documentUrl: DOC,
+      submittedHoursAgo: 6,
+    },
+    {
+      // Submitted already lapsed. Shows as "Pending", not "Expired".
+      staffIndex: 0,
+      name: "Fire Safety Warden",
+      issued: -1500,
+      expiry: -60,
+      status: "pending",
+      documentUrl: DOC,
+      submittedHoursAgo: 120,
+    },
+
+    // ---- Verified but expiring inside the 30-day warning window ----
+    {
+      staffIndex: 2,
+      name: "Food Hygiene Supervisor",
+      issued: -700,
+      expiry: 12,
+      status: "verified",
+      reviewedBy: sarahId,
+    },
+    {
+      staffIndex: 1,
+      name: "First Aid",
+      issued: -1080,
+      expiry: 26,
+      status: "verified",
+      reviewedBy: adminUser.id,
+    },
+
+    // ---- Verified but lapsed: kept on record, no longer counts ----
+    {
+      staffIndex: 4,
+      name: "Manual Handling",
+      issued: -800,
+      expiry: -45,
+      status: "verified",
+      reviewedBy: marcusId,
+    },
+
+    // ---- Refused outright: never counted ----
+    {
+      staffIndex: 0,
+      name: "Barista Certificate",
+      issued: -300,
+      status: "rejected",
+      reviewedBy: sarahId,
+      rejectionReason: "document_unreadable",
+      rejectionNotes:
+        "The photo is too blurry to read the issue date. Please upload a clearer scan.",
+      documentUrl: DOC,
+      reviewedDaysAgo: 9,
+    },
+
+    // ---- Honoured, then withdrawn: the audit trail survives ----
+    {
+      staffIndex: 2,
+      name: "Wine & Spirits Certification",
+      issued: -450,
+      expiry: 400,
+      status: "revoked",
+      reviewedBy: adminUser.id,
+      rejectionReason: "details_mismatch",
+      rejectionNotes:
+        "The name on the certificate does not match your employee record. Please resubmit one issued in your registered name.",
+      reviewedDaysAgo: 21,
+    },
   ];
 
+  const toDate = (value: number | string) =>
+    typeof value === "number" ? daysFromToday(value) : new Date(value);
+
   for (const cert of certData) {
+    const issuedDate = toDate(cert.issued);
+
+    const data = {
+      membershipId: staffMembershipIds[cert.staffIndex],
+      name: cert.name,
+      issuedDate,
+      expiryDate: cert.expiry === undefined ? null : toDate(cert.expiry),
+      status: cert.status,
+      documentUrl: cert.documentUrl ?? null,
+      // Prisma treats `undefined` as "leave alone", so these are written as
+      // explicit nulls — otherwise a row edited during a demo would keep a
+      // stale rejection reason after the seed reset it to pending.
+      rejectionReason: cert.rejectionReason ?? null,
+      rejectionNotes: cert.rejectionNotes ?? null,
+      verifiedById: cert.status === "pending" ? null : cert.reviewedBy ?? adminUser.id,
+      verifiedAt:
+        cert.status === "pending"
+          ? null
+          : reviewedAt(issuedDate, cert.reviewedDaysAgo),
+      ...(cert.submittedHoursAgo !== undefined
+        ? { createdAt: hoursAgo(cert.submittedHoursAgo) }
+        : {}),
+    };
+
     const existing = await tx.certification.findFirst({
-      where: { membershipId: staffMembershipIds[cert.staffIndex], name: cert.name },
+      where: { membershipId: data.membershipId, name: cert.name },
     });
-    if (!existing) {
-      await tx.certification.create({
-        data: {
-          membershipId: staffMembershipIds[cert.staffIndex],
-          name: cert.name,
-          issuedDate: new Date(cert.issued),
-          expiryDate: cert.expiry ? new Date(cert.expiry) : null,
-          status: "verified",
-          verifiedById: adminUser.id,
-          verifiedAt: new Date(),
-        },
-      });
+
+    if (existing) {
+      // Updated rather than skipped, unlike before. The expiry-relative rows are
+      // computed from today, so a re-run has to refresh them — leaving them in
+      // place is how "expires in 12 days" silently becomes "expired" a fortnight
+      // later. It also resets anything verified or rejected by hand mid-demo.
+      await tx.certification.update({ where: { id: existing.id }, data });
+    } else {
+      await tx.certification.create({ data });
     }
   }
 
-  console.log("Created 8 certifications");
+  console.log(
+    `Created ${certData.length} certifications across the full lifecycle ` +
+      "(pending, verified, expiring, expired, rejected, revoked)"
+  );
 
   // ============================================================
   // Clean old demo tasks for fresh data
@@ -383,7 +597,22 @@ async function seedAll(tx: Tx) {
   tomorrow.setDate(tomorrow.getDate() + 1);
   tomorrow.setHours(0, 0, 0, 0);
 
-  const taskData = [
+  // Typed explicitly: only one entry carries requiredCertifications, and
+  // relying on TypeScript to normalise a heterogeneous array literal into a
+  // shape with the missing property optional is exactly the kind of inference
+  // that differs between compiler versions.
+  interface SeedTask {
+    title: string;
+    description: string;
+    departmentId: string;
+    priority: string;
+    requiredHeadcount: number;
+    startHour: number;
+    endHour: number;
+    requiredCertifications?: string[];
+  }
+
+  const taskData: SeedTask[] = [
     {
       title: "Morning Kitchen Prep",
       description: "Prepare mise en place, check deliveries, prep sauces",
@@ -392,6 +621,12 @@ async function seedAll(tx: Tx) {
       requiredHeadcount: 2,
       startHour: 7,
       endHour: 10,
+      // No seeded task required a certification, so the reason certifications
+      // exist — gating who may be assigned — was invisible in a demo. Food
+      // Safety Level 2 is held and verified by every kitchen staff member, so
+      // the requirement shows up on the task and in the eligibility check
+      // without making anyone ineligible.
+      requiredCertifications: ["Food Safety Level 2"],
     },
     {
       title: "Lunch Service",
@@ -445,6 +680,7 @@ async function seedAll(tx: Tx) {
         departmentId: t.departmentId,
         priority: t.priority,
         requiredHeadcount: t.requiredHeadcount,
+        requiredCertifications: t.requiredCertifications ?? [],
         scheduledStart: start,
         scheduledEnd: end,
         createdById: adminUser.id,

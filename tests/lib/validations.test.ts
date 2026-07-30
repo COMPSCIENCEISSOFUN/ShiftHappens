@@ -30,6 +30,7 @@ import {
   createAvailabilityOverrideSchema,
   createCertificationSchema,
   verifyCertificationSchema,
+  revokeCertificationSchema,
   createEligibilityOverrideSchema,
   createCheckoutSchema,
   withdrawTaskSchema,
@@ -538,18 +539,94 @@ describe("createCertificationSchema", () => {
 });
 
 describe("verifyCertificationSchema", () => {
-  it("accepts verified status", () => {
+  it("accepts verified status with no reason", () => {
     const result = verifyCertificationSchema.safeParse({ status: "verified" });
     expect(result.success).toBe(true);
   });
 
-  it("accepts rejected status", () => {
-    const result = verifyCertificationSchema.safeParse({ status: "rejected" });
+  it("accepts rejected status when a reason is given", () => {
+    const result = verifyCertificationSchema.safeParse({
+      status: "rejected",
+      rejectionReason: "document_unreadable",
+    });
     expect(result.success).toBe(true);
+  });
+
+  it("accepts optional notes alongside a reason", () => {
+    const result = verifyCertificationSchema.safeParse({
+      status: "rejected",
+      rejectionReason: "certificate_expired",
+      rejectionNotes: "Lapsed in 2024 — please submit the refresher.",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("REJECTS a rejection with no reason", () => {
+    // The whole point of the reason: "rejected" on its own tells the employee
+    // nothing they can act on. Enforced here rather than only in the service so
+    // a malformed request never reaches the Control layer.
+    const result = verifyCertificationSchema.safeParse({ status: "rejected" });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      // safeParse puts the issues on result.error, not on result itself.
+      expect(result.error.issues[0].path).toEqual(["rejectionReason"]);
+    }
+  });
+
+  it("rejects an unknown reason", () => {
+    const result = verifyCertificationSchema.safeParse({
+      status: "rejected",
+      rejectionReason: "just_because",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects notes longer than 500 characters", () => {
+    const result = verifyCertificationSchema.safeParse({
+      status: "rejected",
+      rejectionReason: "other",
+      rejectionNotes: "x".repeat(501),
+    });
+    expect(result.success).toBe(false);
   });
 
   it("rejects invalid status", () => {
     const result = verifyCertificationSchema.safeParse({ status: "approved" });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects 'revoked' — revocation is a separate transition", () => {
+    // PATCH decides a pending submission; POST withdraws one already honoured.
+    const result = verifyCertificationSchema.safeParse({ status: "revoked" });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("revokeCertificationSchema", () => {
+  it("accepts a reason", () => {
+    const result = revokeCertificationSchema.safeParse({
+      rejectionReason: "not_recognised",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts a reason with notes", () => {
+    const result = revokeCertificationSchema.safeParse({
+      rejectionReason: "details_mismatch",
+      rejectionNotes: "Name on the certificate does not match the employee.",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("requires a reason — revoking removes someone's eligibility", () => {
+    const result = revokeCertificationSchema.safeParse({});
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects an unknown reason", () => {
+    const result = revokeCertificationSchema.safeParse({
+      rejectionReason: "changed_my_mind",
+    });
     expect(result.success).toBe(false);
   });
 });

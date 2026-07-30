@@ -300,9 +300,47 @@ export const createCertificationSchema = z.object({
   documentUrl: z.string().url().optional(),
 });
 
-/** Validates certification verification by manager */
-export const verifyCertificationSchema = z.object({
-  status: z.enum(["verified", "rejected"]),
+/**
+ * Predefined certificate rejection reasons, mirroring the task-rejection
+ * pattern (fixed set + optional notes) so both are reportable rather than
+ * free text. Also used when revoking an already-verified certificate.
+ */
+export const CERTIFICATION_REJECTION_REASONS = [
+  "certificate_expired",
+  "document_unreadable",
+  "wrong_certification",
+  "details_mismatch",
+  "not_recognised",
+  "other",
+] as const;
+
+/**
+ * Validates a manager's decision on a PENDING certification.
+ * A rejection must say why — "rejected" with no reason leaves the employee
+ * nothing to act on, which is the whole point of telling them.
+ */
+export const verifyCertificationSchema = z
+  .object({
+    status: z.enum(["verified", "rejected"]),
+    rejectionReason: z.enum(CERTIFICATION_REJECTION_REASONS).optional(),
+    rejectionNotes: z.string().max(500).optional(),
+  })
+  .refine(
+    (data) => data.status !== "rejected" || Boolean(data.rejectionReason),
+    {
+      message: "A reason is required when rejecting a certification",
+      path: ["rejectionReason"],
+    }
+  );
+
+/**
+ * Validates revoking a VERIFIED certification. Revocation is a status change,
+ * never a delete: the eligibility engine used this record to decide who could
+ * work which shifts, so the row has to survive for the audit trail.
+ */
+export const revokeCertificationSchema = z.object({
+  rejectionReason: z.enum(CERTIFICATION_REJECTION_REASONS),
+  rejectionNotes: z.string().max(500).optional(),
 });
 
 /** Validates eligibility override with required reason */
@@ -414,6 +452,9 @@ export type SetWeeklyAvailabilityInput = z.infer<typeof setWeeklyAvailabilitySch
 export type CreateAvailabilityOverrideInput = z.infer<typeof createAvailabilityOverrideSchema>;
 export type CreateCertificationInput = z.infer<typeof createCertificationSchema>;
 export type VerifyCertificationInput = z.infer<typeof verifyCertificationSchema>;
+export type RevokeCertificationInput = z.infer<typeof revokeCertificationSchema>;
+export type CertificationRejectionReason =
+  (typeof CERTIFICATION_REJECTION_REASONS)[number];
 export type CreateEligibilityOverrideInput = z.infer<typeof createEligibilityOverrideSchema>;
 export type CreateWorkRuleInput = z.infer<typeof createWorkRuleSchema>;
 export type UpdateWorkRuleInput = z.infer<typeof updateWorkRuleSchema>;

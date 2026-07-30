@@ -342,7 +342,13 @@ model Certification {
   issuedDate   DateTime
   expiryDate   DateTime?
   documentUrl  String?
+  // "pending" | "verified" | "rejected" | "revoked".
+  // rejected = never accepted. revoked = was verified, later withdrawn.
   status       String    @default("pending")
+  // Set when a manager rejects OR revokes. Reused for both: the audit log holds
+  // the full history, so the row only needs the current reason.
+  rejectionReason String?
+  rejectionNotes  String?
   verifiedById String?
   verifiedAt   DateTime?
   createdAt    DateTime  @default(now())

@@ -314,9 +314,35 @@ describe("Tenant isolation — CertificationService", () => {
   it("delete refuses a cert in another org", async () => {
     const certB = await makeCert(orgB);
 
+    // Org A's staff member, acting in org A, against org B's certificate.
+    // The org check runs first, so this reports "not found" rather than
+    // confirming a certificate exists somewhere they cannot see.
     await expect(
-      certService.delete(certB.id, orgA.orgId)
+      certService.delete(
+        certB.id,
+        orgA.orgId,
+        orgA.staffMembershipId,
+        orgA.staffUserId
+      )
     ).rejects.toThrow("Certification not found");
+
+    expect(await certService.getById(certB.id, orgB.orgId)).not.toBeNull();
+  });
+
+  it("delete refuses a colleague's cert inside the SAME org", async () => {
+    const certB = await makeCert(orgB);
+
+    // Not a tenant boundary — an authorisation one. Before the ownership check
+    // existed, any member could delete any colleague's certification, which
+    // silently changed who was eligible for work.
+    await expect(
+      certService.delete(
+        certB.id,
+        orgB.orgId,
+        orgB.adminMembershipId,
+        orgB.adminUserId
+      )
+    ).rejects.toThrow("Not authorized");
 
     expect(await certService.getById(certB.id, orgB.orgId)).not.toBeNull();
   });

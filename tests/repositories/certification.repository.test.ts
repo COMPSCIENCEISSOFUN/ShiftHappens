@@ -227,4 +227,151 @@ describe("CertificationRepository", () => {
       expect(valid.map((c) => c.name).sort()).toEqual(["First Aid", "Food Safety"]);
     });
   });
+
+  describe("updateStatus — rejection reasons", () => {
+    it("stores the reason and notes on a rejection", async () => {
+      const cert = await certRepo.create({
+        membershipId,
+        name: "Food Safety",
+        issuedDate: new Date("2026-01-15"),
+      });
+
+      const rejected = await certRepo.updateStatus(
+        cert.id,
+        "rejected",
+        adminUserId,
+        {
+          rejectionReason: "document_unreadable",
+          rejectionNotes: "The photo is too blurry to read the issue date.",
+        }
+      );
+
+      expect(rejected.status).toBe("rejected");
+      expect(rejected.rejectionReason).toBe("document_unreadable");
+      expect(rejected.rejectionNotes).toContain("too blurry");
+    });
+
+    it("clears a stale reason when a later decision carries none", async () => {
+      const cert = await certRepo.create({
+        membershipId,
+        name: "Food Safety",
+        issuedDate: new Date("2026-01-15"),
+      });
+
+      await certRepo.updateStatus(cert.id, "rejected", adminUserId, {
+        rejectionReason: "details_mismatch",
+      });
+      // Prisma ignores `undefined`, so the repository writes null explicitly —
+      // otherwise a verified certificate would keep the old rejection reason.
+      const verified = await certRepo.updateStatus(
+        cert.id,
+        "verified",
+        adminUserId
+      );
+
+      expect(verified.status).toBe("verified");
+      expect(verified.rejectionReason).toBeNull();
+      expect(verified.rejectionNotes).toBeNull();
+    });
+
+    it("records a revocation like any other status change", async () => {
+      const cert = await certRepo.create({
+        membershipId,
+        name: "Food Safety",
+        issuedDate: new Date("2026-01-15"),
+      });
+      await certRepo.updateStatus(cert.id, "verified", adminUserId);
+
+      const revoked = await certRepo.updateStatus(
+        cert.id,
+        "revoked",
+        adminUserId,
+        { rejectionReason: "not_recognised" }
+      );
+
+      expect(revoked.status).toBe("revoked");
+      expect(revoked.rejectionReason).toBe("not_recognised");
+    });
+  });
+
+  describe("findExpiringSoon", () => {
+    const DAY = 24 * 60 * 60 * 1000;
+
+    async function verified(name: string, expiryDate: Date | undefined) {
+      const cert = await certRepo.create({
+        membershipId,
+        name,
+        issuedDate: new Date("2026-01-01"),
+        expiryDate,
+      });
+      await certRepo.updateStatus(cert.id, "verified", adminUserId);
+      return cert;
+    }
+
+    it("returns verified certs expiring inside the window, soonest first", async () => {
+      const now = new Date();
+      await verified("Expires in 5 days", new Date(now.getTime() + 5 * DAY));
+      await verified("Expires in 20 days", new Date(now.getTime() + 20 * DAY));
+      await verified("Expires in 90 days", new Date(now.getTime() + 90 * DAY));
+
+      const found = await certRepo.findExpiringSoon(
+        orgId,
+        now,
+        new Date(now.getTime() + 30 * DAY)
+      );
+
+      expect(found.map((c) => c.name)).toEqual([
+        "Expires in 5 days",
+        "Expires in 20 days",
+      ]);
+    });
+
+    it("ignores certs with no expiry date", async () => {
+      const now = new Date();
+      await verified("Never expires", undefined);
+
+      const found = await certRepo.findExpiringSoon(
+        orgId,
+        now,
+        new Date(now.getTime() + 30 * DAY)
+      );
+      expect(found).toHaveLength(0);
+    });
+
+    it("ignores pending and revoked certs — neither confers anything", async () => {
+      const now = new Date();
+      const soon = new Date(now.getTime() + 5 * DAY);
+
+      await certRepo.create({
+        membershipId,
+        name: "Still pending",
+        issuedDate: new Date("2026-01-01"),
+        expiryDate: soon,
+      });
+
+      const revoked = await verified("Revoked", soon);
+      await certRepo.updateStatus(revoked.id, "revoked", adminUserId, {
+        rejectionReason: "not_recognised",
+      });
+
+      const found = await certRepo.findExpiringSoon(
+        orgId,
+        now,
+        new Date(now.getTime() + 30 * DAY)
+      );
+      expect(found).toHaveLength(0);
+    });
+
+    it("ignores already-expired certs — the window starts at `from`", async () => {
+      const now = new Date();
+      await verified("Expired last week", new Date(now.getTime() - 7 * DAY));
+
+      const found = await certRepo.findExpiringSoon(
+        orgId,
+        now,
+        new Date(now.getTime() + 30 * DAY)
+      );
+      expect(found).toHaveLength(0);
+    });
+  });
 });

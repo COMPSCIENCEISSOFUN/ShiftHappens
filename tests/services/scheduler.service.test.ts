@@ -173,7 +173,7 @@ describe("SchedulerService.runHourAlerts", () => {
 });
 
 describe("SchedulerService.runAll", () => {
-  it("returns both recurring and hour-alert summaries", async () => {
+  it("returns a summary for all three scheduled jobs", async () => {
     const a = await makeOrg("org-a");
     await addDailyTemplate(a.orgId, a.adminUserId);
     await addWorkedStaff(a.orgId, a.adminUserId, 9);
@@ -184,5 +184,52 @@ describe("SchedulerService.runAll", () => {
     expect(result.recurring.totalCreated).toBeGreaterThan(0);
     expect(result.hourAlerts.orgsProcessed).toBe(1);
     expect(result.hourAlerts.totalAlerted).toBeGreaterThanOrEqual(1);
+    // Certification expiry runs even with nothing to report — the cron response
+    // should always carry all three summaries so a silent job is visible.
+    expect(result.certExpiry.orgsProcessed).toBe(1);
+    expect(result.certExpiry.totalNotified).toBe(0);
+  });
+});
+
+describe("SchedulerService.runCertificationExpiry", () => {
+  const DAY_MS = 24 * 60 * 60 * 1000;
+
+  it("warns the holder of a certificate about to lapse", async () => {
+    const a = await makeOrg("org-cert");
+    const staff = await addWorkedStaff(a.orgId, a.adminUserId, 1);
+
+    const cert = await prisma.certification.create({
+      data: {
+        membershipId: staff.membershipId,
+        name: "First Aid",
+        issuedDate: new Date("2026-01-01"),
+        expiryDate: new Date(Date.now() + 10 * DAY_MS),
+        status: "verified",
+      },
+    });
+
+    const summary = await scheduler.runCertificationExpiry();
+
+    expect(summary.orgsProcessed).toBe(1);
+    expect(summary.totalNotified).toBe(1);
+
+    const notes = await prisma.notification.findMany({
+      where: {
+        userId: staff.staffUserId,
+        type: NOTIFICATION_TYPES.CERT_EXPIRING,
+      },
+    });
+    expect(notes).toHaveLength(1);
+    expect(notes[0].entityId).toBe(cert.id);
+  });
+
+  it("says nothing when no certificate is lapsing", async () => {
+    const a = await makeOrg("org-quiet");
+    await addWorkedStaff(a.orgId, a.adminUserId, 1);
+
+    const summary = await scheduler.runCertificationExpiry();
+
+    expect(summary.orgsProcessed).toBe(1);
+    expect(summary.totalNotified).toBe(0);
   });
 });

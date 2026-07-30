@@ -37,6 +37,7 @@ export const NOTIFICATION_TYPES = {
   WITHDRAWAL_DENIED: "withdrawal_denied",
   CERT_VERIFIED: "cert_verified",
   CERT_REJECTED: "cert_rejected",
+  CERT_EXPIRING: "cert_expiring",
   ORG_SUSPENDED: "org_suspended",
 } as const;
 
@@ -63,6 +64,7 @@ export const NOTIFICATION_CATEGORIES = {
   certification: [
     NOTIFICATION_TYPES.CERT_VERIFIED,
     NOTIFICATION_TYPES.CERT_REJECTED,
+    NOTIFICATION_TYPES.CERT_EXPIRING,
   ],
   alert: [
     NOTIFICATION_TYPES.HOUR_LIMIT_WARNING,
@@ -78,6 +80,7 @@ export type NotificationCategory = keyof typeof NOTIFICATION_CATEGORIES;
  * do something about — surfaced as the "Needs action" tile.
  */
 export const NEEDS_ACTION_TYPES: string[] = [
+  NOTIFICATION_TYPES.CERT_EXPIRING,
   NOTIFICATION_TYPES.ASSIGNMENT_REJECTED,
   NOTIFICATION_TYPES.HOUR_LIMIT_WARNING,
   NOTIFICATION_TYPES.CERT_REJECTED,
@@ -97,6 +100,7 @@ const TYPE_TO_PREFERENCE: Record<string, string> = {
   [NOTIFICATION_TYPES.STAFF_INELIGIBLE]: "taskAssignment",
   [NOTIFICATION_TYPES.ASSIGNMENT_REJECTED]: "taskRejection",
   [NOTIFICATION_TYPES.HOUR_LIMIT_WARNING]: "hourLimitWarning",
+  [NOTIFICATION_TYPES.CERT_EXPIRING]: "certificationExpiry",
 };
 
 export interface NotificationFeedOptions {

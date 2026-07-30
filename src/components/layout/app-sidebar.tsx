@@ -165,6 +165,20 @@ function MyTasksIcon() {
   );
 }
 
+/**
+ * An award/medal, deliberately different from the shield used by the org-wide
+ * Certifications page. A manager sees both entries, and giving them the same
+ * glyph would make the personal list look like a duplicate of the review queue.
+ */
+function MyCertificationsIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={iconClass}>
+      <circle cx="12" cy="9" r="6" />
+      <path d="M8.2 13.9 7 22l5-3 5 3-1.2-8.1" />
+    </svg>
+  );
+}
+
 function ProfileIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={iconClass}>
@@ -345,6 +359,9 @@ export function AppSidebar({
     }
     if (role === "staff" || role === "manager") {
       overviewItems.push({ href: `/org/${orgId}/availability`, label: "My Availability", icon: AvailabilityIcon });
+      // Managers hold certifications too, and the org-wide Certifications page
+      // is a review queue for other people's — it has no way to submit one.
+      overviewItems.push({ href: `/org/${orgId}/my-certifications`, label: "My Certifications", icon: MyCertificationsIcon });
     }
   }
 
