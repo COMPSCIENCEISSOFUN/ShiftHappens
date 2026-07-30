@@ -30,6 +30,7 @@ import {
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { EmptyState } from "@/components/ui/empty-state";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { certificationDisplayState } from "@/lib/certification-display";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -290,11 +291,6 @@ export default function StaffDashboard({
     const uiDay = av.dayOfWeek === 0 ? 6 : av.dayOfWeek - 1; // Sun→6, Mon→0 ...
     availByDay[uiDay] = av;
   }
-
-  // Certifications with warning status
-  const certsWithWarning = data.certifications.filter(
-    (c) => c.status === "expired" || c.status === "expiring_soon"
-  );
 
   return (
     <div className="space-y-8">
@@ -572,9 +568,20 @@ export default function StaffDashboard({
             ) : (
               <ul className="divide-y">
                 {data.certifications.map((cert) => {
+                  // The API hands back the STORED status — pending, verified,
+                  // rejected or revoked. It never sends "expired" or
+                  // "expiring_soon", so the old checks for those never fired
+                  // and a lapsed certificate showed a green tick and a
+                  // "Verified" badge. Expiry is derived here, from expiryDate.
+                  const state = certificationDisplayState(
+                    cert.status,
+                    cert.expiryDate
+                  );
                   const isWarning =
-                    cert.status === "expired" ||
-                    cert.status === "expiring_soon";
+                    state === "expired" ||
+                    state === "expiring" ||
+                    state === "rejected" ||
+                    state === "revoked";
                   return (
                     <li
                       key={cert.id}
@@ -610,7 +617,7 @@ export default function StaffDashboard({
                         )}
                       </div>
                       <StatusBadge
-                        value={cert.status}
+                        value={state}
                         palette="certification"
                       />
                     </li>
