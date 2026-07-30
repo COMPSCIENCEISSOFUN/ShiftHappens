@@ -156,7 +156,11 @@ export function NotificationBell({ orgId }: { orgId?: string }) {
           router.push(`/org/${orgId}/my-tasks`);
           break;
         case "certification":
-          router.push(`/org/${orgId}/certifications`);
+          // Every certification notification goes to the person who HOLDS the
+          // certificate (see notifyDecision / notifyExpiring), never to a
+          // reviewer. The org-wide page is admin/manager-gated, so sending a
+          // staff member there landed them on a 403.
+          router.push(`/org/${orgId}/my-certifications`);
           break;
         default:
           break;

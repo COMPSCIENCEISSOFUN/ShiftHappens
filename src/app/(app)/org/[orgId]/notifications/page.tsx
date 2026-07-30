@@ -324,7 +324,10 @@ export default function NotificationsPage() {
         router.push(`/org/${orgId}/my-tasks`);
         break;
       case "certification":
-        router.push(`/org/${orgId}/certifications`);
+        // Certification notifications are only ever sent to the holder, and the
+        // org-wide page is admin/manager-gated — a staff member following one
+        // there got a 403. Their own list works for every role.
+        router.push(`/org/${orgId}/my-certifications`);
         break;
       case "membership":
         router.push(`/org/${orgId}/members`);
