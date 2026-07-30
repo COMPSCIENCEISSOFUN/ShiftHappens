@@ -95,6 +95,159 @@ describe("MembershipRepository", () => {
       );
       expect(membership).toBeNull();
     });
+
+    /**
+     * The security property this method exists to provide.
+     *
+     * Every API route gates on `if (!membership) return 403`. Before this
+     * filter, a deactivated member satisfied that check and kept full access to
+     * the organisation they had been removed from — only three route files
+     * checked `membership.status` themselves.
+     */
+    it("returns null for a deactivated member", async () => {
+      const user2 = await userRepo.create({
+        name: "Deactivated Staff",
+        email: "deactivated@example.com",
+        hashedPassword: "hash",
+      });
+
+      const membership = await membershipRepo.create({
+        userId: user2.id,
+        organizationId: orgId,
+        role: "staff",
+      });
+      await membershipRepo.updateStatus(membership.id, "inactive");
+
+      const found = await membershipRepo.findByUserAndOrg(user2.id, orgId);
+      expect(found).toBeNull();
+    });
+
+    it("finds the member again once reactivated", async () => {
+      const user2 = await userRepo.create({
+        name: "Returning Staff",
+        email: "returning@example.com",
+        hashedPassword: "hash",
+      });
+
+      const membership = await membershipRepo.create({
+        userId: user2.id,
+        organizationId: orgId,
+        role: "staff",
+      });
+
+      await membershipRepo.updateStatus(membership.id, "inactive");
+      expect(await membershipRepo.findByUserAndOrg(user2.id, orgId)).toBeNull();
+
+      await membershipRepo.updateStatus(membership.id, "active");
+      const found = await membershipRepo.findByUserAndOrg(user2.id, orgId);
+      expect(found).not.toBeNull();
+      expect(found!.role).toBe("staff");
+    });
+
+    it("still includes department memberships", async () => {
+      // departmentScopeFor() reads this off the returned membership, so the
+      // switch from findUnique to findFirst must not drop the include.
+      const dept = await deptRepo.create({
+        name: "Kitchen",
+        organizationId: orgId,
+      });
+      const membership = await membershipRepo.findByUserAndOrg(
+        adminUserId,
+        orgId
+      );
+      await membershipRepo.assignDepartments(membership!.id, [dept.id]);
+
+      const reloaded = await membershipRepo.findByUserAndOrg(
+        adminUserId,
+        orgId
+      );
+      expect(reloaded!.departmentMemberships).toHaveLength(1);
+      expect(reloaded!.departmentMemberships[0].department.name).toBe("Kitchen");
+    });
+  });
+
+  describe("findByUserAndOrgIncludingInactive", () => {
+    /**
+     * The counterpart, and the reason the split exists. Reactivating a member
+     * requires finding them WHILE they are inactive — an active-only lookup
+     * would throw "Membership not found" and make deactivation irreversible.
+     */
+    it("finds a deactivated member", async () => {
+      const user2 = await userRepo.create({
+        name: "Deactivated Staff",
+        email: "deactivated2@example.com",
+        hashedPassword: "hash",
+      });
+
+      const membership = await membershipRepo.create({
+        userId: user2.id,
+        organizationId: orgId,
+        role: "staff",
+      });
+      await membershipRepo.updateStatus(membership.id, "inactive");
+
+      const found = await membershipRepo.findByUserAndOrgIncludingInactive(
+        user2.id,
+        orgId
+      );
+      expect(found).not.toBeNull();
+      expect(found!.status).toBe("inactive");
+    });
+
+    it("finds an active member too", async () => {
+      const found = await membershipRepo.findByUserAndOrgIncludingInactive(
+        adminUserId,
+        orgId
+      );
+      expect(found).not.toBeNull();
+      expect(found!.role).toBe("company_admin");
+    });
+
+    it("still returns null for a genuine non-member", async () => {
+      const user2 = await userRepo.create({
+        name: "Outsider",
+        email: "outsider2@example.com",
+        hashedPassword: "hash",
+      });
+
+      const found = await membershipRepo.findByUserAndOrgIncludingInactive(
+        user2.id,
+        orgId
+      );
+      expect(found).toBeNull();
+    });
+
+    it("disagrees with findByUserAndOrg exactly when the member is inactive", async () => {
+      // States the contract as a single assertion: the two methods differ on
+      // inactive members and agree on everything else.
+      const user2 = await userRepo.create({
+        name: "Toggling Staff",
+        email: "toggling@example.com",
+        hashedPassword: "hash",
+      });
+
+      const membership = await membershipRepo.create({
+        userId: user2.id,
+        organizationId: orgId,
+        role: "staff",
+      });
+
+      const active = await Promise.all([
+        membershipRepo.findByUserAndOrg(user2.id, orgId),
+        membershipRepo.findByUserAndOrgIncludingInactive(user2.id, orgId),
+      ]);
+      expect(active[0]).not.toBeNull();
+      expect(active[1]).not.toBeNull();
+
+      await membershipRepo.updateStatus(membership.id, "inactive");
+
+      const inactive = await Promise.all([
+        membershipRepo.findByUserAndOrg(user2.id, orgId),
+        membershipRepo.findByUserAndOrgIncludingInactive(user2.id, orgId),
+      ]);
+      expect(inactive[0]).toBeNull();
+      expect(inactive[1]).not.toBeNull();
+    });
   });
 
   describe("create", () => {
