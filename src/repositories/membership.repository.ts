@@ -45,10 +45,63 @@ export class MembershipRepository {
   }
 
   /**
-   * Finds a specific user's membership in an organization.
-   * Used for permission checks and role verification.
+   * Finds a user's ACTIVE membership in an organization.
+   *
+   * This answers the authorisation question — "may this person act here?" — and
+   * it is deliberately the default, because that is what every API route is
+   * asking when it calls this. Previously the status was not filtered, so a
+   * deactivated member satisfied every `if (!membership)` gate in the
+   * application and kept full access to an organisation they had been removed
+   * from. Only three route files checked `membership.status` themselves.
+   *
+   * Administering a member who is NOT active — reactivating them, changing their
+   * role, checking whether an invitee already exists — must use
+   * `findByUserAndOrgIncludingInactive` and say so explicitly.
+   *
+   * Making the strict behaviour the default is the point: a newly written route
+   * is safe unless someone deliberately opts out, so the failure mode is a
+   * visible 403 rather than a silent privilege leak.
+   *
+   * `findFirst`, not `findUnique`: the composite unique key is
+   * (userId, organizationId) and does not include status, so `findUnique`
+   * cannot express this filter.
    */
   async findByUserAndOrg(userId: string, organizationId: string) {
+    return prisma.membership.findFirst({
+      where: {
+        userId,
+        organizationId,
+        status: "active",
+      },
+      include: {
+        departmentMemberships: {
+          include: {
+            department: {
+              select: { id: true, name: true },
+            },
+          },
+        },
+      },
+    });
+  }
+
+  /**
+   * Finds a user's membership regardless of status.
+   *
+   * For ADMINISTERING a member rather than authorising one. `UserManagementService`
+   * needs this in four places — re-invite detection, role change, custom-role
+   * assignment and the activate/deactivate toggle — because all four operate on a
+   * member who may currently be inactive. Filtering them out would make a
+   * deactivated member permanently unrecoverable: reactivation looks the member
+   * up before flipping the status, so it would fail with "Membership not found".
+   *
+   * Do NOT use this for permission checks. If you are deciding whether the
+   * CALLER may do something, you want `findByUserAndOrg`.
+   */
+  async findByUserAndOrgIncludingInactive(
+    userId: string,
+    organizationId: string
+  ) {
     return prisma.membership.findUnique({
       where: {
         userId_organizationId: { userId, organizationId },

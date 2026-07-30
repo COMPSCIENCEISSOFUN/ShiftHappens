@@ -72,10 +72,15 @@ export class UserManagementService {
     // Check if the email already belongs to a member of this org
     const existingUser = await this.userRepo.findByEmail(input.email);
     if (existingUser) {
-      const existingMembership = await this.membershipRepo.findByUserAndOrg(
-        existingUser.id,
-        organizationId
-      );
+      // Including inactive: a deactivated member is still a member. The
+      // (userId, organizationId) pair is unique, so inviting them again would
+      // hit a constraint violation rather than create a second membership —
+      // they need reactivating, not re-inviting.
+      const existingMembership =
+        await this.membershipRepo.findByUserAndOrgIncludingInactive(
+          existingUser.id,
+          organizationId
+        );
       if (existingMembership) {
         throw new Error("User is already a member of this organization");
       }
@@ -164,10 +169,13 @@ export class UserManagementService {
     input: UpdateUserRoleInput,
     performedById?: string
   ) {
-    const membership = await this.membershipRepo.findByUserAndOrg(
-      userId,
-      organizationId
-    );
+    // Including inactive: `userId` is the member being administered, not the
+    // admin doing it. An inactive member's role must still be changeable.
+    const membership =
+      await this.membershipRepo.findByUserAndOrgIncludingInactive(
+        userId,
+        organizationId
+      );
     if (!membership) {
       throw new Error("Membership not found");
     }
@@ -241,10 +249,13 @@ export class UserManagementService {
     customRoleId: string | null,
     performedById?: string
   ) {
-    const membership = await this.membershipRepo.findByUserAndOrg(
-      userId,
-      organizationId
-    );
+    // Including inactive: administering the target member, not authorising the
+    // caller. The route has already checked the caller is a company admin.
+    const membership =
+      await this.membershipRepo.findByUserAndOrgIncludingInactive(
+        userId,
+        organizationId
+      );
     if (!membership) {
       throw new Error("Membership not found");
     }
@@ -283,10 +294,15 @@ export class UserManagementService {
    * Deactivation prevents access to the organization.
    */
   async toggleMemberStatus(userId: string, organizationId: string, performedById?: string) {
-    const membership = await this.membershipRepo.findByUserAndOrg(
-      userId,
-      organizationId
-    );
+    // Including inactive is REQUIRED here, not merely preferable: reactivating a
+    // member means looking them up while they are inactive. An active-only
+    // lookup would throw "Membership not found" and make deactivation
+    // irreversible.
+    const membership =
+      await this.membershipRepo.findByUserAndOrgIncludingInactive(
+        userId,
+        organizationId
+      );
     if (!membership) {
       throw new Error("Membership not found");
     }
