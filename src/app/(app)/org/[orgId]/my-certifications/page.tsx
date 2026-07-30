@@ -17,11 +17,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { Award } from "lucide-react";
+import { ShieldCheck } from "lucide-react";
 import { PageLoading } from "@/components/ui/page-loading";
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { EmptyState } from "@/components/ui/empty-state";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { CertificationStateIcon } from "@/components/ui/certification-state-icon";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   EXPIRY_WARNING_DAYS,
@@ -71,19 +72,6 @@ const EMPTY_FORM: FormState = {
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
 /* ------------------------------------------------------------------ */
-
-const STATE_ICON: Record<CertificationDisplayState, { glyph: string; tint: string }> = {
-  pending: { glyph: "⏳", tint: "bg-amber-500/[.15]" },
-  verified: { glyph: "🏆", tint: "bg-green-500/[.14]" },
-  expiring: { glyph: "⚠️", tint: "bg-amber-500/[.15]" },
-  expired: { glyph: "📄", tint: "bg-muted" },
-  rejected: { glyph: "✕", tint: "bg-red-500/[.13]" },
-  revoked: { glyph: "🚫", tint: "bg-muted" },
-};
-
-function iconFor(state: CertificationDisplayState) {
-  return STATE_ICON[state] ?? { glyph: "📄", tint: "bg-muted" };
-}
 
 function reasonSentence(cert: MyCertification): string | null {
   if (!cert.rejectionReason && !cert.rejectionNotes) return null;
@@ -447,7 +435,7 @@ export default function MyCertificationsPage() {
         >
           <div className="flex items-center gap-3 border-b border-border px-4 py-3.5">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-50 dark:bg-indigo-950/30">
-              <Award
+              <ShieldCheck
                 className="h-[18px] w-[18px] text-indigo-600 dark:text-indigo-400"
                 aria-hidden="true"
               />
@@ -571,7 +559,7 @@ export default function MyCertificationsPage() {
       {/* ── List ── */}
       {ordered.length === 0 ? (
         <EmptyState
-          icon={Award}
+          icon={ShieldCheck}
           title="No certifications yet"
           description="Add your qualifications here so managers can verify them. Once verified, you become eligible for tasks that require them."
           action={
@@ -588,7 +576,6 @@ export default function MyCertificationsPage() {
       ) : (
         <div className="flex flex-col gap-2.5">
           {ordered.map(({ cert, state }) => {
-            const { glyph, tint } = iconFor(state);
             const sentence = reasonSentence(cert);
             const daysLeft = cert.expiryDate
               ? daysUntilExpiry(cert.expiryDate, now)
@@ -601,12 +588,7 @@ export default function MyCertificationsPage() {
                   state === "pending" ? "border-l-[3px] border-l-amber-500" : ""
                 }`}
               >
-                <div
-                  className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[15px] ${tint}`}
-                  aria-hidden="true"
-                >
-                  {glyph}
-                </div>
+                <CertificationStateIcon state={state} />
 
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">

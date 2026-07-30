@@ -25,6 +25,7 @@ import { PageLoading } from "@/components/ui/page-loading";
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { EmptyState } from "@/components/ui/empty-state";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { CertificationStateIcon } from "@/components/ui/certification-state-icon";
 import { getSystemRoleLabel } from "@/lib/role-config";
 import {
   EXPIRY_WARNING_DAYS,
@@ -162,20 +163,6 @@ function avatarColour(seed: string): string {
   let h = 0;
   for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) | 0;
   return AVATAR_COLOURS[Math.abs(h) % AVATAR_COLOURS.length];
-}
-
-/** Emoji + tint per display state. Mirrors the mockup. */
-const STATE_ICON: Record<CertificationDisplayState, { glyph: string; tint: string }> = {
-  pending: { glyph: "⏳", tint: "bg-amber-500/[.15]" },
-  verified: { glyph: "🏆", tint: "bg-green-500/[.14]" },
-  expiring: { glyph: "⚠️", tint: "bg-amber-500/[.15]" },
-  expired: { glyph: "📄", tint: "bg-muted" },
-  rejected: { glyph: "✕", tint: "bg-red-500/[.13]" },
-  revoked: { glyph: "🚫", tint: "bg-muted" },
-};
-
-function iconFor(state: CertificationDisplayState) {
-  return STATE_ICON[state] ?? { glyph: "📄", tint: "bg-muted" };
 }
 
 /** Turns a stored reason + notes into one sentence for the card. */
@@ -941,7 +928,6 @@ export default function CertificationsPage() {
                 {/* ── Certification cards ── */}
                 <div className="flex flex-col gap-2.5">
                   {entries.map(({ cert, state }) => {
-                    const { glyph, tint } = iconFor(state);
                     const busy = busyIds.includes(cert.id);
                     const sentence = reasonSentence(cert);
                     const daysLeft = cert.expiryDate
@@ -957,12 +943,7 @@ export default function CertificationsPage() {
                             : ""
                         }`}
                       >
-                        <div
-                          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[15px] ${tint}`}
-                          aria-hidden="true"
-                        >
-                          {glyph}
-                        </div>
+                        <CertificationStateIcon state={state} />
 
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-2">
