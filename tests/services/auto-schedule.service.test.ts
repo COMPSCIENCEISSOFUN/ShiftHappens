@@ -300,15 +300,34 @@ describe("AutoScheduleService", () => {
       expect(result.failed).toBe(0);
     });
 
+    /**
+     * A draft referencing a task that does not exist must be counted as failed
+     * rather than aborting the whole confirmation — one bad row should not cost
+     * the user the other nineteen.
+     *
+     * The console.error spy asserts the second half of that contract: the
+     * failure is reported, not silently absorbed into a count. It also keeps the
+     * deliberate Prisma error out of the suite's stderr.
+     */
     it("handles failures gracefully", async () => {
       const service = new AutoScheduleService();
+      const logged = vi.spyOn(console, "error").mockImplementation(() => {});
 
-      const result = await service.confirmSchedule(orgId, [
-        { taskId: "nonexistent", taskTitle: "Bad", membershipId: staffMembershipIds[0], staffName: "Staff A", reasoning: "test" },
-      ], adminUserId);
+      try {
+        const result = await service.confirmSchedule(orgId, [
+          { taskId: "nonexistent", taskTitle: "Bad", membershipId: staffMembershipIds[0], staffName: "Staff A", reasoning: "test" },
+        ], adminUserId);
 
-      expect(result.created).toBe(0);
-      expect(result.failed).toBe(1);
+        expect(result.created).toBe(0);
+        expect(result.failed).toBe(1);
+
+        expect(logged).toHaveBeenCalledWith(
+          expect.stringContaining("[Auto-Schedule] Failed"),
+          expect.anything()
+        );
+      } finally {
+        logged.mockRestore();
+      }
     });
   });
 });

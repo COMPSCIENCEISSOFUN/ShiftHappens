@@ -6,7 +6,7 @@
  * verification, mark-all-as-read, preference gating, and the aggregated feed
  * that drives the notifications page.
  */
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   NotificationService,
   NOTIFICATION_TYPES,
@@ -78,28 +78,63 @@ describe("NotificationService", () => {
       expect(notifications[0].isRead).toBe(false);
     });
 
+    /**
+     * Fire-and-forget means the caller is never disrupted — but the failure
+     * still has to be VISIBLE. Asserting only "does not throw" would be
+     * satisfied by a bare `catch {}`, which would make every notification
+     * failure in production silent.
+     *
+     * Spying on console.error does double duty: it pins that second half of the
+     * contract, and it keeps the deliberate Prisma foreign-key error out of the
+     * suite's stderr. Expected noise is worth removing precisely so that
+     * unexpected noise still stands out.
+     */
     it("does not throw on invalid userId (fire-and-forget)", async () => {
-      await expect(
-        notificationService.notify(
-          orgId,
-          "nonexistent-user-id",
-          NOTIFICATION_TYPES.TASK_ASSIGNED,
-          "Test",
-          "Message"
-        )
-      ).resolves.not.toThrow();
+      const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      try {
+        await expect(
+          notificationService.notify(
+            orgId,
+            "nonexistent-user-id",
+            NOTIFICATION_TYPES.TASK_ASSIGNED,
+            "Test",
+            "Message"
+          )
+        ).resolves.not.toThrow();
+
+        expect(logged).toHaveBeenCalledWith(
+          "[Notification Error]",
+          expect.anything()
+        );
+      } finally {
+        // Explicit: the config does not set `restoreMocks`, so a leaked spy
+        // would silence console.error for every later test in this file.
+        logged.mockRestore();
+      }
     });
 
     it("does not throw on invalid organizationId (fire-and-forget)", async () => {
-      await expect(
-        notificationService.notify(
-          "nonexistent-org-id",
-          userId,
-          NOTIFICATION_TYPES.TASK_ASSIGNED,
-          "Test",
-          "Message"
-        )
-      ).resolves.not.toThrow();
+      const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      try {
+        await expect(
+          notificationService.notify(
+            "nonexistent-org-id",
+            userId,
+            NOTIFICATION_TYPES.TASK_ASSIGNED,
+            "Test",
+            "Message"
+          )
+        ).resolves.not.toThrow();
+
+        expect(logged).toHaveBeenCalledWith(
+          "[Notification Error]",
+          expect.anything()
+        );
+      } finally {
+        logged.mockRestore();
+      }
     });
   });
 
