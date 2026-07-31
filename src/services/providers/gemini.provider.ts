@@ -26,7 +26,12 @@ export class GeminiProvider implements AIProvider {
     candidates: StaffCandidate[]
   ): Promise<RankedStaff[]> {
     if (!this.apiKey) {
-      return this.fallbackRanking(candidates);
+      // Throw rather than ranking locally. AllocationService.rankWithFailover
+      // advances to the next provider only on a throw, so returning a private
+      // ranking here made this provider terminal: the sibling provider was
+      // never reached and FallbackRanker — the documented 4-factor ranker —
+      // was unreachable. The Strategy pattern only works if failure propagates.
+      throw new Error("Gemini provider unavailable: API key not configured");
     }
 
     if (candidates.length === 0) {
@@ -63,7 +68,10 @@ export class GeminiProvider implements AIProvider {
       return this.parseResponse(content, candidates);
     } catch (error) {
       console.error("[Gemini Provider Error]", error);
-      return this.fallbackRanking(candidates);
+      // Rethrow so the failover chain can fall through to FallbackRanker.
+      throw error instanceof Error
+        ? error
+        : new Error("Gemini provider request failed");
     }
   }
 
@@ -114,17 +122,8 @@ export class GeminiProvider implements AIProvider {
       console.error("[Gemini Parse Error]", error);
     }
 
-    return this.fallbackRanking(candidates);
+    // An unusable response is a provider failure like any other.
+    throw new Error("Gemini returned an unparseable ranking");
   }
 
-  private fallbackRanking(candidates: StaffCandidate[]): RankedStaff[] {
-    return [...candidates]
-      .sort((a, b) => a.hoursWorkedToday - b.hoursWorkedToday)
-      .map((c, i) => ({
-        membershipId: c.membershipId,
-        rank: i + 1,
-        score: Math.max(0, 100 - c.hoursWorkedToday * 10),
-        explanation: `${c.name}: ${c.hoursWorkedToday}h worked today, ${c.certifications.length} cert(s)`,
-      }));
-  }
 }

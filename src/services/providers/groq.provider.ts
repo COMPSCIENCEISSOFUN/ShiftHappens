@@ -30,7 +30,12 @@ export class GroqProvider implements AIProvider {
     candidates: StaffCandidate[]
   ): Promise<RankedStaff[]> {
     if (!this.apiKey) {
-      return this.fallbackRanking(candidates);
+      // Throw rather than ranking locally. AllocationService.rankWithFailover
+      // advances to the next provider only on a throw, so returning a private
+      // ranking here made this provider terminal: the sibling provider was
+      // never reached and FallbackRanker — the documented 4-factor ranker —
+      // was unreachable. The Strategy pattern only works if failure propagates.
+      throw new Error("Groq provider unavailable: API key not configured");
     }
 
     if (candidates.length === 0) {
@@ -80,8 +85,11 @@ Higher score = better fit.`,
       return this.parseResponse(content, candidates);
     } catch (error) {
       console.error("[Groq Provider Error]", error);
-      // Fallback: return candidates ranked by hours worked (lowest first)
-      return this.fallbackRanking(candidates);
+      // Rethrow so the failover chain can try the next provider, then
+      // FallbackRanker. Swallowing this made the chain Groq-or-nothing.
+      throw error instanceof Error
+        ? error
+        : new Error("Groq provider request failed");
     }
   }
 
@@ -141,19 +149,9 @@ Higher score = better fit.`,
       console.error("[Groq Parse Error]", error, "Content:", content);
     }
 
-    // If parsing fails, use fallback
-    return this.fallbackRanking(candidates);
+    // An unusable response is a provider failure like any other — let the
+    // failover chain decide what to do about it.
+    throw new Error("Groq returned an unparseable ranking");
   }
 
-  /** Simple fallback ranking by hours worked (lowest first) */
-  private fallbackRanking(candidates: StaffCandidate[]): RankedStaff[] {
-    return [...candidates]
-      .sort((a, b) => a.hoursWorkedToday - b.hoursWorkedToday)
-      .map((c, i) => ({
-        membershipId: c.membershipId,
-        rank: i + 1,
-        score: Math.max(0, 100 - c.hoursWorkedToday * 10),
-        explanation: `${c.name}: ${c.hoursWorkedToday}h worked today, ${c.certifications.length} cert(s)`,
-      }));
-  }
 }
