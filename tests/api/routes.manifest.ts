@@ -119,21 +119,21 @@ export const ROUTES: RouteSpec[] = [
   org("tasks/[taskId]/suggest", "GET", MANAGER, { extraParams: ["taskId"] }),
   org("tasks/assignments/[assignmentId]", "DELETE", MANAGER, { extraParams: ["assignmentId"] }),
   org("tasks/parse", "POST", MANAGER),
-  org("recurring-tasks/generate", "POST", MANAGER),
+  org("recurring-tasks/generate", "POST", MANAGER, { suspension: true }),
 
   // ── Scheduling & availability ───────────────────────────────────────
   org("auto-schedule", "POST", ADMIN, { suspension: true }),
   org("auto-schedule/confirm", "POST", ADMIN, { suspension: true }),
   org("availability", "GET", MEMBER),
-  org("availability", "PUT", MEMBER),
+  org("availability", "PUT", MEMBER, { suspension: true }),
   org("availability/overrides", "GET", MEMBER),
-  org("availability/overrides", "POST", MEMBER),
+  org("availability/overrides", "POST", MEMBER, { suspension: true }),
   org("calendar/coverage", "GET", MANAGER),
   org("calendar/staff", "GET", MANAGER),
 
   // ── Certifications ──────────────────────────────────────────────────
   org("certifications", "GET", MANAGER),
-  org("certifications", "POST", MEMBER),
+  org("certifications", "POST", MEMBER, { suspension: true }),
   org("certifications/[certId]", "GET", MEMBER, { extraParams: ["certId"] }),
   org("certifications/[certId]", "PATCH", MANAGER, { extraParams: ["certId"] }),
   org("certifications/[certId]", "POST", MANAGER, { extraParams: ["certId"] }),
@@ -152,7 +152,7 @@ export const ROUTES: RouteSpec[] = [
   org("dashboard/ai-recommendations", "GET", MANAGER),
   org("dashboard-insights", "GET", MANAGER),
   org("hour-alerts", "GET", MANAGER),
-  org("hour-alerts", "POST", MANAGER),
+  org("hour-alerts", "POST", MANAGER, { suspension: true }),
   org("reports", "GET", MANAGER),
   org("reports/export", "GET", MANAGER, { suspension: true }),
 
@@ -160,7 +160,7 @@ export const ROUTES: RouteSpec[] = [
   // This group takes orgId from the QUERY STRING, not the path. Without it they
   // return 400 "orgId required" before the membership check — so a sweep that
   // omitted it would misread seven routes as passing.
-  ...(["accept", "clock-in", "clock-out", "complete", "reject", "withdraw"] as const).map(
+  ...(["accept", "clock-in", "complete", "reject", "withdraw"] as const).map(
     (action): RouteSpec => ({
       path: `assignments/[assignmentId]/${action}`,
       method: "POST",
@@ -168,9 +168,26 @@ export const ROUTES: RouteSpec[] = [
       roles: MEMBER,
       orgScoped: true,
       orgIdInQuery: true,
+      suspension: true,
       extraParams: ["assignmentId"],
     })
   ),
+  {
+    // clock-out is the ONLY assignment action that does not refuse a suspended
+    // org, and the exemption is deliberate. It is the one action that merely
+    // ENDS work already under way: a member can only reach it once clocked in,
+    // and refusing it would strand them mid-shift with the hours they actually
+    // worked never written down. Suspension still bites — `complete` is
+    // guarded, so the assignment stops at "clocked_out" until reactivation.
+    path: "assignments/[assignmentId]/clock-out",
+    method: "POST",
+    auth: "session",
+    roles: MEMBER,
+    orgScoped: true,
+    orgIdInQuery: true,
+    extraParams: ["assignmentId"],
+    note: "Deliberately exempt from the suspension gate — see comment above.",
+  },
   {
     path: "assignments/[assignmentId]/withdrawal",
     method: "POST",
@@ -178,6 +195,7 @@ export const ROUTES: RouteSpec[] = [
     roles: MANAGER,
     orgScoped: true,
     orgIdInQuery: true,
+    suspension: true,
     extraParams: ["assignmentId"],
   },
 

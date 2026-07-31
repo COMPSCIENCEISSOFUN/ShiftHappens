@@ -9,10 +9,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { AutoScheduleService } from "@/services/auto-schedule.service";
 import { getAuthenticatedUser, unauthorizedResponse, checkOrgSuspended } from "@/lib/auth-guard";
-import { MembershipRepository } from "@/repositories/membership.repository";
+import { AccessService } from "@/services/access.service";
 
 const autoScheduleService = new AutoScheduleService();
-const membershipRepo = new MembershipRepository();
+const accessService = new AccessService();
 
 export async function POST(
   request: NextRequest,
@@ -26,7 +26,7 @@ export async function POST(
     const suspended = await checkOrgSuspended(orgId);
     if (suspended) return suspended;
 
-    const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
+    const membership = await accessService.getMembership(user.id, orgId);
     if (!membership || membership.role !== "company_admin") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }

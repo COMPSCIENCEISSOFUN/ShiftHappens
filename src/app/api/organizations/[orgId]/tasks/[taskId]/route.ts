@@ -10,11 +10,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { TaskService } from "@/services/task.service";
 import { updateTaskSchema } from "@/lib/validations";
 import { getAuthenticatedUser, unauthorizedResponse, checkOrgSuspended } from "@/lib/auth-guard";
-import { MembershipRepository } from "@/repositories/membership.repository";
-import { isTaskInScope } from "@/lib/department-scope";
+import { AccessService } from "@/services/access.service";
 
 const taskService = new TaskService();
-const membershipRepo = new MembershipRepository();
+const accessService = new AccessService();
 
 export async function GET(
   request: NextRequest,
@@ -26,13 +25,13 @@ export async function GET(
 
     const { orgId, taskId } = await params;
 
-    const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
+    const membership = await accessService.getMembership(user.id, orgId);
     if (!membership) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     // Managers can only view tasks within their department scope.
-    if (!(await isTaskInScope(taskId, membership))) {
+    if (!(await accessService.isTaskInScope(taskId, membership))) {
       return NextResponse.json({ error: "Task not found" }, { status: 404 });
     }
 
@@ -59,12 +58,12 @@ export async function PATCH(
     const suspended = await checkOrgSuspended(orgId);
     if (suspended) return suspended;
 
-    const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
+    const membership = await accessService.getMembership(user.id, orgId);
     if (!membership || !["company_admin", "manager"].includes(membership.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    if (!(await isTaskInScope(taskId, membership))) {
+    if (!(await accessService.isTaskInScope(taskId, membership))) {
       return NextResponse.json({ error: "Task not found" }, { status: 404 });
     }
 
@@ -105,12 +104,12 @@ export async function DELETE(
     const suspended = await checkOrgSuspended(orgId);
     if (suspended) return suspended;
 
-    const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
+    const membership = await accessService.getMembership(user.id, orgId);
     if (!membership || !["company_admin", "manager"].includes(membership.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    if (!(await isTaskInScope(taskId, membership))) {
+    if (!(await accessService.isTaskInScope(taskId, membership))) {
       return NextResponse.json({ error: "Task not found" }, { status: 404 });
     }
 

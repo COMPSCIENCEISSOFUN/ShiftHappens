@@ -9,13 +9,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { UserManagementService } from "@/services/user-management.service";
 import { inviteUserSchema } from "@/lib/validations";
 import { getAuthenticatedUser, unauthorizedResponse, checkOrgSuspended } from "@/lib/auth-guard";
-import { MembershipRepository } from "@/repositories/membership.repository";
-import { InvitationRepository } from "@/repositories/invitation.repository";
+import { AccessService } from "@/services/access.service";
 import { SubscriptionLimitError, FeatureNotAvailableError } from "@/lib/subscription-tiers";
 
 const userMgmtService = new UserManagementService();
-const membershipRepo = new MembershipRepository();
-const invitationRepo = new InvitationRepository();
+const accessService = new AccessService();
 
 export async function POST(
   request: NextRequest,
@@ -30,7 +28,7 @@ export async function POST(
     if (suspended) return suspended;
 
     // Only Company Admin can invite users
-    const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
+    const membership = await accessService.getMembership(user.id, orgId);
     if (!membership || membership.role !== "company_admin") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
@@ -77,12 +75,12 @@ export async function GET(
 
     const { orgId } = await params;
 
-    const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
+    const membership = await accessService.getMembership(user.id, orgId);
     if (!membership || membership.role !== "company_admin") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const invitations = await invitationRepo.findByOrgId(orgId);
+    const invitations = await userMgmtService.getOrgInvitations(orgId);
     return NextResponse.json(invitations);
   } catch {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

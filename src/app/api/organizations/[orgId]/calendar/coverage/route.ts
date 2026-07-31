@@ -9,10 +9,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ReportingService } from "@/services/reporting.service";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
-import { MembershipRepository } from "@/repositories/membership.repository";
+import { AccessService } from "@/services/access.service";
+import { departmentScopeFor } from "@/lib/department-scope";
 
 const reportingService = new ReportingService();
-const membershipRepo = new MembershipRepository();
+const accessService = new AccessService();
 
 export async function GET(
   request: NextRequest,
@@ -24,12 +25,16 @@ export async function GET(
 
     const { orgId } = await params;
 
-    const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
+    const membership = await accessService.getMembership(user.id, orgId);
     if (!membership || !["company_admin", "manager"].includes(membership.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const coverage = await reportingService.getCalendarCoverage(orgId);
+    // Managers see only their department(s)' coverage; admins see everyone.
+    const coverage = await reportingService.getCalendarCoverage(
+      orgId,
+      departmentScopeFor(membership)
+    );
     return NextResponse.json(coverage);
   } catch (error) {
     console.error("[Calendar Coverage Error]", error);

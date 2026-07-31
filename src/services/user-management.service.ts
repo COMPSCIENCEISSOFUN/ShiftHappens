@@ -62,6 +62,18 @@ export class UserManagementService {
    * 6. Log audit event
    * 7. Send invitation email (fire-and-forget)
    */
+  /**
+   * Every invitation issued for an organisation, newest first — pending,
+   * accepted and expired alike, because the admin screen shows the full
+   * history rather than only what is outstanding.
+   *
+   * Org-scoped by argument: the repository filters on organizationId, so a
+   * caller cannot read another tenant's invitations by any input it controls.
+   */
+  async getOrgInvitations(organizationId: string) {
+    return this.invitationRepo.findByOrgId(organizationId);
+  }
+
   async inviteUser(
     input: InviteUserInput,
     organizationId: string,

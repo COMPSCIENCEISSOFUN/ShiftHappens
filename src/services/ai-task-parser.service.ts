@@ -13,7 +13,7 @@
  * parsing, Zod validation, and admin review provide five
  * layers of defense against prompt injection.
  */
-import { prisma } from "@/lib/prisma";
+import { DepartmentRepository } from "@/repositories/department.repository";
 import {
   DEFAULT_TIMEZONE,
   endOfDayInTimeZone,
@@ -33,6 +33,8 @@ interface ParsedTask {
 }
 
 export class AITaskParserService {
+  private departmentRepo = new DepartmentRepository();
+
   /** Sanitizes user input to prevent prompt injection */
   private sanitizeInput(text: string): string {
     let sanitized = text.slice(0, 500);
@@ -68,10 +70,7 @@ export class AITaskParserService {
   ): Promise<ParsedTask> {
     const sanitizedText = this.sanitizeInput(text);
 
-    const departments = await prisma.department.findMany({
-      where: { organizationId, archivedAt: null },
-      select: { id: true, name: true },
-    });
+    const departments = await this.departmentRepo.findActiveNames(organizationId);
 
     if (sanitizedText.length < 3) {
       return this.fallbackParse(sanitizedText, departments);

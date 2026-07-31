@@ -8,11 +8,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { CertificationService } from "@/services/certification.service";
 import { createCertificationSchema } from "@/lib/validations";
-import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
-import { MembershipRepository } from "@/repositories/membership.repository";
+import {
+  getAuthenticatedUser,
+  unauthorizedResponse,
+  checkOrgSuspended,
+} from "@/lib/auth-guard";
+import { AccessService } from "@/services/access.service";
+import { departmentScopeFor } from "@/lib/department-scope";
 
 const certService = new CertificationService();
-const membershipRepo = new MembershipRepository();
+const accessService = new AccessService();
 
 export async function GET(
   request: NextRequest,
@@ -24,7 +29,7 @@ export async function GET(
 
     const { orgId } = await params;
 
-    const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
+    const membership = await accessService.getMembership(user.id, orgId);
     if (!membership || !["company_admin", "manager"].includes(membership.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
@@ -32,7 +37,12 @@ export async function GET(
     const { searchParams } = new URL(request.url);
     const status = searchParams.get("status") || undefined;
 
-    const certs = await certService.getByOrganization(orgId, status);
+    // Managers see only their department(s)' staff; company admins see everyone.
+    const certs = await certService.getByOrganization(
+      orgId,
+      status,
+      departmentScopeFor(membership)
+    );
     return NextResponse.json(certs);
   } catch {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
@@ -48,8 +58,10 @@ export async function POST(
     if (!user) return unauthorizedResponse();
 
     const { orgId } = await params;
+    const suspended = await checkOrgSuspended(orgId);
+    if (suspended) return suspended;
 
-    const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
+    const membership = await accessService.getMembership(user.id, orgId);
     if (!membership) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }

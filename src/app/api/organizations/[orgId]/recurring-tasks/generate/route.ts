@@ -18,12 +18,16 @@ import {
   RecurringTaskService,
   DEFAULT_HORIZON_DAYS,
 } from "@/services/recurring-task.service";
-import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
-import { MembershipRepository } from "@/repositories/membership.repository";
+import {
+  getAuthenticatedUser,
+  unauthorizedResponse,
+  checkOrgSuspended,
+} from "@/lib/auth-guard";
+import { AccessService } from "@/services/access.service";
 import { z } from "zod";
 
 const recurringTaskService = new RecurringTaskService();
-const membershipRepo = new MembershipRepository();
+const accessService = new AccessService();
 
 const bodySchema = z.object({
   horizonDays: z.number().int().min(1).max(365).optional(),
@@ -38,8 +42,10 @@ export async function POST(
     if (!user) return unauthorizedResponse();
 
     const { orgId } = await params;
+    const suspended = await checkOrgSuspended(orgId);
+    if (suspended) return suspended;
 
-    const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
+    const membership = await accessService.getMembership(user.id, orgId);
     if (!membership || !["company_admin", "manager"].includes(membership.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }

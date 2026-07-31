@@ -9,16 +9,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
 import { IndustryTemplateService } from "@/services/industry-template.service";
-import { prisma } from "@/lib/prisma";
+import { PlatformService } from "@/services/platform.service";
 
 const templateService = new IndustryTemplateService();
+const platformService = new PlatformService();
 
+/**
+ * Kept as a local alias rather than inlined at the three call sites, so the
+ * three handlers cannot drift apart on what "platform admin" means.
+ */
 async function verifyPlatformAdmin(userId: string): Promise<boolean> {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { isPlatformAdmin: true },
-  });
-  return user?.isPlatformAdmin === true;
+  return platformService.isPlatformAdmin(userId);
 }
 
 export async function GET(

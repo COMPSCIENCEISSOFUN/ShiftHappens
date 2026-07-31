@@ -163,13 +163,30 @@ export class HourAlertService {
     };
   }
 
-  /** Hour-limit status for every active, non-admin member of an org. */
+  /**
+   * Hour-limit status for every active, non-admin member of an org.
+   *
+   * `departmentIds` null/undefined = unrestricted (company admin); an array
+   * limits the result to members of those departments, matching
+   * `TaskService.getByOrganization`. An empty array therefore returns nothing —
+   * a manager who belongs to no department supervises nobody. Without this a
+   * manager scoped to one department could read every staff member's worked
+   * hours in the organisation.
+   */
   async getOrganizationStatus(
-    organizationId: string
+    organizationId: string,
+    departmentIds?: string[] | null
   ): Promise<MemberHourStatus[]> {
     const members = await this.membershipRepo.findByOrgId(organizationId);
+    const scope = departmentIds != null ? new Set(departmentIds) : null;
     const staff = members.filter(
-      (m) => m.status === "active" && m.role !== "company_admin"
+      (m) =>
+        m.status === "active" &&
+        m.role !== "company_admin" &&
+        (scope === null ||
+          (m.departmentMemberships ?? []).some((dm) =>
+            scope.has(dm.department.id)
+          ))
     );
 
     const statuses: MemberHourStatus[] = [];
@@ -203,11 +220,20 @@ export class HourAlertService {
   /**
    * Scans a whole org and alerts on every at-risk member.
    * Intended for a scheduled run (cron) or a manual manager-triggered check.
+   *
+   * `departmentIds` carries the caller's department scope through to the scan
+   * so a manager triggering it by hand cannot fan notifications out across
+   * departments they do not supervise. The scheduled run passes nothing and
+   * stays org-wide.
    */
   async checkOrganization(
-    organizationId: string
+    organizationId: string,
+    departmentIds?: string[] | null
   ): Promise<{ checked: number; alerted: MemberHourStatus[] }> {
-    const statuses = await this.getOrganizationStatus(organizationId);
+    const statuses = await this.getOrganizationStatus(
+      organizationId,
+      departmentIds
+    );
     const atRisk = statuses.filter((s) => s.severity !== "ok");
 
     for (const status of atRisk) {

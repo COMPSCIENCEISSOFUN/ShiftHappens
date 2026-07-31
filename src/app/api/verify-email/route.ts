@@ -30,6 +30,10 @@ export async function POST(request: NextRequest) {
     if (error instanceof Error && error.message === "Invalid or expired token") {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
+    // A token that resolves to a deleted account is a 404, not a server fault.
+    if (error instanceof Error && error.message === "User not found") {
+      return NextResponse.json({ error: error.message }, { status: 404 });
+    }
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

@@ -16,7 +16,7 @@
  * run on any cadence. Each organization is processed independently: a failure
  * in one tenant is logged and never aborts the run for the others.
  */
-import { prisma } from "@/lib/prisma";
+import { OrganizationRepository } from "@/repositories/organization.repository";
 import {
   RecurringTaskService,
   DEFAULT_HORIZON_DAYS,
@@ -53,14 +53,11 @@ export class SchedulerService {
   private recurringTaskService = new RecurringTaskService();
   private hourAlertService = new HourAlertService();
   private certificationService = new CertificationService();
+  private orgRepo = new OrganizationRepository();
 
   /** IDs of every active (non-suspended) organization. */
   private async activeOrganizationIds(): Promise<string[]> {
-    const orgs = await prisma.organization.findMany({
-      where: { status: "active" },
-      select: { id: true },
-    });
-    return orgs.map((o) => o.id);
+    return this.orgRepo.findActiveIds();
   }
 
   /**

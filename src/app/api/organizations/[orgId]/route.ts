@@ -8,12 +8,12 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
-import { MembershipRepository } from "@/repositories/membership.repository";
+import { AccessService } from "@/services/access.service";
 import { OrganizationService } from "@/services/organization.service";
 import { updateOrganizationSchema } from "@/lib/validations";
 import { checkOrgActive } from "@/lib/org-guard";
 
-const membershipRepo = new MembershipRepository();
+const accessService = new AccessService();
 const orgService = new OrganizationService();
 
 export async function GET(
@@ -27,7 +27,7 @@ export async function GET(
     const { orgId } = await params;
 
     // Verify active membership
-    const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
+    const membership = await accessService.getMembership(user.id, orgId);
     if (!membership || membership.status !== "active") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
@@ -55,7 +55,7 @@ export async function PATCH(
     const { orgId } = await params;
 
     // Verify company_admin role
-    const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
+    const membership = await accessService.getMembership(user.id, orgId);
     if (
       !membership ||
       membership.status !== "active" ||

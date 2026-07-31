@@ -79,9 +79,26 @@ export class CertificationService {
     return this.certRepo.findByMembershipId(membershipId);
   }
 
-  /** Gets all certifications for an org, optionally filtered by status */
-  async getByOrganization(organizationId: string, status?: string) {
-    return this.certRepo.findByOrganizationId(organizationId, status);
+  /**
+   * Gets all certifications for an org, optionally filtered by status and
+   * limited to a department scope.
+   *
+   * `departmentScope` null/undefined = unrestricted (company admin); an array
+   * limits results to certifications owned by members of those departments,
+   * matching `TaskService.getByOrganization`. Without this a manager scoped to
+   * one department could read every staff member's certification record in the
+   * organisation.
+   */
+  async getByOrganization(
+    organizationId: string,
+    status?: string,
+    departmentScope?: string[] | null
+  ) {
+    return this.certRepo.findByOrganizationId(
+      organizationId,
+      status,
+      departmentScope
+    );
   }
 
   /**

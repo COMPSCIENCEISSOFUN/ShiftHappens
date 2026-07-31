@@ -8,11 +8,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { AllocationService } from "@/services/allocation.service";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
-import { MembershipRepository } from "@/repositories/membership.repository";
-import { isTaskInScope } from "@/lib/department-scope";
+import { AccessService } from "@/services/access.service";
 
 const allocationService = new AllocationService();
-const membershipRepo = new MembershipRepository();
+const accessService = new AccessService();
 
 export async function GET(
   request: NextRequest,
@@ -24,12 +23,12 @@ export async function GET(
 
     const { orgId, taskId } = await params;
 
-    const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
+    const membership = await accessService.getMembership(user.id, orgId);
     if (!membership || !["company_admin", "manager"].includes(membership.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    if (!(await isTaskInScope(taskId, membership))) {
+    if (!(await accessService.isTaskInScope(taskId, membership))) {
       return NextResponse.json({ error: "Task not found" }, { status: 404 });
     }
 

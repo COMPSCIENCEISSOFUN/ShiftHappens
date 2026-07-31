@@ -9,13 +9,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { WorkRuleService } from "@/services/work-rule.service";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
-import { MembershipRepository } from "@/repositories/membership.repository";
+import { AccessService } from "@/services/access.service";
 import { createWorkRuleSchema } from "@/lib/validations";
 import { checkOrgActive } from "@/lib/org-guard";
 import { SubscriptionLimitError, FeatureNotAvailableError } from "@/lib/subscription-tiers";
 
 const workRuleService = new WorkRuleService();
-const membershipRepo = new MembershipRepository();
+const accessService = new AccessService();
 
 export async function GET(
   request: NextRequest,
@@ -27,7 +27,7 @@ export async function GET(
 
     const { orgId } = await params;
 
-    const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
+    const membership = await accessService.getMembership(user.id, orgId);
     if (!membership || membership.role !== "company_admin") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
@@ -61,7 +61,7 @@ export async function POST(
       );
     }
 
-    const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
+    const membership = await accessService.getMembership(user.id, orgId);
     if (!membership || membership.role !== "company_admin") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }

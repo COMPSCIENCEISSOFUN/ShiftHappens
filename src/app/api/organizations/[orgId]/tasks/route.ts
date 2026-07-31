@@ -10,12 +10,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { TaskService } from "@/services/task.service";
 import { createTaskSchema } from "@/lib/validations";
 import { getAuthenticatedUser, unauthorizedResponse, checkOrgSuspended } from "@/lib/auth-guard";
-import { MembershipRepository } from "@/repositories/membership.repository";
+import { AccessService } from "@/services/access.service";
 import { SubscriptionLimitError, FeatureNotAvailableError } from "@/lib/subscription-tiers";
 import { departmentScopeFor, isDepartmentInScope } from "@/lib/department-scope";
 
 const taskService = new TaskService();
-const membershipRepo = new MembershipRepository();
+const accessService = new AccessService();
 
 export async function POST(
   request: NextRequest,
@@ -29,7 +29,7 @@ export async function POST(
     const suspended = await checkOrgSuspended(orgId);
     if (suspended) return suspended;
 
-    const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
+    const membership = await accessService.getMembership(user.id, orgId);
     if (!membership || !["company_admin", "manager"].includes(membership.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
@@ -89,7 +89,7 @@ export async function GET(
 
     const { orgId } = await params;
 
-    const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
+    const membership = await accessService.getMembership(user.id, orgId);
     if (!membership) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }

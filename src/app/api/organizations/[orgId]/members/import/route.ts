@@ -7,13 +7,13 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
-import { MembershipRepository } from "@/repositories/membership.repository";
+import { AccessService } from "@/services/access.service";
 import { UserManagementService } from "@/services/user-management.service";
 import { SubscriptionService } from "@/services/subscription.service";
 import { batchImportSchema } from "@/lib/validations";
 import { checkOrgActive } from "@/lib/org-guard";
 
-const membershipRepo = new MembershipRepository();
+const accessService = new AccessService();
 const userManagementService = new UserManagementService();
 const subscriptionService = new SubscriptionService();
 
@@ -28,7 +28,7 @@ export async function POST(
     const { orgId } = await params;
 
     // Verify company_admin role
-    const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
+    const membership = await accessService.getMembership(user.id, orgId);
     if (
       !membership ||
       membership.status !== "active" ||

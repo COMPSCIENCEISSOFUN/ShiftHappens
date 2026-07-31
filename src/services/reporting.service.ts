@@ -240,8 +240,29 @@ export class ReportingService {
    * Returns chart data in the original format for the /reports endpoint.
    * Refactored to use ReportingRepository instead of direct prisma calls.
    * Will be deprecated once the new dashboard endpoints are active.
+   *
+   * `departmentIds` null/undefined = unrestricted (company admin); an array
+   * limits every section to those departments. The /reports route used to call
+   * this with no scope at all, so a manager assigned to one department read the
+   * whole organisation's utilisation and hours off the reports page.
    */
-  async getDashboardReports(organizationId: string): Promise<ReportingData> {
+  async getDashboardReports(
+    organizationId: string,
+    departmentIds?: string[] | null
+  ): Promise<ReportingData> {
+    // A scoped manager with NO departments must see nothing, not everything.
+    // Short-circuited here rather than passed down because the shared
+    // repository helpers below test `departmentIds?.length`, which reads an
+    // empty array as "unrestricted" — the opposite answer.
+    if (departmentIds != null && departmentIds.length === 0) {
+      return {
+        completionTrend: [],
+        staffUtilization: [],
+        departmentWorkload: [],
+        hoursSummary: { totalLogged: 0, totalCapacity: 0, percentage: 0 },
+      };
+    }
+
     // Day boundaries in the organisation's timezone. A bare setHours(0,0,0,0)
     // starts the day at 08:00 Singapore time on a UTC server, so every morning's
     // activity lands in the previous day's bucket.
@@ -252,12 +273,19 @@ export class ReportingService {
 
     const [completionChart, staffUtilization, deptMetrics, settings, clockData, staffCount] =
       await Promise.all([
-        this.getCompletionChart(organizationId),
-        this.getStaffUtilization(organizationId),
-        this.reportingRepo.getDepartmentMetrics(organizationId),
+        this.getCompletionChart(organizationId, departmentIds ?? undefined),
+        this.getStaffUtilization(organizationId, departmentIds ?? undefined),
+        this.reportingRepo.getDepartmentMetrics(organizationId, departmentIds),
         this.settingsRepo.getOrCreate(organizationId),
-        this.reportingRepo.getClockData(organizationId, sevenDaysAgo),
-        this.reportingRepo.getActiveStaffCount(organizationId),
+        this.reportingRepo.getClockData(
+          organizationId,
+          sevenDaysAgo,
+          departmentIds ?? undefined
+        ),
+        this.reportingRepo.getActiveStaffCount(
+          organizationId,
+          departmentIds ?? undefined
+        ),
       ]);
 
     // Compute total hours logged
@@ -866,12 +894,21 @@ export class ReportingService {
    * Returns a matrix with coverage counts per hour slot.
    * Used for calendar heatmap background tints.
    * Respects operating hours from settings.
+   *
+   * `departmentIds` null/undefined = unrestricted (company admin); an array
+   * counts only staff in those departments. The parameter was declared here
+   * long before it was honoured — the body ignored it and the route never
+   * passed one — so a manager scoped to one department saw the whole
+   * organisation's coverage.
    */
   async getCalendarCoverage(
     organizationId: string,
-    departmentIds?: string[]
+    departmentIds?: string[] | null
   ): Promise<{ dayOfWeek: number; hour: number; count: number }[]> {
-    const schedules = await this.reportingRepo.getAllStaffAvailability(organizationId);
+    const schedules = await this.reportingRepo.getAllStaffAvailability(
+      organizationId,
+      departmentIds
+    );
 
     // Build coverage matrix
     const coverage: { dayOfWeek: number; hour: number; count: number }[] = [];
@@ -905,9 +942,15 @@ export class ReportingService {
    * Gets all active staff members with their weekly availability schedules.
    * Used for the calendar day-view staff panel.
    * Groups flat availability records by staff member.
+   *
+   * `departmentIds` null/undefined = unrestricted (company admin); an array
+   * returns only staff in those departments. Without it the calendar's staff
+   * panel listed every member of the organisation — names and working hours —
+   * to a manager who has no business seeing other departments' rosters.
    */
   async getAllStaffSchedules(
-    organizationId: string
+    organizationId: string,
+    departmentIds?: string[] | null
   ): Promise<
     {
       membershipId: string;
@@ -915,7 +958,10 @@ export class ReportingService {
       schedules: { dayOfWeek: number; startTime: string; endTime: string; isAvailable: boolean }[];
     }[]
   > {
-    const data = await this.reportingRepo.getAllStaffAvailability(organizationId);
+    const data = await this.reportingRepo.getAllStaffAvailability(
+      organizationId,
+      departmentIds
+    );
 
     const staffMap = new Map<
       string,

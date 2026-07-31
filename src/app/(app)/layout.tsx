@@ -11,14 +11,15 @@ import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { OrganizationService } from "@/services/organization.service";
-import { MembershipRepository } from "@/repositories/membership.repository";
-import { UserRepository } from "@/repositories/user.repository";
+import { AccessService } from "@/services/access.service";
+import { ProfileService } from "@/services/profile.service";
+import { RoleService } from "@/services/role.service";
 import { OrgSuspendedBanner } from "@/components/layout/org-suspended-banner";
-import { prisma } from "@/lib/prisma";
 
 const orgService = new OrganizationService();
-const membershipRepo = new MembershipRepository();
-const userRepo = new UserRepository();
+const accessService = new AccessService();
+const profileService = new ProfileService();
+const roleService = new RoleService();
 
 export default async function AppLayout({
   children,
@@ -38,7 +39,7 @@ export default async function AppLayout({
   }
 
   // Validate the session user still exists in the database
-  const dbUser = await userRepo.findPublicById(session.user.id);
+  const dbUser = await profileService.getProfile(session.user.id);
   if (!dbUser) {
     redirect("/login");
   }
@@ -59,20 +60,20 @@ export default async function AppLayout({
     if (orgs[0].status !== "active") {
       orgSuspended = true;
     } else {
-      const membership = await membershipRepo.findByUserAndOrg(
+      const membership = await accessService.getMembership(
         session.user.id,
         orgId
       );
       role = membership?.role;
       employmentType = (membership as Record<string, unknown>)?.employmentType as string | undefined;
 
-      // Fetch custom role display label if assigned
+      // Fetch custom role display label if assigned. Scoped to the org the
+      // sidebar is rendering: the role always belongs to it (assignCustomRole
+      // rejects anything else), so this reads the same label as before while
+      // keeping the lookup tenant-scoped like every other query.
       const customRoleId = (membership as Record<string, unknown>)?.customRoleId as string | undefined;
       if (customRoleId) {
-        const customRole = await prisma.role.findUnique({
-          where: { id: customRoleId },
-          select: { displayLabel: true },
-        });
+        const customRole = await roleService.getById(customRoleId, orgId);
         customRoleLabel = customRole?.displayLabel;
       }
     }

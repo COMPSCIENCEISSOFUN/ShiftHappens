@@ -15,13 +15,16 @@ import {
   type CustomTemplateData,
 } from "@/lib/industry-templates";
 import { IndustryTemplateRepository } from "@/repositories/industry-template.repository";
-import { prisma } from "@/lib/prisma";
+import { DepartmentRepository } from "@/repositories/department.repository";
+import { WorkRuleRepository } from "@/repositories/work-rule.repository";
 import type { CreateOrganizationInput, UpdateOrganizationInput } from "@/lib/validations";
 
 export class OrganizationService {
   private orgRepo = new OrganizationRepository();
   private auditService = new AuditLogService();
   private templateRepo = new IndustryTemplateRepository();
+  private departmentRepo = new DepartmentRepository();
+  private workRuleRepo = new WorkRuleRepository();
 
   /**
    * Creates a new organization:
@@ -174,27 +177,23 @@ export class OrganizationService {
     }[];
 
     for (const dept of departments) {
-      await prisma.department.create({
-        data: {
-          organizationId: orgId,
-          name: dept.name,
-          description: dept.description,
-          color: dept.color,
-        },
+      await this.departmentRepo.create({
+        organizationId: orgId,
+        name: dept.name,
+        description: dept.description,
+        color: dept.color,
       });
     }
 
     for (const rule of workRules) {
-      await prisma.workRule.create({
-        data: {
-          organizationId: orgId,
-          name: rule.name,
-          type: rule.type,
-          hoursThreshold: rule.hoursThreshold ?? null,
-          breakHours: rule.breakHours ?? null,
-          maxHours: rule.maxHours ?? null,
-          isActive: true,
-        },
+      await this.workRuleRepo.create({
+        organizationId: orgId,
+        name: rule.name,
+        type: rule.type,
+        hoursThreshold: rule.hoursThreshold ?? null,
+        breakHours: rule.breakHours ?? null,
+        maxHours: rule.maxHours ?? null,
+        isActive: true,
       });
     }
   }
@@ -205,27 +204,23 @@ export class OrganizationService {
    */
   private async applyCustomTemplate(orgId: string, template: CustomTemplateData) {
     for (const dept of template.departments) {
-      await prisma.department.create({
-        data: {
-          organizationId: orgId,
-          name: dept.name,
-          description: dept.description || "",
-          color: dept.color || "#6B7280",
-        },
+      await this.departmentRepo.create({
+        organizationId: orgId,
+        name: dept.name,
+        description: dept.description || "",
+        color: dept.color || "#6B7280",
       });
     }
 
     for (const rule of template.workRules) {
-      await prisma.workRule.create({
-        data: {
-          organizationId: orgId,
-          name: rule.name,
-          type: rule.type,
-          hoursThreshold: rule.hoursThreshold ?? null,
-          breakHours: rule.breakHours ?? null,
-          maxHours: rule.maxHours ?? null,
-          isActive: true,
-        },
+      await this.workRuleRepo.create({
+        organizationId: orgId,
+        name: rule.name,
+        type: rule.type,
+        hoursThreshold: rule.hoursThreshold ?? null,
+        breakHours: rule.breakHours ?? null,
+        maxHours: rule.maxHours ?? null,
+        isActive: true,
       });
     }
   }

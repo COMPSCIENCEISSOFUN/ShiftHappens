@@ -5,6 +5,11 @@
  * - UserManagementService.getOrgMembers limits members to a department scope.
  * - EligibilityService only considers staff in the task's department when the
  *   task has one (PRD §7.4), which also scopes what a manager can allocate.
+ * - CertificationService.getByOrganization, ReportingService (calendar staff,
+ *   calendar coverage, dashboard reports) and HourAlertService.getOrganizationStatus
+ *   do the same. Those five read the whole organisation until a scope is passed,
+ *   and their routes did not pass one — a manager assigned to Kitchen could read
+ *   Bar's certifications, roster, availability, utilisation and worked hours.
  *
  * A null scope means "unrestricted" (company admin). An array scopes to those
  * departments. Two departments (Kitchen, Bar) with staff in each are used.
@@ -13,6 +18,9 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { TaskService } from "@/services/task.service";
 import { UserManagementService } from "@/services/user-management.service";
 import { EligibilityService } from "@/services/eligibility.service";
+import { CertificationService } from "@/services/certification.service";
+import { ReportingService } from "@/services/reporting.service";
+import { HourAlertService } from "@/services/hour-alert.service";
 import { OrganizationRepository } from "@/repositories/organization.repository";
 import { DepartmentRepository } from "@/repositories/department.repository";
 import { UserRepository } from "@/repositories/user.repository";
@@ -22,6 +30,9 @@ import { cleanDatabase } from "../helpers/cleanup";
 const taskService = new TaskService();
 const userMgmtService = new UserManagementService();
 const eligibilityService = new EligibilityService();
+const certService = new CertificationService();
+const reportingService = new ReportingService();
+const hourAlertService = new HourAlertService();
 const orgRepo = new OrganizationRepository();
 const deptRepo = new DepartmentRepository();
 const userRepo = new UserRepository();
@@ -145,5 +156,189 @@ describe("EligibilityService — task department scopes the candidate pool", () 
 
     expect(ids).toContain(kitchenStaffMembershipId);
     expect(ids).toContain(barStaffMembershipId);
+  });
+});
+
+/**
+ * Certifications carry medical and identity details about a named person. The
+ * certifications route read them org-wide for anyone who passed the
+ * admin-or-manager gate, so a Kitchen manager could read Bar's.
+ */
+describe("CertificationService.getByOrganization — department scope", () => {
+  beforeEach(async () => {
+    const noDeptMembershipId = await makeStaff("Floating Staff");
+    await certService.create(kitchenStaffMembershipId, {
+      name: "Food Safety",
+      issuedDate: "2026-01-01T00:00:00.000Z",
+    });
+    await certService.create(barStaffMembershipId, {
+      name: "Bar Licence",
+      issuedDate: "2026-01-01T00:00:00.000Z",
+    });
+    await certService.create(noDeptMembershipId, {
+      name: "Floating Cert",
+      issuedDate: "2026-01-01T00:00:00.000Z",
+    });
+  });
+
+  it("returns every certification when scope is null (admin)", async () => {
+    const certs = await certService.getByOrganization(orgId, undefined, null);
+    expect(certs).toHaveLength(3);
+  });
+
+  it("returns every certification when no scope is passed at all", async () => {
+    // undefined and null must mean the same thing, or a caller that simply
+    // omits the argument would silently see nothing.
+    const certs = await certService.getByOrganization(orgId);
+    expect(certs).toHaveLength(3);
+  });
+
+  it("returns only Kitchen certifications for a Kitchen-scoped manager", async () => {
+    const certs = await certService.getByOrganization(orgId, undefined, [kitchenId]);
+    expect(certs).toHaveLength(1);
+    expect(certs[0].name).toBe("Food Safety");
+  });
+
+  it("hides a member who belongs to no department from a scoped manager", async () => {
+    // Same rule as isDepartmentInScope: a resource with no department belongs
+    // to the organisation, and only an admin sees organisation-wide things.
+    const certs = await certService.getByOrganization(orgId, undefined, [kitchenId, barId]);
+    expect(certs.map((c) => c.name)).not.toContain("Floating Cert");
+  });
+
+  it("returns nothing for a manager with an empty scope", async () => {
+    // A manager in no department supervises nobody. An empty array must not
+    // degrade to "unrestricted".
+    const certs = await certService.getByOrganization(orgId, undefined, []);
+    expect(certs).toHaveLength(0);
+  });
+
+  it("applies the status filter and the scope together", async () => {
+    const certs = await certService.getByOrganization(orgId, "pending", [kitchenId]);
+    expect(certs).toHaveLength(1);
+    expect(certs[0].name).toBe("Food Safety");
+
+    expect(
+      await certService.getByOrganization(orgId, "verified", [kitchenId])
+    ).toHaveLength(0);
+  });
+});
+
+describe("ReportingService calendar methods — department scope", () => {
+  beforeEach(async () => {
+    // Both staff available Monday 09:00–17:00, so any difference in the result
+    // comes from the scope and nothing else.
+    for (const membershipId of [kitchenStaffMembershipId, barStaffMembershipId]) {
+      await prisma.availability.create({
+        data: {
+          membershipId,
+          dayOfWeek: 1,
+          startTime: "09:00",
+          endTime: "17:00",
+          isAvailable: true,
+        },
+      });
+    }
+  });
+
+  it("getAllStaffSchedules returns both staff when scope is null (admin)", async () => {
+    const staff = await reportingService.getAllStaffSchedules(orgId, null);
+    expect(staff).toHaveLength(2);
+  });
+
+  it("getAllStaffSchedules returns only Kitchen staff for a Kitchen-scoped manager", async () => {
+    const staff = await reportingService.getAllStaffSchedules(orgId, [kitchenId]);
+    expect(staff.map((s) => s.membershipId)).toEqual([kitchenStaffMembershipId]);
+  });
+
+  it("getAllStaffSchedules returns nothing for an empty scope", async () => {
+    expect(await reportingService.getAllStaffSchedules(orgId, [])).toHaveLength(0);
+  });
+
+  it("getCalendarCoverage counts both staff when scope is null (admin)", async () => {
+    const coverage = await reportingService.getCalendarCoverage(orgId, null);
+    const monday10 = coverage.find((c) => c.dayOfWeek === 1 && c.hour === 10);
+    expect(monday10?.count).toBe(2);
+  });
+
+  it("getCalendarCoverage counts only Kitchen staff for a Kitchen-scoped manager", async () => {
+    // The parameter existed here before this fix but was never read, so this
+    // returned 2 — the whole organisation's coverage — for a scoped manager.
+    const coverage = await reportingService.getCalendarCoverage(orgId, [kitchenId]);
+    const monday10 = coverage.find((c) => c.dayOfWeek === 1 && c.hour === 10);
+    expect(monday10?.count).toBe(1);
+  });
+
+  it("getCalendarCoverage still returns a full matrix of zeros for an empty scope", async () => {
+    // The 0-items case: the heatmap must render as empty, not break.
+    const coverage = await reportingService.getCalendarCoverage(orgId, []);
+    expect(coverage).toHaveLength(7 * 24);
+    expect(coverage.every((c) => c.count === 0)).toBe(true);
+  });
+});
+
+describe("ReportingService.getDashboardReports — department scope", () => {
+  it("covers every staff member and department when scope is null (admin)", async () => {
+    const reports = await reportingService.getDashboardReports(orgId, null);
+    expect(reports.staffUtilization).toHaveLength(2);
+    expect(reports.departmentWorkload.map((d) => d.name).sort()).toEqual([
+      "Bar",
+      "Kitchen",
+    ]);
+  });
+
+  it("covers only Kitchen for a Kitchen-scoped manager", async () => {
+    const reports = await reportingService.getDashboardReports(orgId, [kitchenId]);
+    expect(reports.staffUtilization.map((s) => s.name)).toEqual(["Kitchen Staff"]);
+    expect(reports.departmentWorkload.map((d) => d.name)).toEqual(["Kitchen"]);
+  });
+
+  it("returns empty sections for a manager with an empty scope", async () => {
+    // Short-circuited in the service: the shared repository helpers test
+    // `departmentIds?.length`, which would read [] as unrestricted.
+    const reports = await reportingService.getDashboardReports(orgId, []);
+    expect(reports.staffUtilization).toEqual([]);
+    expect(reports.departmentWorkload).toEqual([]);
+    expect(reports.completionTrend).toEqual([]);
+    expect(reports.hoursSummary).toEqual({
+      totalLogged: 0,
+      totalCapacity: 0,
+      percentage: 0,
+    });
+  });
+});
+
+describe("HourAlertService.getOrganizationStatus — department scope", () => {
+  it("reports on every non-admin member when scope is null", async () => {
+    const statuses = await hourAlertService.getOrganizationStatus(orgId, null);
+    expect(statuses.map((s) => s.membershipId).sort()).toEqual(
+      [kitchenStaffMembershipId, barStaffMembershipId].sort()
+    );
+  });
+
+  it("reports only on Kitchen staff for a Kitchen-scoped manager", async () => {
+    // Worked hours are personal data; a Bar manager has no reason to see them.
+    const statuses = await hourAlertService.getOrganizationStatus(orgId, [kitchenId]);
+    expect(statuses.map((s) => s.membershipId)).toEqual([kitchenStaffMembershipId]);
+  });
+
+  it("excludes a member who belongs to no department from a scoped view", async () => {
+    await makeStaff("Floating Staff");
+    const statuses = await hourAlertService.getOrganizationStatus(orgId, [
+      kitchenId,
+      barId,
+    ]);
+    expect(statuses).toHaveLength(2);
+  });
+
+  it("reports on nobody for a manager with an empty scope", async () => {
+    expect(await hourAlertService.getOrganizationStatus(orgId, [])).toHaveLength(0);
+  });
+
+  it("checkOrganization carries the scope into the scan", async () => {
+    // The POST endpoint sends notifications; an unscoped scan would let a
+    // Kitchen manager alert on Bar's staff.
+    const result = await hourAlertService.checkOrganization(orgId, [kitchenId]);
+    expect(result.checked).toBe(1);
   });
 });

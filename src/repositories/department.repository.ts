@@ -70,6 +70,36 @@ export class DepartmentRepository {
     });
   }
 
+  /**
+   * Active departments with their member and task counts, unordered.
+   *
+   * Separate from `findByOrganizationId` because the caller is aggregating,
+   * not rendering a list: the counts are summarised for the AI dashboard and
+   * sorting them by name would be work nobody reads.
+   */
+  async findActiveWithCounts(organizationId: string) {
+    return prisma.department.findMany({
+      where: { organizationId, archivedAt: null },
+      include: {
+        _count: { select: { departmentMemberships: true, tasks: true } },
+      },
+    });
+  }
+
+  /**
+   * Just the id and name of each active department.
+   *
+   * The AI task parser matches free text against this list, so archived
+   * departments must stay out of it — the model would happily file a new task
+   * into a department the organisation has already retired.
+   */
+  async findActiveNames(organizationId: string) {
+    return prisma.department.findMany({
+      where: { organizationId, archivedAt: null },
+      select: { id: true, name: true },
+    });
+  }
+
   /** Updates a department's name and/or description */
   async update(
     id: string,

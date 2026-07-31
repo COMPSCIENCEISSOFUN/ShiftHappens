@@ -64,11 +64,35 @@ export class CertificationRepository {
     });
   }
 
-  /** Gets all certifications for an org, optionally filtered by status */
-  async findByOrganizationId(organizationId: string, status?: string) {
+  /**
+   * Gets all certifications for an org, optionally filtered by status and by
+   * the owning member's department.
+   *
+   * `departmentIds` null/undefined = unrestricted (company admin). An array
+   * limits results to certifications owned by members of those departments.
+   *
+   * The array is tested for null explicitly rather than for `.length`: an EMPTY
+   * array means "scoped to no departments" and must return nothing, and Prisma's
+   * `{ in: [] }` matches nothing, which is exactly right. A `.length` check
+   * would silently turn that case into full org visibility.
+   */
+  async findByOrganizationId(
+    organizationId: string,
+    status?: string,
+    departmentIds?: string[] | null
+  ) {
     return prisma.certification.findMany({
       where: {
-        membership: { organizationId },
+        membership: {
+          organizationId,
+          ...(departmentIds != null
+            ? {
+                departmentMemberships: {
+                  some: { departmentId: { in: departmentIds } },
+                },
+              }
+            : {}),
+        },
         ...(status && { status }),
       },
       include: {
@@ -131,6 +155,20 @@ export class CertificationRepository {
         },
       },
       orderBy: { expiryDate: "asc" },
+    });
+  }
+
+  /**
+   * How many certifications in an organisation are still awaiting verification.
+   * Scoped through the membership, which is what ties a certificate to a
+   * tenant — the certification row itself carries no organizationId.
+   */
+  async countPendingVerification(organizationId: string): Promise<number> {
+    return prisma.certification.count({
+      where: {
+        membership: { organizationId },
+        status: "pending",
+      },
     });
   }
 

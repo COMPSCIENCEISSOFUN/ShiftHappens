@@ -62,6 +62,14 @@ export async function POST(
     if (error instanceof Error && error.message === "Invalid or expired invitation") {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
+    // Accepting as a brand-new user without a name/password is a bad request,
+    // not a server fault.
+    if (
+      error instanceof Error &&
+      error.message === "Registration data required for new users"
+    ) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

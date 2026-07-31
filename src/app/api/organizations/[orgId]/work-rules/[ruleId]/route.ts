@@ -9,12 +9,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { WorkRuleService } from "@/services/work-rule.service";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
-import { MembershipRepository } from "@/repositories/membership.repository";
+import { AccessService } from "@/services/access.service";
 import { updateWorkRuleSchema } from "@/lib/validations";
 import { checkOrgActive } from "@/lib/org-guard";
 
 const workRuleService = new WorkRuleService();
-const membershipRepo = new MembershipRepository();
+const accessService = new AccessService();
 
 export async function PATCH(
   request: NextRequest,
@@ -34,7 +34,7 @@ export async function PATCH(
       );
     }
 
-    const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
+    const membership = await accessService.getMembership(user.id, orgId);
     if (!membership || membership.role !== "company_admin") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
@@ -94,7 +94,7 @@ export async function DELETE(
       );
     }
 
-    const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
+    const membership = await accessService.getMembership(user.id, orgId);
     if (!membership || membership.role !== "company_admin") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }

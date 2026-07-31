@@ -36,6 +36,25 @@ export class UserRepository {
   }
 
   /**
+   * Whether a user carries the platform-admin flag.
+   *
+   * Selects the single column rather than the whole row: this is an
+   * authorisation check that runs on every platform-admin request, and it has
+   * no business loading a password hash to answer a yes/no question.
+   *
+   * A missing user reads as false — a caller whose account has been deleted is
+   * refused for the same reason as an ordinary user, and cannot tell the two
+   * apart.
+   */
+  async isPlatformAdmin(id: string): Promise<boolean> {
+    const user = await prisma.user.findUnique({
+      where: { id },
+      select: { isPlatformAdmin: true },
+    });
+    return user?.isPlatformAdmin === true;
+  }
+
+  /**
    * Finds a user by ID returning only non-sensitive fields.
    * Safe to pass to client components — no password hash.
    */

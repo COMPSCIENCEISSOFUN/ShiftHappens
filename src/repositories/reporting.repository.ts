@@ -549,12 +549,21 @@ export class ReportingRepository {
    * Gets department-level metrics: active task count and staff count.
    * Used for department workload bars with imbalance detection.
    * Only counts open/in-progress tasks and active staff/manager members.
+   *
+   * `departmentIds` null/undefined = unrestricted (company admin); an array
+   * limits the rows to those departments. Null-tested rather than `.length`-
+   * tested so an empty scope yields no departments instead of all of them.
    */
   async getDepartmentMetrics(
-    organizationId: string
+    organizationId: string,
+    departmentIds?: string[] | null
   ): Promise<DepartmentMetricRecord[]> {
     const departments = await prisma.department.findMany({
-      where: { organizationId, archivedAt: null },
+      where: {
+        organizationId,
+        archivedAt: null,
+        ...(departmentIds != null ? { id: { in: departmentIds } } : {}),
+      },
       select: {
         id: true,
         name: true,
@@ -936,13 +945,27 @@ export class ReportingRepository {
    * Used for calendar heatmap coverage computation.
    * Returns weekly recurring schedules for all active staff/managers.
    */
-  async getAllStaffAvailability(organizationId: string) {
+  async getAllStaffAvailability(
+    organizationId: string,
+    departmentIds?: string[] | null
+  ) {
     return prisma.availability.findMany({
       where: {
         membership: {
           organizationId,
           status: "active",
           role: { in: ["staff", "manager"] },
+          // Null/undefined = unrestricted (company admin). Tested for null and
+          // not for `.length` so an EMPTY scope returns nothing rather than
+          // everything — Prisma's `{ in: [] }` matches no rows, which is the
+          // correct answer for a manager who belongs to no department.
+          ...(departmentIds != null
+            ? {
+                departmentMemberships: {
+                  some: { departmentId: { in: departmentIds } },
+                },
+              }
+            : {}),
         },
       },
       select: {

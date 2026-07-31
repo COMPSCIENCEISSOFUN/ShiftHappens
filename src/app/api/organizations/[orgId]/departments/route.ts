@@ -10,11 +10,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { DepartmentService } from "@/services/department.service";
 import { createDepartmentSchema } from "@/lib/validations";
 import { getAuthenticatedUser, unauthorizedResponse, checkOrgSuspended } from "@/lib/auth-guard";
-import { MembershipRepository } from "@/repositories/membership.repository";
+import { AccessService } from "@/services/access.service";
 import { SubscriptionLimitError, FeatureNotAvailableError } from "@/lib/subscription-tiers";
 
 const deptService = new DepartmentService();
-const membershipRepo = new MembershipRepository();
+const accessService = new AccessService();
 
 export async function POST(
   request: NextRequest,
@@ -29,7 +29,7 @@ export async function POST(
     if (suspended) return suspended;
 
     // Only Company Admin can create departments
-    const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
+    const membership = await accessService.getMembership(user.id, orgId);
     if (!membership || membership.role !== "company_admin") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
@@ -68,7 +68,7 @@ export async function GET(
     const { orgId } = await params;
 
     // Any org member can view departments
-    const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
+    const membership = await accessService.getMembership(user.id, orgId);
     if (!membership) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }

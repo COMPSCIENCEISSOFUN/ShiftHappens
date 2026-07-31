@@ -8,11 +8,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { AvailabilityService } from "@/services/availability.service";
 import { createAvailabilityOverrideSchema } from "@/lib/validations";
-import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
-import { MembershipRepository } from "@/repositories/membership.repository";
+import {
+  getAuthenticatedUser,
+  unauthorizedResponse,
+  checkOrgSuspended,
+} from "@/lib/auth-guard";
+import { AccessService } from "@/services/access.service";
 
 const availService = new AvailabilityService();
-const membershipRepo = new MembershipRepository();
+const accessService = new AccessService();
 
 export async function GET(
   request: NextRequest,
@@ -24,7 +28,7 @@ export async function GET(
 
     const { orgId } = await params;
 
-    const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
+    const membership = await accessService.getMembership(user.id, orgId);
     if (!membership) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
@@ -45,8 +49,10 @@ export async function POST(
     if (!user) return unauthorizedResponse();
 
     const { orgId } = await params;
+    const suspended = await checkOrgSuspended(orgId);
+    if (suspended) return suspended;
 
-    const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
+    const membership = await accessService.getMembership(user.id, orgId);
     if (!membership) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }

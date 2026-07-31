@@ -9,9 +9,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
 import { IndustryTemplateService } from "@/services/industry-template.service";
-import { prisma } from "@/lib/prisma";
+import { PlatformService } from "@/services/platform.service";
 
 const templateService = new IndustryTemplateService();
+const platformService = new PlatformService();
 
 export async function GET(req: NextRequest) {
   try {
@@ -19,12 +20,7 @@ export async function GET(req: NextRequest) {
     if (!user) return unauthorizedResponse();
 
     // Check if platform admin
-    const dbUser = await prisma.user.findUnique({
-      where: { id: user.id },
-      select: { isPlatformAdmin: true },
-    });
-
-    if (dbUser?.isPlatformAdmin) {
+    if (await platformService.isPlatformAdmin(user.id)) {
       // Platform admin sees all templates with usage counts
       const templates = await templateService.getAllTemplates();
       return NextResponse.json(templates);
@@ -48,11 +44,7 @@ export async function POST(req: NextRequest) {
     if (!user) return unauthorizedResponse();
 
     // Platform admin only
-    const dbUser = await prisma.user.findUnique({
-      where: { id: user.id },
-      select: { isPlatformAdmin: true },
-    });
-    if (!dbUser?.isPlatformAdmin) {
+    if (!(await platformService.isPlatformAdmin(user.id))) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -76,7 +68,10 @@ export async function POST(req: NextRequest) {
     if (
       message.includes("already exists") ||
       message.includes("is required") ||
-      message.includes("Maximum")
+      message.includes("Maximum") ||
+      // The sibling PATCH on [templateId] already matches "Invalid", so the same
+      // validation error returned 400 on edit and 500 on create.
+      message.includes("Invalid")
     ) {
       return NextResponse.json({ error: message }, { status: 400 });
     }

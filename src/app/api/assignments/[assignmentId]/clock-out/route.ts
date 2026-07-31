@@ -1,16 +1,31 @@
 /**
  * Clock Out API Endpoint (Boundary Layer)
  * POST /api/assignments/[assignmentId]/clock-out
- * 
+ *
  * Staff action — records end time and completes the assignment.
+ *
+ * DELIBERATELY NOT GUARDED BY checkOrgSuspended, unlike its six siblings.
+ *
+ * Suspension freezes a tenant's operations, and every other assignment action
+ * (accept, reject, clock-in, complete, withdraw, withdrawal) either starts new
+ * work or creates a new obligation, so all six refuse a suspended org. Clocking
+ * out is the one action that only ENDS work already in progress. A member can
+ * only reach it if they are already clocked in, and blocking it would strand
+ * them mid-shift with no way to close the record — the hours they actually
+ * worked would never be written, which is a payroll problem, not a billing
+ * lever. The org can be suspended between clock-in and clock-out for reasons
+ * the staff member has no control over.
+ *
+ * The suspension still bites: `complete` is guarded, so the assignment stops at
+ * "clocked_out" until the org is reactivated. Nothing new is started.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { TaskAssignmentService } from "@/services/task-assignment.service";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
-import { MembershipRepository } from "@/repositories/membership.repository";
+import { AccessService } from "@/services/access.service";
 
 const assignmentService = new TaskAssignmentService();
-const membershipRepo = new MembershipRepository();
+const accessService = new AccessService();
 
 export async function POST(
   request: NextRequest,
@@ -28,7 +43,7 @@ export async function POST(
       return NextResponse.json({ error: "orgId required" }, { status: 400 });
     }
 
-    const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
+    const membership = await accessService.getMembership(user.id, orgId);
     if (!membership) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }

@@ -12,6 +12,18 @@ import { prisma } from "@/lib/prisma";
 
 export class TaskAssignmentRepository {
   /** Creates a new task assignment with pending status */
+  /**
+   * The department of an assignment's task, for scope checks. Same tri-state as
+   * TaskRepository.getDepartmentId: `undefined` = no such assignment.
+   */
+  async getTaskDepartmentId(id: string): Promise<string | null | undefined> {
+    const assignment = await prisma.taskAssignment.findUnique({
+      where: { id },
+      select: { task: { select: { departmentId: true } } },
+    });
+    return assignment === null ? undefined : assignment.task.departmentId;
+  }
+
   async create(data: {
     taskId: string;
     membershipId: string;
@@ -178,5 +190,132 @@ export class TaskAssignmentRepository {
   /** Cancels (deletes) an assignment — admin/manager action */
   async cancel(id: string) {
     return prisma.taskAssignment.delete({ where: { id } });
+  }
+
+  /**
+   * A member's finished shifts that started on or after `since`, for summing
+   * hours actually worked. Rows without a clock-out are excluded: an open
+   * shift has no measurable duration and would otherwise be counted as zero,
+   * quietly understating how close the member is to their limit.
+   */
+  async findWorkedSince(membershipId: string, since: Date) {
+    return prisma.taskAssignment.findMany({
+      where: {
+        membershipId,
+        status: { in: ["clocked_out", "completed"] },
+        clockInTime: { gte: since },
+        clockOutTime: { not: null },
+      },
+    });
+  }
+
+  /**
+   * How often a member has actually served a given department. Feeds the AI
+   * ranker's familiarity signal, so only assignments the member took count —
+   * a pending offer they may still reject says nothing about experience.
+   */
+  async countDepartmentHistory(
+    membershipId: string,
+    departmentId: string
+  ): Promise<number> {
+    return prisma.taskAssignment.count({
+      where: {
+        membershipId,
+        task: { departmentId },
+        status: { in: ["accepted", "clocked_out", "completed"] },
+      },
+    });
+  }
+
+  /**
+   * A member's assignments in the given statuses, paired with their task's
+   * scheduled window. The eligibility engine needs BOTH: hours already clocked
+   * and hours merely committed to a future shift. Loading only clock times
+   * would make an over-booked week look empty until the shifts were worked.
+   *
+   * `excludeTaskId` drops the task being evaluated so it is not counted
+   * against itself when re-checking after a reschedule.
+   */
+  async findCommittedWithSchedule(
+    membershipId: string,
+    statuses: string[],
+    excludeTaskId?: string
+  ) {
+    return prisma.taskAssignment.findMany({
+      where: {
+        membershipId,
+        status: { in: statuses },
+        ...(excludeTaskId ? { taskId: { not: excludeTaskId } } : {}),
+      },
+      select: {
+        clockInTime: true,
+        clockOutTime: true,
+        task: { select: { scheduledStart: true, scheduledEnd: true } },
+      },
+    });
+  }
+
+  /**
+   * Recent rejections across an organisation, with the rejecting member.
+   * Scoped through the task's org because an assignment has no organizationId
+   * of its own — joining on the member instead would let a person who moved
+   * organisations drag their old rejections into the new tenant's analysis.
+   */
+  async findRecentRejections(organizationId: string, since: Date) {
+    return prisma.taskAssignment.findMany({
+      where: {
+        task: { organizationId },
+        status: "rejected",
+        createdAt: { gte: since },
+      },
+      include: {
+        membership: {
+          include: { user: { select: { name: true, email: true } } },
+        },
+      },
+    });
+  }
+
+  /**
+   * Shifts finished across an organisation since a cut-off. Counts on
+   * clock-OUT time, not the assignment's creation date: a shift created
+   * yesterday and finished this morning belongs to today's tally.
+   */
+  async countCompletedSince(
+    organizationId: string,
+    since: Date
+  ): Promise<number> {
+    return prisma.taskAssignment.count({
+      where: {
+        task: { organizationId },
+        status: { in: ["clocked_out", "completed"] },
+        clockOutTime: { gte: since },
+      },
+    });
+  }
+
+  /**
+   * Clock times for a member's committed shifts whose task sits entirely
+   * inside a window — the auto-scheduler's "hours already on this week"
+   * figure. Only assignments that have been clocked into are considered, so
+   * the number reflects work under way rather than intentions.
+   */
+  async findClockedWithinWindow(
+    membershipId: string,
+    windowStart: Date,
+    windowEnd: Date
+  ) {
+    return prisma.taskAssignment.findMany({
+      where: {
+        membershipId,
+        status: { in: ["accepted", "clocked_out", "completed"] },
+        clockInTime: { not: null },
+        task: {
+          scheduledStart: { gte: windowStart },
+          scheduledEnd: { lte: windowEnd },
+        },
+      },
+      select: { clockInTime: true, clockOutTime: true },
+    });
   }
 }

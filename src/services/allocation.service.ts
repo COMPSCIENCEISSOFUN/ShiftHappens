@@ -19,8 +19,9 @@ import { EligibilityService } from "./eligibility.service";
 import { CertificationRepository } from "@/repositories/certification.repository";
 import { SettingsRepository } from "@/repositories/settings.repository";
 import { TaskRepository } from "@/repositories/task.repository";
+import { TaskAssignmentRepository } from "@/repositories/task-assignment.repository";
+import { AvailabilityRepository } from "@/repositories/availability.repository";
 import { TaskService } from "./task.service";
-import { prisma } from "@/lib/prisma";
 
 export class AllocationService {
   private providers: AIProvider[];
@@ -28,6 +29,8 @@ export class AllocationService {
   private certRepo = new CertificationRepository();
   private settingsRepo = new SettingsRepository();
   private taskRepo = new TaskRepository();
+  private assignmentRepo = new TaskAssignmentRepository();
+  private availRepo = new AvailabilityRepository();
   private taskService = new TaskService();
 
   constructor() {
@@ -168,14 +171,10 @@ export class AllocationService {
   ): Promise<StaffCandidate> {
     // Get hours worked in last 24h
     const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const recentAssignments = await prisma.taskAssignment.findMany({
-      where: {
-        membershipId,
-        status: { in: ["clocked_out", "completed"] },
-        clockInTime: { gte: oneDayAgo },
-        clockOutTime: { not: null },
-      },
-    });
+    const recentAssignments = await this.assignmentRepo.findWorkedSince(
+      membershipId,
+      oneDayAgo
+    );
 
     let hoursWorkedToday = 0;
     for (const a of recentAssignments) {
@@ -190,10 +189,7 @@ export class AllocationService {
     const certNames = certs.map((c) => c.name);
 
     // Get availability summary
-    const availability = await prisma.availability.findMany({
-      where: { membershipId },
-      orderBy: { dayOfWeek: "asc" },
-    });
+    const availability = await this.availRepo.getWeeklySchedule(membershipId);
     const availableHours = availability
       .filter((a) => a.isAvailable)
       .map((a) => `${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][a.dayOfWeek]} ${a.startTime}-${a.endTime}`)
@@ -202,13 +198,10 @@ export class AllocationService {
     // Get department history (how many times assigned to tasks in this dept)
     let departmentHistory = 0;
     if (departmentId) {
-      departmentHistory = await prisma.taskAssignment.count({
-        where: {
-          membershipId,
-          task: { departmentId },
-          status: { in: ["accepted", "clocked_out", "completed"] },
-        },
-      });
+      departmentHistory = await this.assignmentRepo.countDepartmentHistory(
+        membershipId,
+        departmentId
+      );
     }
 
     return {

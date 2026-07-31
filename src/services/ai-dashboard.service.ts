@@ -12,9 +12,12 @@
  * admin always has final decision authority.
  */
 import { TaskRepository } from "@/repositories/task.repository";
+import { startOfDayInTimeZone } from "@/lib/timezone";
 import { MembershipRepository } from "@/repositories/membership.repository";
 import { SettingsRepository } from "@/repositories/settings.repository";
-import { prisma } from "@/lib/prisma";
+import { TaskAssignmentRepository } from "@/repositories/task-assignment.repository";
+import { CertificationRepository } from "@/repositories/certification.repository";
+import { DepartmentRepository } from "@/repositories/department.repository";
 
 interface DashboardInsight {
   summary: string;
@@ -57,6 +60,9 @@ export class AIDashboardService {
   private taskRepo = new TaskRepository();
   private membershipRepo = new MembershipRepository();
   private settingsRepo = new SettingsRepository();
+  private assignmentRepo = new TaskAssignmentRepository();
+  private certRepo = new CertificationRepository();
+  private departmentRepo = new DepartmentRepository();
 
   /** Shared system prompt for the legacy insights endpoint */
   private systemPrompt = `You are a workforce management AI assistant. Analyze the organizational data and provide insights.
@@ -642,14 +648,10 @@ CRITICAL RULES:
     const staffNearLimit: { name: string; hours: number }[] = [];
 
     for (const staff of activeStaff) {
-      const assignments = await prisma.taskAssignment.findMany({
-        where: {
-          membershipId: staff.id,
-          status: { in: ["clocked_out", "completed"] },
-          clockInTime: { gte: oneDayAgo },
-          clockOutTime: { not: null },
-        },
-      });
+      const assignments = await this.assignmentRepo.findWorkedSince(
+        staff.id,
+        oneDayAgo
+      );
 
       let hours = 0;
       for (const a of assignments) {
@@ -667,18 +669,10 @@ CRITICAL RULES:
     }
 
     const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-    const rejections = await prisma.taskAssignment.findMany({
-      where: {
-        task: { organizationId },
-        status: "rejected",
-        createdAt: { gte: oneWeekAgo },
-      },
-      include: {
-        membership: {
-          include: { user: { select: { name: true, email: true } } },
-        },
-      },
-    });
+    const rejections = await this.assignmentRepo.findRecentRejections(
+      organizationId,
+      oneWeekAgo
+    );
 
     const rejectionMap: Record<string, { staffName: string; membershipId: string; count: number; reasons: string[] }> = {};
     for (const r of rejections) {
@@ -699,29 +693,21 @@ CRITICAL RULES:
 
     const recentRejections = Object.values(rejectionMap).filter((r) => r.count >= 2);
 
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const completedToday = await prisma.taskAssignment.count({
-      where: {
-        task: { organizationId },
-        status: { in: ["clocked_out", "completed"] },
-        clockOutTime: { gte: todayStart },
-      },
-    });
+    // setHours() uses the runtime's zone: on Vercel that is UTC, i.e. 08:00
+    // Singapore, so everything completed before 8am local was omitted — and the
+    // wrong figure was then handed to the model as ground truth.
+    const todayStart = startOfDayInTimeZone();
+    const completedToday = await this.assignmentRepo.countCompletedSince(
+      organizationId,
+      todayStart
+    );
 
-    const pendingCertifications = await prisma.certification.count({
-      where: {
-        membership: { organizationId },
-        status: "pending",
-      },
-    });
+    const pendingCertifications =
+      await this.certRepo.countPendingVerification(organizationId);
 
-    const departments = await prisma.department.findMany({
-      where: { organizationId, archivedAt: null },
-      include: {
-        _count: { select: { departmentMemberships: true, tasks: true } },
-      },
-    });
+    const departments = await this.departmentRepo.findActiveWithCounts(
+      organizationId
+    );
 
     const deptStats = departments.map((d) => ({
       name: d.name,

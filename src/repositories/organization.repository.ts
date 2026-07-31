@@ -15,6 +15,22 @@ export class OrganizationRepository {
    * Creates a new organization and assigns the creator as company_admin.
    * Uses a nested Prisma write to atomically create both the org and membership.
    */
+  /**
+   * An organisation's status, or null when it does not exist.
+   *
+   * Narrow on purpose: the suspension guard runs on almost every request, so it
+   * selects one column and nothing else. Previously `src/lib/org-guard.ts` ran
+   * this query against Prisma directly, putting an Entity-layer call in a
+   * helper the Boundary imports.
+   */
+  async getStatus(id: string): Promise<string | null> {
+    const org = await prisma.organization.findUnique({
+      where: { id },
+      select: { status: true },
+    });
+    return org?.status ?? null;
+  }
+
   async create(
     data: {
       name: string;
@@ -93,6 +109,22 @@ export class OrganizationRepository {
         },
       },
     });
+  }
+
+  /**
+   * IDs of every active organisation, for the platform-wide background jobs.
+   *
+   * The only query in the codebase that deliberately spans tenants: the cron
+   * entry point has no organisation of its own and has to discover them.
+   * Suspended orgs are left out so a tenant that has stopped paying does not
+   * keep receiving generated shifts and notifications.
+   */
+  async findActiveIds(): Promise<string[]> {
+    const orgs = await prisma.organization.findMany({
+      where: { status: "active" },
+      select: { id: true },
+    });
+    return orgs.map((o) => o.id);
   }
 
   /** Checks if a slug is already taken — used during slug generation */

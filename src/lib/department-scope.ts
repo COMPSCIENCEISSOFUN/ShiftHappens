@@ -10,10 +10,15 @@
  * department IDs. A resource with no department is out of scope for anyone who
  * is scoped (only admins can touch org-wide, department-less resources).
  *
- * These helpers are framework-free (aside from Prisma) so they can be unit
- * tested and reused by both routes (Boundary) and services (Control).
+ * Everything in this file is a PURE function of a membership — no database, no
+ * framework — so it can be unit tested directly and reused by both routes
+ * (Boundary) and services (Control).
+ *
+ * The two lookups that used to live here (`isTaskInScope`,
+ * `isAssignmentTaskInScope`) queried Prisma, which made a lib file the Boundary
+ * imports reach Entity directly. They now live on `AccessService`
+ * (`src/services/access.service.ts`) and are reached through Control.
  */
-import { prisma } from "@/lib/prisma";
 
 export interface ScopableMembership {
   role: string;
@@ -43,41 +48,3 @@ export function isDepartmentInScope(
   return scope.includes(departmentId);
 }
 
-/**
- * Boundary check: can this member act on the given task under department
- * scoping? Admins always can. Scoped members can only touch tasks in one of
- * their departments. A missing task returns false (caller responds 404).
- */
-export async function isTaskInScope(
-  taskId: string,
-  membership: ScopableMembership
-): Promise<boolean> {
-  const scope = departmentScopeFor(membership);
-  if (scope === null) return true;
-
-  const task = await prisma.task.findUnique({
-    where: { id: taskId },
-    select: { departmentId: true },
-  });
-  if (!task) return false;
-  return isDepartmentInScope(task.departmentId, scope);
-}
-
-/**
- * Boundary check for assignment-level routes: resolves the assignment's task
- * department and applies the same scoping rule.
- */
-export async function isAssignmentTaskInScope(
-  assignmentId: string,
-  membership: ScopableMembership
-): Promise<boolean> {
-  const scope = departmentScopeFor(membership);
-  if (scope === null) return true;
-
-  const assignment = await prisma.taskAssignment.findUnique({
-    where: { id: assignmentId },
-    select: { task: { select: { departmentId: true } } },
-  });
-  if (!assignment) return false;
-  return isDepartmentInScope(assignment.task.departmentId, scope);
-}

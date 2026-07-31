@@ -15,19 +15,33 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { HourAlertService } from "@/services/hour-alert.service";
-import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
-import { MembershipRepository } from "@/repositories/membership.repository";
+import {
+  getAuthenticatedUser,
+  unauthorizedResponse,
+  checkOrgSuspended,
+} from "@/lib/auth-guard";
+import { AccessService } from "@/services/access.service";
+import { departmentScopeFor } from "@/lib/department-scope";
 
 const hourAlertService = new HourAlertService();
-const membershipRepo = new MembershipRepository();
+const accessService = new AccessService();
 
-/** Verifies the caller is an admin/manager of the org. */
+/**
+ * Verifies the caller is an admin/manager of the org.
+ *
+ * Returns the membership on success rather than just `null`: both handlers need
+ * it to derive the caller's department scope, and looking it up twice would let
+ * the gate and the scope drift apart.
+ */
 async function requireManager(userId: string, orgId: string) {
-  const membership = await membershipRepo.findByUserAndOrg(userId, orgId);
+  const membership = await accessService.getMembership(userId, orgId);
   if (!membership || !["company_admin", "manager"].includes(membership.role)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    return {
+      forbidden: NextResponse.json({ error: "Forbidden" }, { status: 403 }),
+      membership: null,
+    };
   }
-  return null;
+  return { forbidden: null, membership };
 }
 
 export async function GET(
@@ -39,10 +53,14 @@ export async function GET(
     if (!user) return unauthorizedResponse();
 
     const { orgId } = await params;
-    const forbidden = await requireManager(user.id, orgId);
+    const { forbidden, membership } = await requireManager(user.id, orgId);
     if (forbidden) return forbidden;
 
-    const statuses = await hourAlertService.getOrganizationStatus(orgId);
+    // Managers see only their department(s); company admins see everything.
+    const statuses = await hourAlertService.getOrganizationStatus(
+      orgId,
+      departmentScopeFor(membership)
+    );
 
     const atRiskOnly =
       request.nextUrl.searchParams.get("atRisk") === "true";
@@ -69,10 +87,19 @@ export async function POST(
     if (!user) return unauthorizedResponse();
 
     const { orgId } = await params;
-    const forbidden = await requireManager(user.id, orgId);
+    // A suspended tenant must not fan out notifications to its whole staff —
+    // this endpoint writes notification rows and sends email.
+    const suspended = await checkOrgSuspended(orgId);
+    if (suspended) return suspended;
+
+    const { forbidden, membership } = await requireManager(user.id, orgId);
     if (forbidden) return forbidden;
 
-    const { checked, alerted } = await hourAlertService.checkOrganization(orgId);
+    // A scoped manager may only trigger alerts about their own department(s).
+    const { checked, alerted } = await hourAlertService.checkOrganization(
+      orgId,
+      departmentScopeFor(membership)
+    );
 
     return NextResponse.json({
       checked,

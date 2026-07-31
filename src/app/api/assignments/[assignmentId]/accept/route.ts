@@ -7,11 +7,15 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { TaskAssignmentService } from "@/services/task-assignment.service";
-import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
-import { MembershipRepository } from "@/repositories/membership.repository";
+import {
+  getAuthenticatedUser,
+  unauthorizedResponse,
+  checkOrgSuspended,
+} from "@/lib/auth-guard";
+import { AccessService } from "@/services/access.service";
 
 const assignmentService = new TaskAssignmentService();
-const membershipRepo = new MembershipRepository();
+const accessService = new AccessService();
 
 export async function POST(
   request: NextRequest,
@@ -29,7 +33,15 @@ export async function POST(
       return NextResponse.json({ error: "orgId required" }, { status: 400 });
     }
 
-    const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
+    // Suspension is checked on the org from the query string, which is the same
+    // org the assignment belongs to: the membership resolved below is the
+    // caller's membership IN THAT ORG, and every service method here refuses an
+    // assignment that membership does not own. Passing some other org's id
+    // therefore cannot reach the assignment — it just fails ownership.
+    const suspended = await checkOrgSuspended(orgId);
+    if (suspended) return suspended;
+
+    const membership = await accessService.getMembership(user.id, orgId);
     if (!membership) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }

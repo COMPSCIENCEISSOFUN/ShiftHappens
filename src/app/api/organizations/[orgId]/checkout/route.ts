@@ -18,15 +18,16 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { BillingService } from "@/services/billing.service";
-import { MembershipRepository } from "@/repositories/membership.repository";
+import { AccessService } from "@/services/access.service";
+import { ProfileService } from "@/services/profile.service";
 import { createCheckoutSchema } from "@/lib/validations";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
-import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
 
 const billingService = new BillingService();
-const membershipRepo = new MembershipRepository();
+const accessService = new AccessService();
+const profileService = new ProfileService();
 
 export async function POST(
   request: NextRequest,
@@ -39,7 +40,7 @@ export async function POST(
     const { orgId } = await params;
 
     // Only company admins can change billing.
-    const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
+    const membership = await accessService.getMembership(user.id, orgId);
     if (!membership) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
@@ -62,11 +63,8 @@ export async function POST(
     // Prefer the session email; fall back to the DB record if absent.
     let email: string | null = user.email ?? null;
     if (!email) {
-      const dbUser = await prisma.user.findUnique({
-        where: { id: user.id },
-        select: { email: true },
-      });
-      email = dbUser?.email ?? null;
+      const profile = await profileService.getProfile(user.id);
+      email = profile?.email ?? null;
     }
     if (!email) {
       return NextResponse.json(
