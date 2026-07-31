@@ -271,12 +271,21 @@ export default function CalendarPage() {
   const [coverage, setCoverage] = useState<CoverageCell[]>([]);
   const [staffData, setStaffData] = useState<StaffSchedule[]>([]);
   const [showCoverage, setShowCoverage] = useState(true);
-  const [weekStart, setWeekStart] = useState(() => getWeekStart(new Date()));
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [filterDept, setFilterDept] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [currentTime, setCurrentTime] = useState(new Date());
+
+  /**
+   * Null means "follow the clock"; prev/next week pin an explicit week and
+   * Today releases the pin. The week used to be captured once in a lazy
+   * useState, so a dashboard tab left open past Saturday midnight kept showing
+   * the old week while the now-line — which does tick, every 60s — had already
+   * moved on, leaving it drawn against the wrong seven days.
+   */
+  const [pinnedWeekStart, setPinnedWeekStart] = useState<Date | null>(null);
+  const weekStart = pinnedWeekStart ?? getWeekStart(currentTime);
 
   const [viewMode, setViewMode] = useState<"week" | "day">("week");
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
@@ -356,9 +365,9 @@ export default function CalendarPage() {
     return coverage.find((c) => c.dayOfWeek === dayOfWeek && c.hour === hour)?.count ?? 0;
   }
 
-  function prevWeek() { const d = new Date(weekStart); d.setDate(d.getDate() - 7); setWeekStart(d); }
-  function nextWeek() { const d = new Date(weekStart); d.setDate(d.getDate() + 7); setWeekStart(d); }
-  function goToday() { setWeekStart(getWeekStart(new Date())); setViewMode("week"); }
+  function prevWeek() { const d = new Date(weekStart); d.setDate(d.getDate() - 7); setPinnedWeekStart(d); }
+  function nextWeek() { const d = new Date(weekStart); d.setDate(d.getDate() + 7); setPinnedWeekStart(d); }
+  function goToday() { setPinnedWeekStart(null); setViewMode("week"); }
 
   function openDayView(date: Date) { setSelectedDate(date); setViewMode("day"); setSelectedTask(null); }
   function prevDay() { const d = new Date(selectedDate); d.setDate(d.getDate() - 1); setSelectedDate(d); }
@@ -366,7 +375,9 @@ export default function CalendarPage() {
 
   const weekDates = getWeekDates(weekStart);
   const weekEnd = new Date(weekStart); weekEnd.setDate(weekEnd.getDate() + 7);
-  const today = new Date();
+  // Derived from the same ticking clock as the now-line so the highlighted
+  // column and the line can never disagree about which day it is.
+  const today = currentTime;
   const todayStr = today.toDateString();
 
   const departments = Array.from(

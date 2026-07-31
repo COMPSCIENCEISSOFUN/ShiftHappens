@@ -62,6 +62,16 @@ export default function AvailabilityPage() {
     try {
       const res = await fetch(`/api/organizations/${orgId}/availability`);
       const data = await res.json();
+
+      // A 403 body is `{ error }`, not an array — `data.length` was undefined
+      // so the saved schedule silently vanished with no explanation.
+      if (!res.ok || !Array.isArray(data)) {
+        setError(
+          typeof data?.error === "string" ? data.error : "Failed to load schedule"
+        );
+        return;
+      }
+
       if (data.length > 0) {
         setSchedule((prev) =>
           prev.map((day) => {
@@ -81,7 +91,8 @@ export default function AvailabilityPage() {
     try {
       const res = await fetch(`/api/organizations/${orgId}/availability/overrides`);
       const data = await res.json();
-      setOverrides(data);
+      // Same shape trap — the override list is mapped over at render.
+      if (res.ok && Array.isArray(data)) setOverrides(data);
     } catch {}
   }
 

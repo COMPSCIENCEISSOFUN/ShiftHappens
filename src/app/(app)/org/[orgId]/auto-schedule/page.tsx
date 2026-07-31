@@ -10,6 +10,7 @@
 "use client";
 
 import { useState } from "react";
+import { dayOfWeekInTimeZone, localDateInTimeZone } from "@/lib/timezone";
 import { useParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { AlertBanner } from "@/components/ui/alert-banner";
@@ -39,13 +40,22 @@ interface DraftSchedule {
   };
 }
 
+/**
+ * The current week's Monday as a YYYY-MM-DD date string in organisation time.
+ *
+ * The previous implementation used getDay() + setHours(0,0,0,0) and then
+ * toISOString().split("T")[0]. Those disagree: setHours works in the runtime's
+ * local zone while toISOString renders UTC, so east-of-UTC local midnight
+ * serialises as the PREVIOUS day. Running in Asia/Singapore it returned the
+ * Sunday, shifting the whole auto-schedule window by a day — silently dropping
+ * the final Monday's tasks and pulling in the previous Sunday's.
+ */
 function getThisMonday(): string {
-  const d = new Date();
-  const day = d.getDay();
+  const now = new Date();
+  const day = dayOfWeekInTimeZone(now);
   const diff = day === 0 ? -6 : 1 - day;
-  d.setDate(d.getDate() + diff);
-  d.setHours(0, 0, 0, 0);
-  return d.toISOString().split("T")[0];
+  const monday = new Date(now.getTime() + diff * 24 * 60 * 60 * 1000);
+  return localDateInTimeZone(monday);
 }
 
 function formatWeekRange(dateStr: string): string {

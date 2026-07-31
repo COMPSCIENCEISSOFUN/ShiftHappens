@@ -161,23 +161,37 @@ export default function WorkRulesPage({
     finally { setSaving(false); }
   }
 
+  // Both of these used to ignore the response, so a 403 or 404 left the toggle
+  // flipping back on the refetch with nothing on screen to say why.
   async function handleToggle(rule: WorkRule) {
+    setError(null);
     try {
-      await fetch(`/api/organizations/${orgId}/work-rules/${rule.id}`, {
+      const res = await fetch(`/api/organizations/${orgId}/work-rules/${rule.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ isActive: !rule.isActive }),
       });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        setError(d.error || `Failed to ${rule.isActive ? "pause" : "activate"} "${rule.name}"`);
+        return;
+      }
       fetchRules();
-    } catch { /* retry */ }
+    } catch { setError("Something went wrong"); }
   }
 
   async function handleDelete(rule: WorkRule) {
     if (!confirm(`Delete "${rule.name}"? This cannot be undone.`)) return;
+    setError(null);
     try {
-      await fetch(`/api/organizations/${orgId}/work-rules/${rule.id}`, { method: "DELETE" });
+      const res = await fetch(`/api/organizations/${orgId}/work-rules/${rule.id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        setError(d.error || `Failed to delete "${rule.name}"`);
+        return;
+      }
       fetchRules();
-    } catch { /* retry */ }
+    } catch { setError("Something went wrong"); }
   }
 
   function getTargetLabel(rule: WorkRule): string {

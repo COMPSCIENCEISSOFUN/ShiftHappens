@@ -17,6 +17,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { localDateInTimeZone } from "@/lib/timezone";
 import Link from "next/link";
 import {
   Card,
@@ -703,8 +704,12 @@ function CompletionChart({ days }: { days: CompletionDay[] | null }) {
   }
 
   const maxCount = Math.max(...days.map((d) => d.count), 1);
-  const today = new Date();
-  const todayStr = today.toISOString().split("T")[0];
+  // `day.date` is produced server-side in organisation time (see
+  // ReportingService.getCompletionTrend). Deriving "today" from toISOString()
+  // compares a UTC date against org-time dates, so between midnight and the
+  // UTC offset today's bar tested as "future" — rendering a faded dash and
+  // putting the highlight on yesterday.
+  const todayStr = localDateInTimeZone();
 
   return (
     <div>

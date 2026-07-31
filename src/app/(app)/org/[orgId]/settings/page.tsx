@@ -181,6 +181,8 @@ export default function SettingsPage() {
 
   // ─── Settings state ────────────────────────────────────────
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [retryingSettings, setRetryingSettings] = useState(false);
   const [subscription, setSubscription] = useState<SubscriptionData | null>(
     null
   );
@@ -297,21 +299,43 @@ export default function SettingsPage() {
     }
   }
 
+  /**
+   * `settings` gates the whole page, so a failure here has to produce something
+   * other than null. It used to leave the page on <PageLoading/> forever with
+   * the error banner rendered below that early return, where nothing could
+   * reach it. A non-OK body is `{ error }` — storing that made `settings`
+   * truthy, so the page rendered with undefined radio values and Save then
+   * PATCHed an empty body and reported success.
+   */
   async function fetchSettings() {
+    setSettingsError(null);
     try {
       const res = await fetch(`/api/organizations/${orgId}/settings`);
       const data = await res.json();
+
+      if (!res.ok || typeof data?.allocationMode !== "string") {
+        setSettingsError(
+          typeof data?.error === "string" ? data.error : "Failed to load settings"
+        );
+        return;
+      }
+
       setSettings(data);
       setAllocationMode(data.allocationMode);
       setTaskAcceptanceMode(data.taskAcceptanceMode);
       if (data.notificationPreferences) {
-        setNotifPrefs((prev) => ({
-          ...prev,
-          ...JSON.parse(data.notificationPreferences),
-        }));
+        try {
+          setNotifPrefs((prev) => ({
+            ...prev,
+            ...JSON.parse(data.notificationPreferences),
+          }));
+        } catch {
+          // Malformed stored JSON shouldn't cost the user the whole page —
+          // the defaults above are a usable starting point.
+        }
       }
     } catch {
-      setTaskMessage({ type: "error", text: "Failed to load settings" });
+      setSettingsError("Failed to load settings");
     }
   }
 
@@ -464,7 +488,32 @@ export default function SettingsPage() {
   /*  Render                                                        */
   /* ────────────────────────────────────────────────────────────── */
 
-  if (!settings) return <PageLoading />;
+  if (!settings) {
+    // Without this branch a failed load sat on the spinner forever, because the
+    // only error banner on this page lives further down the same return.
+    if (settingsError) {
+      return (
+        <div className="mx-auto max-w-lg space-y-4 py-12">
+          <AlertBanner message={settingsError} variant="error" />
+          <Button
+            disabled={retryingSettings}
+            onClick={async () => {
+              if (retryingSettings) return;
+              setRetryingSettings(true);
+              try {
+                await fetchSettings();
+              } finally {
+                setRetryingSettings(false);
+              }
+            }}
+          >
+            {retryingSettings ? "Retrying…" : "Try again"}
+          </Button>
+        </div>
+      );
+    }
+    return <PageLoading />;
+  }
 
   return (
     <div className="space-y-6">

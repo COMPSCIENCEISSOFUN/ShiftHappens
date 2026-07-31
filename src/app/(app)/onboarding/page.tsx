@@ -544,12 +544,16 @@ export default function OnboardingPage() {
                 {error && (
                   <AlertBanner message={error} variant="error" />
                 )}
+                {/* maxLength mirrors createOrganizationSchema. Without it a
+                    pasted paragraph got as far as the POST and came back as a
+                    generic "Validation failed" with no hint which field or why. */}
                 <div className="space-y-2">
                   <Label htmlFor="name">Organization name</Label>
                   <Input
                     id="name"
                     name="name"
                     required
+                    maxLength={100}
                     placeholder="e.g. Ocean Grill"
                   />
                 </div>
@@ -559,6 +563,7 @@ export default function OnboardingPage() {
                     id="industry"
                     name="industry"
                     defaultValue={getIndustryFromTemplate()}
+                    maxLength={100}
                     placeholder="e.g. Hospitality, Retail, Healthcare"
                   />
                 </div>
@@ -567,6 +572,7 @@ export default function OnboardingPage() {
                   <Input
                     id="description"
                     name="description"
+                    maxLength={500}
                     placeholder="Brief description of your organization"
                   />
                 </div>

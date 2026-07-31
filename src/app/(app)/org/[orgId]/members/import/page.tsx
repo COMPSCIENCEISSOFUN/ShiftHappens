@@ -65,6 +65,12 @@ type Phase = "upload" | "preview" | "importing" | "complete";
 
 // Constants imported from @/lib/import-config (single source of truth)
 
+/**
+ * Shortest cell that may be resolved to a department by substring. Anything
+ * below this is treated as unmatched — see matchDepartment.
+ */
+const MIN_PARTIAL_DEPARTMENT_LENGTH = 3;
+
 /* ------------------------------------------------------------------ */
 /*  Stat Tile                                                          */
 /* ------------------------------------------------------------------ */
@@ -109,51 +115,79 @@ export default function MemberImportPage() {
   } | null>(null);
   const [dragActive, setDragActive] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** False until departments, member emails and the plan limit have all landed. */
+  const [referenceReady, setReferenceReady] = useState(false);
 
   // ─── Data fetching ──────────────────────────────────────────
   useEffect(() => {
-    fetchDepartments();
-    fetchSubscription();
-    fetchExistingMembers();
+    loadReferenceData();
   }, [orgId]);
 
-  async function fetchDepartments() {
+  /**
+   * Loads everything the parser classifies against as one unit.
+   *
+   * These were three independent fetches while the drop zone was already live,
+   * so a file dropped in that window was validated against empty reference
+   * data: every department came back "not found", and every email that already
+   * belonged to a member sailed through as new. Nothing on screen said the
+   * check had been skipped — the preview simply lied. Resolving them together
+   * behind `referenceReady` removes the window rather than narrowing it.
+   */
+  async function loadReferenceData() {
+    setReferenceReady(false);
+
+    const [depts, subscription, emails] = await Promise.all([
+      fetchDepartments(),
+      fetchSubscription(),
+      fetchExistingMembers(),
+    ]);
+
+    setDepartments(depts);
+    setExistingEmails(emails);
+    setMemberLimit(subscription.limit);
+    setCurrentMemberCount(subscription.current);
+    setReferenceReady(true);
+  }
+
+  async function fetchDepartments(): Promise<Department[]> {
     try {
       const res = await fetch(`/api/organizations/${orgId}/departments`);
-      if (res.ok) {
-        const data = await res.json();
-        setDepartments(Array.isArray(data) ? data : []);
-      }
+      if (!res.ok) return [];
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
     } catch {
-      // Non-critical — departments list may be empty
+      return []; // Non-critical — departments list may be empty
     }
   }
 
-  async function fetchSubscription() {
+  async function fetchSubscription(): Promise<{
+    limit: number | null;
+    current: number;
+  }> {
     try {
       const res = await fetch(`/api/organizations/${orgId}/subscription`);
-      if (res.ok) {
-        const data = await res.json();
-        setMemberLimit(data.resources?.members?.limit ?? null);
-        setCurrentMemberCount(data.resources?.members?.current ?? 0);
-      }
+      if (!res.ok) return { limit: null, current: 0 };
+      const data = await res.json();
+      return {
+        limit: data.resources?.members?.limit ?? null,
+        current: data.resources?.members?.current ?? 0,
+      };
     } catch {
-      // Non-critical
+      return { limit: null, current: 0 }; // Non-critical
     }
   }
 
-  async function fetchExistingMembers() {
+  async function fetchExistingMembers(): Promise<Set<string>> {
     try {
       const res = await fetch(`/api/organizations/${orgId}/members`);
-      if (res.ok) {
-        const data = await res.json();
-        const emails = new Set<string>(
-          data.map((m: { user: { email: string } }) => m.user.email.toLowerCase())
-        );
-        setExistingEmails(emails);
-      }
+      if (!res.ok) return new Set();
+      const data = await res.json();
+      if (!Array.isArray(data)) return new Set();
+      return new Set<string>(
+        data.map((m: { user: { email: string } }) => m.user.email.toLowerCase())
+      );
     } catch {
-      // Non-critical
+      return new Set(); // Non-critical
     }
   }
 
@@ -193,21 +227,29 @@ export default function MemberImportPage() {
   // ─── Row parsing and validation ─────────────────────────────
 
   function matchDepartment(value: string): { name: string; matched: boolean } {
-    if (!value.trim()) return { name: "", matched: true };
+    const needle = value.trim().toLowerCase();
+    if (!needle) return { name: "", matched: true };
 
     // Exact match
-    const exact = departments.find(
-      (d) => d.name.toLowerCase() === value.toLowerCase().trim()
-    );
+    const exact = departments.find((d) => d.name.toLowerCase() === needle);
     if (exact) return { name: exact.name, matched: true };
 
-    // Partial match (contains)
-    const partial = departments.find(
-      (d) =>
-        d.name.toLowerCase().includes(value.toLowerCase().trim()) ||
-        value.toLowerCase().trim().includes(d.name.toLowerCase())
-    );
-    if (partial) return { name: partial.name, matched: true };
+    // Substring matching is a convenience for "Kitchen " vs "Kitchen Staff",
+    // not a fuzzy search. It used to accept any length, so a stray "a" in the
+    // department column silently imported everyone into "Bar" — a wrong match
+    // is worse than an error the admin can see and fix, so short cells fall
+    // through. The candidate must also be unambiguous: "Front" matching both
+    // "Front of House" and "Front Desk" is a coin flip, not a match.
+    if (needle.length >= MIN_PARTIAL_DEPARTMENT_LENGTH) {
+      const partial = departments.filter((d) => {
+        const deptName = d.name.toLowerCase();
+        // The shorter side is the one doing the matching, so it is the one that
+        // has to be long enough to mean something.
+        if (deptName.length < MIN_PARTIAL_DEPARTMENT_LENGTH) return false;
+        return deptName.includes(needle) || needle.includes(deptName);
+      });
+      if (partial.length === 1) return { name: partial[0].name, matched: true };
+    }
 
     return { name: value.trim(), matched: false };
   }
@@ -347,6 +389,13 @@ export default function MemberImportPage() {
   // ─── File handling ──────────────────────────────────────────
 
   function processFile(file: File) {
+    // Belt and braces alongside the disabled drop zone: a drop event can still
+    // reach the element while the reference data is in flight.
+    if (!referenceReady) {
+      setError("Still loading your departments and members — try again in a moment");
+      return;
+    }
+
     setError(null);
 
     const validTypes = [
@@ -439,7 +488,7 @@ export default function MemberImportPage() {
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       processFile(e.dataTransfer.files[0]);
     }
-  }, [departments, existingEmails]);
+  }, [departments, existingEmails, referenceReady]);
 
   const handleFileSelect = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -447,7 +496,7 @@ export default function MemberImportPage() {
         processFile(e.target.files[0]);
       }
     },
-    [departments, existingEmails]
+    [departments, existingEmails, referenceReady]
   );
 
   // ─── Template download ─────────────────────────────────────
@@ -488,9 +537,45 @@ export default function MemberImportPage() {
 
   // ─── Row editing ────────────────────────────────────────────
 
+  function rowStatus(row: ImportRow): ImportRow["status"] {
+    if (Object.keys(row.errors).length > 0) return "error";
+    return row.corrections.length > 0 ? "corrected" : "valid";
+  }
+
+  /**
+   * Recomputes "Duplicate in file" across the whole list.
+   *
+   * In-file duplicates are a property of the set, not of one row, so they can't
+   * be re-derived from the edited row alone: the first occurrence wins and
+   * every later one is flagged, which means editing row 3 can clear row 7's
+   * error or create one on row 9. updateRow only checked the row being typed
+   * into, so a fixed row could quietly leave a real duplicate marked valid and
+   * the import went ahead with both.
+   */
+  function applyDuplicateEmailErrors(list: ImportRow[]): ImportRow[] {
+    const seen = new Set<string>();
+
+    return list.map((row) => {
+      const email = row.email.toLowerCase().trim();
+      const errors = { ...row.errors };
+
+      // Only owned by this pass — leave "required"/"format"/"already a member"
+      // alone, since those are decided per row.
+      if (errors.email === "Duplicate in file") delete errors.email;
+
+      if (email && !errors.email) {
+        if (seen.has(email)) errors.email = "Duplicate in file";
+        else seen.add(email);
+      }
+
+      const updated = { ...row, errors };
+      return { ...updated, status: rowStatus(updated) };
+    });
+  }
+
   function updateRow(rowNum: number, field: keyof ImportRow, value: string) {
-    setRows((prev) =>
-      prev.map((row) => {
+    setRows((prev) => {
+      const next = prev.map((row) => {
         if (row.rowNum !== rowNum) return row;
 
         const updated = { ...row, [field]: value };
@@ -513,13 +598,19 @@ export default function MemberImportPage() {
           else if (existingEmails.has(email))
             newErrors.email = "Already a member";
           else delete newErrors.email;
+          // In-file duplicates are settled by the pass below.
         }
 
         if (field === "department") {
-          if (value && !departments.some((d) => d.name === value)) {
-            newErrors.department = `"${value}" not found`;
-          } else {
+          // Parsing resolves aliases and near-misses through matchDepartment;
+          // re-validating with an exact name comparison rejected values that
+          // the parser itself had produced.
+          const deptMatch = matchDepartment(value);
+          if (deptMatch.matched) {
+            updated.department = deptMatch.name;
             delete newErrors.department;
+          } else {
+            newErrors.department = `"${value}" not found`;
           }
         }
 
@@ -527,16 +618,13 @@ export default function MemberImportPage() {
         if (field === "employmentType") delete newErrors.employmentType;
 
         updated.errors = newErrors;
-        updated.status =
-          Object.keys(newErrors).length > 0
-            ? "error"
-            : updated.corrections.length > 0
-              ? "corrected"
-              : "valid";
+        updated.status = rowStatus(updated);
 
         return updated;
-      })
-    );
+      });
+
+      return applyDuplicateEmailErrors(next);
+    });
   }
 
   function toggleSkip(rowNum: number) {
@@ -672,23 +760,26 @@ export default function MemberImportPage() {
             {/* Drag-drop zone */}
             <div
               className={`
-                rounded-xl border-2 border-dashed p-8 sm:p-12 text-center cursor-pointer
+                rounded-xl border-2 border-dashed p-8 sm:p-12 text-center
                 transition-all duration-200
-                ${dragActive
-                  ? "border-indigo-400 bg-indigo-50/50 dark:bg-indigo-950/20"
-                  : "border-border hover:border-indigo-300 hover:bg-muted/30 dark:hover:border-indigo-800"
+                ${!referenceReady
+                  ? "cursor-wait border-border opacity-60"
+                  : dragActive
+                    ? "cursor-pointer border-indigo-400 bg-indigo-50/50 dark:bg-indigo-950/20"
+                    : "cursor-pointer border-border hover:border-indigo-300 hover:bg-muted/30 dark:hover:border-indigo-800"
                 }
               `}
-              onDragEnter={handleDrag}
-              onDragLeave={handleDrag}
-              onDragOver={handleDrag}
+              onDragEnter={referenceReady ? handleDrag : undefined}
+              onDragLeave={referenceReady ? handleDrag : undefined}
+              onDragOver={referenceReady ? handleDrag : undefined}
               onDrop={handleDrop}
-              onClick={() => fileInputRef.current?.click()}
+              onClick={() => { if (referenceReady) fileInputRef.current?.click(); }}
             >
               <input
                 ref={fileInputRef}
                 type="file"
                 accept=".xlsx,.xls,.csv"
+                disabled={!referenceReady}
                 onChange={handleFileSelect}
                 className="hidden"
               />
@@ -700,13 +791,26 @@ export default function MemberImportPage() {
                   <line x1="12" y1="3" x2="12" y2="15" />
                 </svg>
               </div>
-              <p className="text-sm font-medium text-foreground">
-                Drag and drop your file here, or{" "}
-                <span className="text-indigo-600 dark:text-indigo-400 underline underline-offset-2">browse</span>
-              </p>
-              <p className="mt-1.5 text-[11px] text-muted-foreground">
-                Supports .xlsx, .xls, and .csv — max 200 rows, 5 MB
-              </p>
+              {referenceReady ? (
+                <>
+                  <p className="text-sm font-medium text-foreground">
+                    Drag and drop your file here, or{" "}
+                    <span className="text-indigo-600 dark:text-indigo-400 underline underline-offset-2">browse</span>
+                  </p>
+                  <p className="mt-1.5 text-[11px] text-muted-foreground">
+                    Supports .xlsx, .xls, and .csv — max 200 rows, 5 MB
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm font-medium text-muted-foreground">
+                    Loading your departments and members…
+                  </p>
+                  <p className="mt-1.5 text-[11px] text-muted-foreground">
+                    Uploads are held until then so rows are checked against real data
+                  </p>
+                </>
+              )}
             </div>
 
             {/* Bottom bar: template + slot counter */}

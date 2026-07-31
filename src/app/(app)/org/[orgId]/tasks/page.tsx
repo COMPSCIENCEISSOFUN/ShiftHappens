@@ -149,6 +149,7 @@ export default function TasksPage() {
   const [departments, setDepartments] = useState<Department[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
   const [showCreate, setShowCreate] = useState(false);
+  const [creating, setCreating] = useState(false);
   // Recurrence controls on the create form ("" = does not repeat)
   const [repeatFreq, setRepeatFreq] = useState<"" | RecurrenceFreq>("");
   const [repeatInterval, setRepeatInterval] = useState(1);
@@ -362,10 +363,17 @@ export default function TasksPage() {
 
   async function onCreateTask(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    // A double click used to POST twice, and for a repeating task that meant two
+    // full series of generated occurrences to clean up by hand. Checked here as
+    // well as on the button because the second click lands before React
+    // repaints `disabled`.
+    if (creating) return;
+
+    const form = event.currentTarget;
     setError(null);
     setSuccess(null);
 
-    const formData = new FormData(event.currentTarget);
+    const formData = new FormData(form);
 
     const taskData: Record<string, unknown> = {
       title: formData.get("title"),
@@ -405,6 +413,8 @@ export default function TasksPage() {
       taskData.recurringPattern = JSON.stringify(pattern);
     }
 
+    setCreating(true);
+
     try {
       const res = await fetch(`/api/organizations/${orgId}/tasks`, {
         method: "POST",
@@ -412,7 +422,7 @@ export default function TasksPage() {
         body: JSON.stringify(taskData),
       });
 
-      const result = await res.json();
+      const result = await res.json().catch(() => ({}));
 
       if (!res.ok) {
         setError(result.error || "Failed to create task");
@@ -425,7 +435,7 @@ export default function TasksPage() {
           ? "Recurring task created — upcoming occurrences generated"
           : "Task created successfully"
       );
-      (event.target as HTMLFormElement).reset();
+      form.reset();
       setRepeatFreq("");
       setRepeatInterval(1);
       setRepeatDays([]);
@@ -433,6 +443,8 @@ export default function TasksPage() {
       fetchTasks();
     } catch {
       setError("Something went wrong");
+    } finally {
+      setCreating(false);
     }
   }
 
@@ -1016,10 +1028,10 @@ export default function TasksPage() {
               </div>
 
               <div className="flex gap-2 pt-1 sm:col-span-2">
-                <Button type="submit" className="bg-gradient-to-r from-indigo-600 to-violet-700 text-white hover:opacity-90">
-                  Create Task
+                <Button type="submit" disabled={creating} className="bg-gradient-to-r from-indigo-600 to-violet-700 text-white hover:opacity-90">
+                  {creating ? "Creating…" : "Create Task"}
                 </Button>
-                <Button type="button" variant="outline" onClick={() => setShowCreate(false)}>
+                <Button type="button" variant="outline" disabled={creating} onClick={() => setShowCreate(false)}>
                   Cancel
                 </Button>
               </div>

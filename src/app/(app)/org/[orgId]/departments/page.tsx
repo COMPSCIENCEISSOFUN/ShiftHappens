@@ -71,12 +71,15 @@ function ImpactDialog({
   department,
   impact,
   loading,
+  submitting,
   onConfirm,
   onCancel,
 }: {
   department: Department;
   impact: ImpactSummary | null;
+  /** The impact fetch, not the archive request — see `submitting`. */
   loading: boolean;
+  submitting: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
@@ -131,16 +134,20 @@ function ImpactDialog({
         <div className="flex justify-end gap-2 border-t border-border px-5 py-3">
           <button
             onClick={onCancel}
-            className="rounded-lg border border-border bg-card px-3.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+            disabled={submitting}
+            className="rounded-lg border border-border bg-card px-3.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
           >
             Cancel
           </button>
+          {/* `loading` only covers the impact fetch — without `submitting` the
+              button stayed live during the archive PATCH and a second click
+              fired a duplicate request. */}
           <button
             onClick={onConfirm}
-            disabled={loading}
+            disabled={loading || submitting}
             className="rounded-lg bg-amber-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-amber-700 disabled:opacity-50"
           >
-            Archive Department
+            {submitting ? "Archiving…" : "Archive Department"}
           </button>
         </div>
       </div>
@@ -168,10 +175,12 @@ function ImpactRow({ label, count, note, warn }: { label: string; count: number;
 
 function DeleteDialog({
   department,
+  submitting,
   onConfirm,
   onCancel,
 }: {
   department: Department;
+  submitting: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
@@ -187,15 +196,19 @@ function DeleteDialog({
         <div className="flex justify-end gap-2 border-t border-border px-5 py-3">
           <button
             onClick={onCancel}
-            className="rounded-lg border border-border bg-card px-3.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+            disabled={submitting}
+            className="rounded-lg border border-border bg-card px-3.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
           >
             Cancel
           </button>
+          {/* The second of a double click hits an already-deleted row and comes
+              back 404, so the admin sees an error for a delete that worked. */}
           <button
             onClick={onConfirm}
-            className="rounded-lg bg-red-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-red-700"
+            disabled={submitting}
+            className="rounded-lg bg-red-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-red-700 disabled:opacity-50"
           >
-            Delete Permanently
+            {submitting ? "Deleting…" : "Delete Permanently"}
           </button>
         </div>
       </div>
@@ -216,6 +229,14 @@ export default function DepartmentsPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [showArchived, setShowArchived] = useState(false);
+
+  // In-flight guards. Every one of these actions is checked in its handler as
+  // well as on its button, because a fast double click lands before React
+  // repaints `disabled`.
+  const [creating, setCreating] = useState(false);
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [archiving, setArchiving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   // Archive flow state
   const [archiveTarget, setArchiveTarget] = useState<Department | null>(null);
@@ -243,9 +264,13 @@ export default function DepartmentsPage() {
 
   async function onCreateDepartment(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (creating) return;
+
+    const form = event.currentTarget;
+    setCreating(true);
     setError(null);
 
-    const formData = new FormData(event.currentTarget);
+    const formData = new FormData(form);
 
     try {
       const res = await fetch(`/api/organizations/${orgId}/departments`, {
@@ -258,7 +283,7 @@ export default function DepartmentsPage() {
         }),
       });
 
-      const result = await res.json();
+      const result = await res.json().catch(() => ({}));
 
       if (!res.ok) {
         setError(result.error || "Failed to create department");
@@ -266,10 +291,12 @@ export default function DepartmentsPage() {
       }
 
       setShowCreate(false);
-      (event.target as HTMLFormElement).reset();
+      form.reset();
       fetchDepartments();
     } catch {
       setError("Something went wrong");
+    } finally {
+      setCreating(false);
     }
   }
 
@@ -278,6 +305,9 @@ export default function DepartmentsPage() {
     deptId: string
   ) {
     event.preventDefault();
+    if (savingId) return;
+
+    setSavingId(deptId);
     setError(null);
 
     const formData = new FormData(event.currentTarget);
@@ -296,7 +326,7 @@ export default function DepartmentsPage() {
         }
       );
 
-      const result = await res.json();
+      const result = await res.json().catch(() => ({}));
 
       if (!res.ok) {
         setError(result.error || "Failed to update department");
@@ -307,6 +337,8 @@ export default function DepartmentsPage() {
       fetchDepartments();
     } catch {
       setError("Something went wrong");
+    } finally {
+      setSavingId(null);
     }
   }
 
@@ -331,7 +363,9 @@ export default function DepartmentsPage() {
   }
 
   async function confirmArchive() {
-    if (!archiveTarget) return;
+    if (!archiveTarget || archiving) return;
+
+    setArchiving(true);
     setError(null);
 
     try {
@@ -344,7 +378,7 @@ export default function DepartmentsPage() {
         }
       );
 
-      const result = await res.json();
+      const result = await res.json().catch(() => ({}));
 
       if (!res.ok) {
         setError(result.error || "Failed to archive department");
@@ -356,6 +390,8 @@ export default function DepartmentsPage() {
       fetchDepartments();
     } catch {
       setError("Something went wrong");
+    } finally {
+      setArchiving(false);
     }
   }
 
@@ -390,7 +426,9 @@ export default function DepartmentsPage() {
   /* ── Permanent delete (archived only) ── */
 
   async function confirmDelete() {
-    if (!deleteTarget) return;
+    if (!deleteTarget || deleting) return;
+
+    setDeleting(true);
     setError(null);
 
     try {
@@ -399,7 +437,7 @@ export default function DepartmentsPage() {
         { method: "DELETE" }
       );
 
-      const result = await res.json();
+      const result = await res.json().catch(() => ({}));
 
       if (!res.ok) {
         setError(result.error || "Failed to delete department");
@@ -410,6 +448,8 @@ export default function DepartmentsPage() {
       fetchDepartments();
     } catch {
       setError("Something went wrong");
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -474,8 +514,8 @@ export default function DepartmentsPage() {
                 </div>
               </div>
             </div>
-            <button type="submit" className="mt-3 rounded-lg bg-gradient-to-r from-indigo-600 to-indigo-500 px-4 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:from-indigo-700 hover:to-indigo-600">
-              Create Department
+            <button type="submit" disabled={creating} className="mt-3 rounded-lg bg-gradient-to-r from-indigo-600 to-indigo-500 px-4 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:from-indigo-700 hover:to-indigo-600 disabled:cursor-not-allowed disabled:opacity-60">
+              {creating ? "Creating…" : "Create Department"}
             </button>
           </form>
         </div>
@@ -511,10 +551,10 @@ export default function DepartmentsPage() {
                       </div>
                     </div>
                     <div className="flex gap-2">
-                      <button type="submit" className="rounded-lg bg-gradient-to-r from-indigo-600 to-indigo-500 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:from-indigo-700 hover:to-indigo-600">
-                        Save
+                      <button type="submit" disabled={savingId === dept.id} className="rounded-lg bg-gradient-to-r from-indigo-600 to-indigo-500 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:from-indigo-700 hover:to-indigo-600 disabled:cursor-not-allowed disabled:opacity-60">
+                        {savingId === dept.id ? "Saving…" : "Save"}
                       </button>
-                      <button type="button" onClick={() => setEditingId(null)} className="rounded-lg border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground">
+                      <button type="button" disabled={savingId === dept.id} onClick={() => setEditingId(null)} className="rounded-lg border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-60">
                         Cancel
                       </button>
                     </div>
@@ -677,6 +717,7 @@ export default function DepartmentsPage() {
           department={archiveTarget}
           impact={impactSummary}
           loading={impactLoading}
+          submitting={archiving}
           onConfirm={confirmArchive}
           onCancel={() => { setArchiveTarget(null); setImpactSummary(null); }}
         />
@@ -686,6 +727,7 @@ export default function DepartmentsPage() {
       {deleteTarget && (
         <DeleteDialog
           department={deleteTarget}
+          submitting={deleting}
           onConfirm={confirmDelete}
           onCancel={() => setDeleteTarget(null)}
         />

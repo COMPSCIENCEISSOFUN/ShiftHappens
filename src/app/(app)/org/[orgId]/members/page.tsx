@@ -124,6 +124,7 @@ export default function MembersPage() {
   const [loading, setLoading] = useState(true);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [inviteRole, setInviteRole] = useState("staff");
+  const [inviting, setInviting] = useState(false);
   const [rolePopoverFor, setRolePopoverFor] = useState<string | null>(null);
 
   // Close custom-role popover on outside click
@@ -167,7 +168,20 @@ export default function MembersPage() {
   async function fetchMembers() {
     try {
       const res = await fetch(`/api/organizations/${orgId}/members`);
-      setMembers(await res.json());
+      const data = await res.json();
+
+      // A 403 body is `{ error }`, not an array. Without this every `.filter`
+      // below threw and the whole page rendered as a blank screen.
+      if (!res.ok || !Array.isArray(data)) {
+        setError(
+          typeof data?.error === "string" ? data.error : "Failed to load members"
+        );
+        setMembers([]);
+        return;
+      }
+
+      setMembers(data);
+      setError(null);
     } catch {
       setError("Failed to load members");
     } finally {
@@ -178,16 +192,17 @@ export default function MembersPage() {
   async function fetchDepartments() {
     try {
       const res = await fetch(`/api/organizations/${orgId}/departments`);
-      if (res.ok) setDepartments(await res.json());
+      const data = await res.json();
+      if (res.ok && Array.isArray(data)) setDepartments(data);
     } catch { /* non-critical */ }
   }
 
   async function fetchCustomRoles() {
     try {
       const res = await fetch(`/api/organizations/${orgId}/roles`);
-      if (res.ok) {
-        const all: CustomRole[] = await res.json();
-        setCustomRoles(all.filter((r) => !r.isSystemRole));
+      const all = await res.json();
+      if (res.ok && Array.isArray(all)) {
+        setCustomRoles((all as CustomRole[]).filter((r) => !r.isSystemRole));
       }
     } catch { /* non-critical */ }
   }
@@ -195,15 +210,26 @@ export default function MembersPage() {
   async function fetchInvitations() {
     try {
       const res = await fetch(`/api/organizations/${orgId}/invitations`);
-      setInvitations(await res.json());
+      const data = await res.json();
+
+      // Same shape trap as fetchMembers — `pendingInvitations` filters this list.
+      if (res.ok && Array.isArray(data)) setInvitations(data);
+      else setInvitations([]);
     } catch { /* non-critical */ }
   }
 
   async function onInviteUser(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    // Two clicks used to send the invitee two emails and leave a duplicate
+    // pending invitation behind. Checked here as well as on the button because
+    // a fast double click lands before React repaints `disabled`.
+    if (inviting) return;
+
+    const form = event.currentTarget;
+    setInviting(true);
     setError(null);
     setSuccess(null);
-    const formData = new FormData(event.currentTarget);
+    const formData = new FormData(form);
     try {
       const res = await fetch(`/api/organizations/${orgId}/invitations`, {
         method: "POST",
@@ -215,14 +241,16 @@ export default function MembersPage() {
           employmentType: formData.get("role") === "staff" ? (formData.get("employmentType") || DEFAULT_EMPLOYMENT_TYPE) : undefined,
         }),
       });
-      const result = await res.json();
+      const result = await res.json().catch(() => ({}));
       if (!res.ok) { setError(result.error || "Failed to send invitation"); return; }
       setSuccess(`Invitation sent to ${formData.get("email")}`);
       setShowInvite(false);
-      (event.target as HTMLFormElement).reset();
+      form.reset();
       fetchInvitations();
     } catch {
       setError("Something went wrong");
+    } finally {
+      setInviting(false);
     }
   }
 
@@ -453,8 +481,8 @@ export default function MembersPage() {
                 </select>
               </div>
             </div>
-            <button type="submit" className="mt-3 rounded-lg bg-gradient-to-r from-indigo-600 to-indigo-500 px-4 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:from-indigo-700 hover:to-indigo-600">
-              Send Invitation
+            <button type="submit" disabled={inviting} className="mt-3 rounded-lg bg-gradient-to-r from-indigo-600 to-indigo-500 px-4 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:from-indigo-700 hover:to-indigo-600 disabled:cursor-not-allowed disabled:opacity-60">
+              {inviting ? "Sending…" : "Send Invitation"}
             </button>
           </form>
         </div>

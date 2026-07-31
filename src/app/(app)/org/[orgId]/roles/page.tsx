@@ -63,7 +63,19 @@ export default function RolesPage() {
     try {
       const res = await fetch(`/api/organizations/${orgId}/roles`);
       const data = await res.json();
+
+      // A 403 body is `{ error }`, not an array. Without this `roles.map` threw
+      // and the page rendered as a blank screen instead of saying why.
+      if (!res.ok || !Array.isArray(data)) {
+        setError(
+          typeof data?.error === "string" ? data.error : "Failed to load roles"
+        );
+        setRoles([]);
+        return;
+      }
+
       setRoles(data);
+      setError(null);
     } catch {
       setError("Failed to load roles");
     } finally {
@@ -75,7 +87,8 @@ export default function RolesPage() {
     try {
       const res = await fetch(`/api/organizations/${orgId}/permissions`);
       const data = await res.json();
-      setPermissions(data);
+      // Same shape trap — `groupedPermissions` iterates this list.
+      if (res.ok && Array.isArray(data)) setPermissions(data);
     } catch {
       // Silently fail
     }
@@ -302,7 +315,11 @@ export default function RolesPage() {
 
       {/* Roles list */}
       {roles.length === 0 ? (
+        // A failed load leaves the list empty too — the banner above already
+        // explains that, so don't also claim there are no roles.
+        error ? null : (
         <EmptyState title="No custom roles yet" description="Create your first role to define granular permissions." />
+        )
       ) : (
         <div className="space-y-4">
           {roles.map((role) => (
