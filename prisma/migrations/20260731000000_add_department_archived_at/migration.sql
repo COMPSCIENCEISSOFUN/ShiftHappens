@@ -1,0 +1,14 @@
+-- Adds the column that backs department archive / unarchive.
+--
+-- `Department.archivedAt` has been in prisma/schema.prisma since the archive
+-- feature landed, but no migration ever created it: the column reached the dev
+-- and test databases through `prisma db push`, which syncs the schema directly
+-- and leaves no migration behind. Any database provisioned from the migration
+-- history alone — a fresh clone, CI, or a production deploy — therefore lacks
+-- it, and every DepartmentRepository query fails with P2022 because
+-- findByOrganizationId, archive, unarchive and delete all read or write it.
+--
+-- IF NOT EXISTS is deliberate: dev, test and production databases already have
+-- the column from `db push`, so a plain ADD COLUMN would fail there the moment
+-- `prisma migrate deploy` reached this entry.
+ALTER TABLE "Department" ADD COLUMN IF NOT EXISTS "archivedAt" TIMESTAMP(3);
