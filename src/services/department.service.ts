@@ -67,9 +67,29 @@ export class DepartmentService {
     return this.deptRepo.findByOrganizationId(organizationId, includeArchived);
   }
 
-  /** Retrieves a single department by ID */
-  async getById(departmentId: string) {
-    return this.deptRepo.findById(departmentId);
+  /**
+   * Loads a department and asserts it belongs to the calling organisation.
+   *
+   * `DepartmentRepository.findById` is a bare `findUnique` on the primary key,
+   * so on its own it will happily return another tenant's department. Every
+   * method that takes a client-supplied `departmentId` must go through here
+   * first — mirroring `TaskService.update`, which has always done this.
+   *
+   * A cross-tenant id is reported as "Department not found" rather than
+   * "Forbidden": telling a caller that an id exists but belongs to someone else
+   * is itself a disclosure, and the route already maps this message to 404.
+   */
+  private async requireOwned(departmentId: string, organizationId: string) {
+    const dept = await this.deptRepo.findById(departmentId);
+    if (!dept || dept.organizationId !== organizationId) {
+      throw new Error("Department not found");
+    }
+    return dept;
+  }
+
+  /** Retrieves a single department by ID, scoped to the organisation. */
+  async getById(departmentId: string, organizationId: string) {
+    return this.requireOwned(departmentId, organizationId);
   }
 
   /**
@@ -82,6 +102,8 @@ export class DepartmentService {
     input: UpdateDepartmentInput,
     userId?: string
   ) {
+    await this.requireOwned(departmentId, organizationId);
+
     if (input.name) {
       const nameExists = await this.deptRepo.nameExistsInOrg(
         input.name,
@@ -115,7 +137,8 @@ export class DepartmentService {
    * Returns counts of entities that would be affected by archiving a department.
    * Shown to the admin as an impact summary before they confirm.
    */
-  async getImpactSummary(departmentId: string) {
+  async getImpactSummary(departmentId: string, organizationId: string) {
+    await this.requireOwned(departmentId, organizationId);
     return this.deptRepo.getImpactSummary(departmentId);
   }
 
@@ -125,10 +148,7 @@ export class DepartmentService {
    * but all data (tasks, memberships, work rules) is preserved.
    */
   async archive(departmentId: string, organizationId: string, userId?: string) {
-    const dept = await this.deptRepo.findById(departmentId);
-    if (!dept) {
-      throw new Error("Department not found");
-    }
+    const dept = await this.requireOwned(departmentId, organizationId);
     if (dept.archivedAt) {
       throw new Error("Department is already archived");
     }
@@ -153,10 +173,7 @@ export class DepartmentService {
    * in active views, dropdowns, and task assignment.
    */
   async unarchive(departmentId: string, organizationId: string, userId?: string) {
-    const dept = await this.deptRepo.findById(departmentId);
-    if (!dept) {
-      throw new Error("Department not found");
-    }
+    const dept = await this.requireOwned(departmentId, organizationId);
     if (!dept.archivedAt) {
       throw new Error("Department is not archived");
     }
@@ -181,10 +198,7 @@ export class DepartmentService {
    * Also checks that no members are still assigned.
    */
   async delete(departmentId: string, organizationId: string, userId?: string) {
-    const dept = await this.deptRepo.findById(departmentId);
-    if (!dept) {
-      throw new Error("Department not found");
-    }
+    const dept = await this.requireOwned(departmentId, organizationId);
     if (!dept.archivedAt) {
       throw new Error(
         "Department must be archived before it can be permanently deleted"

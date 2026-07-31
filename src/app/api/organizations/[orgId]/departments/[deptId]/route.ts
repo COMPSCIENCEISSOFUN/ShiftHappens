@@ -18,10 +18,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { DepartmentService } from "@/services/department.service";
 import { updateDepartmentSchema } from "@/lib/validations";
 import { getAuthenticatedUser, unauthorizedResponse, checkOrgSuspended } from "@/lib/auth-guard";
-import { MembershipRepository } from "@/repositories/membership.repository";
+import { AccessService } from "@/services/access.service";
 
 const deptService = new DepartmentService();
-const membershipRepo = new MembershipRepository();
+const accessService = new AccessService();
 
 /** Shared auth + admin guard for all handlers */
 async function authorizeAdmin(orgId: string) {
@@ -31,7 +31,7 @@ async function authorizeAdmin(orgId: string) {
   const suspended = await checkOrgSuspended(orgId);
   if (suspended) return { error: suspended };
 
-  const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
+  const membership = await accessService.getMembership(user.id, orgId);
   if (!membership || membership.role !== "company_admin") {
     return { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) };
   }
@@ -49,7 +49,7 @@ export async function GET(
 
     const { orgId, deptId } = await params;
 
-    const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
+    const membership = await accessService.getMembership(user.id, orgId);
     if (!membership || membership.role !== "company_admin") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
@@ -57,16 +57,19 @@ export async function GET(
     const isImpact = request.nextUrl.searchParams.get("impact") === "true";
 
     if (isImpact) {
-      const summary = await deptService.getImpactSummary(deptId);
+      const summary = await deptService.getImpactSummary(deptId, orgId);
       return NextResponse.json(summary);
     }
 
-    const dept = await deptService.getById(deptId);
-    if (!dept) {
-      return NextResponse.json({ error: "Department not found" }, { status: 404 });
-    }
+    const dept = await deptService.getById(deptId, orgId);
     return NextResponse.json(dept);
-  } catch {
+  } catch (error) {
+    // getById/getImpactSummary now throw rather than returning null, because a
+    // department belonging to another organisation must be indistinguishable
+    // from one that does not exist.
+    if (error instanceof Error && error.message === "Department not found") {
+      return NextResponse.json({ error: error.message }, { status: 404 });
+    }
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

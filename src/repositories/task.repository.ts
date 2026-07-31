@@ -157,12 +157,40 @@ export class TaskRepository {
   }
 
   /** Updates a task's fields */
+  /**
+   * Returns the subset of the given task ids that belong to this organisation.
+   *
+   * Used to validate caller-supplied id lists in one query instead of N, so a
+   * batch operation can refuse cross-tenant rows without a per-row round trip.
+   */
+  /**
+   * A task's departmentId for scope checks: `undefined` when the task does not
+   * exist, `null` when it exists with no department. The caller must be able to
+   * tell those apart — a missing task is refused, a department-less task is
+   * refused only for a scoped member.
+   */
+  async getDepartmentId(id: string): Promise<string | null | undefined> {
+    const task = await prisma.task.findUnique({
+      where: { id },
+      select: { departmentId: true },
+    });
+    return task === null ? undefined : task.departmentId;
+  }
+
+  async findManyByIdsInOrg(ids: string[], organizationId: string) {
+    if (ids.length === 0) return [];
+    return prisma.task.findMany({
+      where: { id: { in: ids }, organizationId },
+      select: { id: true },
+    });
+  }
+
   async update(
     id: string,
     data: {
       title?: string;
       description?: string;
-      departmentId?: string;
+      departmentId?: string | null;
       requiredHeadcount?: number;
       requiredCertifications?: string[];
       priority?: string;
@@ -214,6 +242,59 @@ export class TaskRepository {
       include: {
         department: { select: { id: true, name: true, color: true } },
       },
+    });
+  }
+
+  /**
+   * The task row on its own, with no relations loaded.
+   *
+   * The eligibility engine reads only the task's own columns (org, department,
+   * schedule, required certifications) and runs once per candidate list, so it
+   * must not pay for `findById`'s assignment/membership/user joins.
+   */
+  async findByIdWithoutRelations(id: string) {
+    return prisma.task.findUnique({ where: { id } });
+  }
+
+  /**
+   * The owning organisation and title of a task, for callers that must
+   * tenant-check before writing and then name the task in an audit entry.
+   * Kept to two columns so the check stays cheap enough to always run.
+   */
+  async findOrgAndTitleById(id: string) {
+    return prisma.task.findUnique({
+      where: { id },
+      select: { organizationId: true, title: true },
+    });
+  }
+
+  /**
+   * Titles of the tasks a member is already committed to that overlap a time
+   * window — what the eligibility engine reports back as the clash.
+   *
+   * Unlike `findConflictingTasks`, a pending withdrawal request still counts:
+   * the slot stays reserved until a manager resolves it, so double-booking
+   * over it would hand the member two shifts at once if the request is denied.
+   */
+  async findConflictingTaskTitles(
+    membershipId: string,
+    scheduledStart: Date,
+    scheduledEnd: Date,
+    excludeTaskId: string
+  ) {
+    return prisma.task.findMany({
+      where: {
+        assignments: {
+          some: {
+            membershipId,
+            status: { in: ["pending", "accepted", "withdrawal_requested"] },
+          },
+        },
+        scheduledStart: { lt: scheduledEnd },
+        scheduledEnd: { gt: scheduledStart },
+        id: { not: excludeTaskId },
+      },
+      select: { title: true },
     });
   }
 }

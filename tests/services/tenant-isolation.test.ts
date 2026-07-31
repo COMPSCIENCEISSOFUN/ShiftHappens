@@ -16,6 +16,8 @@ import { EligibilityService } from "@/services/eligibility.service";
 import { TaskAssignmentService } from "@/services/task-assignment.service";
 import { RoleService } from "@/services/role.service";
 import { CertificationService } from "@/services/certification.service";
+import { DepartmentService } from "@/services/department.service";
+import { AutoScheduleService } from "@/services/auto-schedule.service";
 import { OrganizationRepository } from "@/repositories/organization.repository";
 import { UserRepository } from "@/repositories/user.repository";
 import { prisma } from "@/lib/prisma";
@@ -27,6 +29,8 @@ const eligibilityService = new EligibilityService();
 const assignmentService = new TaskAssignmentService();
 const roleService = new RoleService();
 const certService = new CertificationService();
+const deptService = new DepartmentService();
+const autoScheduleService = new AutoScheduleService();
 const orgRepo = new OrganizationRepository();
 const userRepo = new UserRepository();
 
@@ -345,5 +349,207 @@ describe("Tenant isolation — CertificationService", () => {
     ).rejects.toThrow("Not authorized");
 
     expect(await certService.getById(certB.id, orgB.orgId)).not.toBeNull();
+  });
+});
+
+/**
+ * DepartmentService took an `organizationId` on every id-based method and used
+ * it only to label the audit row — it never compared it to the department's own
+ * organizationId, and DepartmentRepository.findById is a bare findUnique on the
+ * primary key. A company admin could therefore read, rename, archive, unarchive
+ * or PERMANENTLY DELETE another tenant's department by posting its id to their
+ * own org's endpoint. RoleService and WorkRuleService already did this check;
+ * DepartmentService was the odd one out.
+ */
+describe("Tenant isolation — DepartmentService", () => {
+  async function deptIn(t: Tenant, name = "Kitchen") {
+    return deptService.create({ name, color: "#EF4444" }, t.orgId, t.adminUserId);
+  }
+
+  it("getById refuses a department in another org", async () => {
+    const deptB = await deptIn(orgB);
+
+    await expect(deptService.getById(deptB.id, orgA.orgId)).rejects.toThrow(
+      "Department not found"
+    );
+  });
+
+  it("reports a cross-tenant id as not-found, not as forbidden", async () => {
+    // The distinction matters: "Forbidden" would confirm the id exists, which
+    // is itself a disclosure. A caller must not be able to probe for valid ids.
+    const deptB = await deptIn(orgB);
+
+    const crossTenant = await deptService
+      .getById(deptB.id, orgA.orgId)
+      .catch((e: Error) => e.message);
+    const nonExistent = await deptService
+      .getById("clnonexistentid00000000", orgA.orgId)
+      .catch((e: Error) => e.message);
+
+    expect(crossTenant).toBe(nonExistent);
+  });
+
+  it("update refuses to rename a department in another org", async () => {
+    const deptB = await deptIn(orgB, "Kitchen");
+
+    await expect(
+      deptService.update(deptB.id, orgA.orgId, { name: "Pwned" }, orgA.adminUserId)
+    ).rejects.toThrow("Department not found");
+
+    const untouched = await prisma.department.findUnique({ where: { id: deptB.id } });
+    expect(untouched!.name).toBe("Kitchen");
+  });
+
+  it("archive refuses a department in another org", async () => {
+    const deptB = await deptIn(orgB);
+
+    await expect(
+      deptService.archive(deptB.id, orgA.orgId, orgA.adminUserId)
+    ).rejects.toThrow("Department not found");
+
+    const untouched = await prisma.department.findUnique({ where: { id: deptB.id } });
+    expect(untouched!.archivedAt).toBeNull();
+  });
+
+  it("unarchive refuses a department in another org", async () => {
+    const deptB = await deptIn(orgB);
+    await deptService.archive(deptB.id, orgB.orgId, orgB.adminUserId);
+
+    await expect(
+      deptService.unarchive(deptB.id, orgA.orgId, orgA.adminUserId)
+    ).rejects.toThrow("Department not found");
+
+    const stillArchived = await prisma.department.findUnique({ where: { id: deptB.id } });
+    expect(stillArchived!.archivedAt).not.toBeNull();
+  });
+
+  it("delete refuses to permanently remove another org's department", async () => {
+    // The sharpest case: archived + memberless is exactly the state that passes
+    // every OTHER guard in delete(), so ownership was the only thing standing
+    // between org A and destroying org B's data.
+    const deptB = await deptIn(orgB);
+    await deptService.archive(deptB.id, orgB.orgId, orgB.adminUserId);
+
+    await expect(
+      deptService.delete(deptB.id, orgA.orgId, orgA.adminUserId)
+    ).rejects.toThrow("Department not found");
+
+    expect(
+      await prisma.department.findUnique({ where: { id: deptB.id } })
+    ).not.toBeNull();
+  });
+
+  it("getImpactSummary refuses a department in another org", async () => {
+    const deptB = await deptIn(orgB);
+
+    await expect(
+      deptService.getImpactSummary(deptB.id, orgA.orgId)
+    ).rejects.toThrow("Department not found");
+  });
+
+  it("still allows every operation within the owning org", async () => {
+    // Guard against over-correction: the ownership check must not break the
+    // legitimate path it wraps.
+    const deptA = await deptIn(orgA, "Front of House");
+
+    expect((await deptService.getById(deptA.id, orgA.orgId)).name).toBe("Front of House");
+    expect((await deptService.getImpactSummary(deptA.id, orgA.orgId)).memberCount).toBe(0);
+
+    await deptService.update(deptA.id, orgA.orgId, { name: "FOH" }, orgA.adminUserId);
+    await deptService.archive(deptA.id, orgA.orgId, orgA.adminUserId);
+    await deptService.unarchive(deptA.id, orgA.orgId, orgA.adminUserId);
+    await deptService.archive(deptA.id, orgA.orgId, orgA.adminUserId);
+    await deptService.delete(deptA.id, orgA.orgId, orgA.adminUserId);
+
+    expect(await prisma.department.findUnique({ where: { id: deptA.id } })).toBeNull();
+  });
+});
+
+/**
+ * confirmSchedule writes the assignment rows from a draft the CLIENT posts
+ * back, so every id in it is caller-supplied. It previously created rows without
+ * checking either id against the organisation, and swallowed per-row errors, so
+ * a cross-tenant write returned 200 and notified the victim's employee.
+ */
+describe("Tenant isolation — AutoScheduleService.confirmSchedule", () => {
+  it("refuses draft rows whose task or member belongs to another org", async () => {
+    const taskB = await taskService.create(
+      { title: "B shift", scheduledStart: "2026-08-03T01:00:00.000Z", scheduledEnd: "2026-08-03T09:00:00.000Z" },
+      orgB.orgId,
+      orgB.adminUserId
+    );
+
+    const result = await autoScheduleService.confirmSchedule(
+      orgA.orgId,
+      [
+        {
+          taskId: taskB.id,
+          taskTitle: "B shift",
+          membershipId: orgB.staffMembershipId,
+          staffName: "B staff",
+          reasoning: "injected",
+        },
+      ],
+      orgA.adminUserId
+    );
+
+    expect(result.created).toBe(0);
+    expect(result.rejected).toBe(1);
+    expect(await prisma.taskAssignment.count({ where: { taskId: taskB.id } })).toBe(0);
+    // And no notification reached org B's employee.
+    expect(
+      await prisma.notification.count({ where: { userId: orgB.staffUserId } })
+    ).toBe(0);
+  });
+
+  it("refuses a mixed draft row-by-row without dropping the valid ones", async () => {
+    const taskA = await taskService.create(
+      { title: "A shift", scheduledStart: "2026-08-03T01:00:00.000Z", scheduledEnd: "2026-08-03T09:00:00.000Z" },
+      orgA.orgId,
+      orgA.adminUserId
+    );
+    const taskB = await taskService.create(
+      { title: "B shift", scheduledStart: "2026-08-03T01:00:00.000Z", scheduledEnd: "2026-08-03T09:00:00.000Z" },
+      orgB.orgId,
+      orgB.adminUserId
+    );
+
+    const result = await autoScheduleService.confirmSchedule(
+      orgA.orgId,
+      [
+        { taskId: taskA.id, taskTitle: "A", membershipId: orgA.staffMembershipId, staffName: "A staff", reasoning: "" },
+        { taskId: taskB.id, taskTitle: "B", membershipId: orgB.staffMembershipId, staffName: "B staff", reasoning: "" },
+        // Own task, but another tenant's member — the half-valid case.
+        { taskId: taskA.id, taskTitle: "A", membershipId: orgB.staffMembershipId, staffName: "B staff", reasoning: "" },
+      ],
+      orgA.adminUserId
+    );
+
+    expect(result.created).toBe(1);
+    expect(result.rejected).toBe(2);
+    expect(await prisma.taskAssignment.count({ where: { taskId: taskB.id } })).toBe(0);
+    expect(await prisma.taskAssignment.count({ where: { taskId: taskA.id } })).toBe(1);
+  });
+
+  it("accepts a wholly valid draft unchanged", async () => {
+    const taskA = await taskService.create(
+      { title: "A shift", scheduledStart: "2026-08-03T01:00:00.000Z", scheduledEnd: "2026-08-03T09:00:00.000Z" },
+      orgA.orgId,
+      orgA.adminUserId
+    );
+
+    const result = await autoScheduleService.confirmSchedule(
+      orgA.orgId,
+      [{ taskId: taskA.id, taskTitle: "A", membershipId: orgA.staffMembershipId, staffName: "A staff", reasoning: "" }],
+      orgA.adminUserId
+    );
+
+    expect(result.created).toBe(1);
+    expect(result.rejected).toBe(0);
+  });
+
+  it("handles an empty draft without querying for ids", async () => {
+    const result = await autoScheduleService.confirmSchedule(orgA.orgId, [], orgA.adminUserId);
+    expect(result).toMatchObject({ created: 0, rejected: 0 });
   });
 });

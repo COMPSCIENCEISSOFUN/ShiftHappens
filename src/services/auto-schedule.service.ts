@@ -20,7 +20,6 @@ import { SettingsRepository } from "@/repositories/settings.repository";
 import { MembershipRepository } from "@/repositories/membership.repository";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 import { NotificationService, NOTIFICATION_TYPES } from "@/services/notification.service";
-import { prisma } from "@/lib/prisma";
 import {
   DEFAULT_TIMEZONE,
   dayOfWeekInTimeZone,
@@ -126,28 +125,18 @@ export class AutoScheduleService {
       });
     }
 
-    const members = await prisma.membership.findMany({
-      where: { organizationId, status: "active", role: { in: ["staff", "manager"] } },
-      include: {
-        user: { select: { id: true, name: true, email: true } },
-        departmentMemberships: { include: { department: { select: { id: true, name: true } } } },
-      },
-    });
+    const members = await this.membershipRepo.findSchedulableStaff(organizationId);
 
     const staff: StaffInfo[] = [];
     for (const member of members) {
       const availability = await this.availRepo.getWeeklySchedule(member.id);
       const certs = await this.certRepo.getValidCertifications(member.id);
 
-      const assignments = await prisma.taskAssignment.findMany({
-        where: {
-          membershipId: member.id,
-          status: { in: ["accepted", "clocked_out", "completed"] },
-          clockInTime: { not: null },
-          task: { scheduledStart: { gte: weekStart }, scheduledEnd: { lte: weekEnd } },
-        },
-        select: { clockInTime: true, clockOutTime: true },
-      });
+      const assignments = await this.assignmentRepo.findClockedWithinWindow(
+        member.id,
+        weekStart,
+        weekEnd
+      );
 
       let hoursThisWeek = 0;
       for (const a of assignments) {
@@ -487,8 +476,31 @@ Use the exact task numbers (1, 2, 3...) and staff letters (A, B, C...) from abov
     const settings = await this.settingsRepo.getOrCreate(organizationId);
     const assignmentStatus = settings.taskAcceptanceMode === "auto_accept" ? "accepted" : "pending";
 
+    // The draft comes back from the client, so every id in it is caller-supplied
+    // and must be re-checked against this organisation before anything is
+    // written. Without this an admin of org A could post org B's taskId and
+    // membershipId and create a real assignment inside org B — the per-row catch
+    // below would even keep the response 200. Both sets are loaded once rather
+    // than per row to keep this O(1) queries instead of O(n).
+    const draftTaskIds = [...new Set(assignments.map((d) => d.taskId))];
+    const draftMembershipIds = [...new Set(assignments.map((d) => d.membershipId))];
+    const [ownTasks, ownMembers] = await Promise.all([
+      this.taskRepo.findManyByIdsInOrg(draftTaskIds, organizationId),
+      this.membershipRepo.findManyByIdsInOrg(draftMembershipIds, organizationId),
+    ]);
+    const ownTaskIds = new Set(ownTasks.map((t) => t.id));
+    const ownMemberIds = new Set(ownMembers.map((m) => m.id));
+
     const created = [];
+    const rejected: string[] = [];
     for (const draft of assignments) {
+      if (!ownTaskIds.has(draft.taskId) || !ownMemberIds.has(draft.membershipId)) {
+        rejected.push(draft.taskId);
+        console.error(
+          `[Auto-Schedule] Refused cross-tenant draft row: task=${draft.taskId} membership=${draft.membershipId} org=${organizationId}`
+        );
+        continue;
+      }
       try {
         const assignment = await this.assignmentRepo.create({
           taskId: draft.taskId, membershipId: draft.membershipId,
@@ -512,9 +524,13 @@ Use the exact task numbers (1, 2, 3...) and staff letters (A, B, C...) from abov
     await this.auditService.log({
       organizationId, userId: confirmedById,
       action: ACTIONS.TASK_ASSIGNED, entityType: "auto-schedule",
-      details: { assignmentsCreated: created.length, totalPlanned: assignments.length, status: assignmentStatus },
+      details: { assignmentsCreated: created.length, totalPlanned: assignments.length, status: assignmentStatus, rejectedCrossTenant: rejected.length },
     });
 
-    return { created: created.length, failed: assignments.length - created.length };
+    return {
+      created: created.length,
+      failed: assignments.length - created.length,
+      rejected: rejected.length,
+    };
   }
 }

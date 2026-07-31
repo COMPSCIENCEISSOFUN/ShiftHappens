@@ -95,7 +95,7 @@ describe("DepartmentService", () => {
     it("returns a department by ID", async () => {
       const created = await deptService.create({ name: "Engineering" }, orgId);
 
-      const found = await deptService.getById(created.id);
+      const found = await deptService.getById(created.id, orgId);
       expect(found).not.toBeNull();
       expect(found!.name).toBe("Engineering");
     });
@@ -201,7 +201,7 @@ describe("DepartmentService", () => {
     it("returns zero counts for an empty department", async () => {
       const dept = await deptService.create({ name: "Engineering" }, orgId);
 
-      const impact = await deptService.getImpactSummary(dept.id);
+      const impact = await deptService.getImpactSummary(dept.id, orgId);
       expect(impact.memberCount).toBe(0);
       expect(impact.activeTaskCount).toBe(0);
       expect(impact.workRuleCount).toBe(0);
@@ -217,7 +217,7 @@ describe("DepartmentService", () => {
         data: { membershipId: membership!.id, departmentId: dept.id },
       });
 
-      const impact = await deptService.getImpactSummary(dept.id);
+      const impact = await deptService.getImpactSummary(dept.id, orgId);
       expect(impact.memberCount).toBe(1);
     });
 
@@ -253,7 +253,7 @@ describe("DepartmentService", () => {
         },
       });
 
-      const impact = await deptService.getImpactSummary(dept.id);
+      const impact = await deptService.getImpactSummary(dept.id, orgId);
       expect(impact.activeTaskCount).toBe(2);
     });
 
@@ -270,7 +270,7 @@ describe("DepartmentService", () => {
         },
       });
 
-      const impact = await deptService.getImpactSummary(dept.id);
+      const impact = await deptService.getImpactSummary(dept.id, orgId);
       expect(impact.workRuleCount).toBe(1);
     });
   });
@@ -282,8 +282,9 @@ describe("DepartmentService", () => {
 
       await deptService.delete(dept.id, orgId, userId);
 
-      const found = await deptService.getById(dept.id);
-      expect(found).toBeNull();
+      await expect(deptService.getById(dept.id, orgId)).rejects.toThrow(
+        "Department not found"
+      );
     });
 
     it("throws if department is not archived", async () => {

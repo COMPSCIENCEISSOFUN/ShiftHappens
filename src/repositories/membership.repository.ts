@@ -207,6 +207,18 @@ export class MembershipRepository {
   }
 
   /** Finds a membership by its ID */
+  /**
+   * Returns the subset of the given membership ids that belong to this
+   * organisation. Counterpart to TaskRepository.findManyByIdsInOrg — see there.
+   */
+  async findManyByIdsInOrg(ids: string[], organizationId: string) {
+    if (ids.length === 0) return [];
+    return prisma.membership.findMany({
+      where: { id: { in: ids }, organizationId },
+      select: { id: true },
+    });
+  }
+
   async findById(id: string) {
     return prisma.membership.findUnique({
       where: { id },
@@ -220,6 +232,29 @@ export class MembershipRepository {
   async findByIdWithDetails(id: string) {
     return prisma.membership.findUnique({
       where: { id },
+      include: {
+        user: { select: { id: true, name: true, email: true } },
+        departmentMemberships: {
+          include: { department: { select: { id: true, name: true } } },
+        },
+      },
+    });
+  }
+
+  /**
+   * The members an automatic schedule may draw on: active staff and managers,
+   * with the user and department details the generator needs to match people
+   * to work. Company admins are excluded — they administer the roster rather
+   * than appear on it, and auto-filling their week would book the person who
+   * is supposed to be reviewing the draft.
+   */
+  async findSchedulableStaff(organizationId: string) {
+    return prisma.membership.findMany({
+      where: {
+        organizationId,
+        status: "active",
+        role: { in: ["staff", "manager"] },
+      },
       include: {
         user: { select: { id: true, name: true, email: true } },
         departmentMemberships: {

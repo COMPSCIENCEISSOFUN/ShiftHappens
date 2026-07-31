@@ -310,6 +310,13 @@ describe("AutoScheduleService", () => {
      * deliberate Prisma error out of the suite's stderr.
      */
     it("handles failures gracefully", async () => {
+      // This used to reach the per-row try/catch: an unknown taskId was handed
+      // straight to the repository and the foreign-key violation was logged as
+      // "[Auto-Schedule] Failed". confirmSchedule now validates every id against
+      // the organisation BEFORE writing anything, so an id this org does not own
+      // — whether it belongs to another tenant or to nothing at all — is refused
+      // up front and never reaches the database. The outcome the caller sees is
+      // unchanged; only the log line and the reason differ.
       const service = new AutoScheduleService();
       const logged = vi.spyOn(console, "error").mockImplementation(() => {});
 
@@ -322,9 +329,44 @@ describe("AutoScheduleService", () => {
         expect(result.failed).toBe(1);
 
         expect(logged).toHaveBeenCalledWith(
-          expect.stringContaining("[Auto-Schedule] Failed"),
-          expect.anything()
+          expect.stringContaining("[Auto-Schedule] Refused cross-tenant draft row")
         );
+      } finally {
+        logged.mockRestore();
+      }
+    });
+
+    it("does not abort the batch when one row is refused", async () => {
+      // The property the original test was really protecting: one bad row must
+      // not cost the good ones. Asserted directly now that refusal happens
+      // before the write rather than during it.
+      const service = new AutoScheduleService();
+      const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      const weekStart = getNextMonday();
+      const taskDate = new Date(weekStart);
+      taskDate.setDate(taskDate.getDate() + 1);
+      const good = await prisma.task.create({
+        data: {
+          title: "Good task",
+          organizationId: orgId,
+          departmentId: deptId,
+          priority: "medium",
+          requiredHeadcount: 1,
+          scheduledStart: setHour(taskDate, 9),
+          scheduledEnd: setHour(taskDate, 12),
+          createdById: adminUserId,
+        },
+      });
+
+      try {
+        const result = await service.confirmSchedule(orgId, [
+          { taskId: "nonexistent", taskTitle: "Bad", membershipId: staffMembershipIds[0], staffName: "Staff A", reasoning: "test" },
+          { taskId: good.id, taskTitle: "Good", membershipId: staffMembershipIds[0], staffName: "Staff A", reasoning: "test" },
+        ], adminUserId);
+
+        expect(result.created).toBe(1);
+        expect(result.rejected).toBe(1);
       } finally {
         logged.mockRestore();
       }
