@@ -26,6 +26,71 @@ function getResend(): Resend {
   return resendClient;
 }
 
+/** Which email failed. Appears in the log line; not shown to any user. */
+type EmailKind = "verification" | "password reset" | "invitation";
+
+/**
+ * Sends one email and makes any failure visible.
+ *
+ * **The Resend SDK does not throw.** `fetchRequest` returns
+ * `{ data: null, error }` for every non-2xx response, and its own outer catch
+ * returns an error object even when `fetch` itself fails. A bare
+ * `try { await send() } catch {}` therefore logs nothing, ever — which is how
+ * a 403 from the sandbox sender reached production as a cheerful
+ * "Registration successful. Please check your email."
+ *
+ * The `try` is still load-bearing, but for exactly one case: `new Resend()`
+ * throws "Missing API key" when `RESEND_API_KEY` is unset. Everything after
+ * construction resolves.
+ *
+ * Failures are logged and swallowed rather than rethrown: sending is
+ * fire-and-forget, and a dead mail provider must not roll back a registration
+ * that already succeeded. The boolean is returned so a caller can act on it
+ * later without another change here.
+ */
+async function dispatch(
+  kind: EmailKind,
+  to: string,
+  subject: string,
+  html: string
+): Promise<boolean> {
+  try {
+    const { error } = await getResend().emails.send({
+      from: fromEmail,
+      to,
+      subject,
+      html,
+    });
+
+    if (!error) return true;
+
+    // `statusCode` is `number | null` in the SDK's ErrorResponse — null when
+    // the request never reached Resend at all.
+    const status = error.statusCode === null ? "" : ` (${error.statusCode})`;
+    console.error(
+      `[Email Error] ${kind} → ${to}: ${error.name}${status} — ${error.message}`
+    );
+
+    // The single most likely misconfiguration on this project, named
+    // explicitly so the log says what to do rather than only what broke.
+    if (/testing emails|own email address/i.test(error.message)) {
+      console.error(
+        `[Email Error] Sender "${fromEmail}" is Resend's shared sandbox address, ` +
+          `which only delivers to the account owner. Verify a domain in Resend ` +
+          `and set RESEND_FROM_EMAIL to an address on it.`
+      );
+    }
+
+    return false;
+  } catch (error) {
+    console.error(
+      `[Email Error] ${kind} → ${to}: Resend client unavailable`,
+      error
+    );
+    return false;
+  }
+}
+
 /** Wraps email content in a branded template shell */
 function emailTemplate(content: string): string {
   return `
@@ -122,16 +187,12 @@ export class EmailService {
       </p>
     `;
 
-    try {
-      await getResend().emails.send({
-        from: fromEmail,
-        to: email,
-        subject: `Verify your email — ${appName}`,
-        html: emailTemplate(content),
-      });
-    } catch (error) {
-      console.error("[Email Error] Failed to send verification email:", error);
-    }
+    return dispatch(
+      "verification",
+      email,
+      `Verify your email — ${appName}`,
+      emailTemplate(content)
+    );
   }
 
   /** Sends password reset link */
@@ -151,16 +212,12 @@ export class EmailService {
       </p>
     `;
 
-    try {
-      await getResend().emails.send({
-        from: fromEmail,
-        to: email,
-        subject: `Reset your password — ${appName}`,
-        html: emailTemplate(content),
-      });
-    } catch (error) {
-      console.error("[Email Error] Failed to send password reset email:", error);
-    }
+    return dispatch(
+      "password reset",
+      email,
+      `Reset your password — ${appName}`,
+      emailTemplate(content)
+    );
   }
 
   /** Sends organization invitation link */
@@ -185,15 +242,11 @@ export class EmailService {
       </p>
     `;
 
-    try {
-      await getResend().emails.send({
-        from: fromEmail,
-        to: email,
-        subject: `You're invited to join ${organizationName} — ${appName}`,
-        html: emailTemplate(content),
-      });
-    } catch (error) {
-      console.error("[Email Error] Failed to send invitation email:", error);
-    }
+    return dispatch(
+      "invitation",
+      email,
+      `You're invited to join ${organizationName} — ${appName}`,
+      emailTemplate(content)
+    );
   }
 }
