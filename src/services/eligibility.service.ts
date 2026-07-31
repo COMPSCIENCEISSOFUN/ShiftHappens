@@ -21,11 +21,11 @@ import { CertificationRepository } from "@/repositories/certification.repository
 import { EligibilityOverrideRepository } from "@/repositories/eligibility-override.repository";
 import { SettingsRepository } from "@/repositories/settings.repository";
 import { TaskAssignmentRepository } from "@/repositories/task-assignment.repository";
+import { TaskRepository } from "@/repositories/task.repository";
 import { MembershipRepository } from "@/repositories/membership.repository";
 import { WorkRuleRepository } from "@/repositories/work-rule.repository";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 import { DEFAULT_EMPLOYMENT_TYPE } from "@/lib/role-config";
-import { prisma } from "@/lib/prisma";
 import {
   dayOfWeekInTimeZone,
   endOfDayInTimeZone,
@@ -59,6 +59,7 @@ export class EligibilityService {
   private overrideRepo = new EligibilityOverrideRepository();
   private settingsRepo = new SettingsRepository();
   private assignmentRepo = new TaskAssignmentRepository();
+  private taskRepo = new TaskRepository();
   private membershipRepo = new MembershipRepository();
   private workRuleRepo = new WorkRuleRepository();
   private auditService = new AuditLogService();
@@ -85,7 +86,7 @@ export class EligibilityService {
     taskId: string,
     organizationId: string
   ): Promise<StaffEligibility[]> {
-    const task = await prisma.task.findUnique({ where: { id: taskId } });
+    const task = await this.taskRepo.findByIdWithoutRelations(taskId);
     // Cross-tenant tasks are invisible — never evaluate another org's task.
     if (!task || task.organizationId !== organizationId) throw new Error("Task not found");
 
@@ -311,21 +312,13 @@ export class EligibilityService {
       return { eligible: true, reason: "No schedule set" };
     }
 
-    const conflicts = await prisma.task.findMany({
-      where: {
-        assignments: {
-          some: {
-            membershipId,
-            // A pending withdrawal still occupies the schedule until resolved.
-            status: { in: ["pending", "accepted", "withdrawal_requested"] },
-          },
-        },
-        scheduledStart: { lt: task.scheduledEnd },
-        scheduledEnd: { gt: task.scheduledStart },
-        id: { not: task.id },
-      },
-      select: { title: true },
-    });
+    // A pending withdrawal still occupies the schedule until resolved.
+    const conflicts = await this.taskRepo.findConflictingTaskTitles(
+      membershipId,
+      task.scheduledStart,
+      task.scheduledEnd,
+      task.id
+    );
 
     if (conflicts.length > 0) {
       return {
@@ -505,18 +498,11 @@ export class EligibilityService {
     membershipId: string,
     excludeTaskId?: string
   ) {
-    return prisma.taskAssignment.findMany({
-      where: {
-        membershipId,
-        status: { in: EligibilityService.COMMITTED_STATUSES },
-        ...(excludeTaskId ? { taskId: { not: excludeTaskId } } : {}),
-      },
-      select: {
-        clockInTime: true,
-        clockOutTime: true,
-        task: { select: { scheduledStart: true, scheduledEnd: true } },
-      },
-    });
+    return this.assignmentRepo.findCommittedWithSchedule(
+      membershipId,
+      EligibilityService.COMMITTED_STATUSES,
+      excludeTaskId
+    );
   }
 
   /**
@@ -614,10 +600,7 @@ export class EligibilityService {
   ) {
     // Scope both the task and the member to the caller's org before writing —
     // an override must not be created against another tenant's task/member.
-    const task = await prisma.task.findUnique({
-      where: { id: taskId },
-      select: { organizationId: true, title: true },
-    });
+    const task = await this.taskRepo.findOrgAndTitleById(taskId);
     if (!task || task.organizationId !== organizationId) {
       throw new Error("Task not found");
     }
@@ -625,6 +608,12 @@ export class EligibilityService {
     const membership = await this.membershipRepo.findById(membershipId);
     if (!membership || membership.organizationId !== organizationId) {
       throw new Error("Staff member does not belong to this organization");
+    }
+    // Same reasoning as TaskService.assignStaff: findById does not filter on
+    // status, and there is no point overriding an eligibility rule for someone
+    // who may not be assigned at all.
+    if (membership.status !== "active") {
+      throw new Error("Staff member is deactivated");
     }
 
     const override = await this.overrideRepo.create({

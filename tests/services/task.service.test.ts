@@ -610,3 +610,202 @@ async function waitForNotifications(
     await new Promise((r) => setTimeout(r, 25));
   }
 }
+/**
+ * update() computes newStart/newEnd by falling back to the task's stored
+ * schedule whenever the caller omits those keys — that is what a partial update
+ * means — and then validates against them. It then wrote
+ * `input.scheduledStart ? … : null` to the database, discarding that work and
+ * nulling BOTH columns on any PATCH that did not resend the schedule.
+ *
+ * The UI does exactly that: the status dropdown PATCHes { status } alone. So
+ * clicking "start" on a scheduled shift silently erased its time, removing it
+ * from the calendar, from conflict checks, and from auto-scheduling — with no
+ * error and nothing in the logs.
+ */
+describe("TaskService.update — partial updates preserve the schedule", () => {
+  const START = "2026-08-03T01:00:00.000Z";
+  const END = "2026-08-03T09:00:00.000Z";
+
+  async function scheduledTask() {
+    return taskService.create(
+      { title: "Morning shift", scheduledStart: START, scheduledEnd: END },
+      orgId,
+      userId
+    );
+  }
+
+  it("keeps the schedule when only the status changes", async () => {
+    const task = await scheduledTask();
+
+    const updated = await taskService.update(task.id, orgId, { status: "in_progress" });
+
+    expect(updated.scheduledStart?.toISOString()).toBe(START);
+    expect(updated.scheduledEnd?.toISOString()).toBe(END);
+    expect(updated.status).toBe("in_progress");
+  });
+
+  it("keeps the schedule when only the title changes", async () => {
+    const task = await scheduledTask();
+
+    const updated = await taskService.update(task.id, orgId, { title: "Renamed" });
+
+    expect(updated.scheduledStart?.toISOString()).toBe(START);
+    expect(updated.scheduledEnd?.toISOString()).toBe(END);
+  });
+
+  it("persists the preservation — a re-read still shows the schedule", async () => {
+    // The round trip matters: the returned object could be right while the row
+    // is wrong. This is the assertion the original bug would have needed.
+    const task = await scheduledTask();
+    await taskService.update(task.id, orgId, { status: "completed" });
+
+    const reread = await prisma.task.findUnique({ where: { id: task.id } });
+    expect(reread!.scheduledStart?.toISOString()).toBe(START);
+    expect(reread!.scheduledEnd?.toISOString()).toBe(END);
+  });
+
+  it("survives a sequence of partial updates", async () => {
+    const task = await scheduledTask();
+
+    await taskService.update(task.id, orgId, { status: "in_progress" });
+    await taskService.update(task.id, orgId, { priority: "urgent" });
+    const updated = await taskService.update(task.id, orgId, { title: "Third" });
+
+    expect(updated.scheduledStart?.toISOString()).toBe(START);
+    expect(updated.scheduledEnd?.toISOString()).toBe(END);
+  });
+
+  it("still clears BOTH when the caller explicitly sends empty strings", async () => {
+    // Clearing must remain possible — the fix must not turn "clear" into a no-op.
+    const task = await scheduledTask();
+
+    const updated = await taskService.update(task.id, orgId, {
+      scheduledStart: "",
+      scheduledEnd: "",
+    });
+
+    expect(updated.scheduledStart).toBeNull();
+    expect(updated.scheduledEnd).toBeNull();
+  });
+
+  it("still rejects clearing only one side", async () => {
+    const task = await scheduledTask();
+
+    await expect(
+      taskService.update(task.id, orgId, { scheduledStart: "" })
+    ).rejects.toThrow("Must provide both start and end time, or clear both");
+  });
+
+  it("still rejects an end before the stored start on a one-sided update", async () => {
+    const task = await scheduledTask();
+
+    await expect(
+      taskService.update(task.id, orgId, { scheduledEnd: "2026-08-02T09:00:00.000Z" })
+    ).rejects.toThrow("End time must be after start time");
+  });
+
+  it("leaves an unscheduled task unscheduled", async () => {
+    const task = await taskService.create({ title: "No schedule" }, orgId, userId);
+
+    const updated = await taskService.update(task.id, orgId, { status: "in_progress" });
+
+    expect(updated.scheduledStart).toBeNull();
+    expect(updated.scheduledEnd).toBeNull();
+  });
+});
+
+/**
+ * departmentId was passed through raw, so `undefined` (what the UI sends for
+ * "No department") was dropped by Prisma and the department never changed —
+ * the save reported success and did nothing.
+ */
+describe("TaskService.update — clearing the department", () => {
+  it("clears the department when null is sent explicitly", async () => {
+    const task = await taskService.create(
+      { title: "Dept task", departmentId: deptId },
+      orgId,
+      userId
+    );
+
+    const updated = await taskService.update(task.id, orgId, { departmentId: null });
+
+    expect(updated.departmentId).toBeNull();
+  });
+
+  it("leaves the department alone when the key is absent", async () => {
+    const task = await taskService.create(
+      { title: "Dept task", departmentId: deptId },
+      orgId,
+      userId
+    );
+
+    const updated = await taskService.update(task.id, orgId, { title: "Renamed" });
+
+    expect(updated.departmentId).toBe(deptId);
+  });
+
+  it("still reassigns the department when a new id is sent", async () => {
+    const other = await deptRepo.create({ name: "Bar", color: "#3B82F6", organizationId: orgId });
+    const task = await taskService.create(
+      { title: "Dept task", departmentId: deptId },
+      orgId,
+      userId
+    );
+
+    const updated = await taskService.update(task.id, orgId, { departmentId: other.id });
+
+    expect(updated.departmentId).toBe(other.id);
+  });
+});
+
+/**
+ * assignStaff resolves each membership through findById, which applies no
+ * status filter. The UI's candidate lists are filtered, but this path reads ids
+ * straight from the request body, so a deactivated employee could still be
+ * rostered — the same privilege leak the active-only findByUserAndOrg default
+ * was introduced to close, re-entering through a different door.
+ */
+describe("TaskService.assignStaff — deactivated members", () => {
+  it("refuses to assign a deactivated member", async () => {
+    await prisma.membership.update({
+      where: { id: staffMembershipId },
+      data: { status: "inactive" },
+    });
+    const task = await taskService.create({ title: "Shift" }, orgId, userId);
+
+    await expect(
+      taskService.assignStaff(task.id, orgId, [staffMembershipId], userId)
+    ).rejects.toThrow("Staff member is deactivated");
+
+    expect(await prisma.taskAssignment.count({ where: { taskId: task.id } })).toBe(0);
+  });
+
+  it("refuses the whole batch if any member is deactivated", async () => {
+    const otherUser = await userRepo.create({
+      name: "Other Staff",
+      email: "other-staff@example.com",
+      hashedPassword: "hash",
+    });
+    const otherMembership = await prisma.membership.create({
+      data: { userId: otherUser.id, organizationId: orgId, role: "staff", status: "active" },
+    });
+    await prisma.membership.update({
+      where: { id: staffMembershipId },
+      data: { status: "inactive" },
+    });
+    const task = await taskService.create({ title: "Shift" }, orgId, userId);
+    await prisma.task.update({ where: { id: task.id }, data: { requiredHeadcount: 2 } });
+
+    await expect(
+      taskService.assignStaff(task.id, orgId, [otherMembership.id, staffMembershipId], userId)
+    ).rejects.toThrow("Staff member is deactivated");
+  });
+
+  it("still assigns an active member", async () => {
+    const task = await taskService.create({ title: "Shift" }, orgId, userId);
+
+    const result = await taskService.assignStaff(task.id, orgId, [staffMembershipId], userId);
+
+    expect(result).toHaveLength(1);
+  });
+});

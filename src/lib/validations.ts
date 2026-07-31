@@ -229,7 +229,10 @@ export const createTaskSchema = z.object({
 export const updateTaskSchema = z.object({
   title: z.string().min(1, "Title is required").max(200).optional(),
   description: z.string().max(2000).optional(),
-  departmentId: z.string().optional(),
+  // Nullable, not merely optional: omitting the key means "leave unchanged",
+  // while an explicit null (or "") means "clear the department". Without the
+  // null branch a task could never be moved back to "No department".
+  departmentId: z.string().nullable().optional(),
   requiredHeadcount: z.number().int().min(1).max(50).optional(),
   requiredCertifications: z.array(z.string().min(1).max(200)).max(20).optional(),
   priority: z.enum(["low", "medium", "high", "urgent"]).optional(),

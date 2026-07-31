@@ -198,13 +198,24 @@ export class TaskService {
     const updated = await this.taskRepo.update(taskId, {
       title: input.title,
       description: input.description,
-      departmentId: input.departmentId,
+      // Absent key → leave the department alone (Prisma ignores `undefined`).
+      // Explicit null or "" → clear it. Without the `in` check there was no way
+      // to move a task back to "No department": the UI sent `undefined`, Prisma
+      // dropped it, and the save reported success while changing nothing.
+      departmentId:
+        "departmentId" in input ? input.departmentId || null : undefined,
       requiredHeadcount: input.requiredHeadcount,
       requiredCertifications: input.requiredCertifications,
       priority: input.priority,
       status: input.status,
-      scheduledStart: input.scheduledStart ? new Date(input.scheduledStart) : null,
-      scheduledEnd: input.scheduledEnd ? new Date(input.scheduledEnd) : null,
+      // Write the RESOLVED values, not the raw input. `newStart`/`newEnd` above
+      // already fall back to the task's stored schedule when the caller omitted
+      // the keys, which is what a partial update means. Writing
+      // `input.scheduledStart ? … : null` here instead discarded that work and
+      // nulled both columns on any PATCH that did not resend them — so changing
+      // only `status` silently erased the shift's time.
+      scheduledStart: newStart ? new Date(newStart) : null,
+      scheduledEnd: newEnd ? new Date(newEnd) : null,
     });
 
     await this.auditService.log({
@@ -370,6 +381,15 @@ export class TaskService {
       // org's task — validate ownership before any role check.
       if (!membership || membership.organizationId !== organizationId) {
         throw new Error("Staff member does not belong to this organization");
+      }
+      // `findById` has no status filter, so a deactivated membership arrives
+      // here looking exactly like an active one. The candidate lists the UI
+      // offers are already filtered, but this path takes ids straight from the
+      // request body — without this check a deactivated employee can still be
+      // rostered, which is the same privilege leak the active-only default on
+      // findByUserAndOrg was introduced to close.
+      if (membership.status !== "active") {
+        throw new Error("Staff member is deactivated");
       }
       if (membership.role === "company_admin") {
         throw new Error("Company Admins cannot be assigned to tasks");

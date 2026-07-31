@@ -240,3 +240,89 @@ describe("RecurringTaskService", () => {
     });
   });
 });
+
+/**
+ * Generated occurrences copied title, department, headcount, priority and
+ * schedule from the template but NOT requiredCertifications, so the repository
+ * defaulted them to []. Every future instance of a safety-critical recurring
+ * shift was therefore eligible for everyone: checkCertifications sees an empty
+ * requirement list and passes unconditionally.
+ */
+describe("RecurringTaskService — occurrences inherit certification requirements", () => {
+  it("copies requiredCertifications onto every generated occurrence", async () => {
+    const { start, end } = soon();
+    const template = await taskService.create(
+      {
+        title: "Forklift Operation",
+        scheduledStart: start,
+        scheduledEnd: end,
+        isRecurring: true,
+        recurringPattern: JSON.stringify({ freq: "daily", interval: 1 }),
+        requiredCertifications: ["Forklift Licence", "Safety Induction"],
+      },
+      orgId,
+      userId
+    );
+
+    const instances = await prisma.task.findMany({
+      where: { parentTaskId: template.id },
+    });
+
+    expect(instances.length).toBeGreaterThan(0);
+    for (const instance of instances) {
+      expect(instance.requiredCertifications).toEqual([
+        "Forklift Licence",
+        "Safety Induction",
+      ]);
+    }
+  });
+
+  it("leaves occurrences unrestricted when the template requires nothing", async () => {
+    const { start, end } = soon();
+    const template = await taskService.create(
+      {
+        title: "Open shift",
+        scheduledStart: start,
+        scheduledEnd: end,
+        isRecurring: true,
+        recurringPattern: JSON.stringify({ freq: "daily", interval: 1 }),
+      },
+      orgId,
+      userId
+    );
+
+    const instances = await prisma.task.findMany({
+      where: { parentTaskId: template.id },
+    });
+
+    expect(instances.length).toBeGreaterThan(0);
+    for (const instance of instances) {
+      expect(instance.requiredCertifications).toEqual([]);
+    }
+  });
+
+  it("keeps inheriting on a later generation run, not just the first", async () => {
+    // Idempotent re-runs must not produce a second, unrestricted generation.
+    const { start, end } = soon();
+    const template = await taskService.create(
+      {
+        title: "Forklift Operation",
+        scheduledStart: start,
+        scheduledEnd: end,
+        isRecurring: true,
+        recurringPattern: JSON.stringify({ freq: "daily", interval: 1 }),
+        requiredCertifications: ["Forklift Licence"],
+      },
+      orgId,
+      userId
+    );
+
+    await recurringService.generateForOrganization(orgId, 60, userId);
+
+    const instances = await prisma.task.findMany({ where: { parentTaskId: template.id } });
+    expect(instances.length).toBeGreaterThan(0);
+    for (const instance of instances) {
+      expect(instance.requiredCertifications).toEqual(["Forklift Licence"]);
+    }
+  });
+});

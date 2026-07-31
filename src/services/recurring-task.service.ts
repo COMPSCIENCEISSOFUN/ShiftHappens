@@ -113,6 +113,11 @@ export class RecurringTaskService {
           organizationId,
           departmentId: template.departmentId ?? undefined,
           requiredHeadcount: template.requiredHeadcount,
+          // Inherit the certification requirements. Omitting this let the
+          // repository default them to [], so every generated occurrence of a
+          // safety-critical recurring shift was eligible for everyone —
+          // checkCertifications sees an empty list and passes unconditionally.
+          requiredCertifications: template.requiredCertifications,
           priority: template.priority,
           scheduledStart: occ.start,
           scheduledEnd: occ.end,
