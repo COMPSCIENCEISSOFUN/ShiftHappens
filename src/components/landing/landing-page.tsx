@@ -14,6 +14,8 @@
 
 import { useRef, useState, useEffect, useCallback } from "react";
 import Link from "next/link";
+import { useScrollReveal, Reveal } from "./reveal";
+import TeamSection from "./team-section";
 import {
   Brain,
   CalendarClock,
@@ -66,32 +68,6 @@ const INDUSTRIES = [
 ];
 
 // ─── Hooks ────────────────────────────────────────────────────────────────
-
-function useScrollReveal(threshold = 0.15) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [isVisible, setIsVisible] = useState(false);
-
-  useEffect(() => {
-    const prefersReduced = window.matchMedia(
-      "(prefers-reduced-motion: reduce)"
-    ).matches;
-    if (prefersReduced) {
-      setIsVisible(true);
-      return;
-    }
-
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) setIsVisible(true);
-      },
-      { threshold }
-    );
-    if (ref.current) observer.observe(ref.current);
-    return () => observer.disconnect();
-  }, [threshold]);
-
-  return { ref, isVisible };
-}
 
 function useCountUp(target: number, duration = 1200) {
   const { ref, isVisible } = useScrollReveal(0.5);
@@ -176,29 +152,6 @@ function useTypewriter(words: string[]) {
 
 // ─── Shared Components ────────────────────────────────────────────────────
 
-function Reveal({
-  children,
-  className = "",
-  delay = 0,
-}: {
-  children: React.ReactNode;
-  className?: string;
-  delay?: number;
-}) {
-  const { ref, isVisible } = useScrollReveal();
-  return (
-    <div
-      ref={ref}
-      className={`transition-all duration-700 ease-out ${
-        isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-6"
-      } ${className}`}
-      style={{ transitionDelay: `${delay}ms` }}
-    >
-      {children}
-    </div>
-  );
-}
-
 function CountUpStat({ value, label }: { value: number; label: string }) {
   const { ref, count } = useCountUp(value);
   return (
@@ -216,6 +169,7 @@ const NAV_LINKS = [
   { href: "#demo", label: "Demo" },
   { href: "#how-it-works", label: "How It Works" },
   { href: "#pricing", label: "Pricing" },
+  { href: "#team", label: "Team" },
 ];
 
 function Navbar() {
@@ -1403,6 +1357,7 @@ export default function LandingPage() {
       <HowItWorks />
       <Pricing />
       <Testimonials />
+      <TeamSection />
       <ContactForm />
       <FinalCTA />
       <Footer />
