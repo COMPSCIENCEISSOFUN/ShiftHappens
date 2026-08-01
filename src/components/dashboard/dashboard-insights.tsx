@@ -9,6 +9,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import {
+  CircleCheck,
+  ClipboardList,
+  Info,
+  RefreshCw,
+  Sparkles,
+  TriangleAlert,
+  type LucideIcon,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -61,12 +70,32 @@ export function DashboardInsights({ orgId }: { orgId: string }) {
     }
   }
 
-  function alertIcon(type: string) {
+  /**
+   * Alert type → icon.
+   *
+   * Was `⚠️ ✅ ℹ️ 📋`. `alertColor` above already puts a themed text colour on
+   * the wrapper, and the emoji were the one thing inside it that ignored that
+   * colour — they are OS-supplied colour bitmaps, so they cannot inherit
+   * `currentColor`, do not invert in dark mode, and render as different
+   * pictures on Windows, macOS and Android. `⚠️` additionally carries a
+   * variation selector, so it could drop to monochrome text style on some
+   * platforms while `✅` beside it stayed in colour.
+   *
+   * These return the bare component rather than the `{ Icon, tint, tone }`
+   * triple used by `certification-state-icon.tsx`: the alert container is
+   * already fully coloured by `alertColor`, so the icon should take its stroke
+   * from `currentColor` instead of carrying a second, independent palette that
+   * could disagree with the box it sits in.
+   */
+  function alertIcon(type: string): LucideIcon {
     switch (type) {
-      case "warning": return "⚠️";
-      case "success": return "✅";
-      case "info": return "ℹ️";
-      default: return "📋";
+      case "warning": return TriangleAlert;
+      case "success": return CircleCheck;
+      case "info": return Info;
+      // The AI writes these, so a type outside the union is reachable. It stays
+      // visibly generic rather than borrowing `info`'s glyph — an unrecognised
+      // alert should not quietly pass for an informational one.
+      default: return ClipboardList;
     }
   }
 
@@ -76,7 +105,9 @@ export function DashboardInsights({ orgId }: { orgId: string }) {
         <div className="flex items-center justify-between">
           <div>
             <CardTitle className="flex items-center gap-2">
-              ✨ AI Insights
+              {/* The AI motif, shared with the dashboards and the assign modal. */}
+              <Sparkles className="h-4 w-4" aria-hidden="true" />
+              AI Insights
             </CardTitle>
             <CardDescription>
               AI-powered workforce analysis and recommendations
@@ -88,7 +119,17 @@ export function DashboardInsights({ orgId }: { orgId: string }) {
             onClick={fetchInsights}
             disabled={loading}
           >
-            {loading ? "Analyzing..." : "🔄 Refresh"}
+            {/*
+              The icon is a sibling of the label, not a character inside it:
+              `Button` sizes and gaps any `svg` it contains, so the mark stays
+              aligned with the text at every size, and the spinner state is a
+              class on the same element rather than a second string.
+            */}
+            <RefreshCw
+              className={loading ? "animate-spin" : undefined}
+              aria-hidden="true"
+            />
+            {loading ? "Analyzing..." : "Refresh"}
           </Button>
         </div>
       </CardHeader>
@@ -125,15 +166,23 @@ export function DashboardInsights({ orgId }: { orgId: string }) {
           {insights.alerts.length > 0 && (
             <div className="space-y-2">
               <p className="text-sm font-medium">Alerts</p>
-              {insights.alerts.map((alert, i) => (
-                <div
-                  key={i}
-                  className={`rounded-md border p-3 text-sm ${alertColor(alert.type)}`}
-                >
-                  <span className="mr-2">{alertIcon(alert.type)}</span>
-                  {alert.message}
-                </div>
-              ))}
+              {insights.alerts.map((alert, i) => {
+                const Icon = alertIcon(alert.type);
+
+                return (
+                  <div
+                    key={i}
+                    className={`flex items-start gap-2 rounded-md border p-3 text-sm ${alertColor(alert.type)}`}
+                  >
+                    {/* Decorative: the message beside it carries the meaning. */}
+                    <Icon
+                      className="mt-0.5 h-4 w-4 shrink-0"
+                      aria-hidden="true"
+                    />
+                    <span>{alert.message}</span>
+                  </div>
+                );
+              })}
             </div>
           )}
 

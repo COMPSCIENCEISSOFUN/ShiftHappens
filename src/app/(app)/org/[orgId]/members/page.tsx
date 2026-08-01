@@ -15,11 +15,13 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import { Mail, Sparkles } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PageLoading } from "@/components/ui/page-loading";
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { StatTile } from "@/components/ui/stat-tile";
 import { SYSTEM_ROLE_LABELS, EMPLOYMENT_TYPE_LABELS, DEFAULT_EMPLOYMENT_TYPE } from "@/lib/role-config";
 import { filterMembers, hasActiveFilters as checkActiveFilters } from "@/lib/member-filters";
 
@@ -91,21 +93,6 @@ function avatarColour(name: string | null): string {
 /*  Stat Tile                                                          */
 /* ------------------------------------------------------------------ */
 
-function StatTile({
-  label, value, detail, accentColour, valueColour,
-}: {
-  label: string; value: string | number; detail: string;
-  accentColour: string; valueColour?: string;
-}) {
-  return (
-    <div className="relative overflow-hidden rounded-xl border border-border bg-card p-3.5 sm:p-4">
-      <div className="absolute right-0 top-0 h-10 w-10 rounded-bl-[40px]" style={{ background: accentColour }} />
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</p>
-      <p className={`mt-1 text-xl font-bold tracking-tight sm:text-2xl ${valueColour ?? ""}`}>{value}</p>
-      <p className="mt-0.5 text-[11px] text-muted-foreground">{detail}</p>
-    </div>
-  );
-}
 
 /* ------------------------------------------------------------------ */
 /*  Main Page                                                          */
@@ -559,7 +546,7 @@ export default function MembersPage() {
                         {member.role !== "company_admin" && (
                           member.customRole ? (
                             <span className="group inline-flex w-fit items-center gap-1 rounded-full bg-purple-100 dark:bg-purple-900/40 px-2 py-0.5 text-[10px] font-medium text-purple-700 dark:text-purple-300">
-                              <span className="text-purple-500 dark:text-purple-400">✦</span>
+                              <Sparkles className="h-3 w-3 shrink-0 text-purple-500 dark:text-purple-400" aria-hidden="true" />
                               {member.customRole.displayLabel}
                               {!isSelf && (
                                 <button
@@ -590,7 +577,7 @@ export default function MembersPage() {
                                       onClick={() => onUpdateCustomRole(member.user.id, cr.id)}
                                       className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs transition-colors hover:bg-muted/50"
                                     >
-                                      <span className="text-purple-500">✦</span>
+                                      <Sparkles className="h-3 w-3 shrink-0 text-purple-500" aria-hidden="true" />
                                       {cr.displayLabel}
                                     </button>
                                   ))}
@@ -690,7 +677,7 @@ export default function MembersPage() {
                       )}
                       {member.customRole && (
                         <span className="inline-flex items-center gap-1 rounded-full bg-purple-100 dark:bg-purple-900/40 px-2 py-0.5 text-[10px] font-medium text-purple-700 dark:text-purple-300">
-                          <span className="text-purple-500 dark:text-purple-400">✦</span>
+                          <Sparkles className="h-3 w-3 shrink-0 text-purple-500 dark:text-purple-400" aria-hidden="true" />
                           {member.customRole.displayLabel}
                         </span>
                       )}
@@ -750,8 +737,8 @@ export default function MembersPage() {
                     <tr key={invitation.id} className="border-b border-border last:border-b-0 transition-colors hover:bg-muted/20">
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2.5">
-                          <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-900 text-[10px] font-bold text-amber-700 dark:text-amber-300">
-                            ✉
+                          <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300">
+                            <Mail className="h-3.5 w-3.5" />
                           </div>
                           <span className="text-[13px] font-medium">{invitation.email}</span>
                         </div>

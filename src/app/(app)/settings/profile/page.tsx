@@ -15,6 +15,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
+import { Sparkles } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -633,8 +634,10 @@ export default function ProfilePage() {
                       <div className="text-xs text-muted-foreground">
                         {getSystemRoleLabel(m.role, m.employmentType)}
                         {m.customRole && (
-                          <span className="ml-1.5 inline-flex items-center gap-0.5 text-purple-600 dark:text-purple-400">
-                            <span>✦</span> {m.customRole.displayLabel}
+                          <span className="ml-1.5 inline-flex items-center gap-1 text-purple-600 dark:text-purple-400">
+                            {/* The custom-role motif, same as the members page. */}
+                            <Sparkles className="h-3 w-3 shrink-0" aria-hidden="true" />
+                            {m.customRole.displayLabel}
                           </span>
                         )}
                       </div>

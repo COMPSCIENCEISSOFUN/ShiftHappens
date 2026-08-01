@@ -17,6 +17,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import {
+  CircleHelp,
+  ClipboardList,
+  Clock,
+  Sparkles,
+  TriangleAlert,
+  type LucideIcon,
+} from "lucide-react";
 import { localDateInTimeZone } from "@/lib/timezone";
 import Link from "next/link";
 import {
@@ -179,11 +187,77 @@ function getStatusPill(items: NeedsAttentionItem[] | null): {
   };
 }
 
-const severityIcon: Record<string, string> = {
-  danger: "⚠",
-  warning: "⏳",
-  info: "📋",
+/**
+ * Needs-attention severity → icon.
+ *
+ * This was an emoji table (`⚠ ⏳ 📋`) whose container tint was computed
+ * separately in a JSX ternary, so shape and colour could drift apart. Emoji are
+ * also the wrong primitive: they are OS-supplied colour bitmaps, so they cannot
+ * inherit `currentColor` and were the only marks in these rows that ignored the
+ * theme, and Windows, macOS and Android each draw them as a visibly different
+ * picture. Same reasoning — and the same `{ Icon, tint, tone }` shape — as
+ * `certification-state-icon.tsx` and `notification-icon.tsx`.
+ *
+ * Shape choices follow what the reporting service actually emits:
+ *
+ * - `danger` is an understaffed task, the only severity `getStatusPill` above
+ *   escalates the greeting pill on. A triangle, matching the same red-on-alert
+ *   pairing used for `cert_rejected` in `notification-icon.tsx`.
+ * - `warning` covers pending acceptances and expiring certifications. Both are
+ *   "a deadline is approaching" rather than "something is wrong", which is why
+ *   it is a clock and not a second triangle — amber + `Clock` is already how
+ *   `hour_limit_warning` and `pending` read elsewhere.
+ * - `info` is the certification verification queue, so a list.
+ */
+interface SeverityIcon {
+  Icon: LucideIcon;
+  /** Container tint. */
+  tint: string;
+  /** Stroke colour. Every entry carries a dark variant or is theme-neutral. */
+  tone: string;
+}
+
+const SEVERITY_ICON: Record<string, SeverityIcon> = {
+  danger: {
+    Icon: TriangleAlert,
+    tint: "bg-red-50 dark:bg-red-950",
+    tone: "text-red-600 dark:text-red-400",
+  },
+  warning: {
+    Icon: Clock,
+    tint: "bg-amber-50 dark:bg-amber-950",
+    tone: "text-amber-600 dark:text-amber-400",
+  },
+  info: {
+    Icon: ClipboardList,
+    tint: "bg-indigo-50 dark:bg-indigo-950",
+    tone: "text-indigo-600 dark:text-indigo-400",
+  },
 };
+
+/**
+ * `needsAttention` comes off `res.json()` and is only *typed* as a closed
+ * union, so an unrecognised severity is genuinely reachable. It renders as a
+ * neutral question mark rather than borrowing `info`'s clipboard, which is the
+ * call `certification-state-icon.tsx` makes and for the same reason: an
+ * unrecognised value showing up as a legitimate one turns a visible bug into an
+ * invisible one. The previous `|| "📋"` fallback did exactly that.
+ */
+const UNKNOWN_SEVERITY: SeverityIcon = {
+  Icon: CircleHelp,
+  tint: "bg-muted",
+  tone: "text-muted-foreground",
+};
+
+function severityIcon(severity: string): SeverityIcon {
+  // `hasOwnProperty`, not `??` or `||`. SEVERITY_ICON is a plain object
+  // literal, so it inherits from Object.prototype: a lookup of "constructor"
+  // or "toString" returns an inherited member, the fallback never fires, and
+  // JSX is handed a Function to destructure `Icon` off — crashing the row.
+  return Object.prototype.hasOwnProperty.call(SEVERITY_ICON, severity)
+    ? SEVERITY_ICON[severity]
+    : UNKNOWN_SEVERITY;
+}
 
 const AI_ACTION_LABELS: Record<string, string> = {
   quick_assign: "Quick assign",
@@ -342,47 +416,49 @@ export default function AdminDashboard({ orgId, orgName, userName }: AdminDashbo
           </p>
 
           {/* Urgent / warning / info items */}
-          {data.needsAttention?.map((item, i) => (
-            <div
-              key={`${item.type}-${item.entityId ?? i}`}
-              className="mb-2 flex items-center gap-3.5 rounded-xl border border-border bg-card p-3.5 transition-shadow hover:shadow-sm"
-            >
+          {data.needsAttention?.map((item, i) => {
+            const { Icon, tint, tone } = severityIcon(item.severity);
+
+            return (
               <div
-                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] text-base ${
-                  item.severity === "danger"
-                    ? "bg-red-50 text-red-600 dark:bg-red-950 dark:text-red-400"
-                    : item.severity === "warning"
-                      ? "bg-amber-50 text-amber-600 dark:bg-amber-950 dark:text-amber-400"
-                      : "bg-indigo-50 text-indigo-600 dark:bg-indigo-950 dark:text-indigo-400"
-                }`}
+                key={`${item.type}-${item.entityId ?? i}`}
+                className="mb-2 flex items-center gap-3.5 rounded-xl border border-border bg-card p-3.5 transition-shadow hover:shadow-sm"
               >
-                {severityIcon[item.severity] || "📋"}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-foreground">
-                  {item.message}
-                </p>
-              </div>
-              <Link href={item.actionUrl}>
-                <button
-                  className={`shrink-0 rounded-lg border px-3.5 py-1.5 text-xs font-semibold transition-all ${
-                    item.severity === "danger"
-                      ? "border-indigo-500 bg-indigo-600 text-white hover:opacity-90"
-                      : "border-border bg-card text-muted-foreground hover:bg-muted"
-                  }`}
+                {/* Decorative: `item.message` beside it already says what this is. */}
+                <div
+                  className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] ${tint}`}
+                  aria-hidden="true"
                 >
-                  {item.actionLabel}
-                </button>
-              </Link>
-            </div>
-          ))}
+                  <Icon className={`h-[18px] w-[18px] ${tone}`} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-foreground">
+                    {item.message}
+                  </p>
+                </div>
+                <Link href={item.actionUrl}>
+                  <button
+                    className={`shrink-0 rounded-lg border px-3.5 py-1.5 text-xs font-semibold transition-all ${
+                      item.severity === "danger"
+                        ? "border-indigo-500 bg-indigo-600 text-white hover:opacity-90"
+                        : "border-border bg-card text-muted-foreground hover:bg-muted"
+                    }`}
+                  >
+                    {item.actionLabel}
+                  </button>
+                </Link>
+              </div>
+            );
+          })}
 
           {/* AI suggestions divider + cards */}
           {aiRecs && aiRecs.recommendations.length > 0 && (
             <>
               <div className="my-3 flex items-center gap-2.5">
-                <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
-                  ✦ AI suggestions
+                <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+                  {/* The AI motif — see the badge below and `needs-attention.tsx`. */}
+                  <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+                  AI suggestions
                 </span>
                 <div className="h-px flex-1 bg-border" />
               </div>
@@ -392,14 +468,16 @@ export default function AdminDashboard({ orgId, orgName, userName }: AdminDashbo
                   key={rec.priority}
                   className="mb-2 flex items-center gap-3.5 rounded-xl border border-indigo-200 bg-indigo-50/30 p-3.5 transition-shadow hover:shadow-sm dark:border-indigo-800 dark:bg-indigo-950/30"
                 >
+                  {/* Decorative: the "AI" pill on the title below names it. */}
                   <div
-                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] text-sm text-white"
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] text-white"
                     style={{
                       background:
                         "linear-gradient(135deg, #4f46e5, #7c3aed)",
                     }}
+                    aria-hidden="true"
                   >
-                    ✦
+                    <Sparkles className="h-4 w-4" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-foreground">

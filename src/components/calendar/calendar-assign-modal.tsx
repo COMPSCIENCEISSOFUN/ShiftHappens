@@ -10,6 +10,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 interface EligibilityCheck {
@@ -206,8 +207,10 @@ export function CalendarAssignModal({
           {aiSuggested.length > 0 && (
             <div className="mb-3">
               <div className="flex items-center gap-1.5 mb-2">
-                <span className="text-xs font-medium text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-950 px-2 py-0.5 rounded-full">
-                  ✦ AI recommended
+                <span className="inline-flex items-center gap-1 text-xs font-medium text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-950 px-2 py-0.5 rounded-full">
+                  {/* The AI motif, shared with the dashboards. */}
+                  <Sparkles className="h-3 w-3" aria-hidden="true" />
+                  AI recommended
                 </span>
                 {loadingSuggestions && (
                   <span className="text-xs text-muted-foreground">loading...</span>

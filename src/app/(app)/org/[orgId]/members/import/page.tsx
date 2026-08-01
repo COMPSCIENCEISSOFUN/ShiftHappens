@@ -17,6 +17,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Input } from "@/components/ui/input";
 import { AlertBanner } from "@/components/ui/alert-banner";
+import { StatTile } from "@/components/ui/stat-tile";
 import * as XLSX from "xlsx";
 import {
   INVITABLE_ROLES,
@@ -75,21 +76,6 @@ const MIN_PARTIAL_DEPARTMENT_LENGTH = 3;
 /*  Stat Tile                                                          */
 /* ------------------------------------------------------------------ */
 
-function StatTile({
-  label, value, detail, accentColour, valueColour,
-}: {
-  label: string; value: string | number; detail: string;
-  accentColour: string; valueColour?: string;
-}) {
-  return (
-    <div className="relative overflow-hidden rounded-xl border border-border bg-card p-3.5 sm:p-4">
-      <div className="absolute right-0 top-0 h-10 w-10 rounded-bl-[40px]" style={{ background: accentColour }} />
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</p>
-      <p className={`mt-1 text-xl font-bold tracking-tight sm:text-2xl ${valueColour ?? ""}`}>{value}</p>
-      <p className="mt-0.5 text-[11px] text-muted-foreground">{detail}</p>
-    </div>
-  );
-}
 
 // ─── Component ────────────────────────────────────────────────
 

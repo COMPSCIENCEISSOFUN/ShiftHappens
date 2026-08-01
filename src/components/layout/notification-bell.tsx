@@ -16,6 +16,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
+import { NotificationIconBadge } from "@/components/ui/notification-icon";
 import { useRouter } from "next/navigation";
 
 interface Notification {
@@ -44,17 +45,6 @@ function timeAgo(dateStr: string): string {
   return date.toLocaleDateString();
 }
 
-function notificationIcon(type: string): string {
-  switch (type) {
-    case "task_assigned": return "📋";
-    case "assignment_accepted": return "✅";
-    case "assignment_rejected": return "❌";
-    case "cert_verified": return "🏆";
-    case "cert_rejected": return "⚠️";
-    case "org_suspended": return "🔒";
-    default: return "🔔";
-  }
-}
 
 export function NotificationBell({ orgId }: { orgId?: string }) {
   const router = useRouter();
@@ -256,7 +246,7 @@ export function NotificationBell({ orgId }: { orgId?: string }) {
               >
                 <div className="flex gap-3">
                   <span className="text-base mt-0.5" aria-hidden="true">
-                    {notificationIcon(notification.type)}
+                    <NotificationIconBadge type={notification.type} className="h-7 w-7" />
                   </span>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between gap-2">

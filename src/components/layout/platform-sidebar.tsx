@@ -10,6 +10,12 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
+import {
+  Building2,
+  LayoutGrid,
+  LayoutTemplate,
+  type LucideIcon,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 interface PlatformSidebarProps {
@@ -19,10 +25,36 @@ interface PlatformSidebarProps {
   };
 }
 
-const links = [
-  { href: "/platform-admin", label: "Dashboard", icon: "📊" },
-  { href: "/platform-admin/organizations", label: "Organizations", icon: "🏢" },
-  { href: "/platform-admin/templates", label: "Templates", icon: "📋" },
+interface PlatformNavLink {
+  href: string;
+  label: string;
+  /**
+   * A component, not a string. These were emoji (`📊 🏢 📋`), which is the one
+   * place in the app where that was most visible: this panel is permanently
+   * dark, and an emoji is an OS-supplied colour bitmap that cannot inherit
+   * `currentColor` — so the three nav marks stayed full-colour while the label
+   * beside them moved between grey, hover-grey and active-blue, and they did
+   * not dim with the inactive items.
+   *
+   * `app-sidebar.tsx` already models nav icons as `React.ComponentType`; this
+   * matches that shape and its `18px` sizing so the two sidebars agree.
+   */
+  icon: LucideIcon;
+}
+
+/**
+ * `LayoutGrid` is deliberately the same four-square shape as `DashboardIcon` in
+ * `app-sidebar.tsx` — the two sidebars are never on screen together, so the
+ * Dashboard entry should be recognisable as the same idea in both.
+ */
+const links: PlatformNavLink[] = [
+  { href: "/platform-admin", label: "Dashboard", icon: LayoutGrid },
+  {
+    href: "/platform-admin/organizations",
+    label: "Organizations",
+    icon: Building2,
+  },
+  { href: "/platform-admin/templates", label: "Templates", icon: LayoutTemplate },
 ];
 
 export function PlatformSidebar({ user }: PlatformSidebarProps) {
@@ -40,6 +72,7 @@ export function PlatformSidebar({ user }: PlatformSidebarProps) {
             link.href === "/platform-admin"
               ? pathname === "/platform-admin"
               : pathname.startsWith(link.href);
+          const Icon = link.icon;
 
           return (
             <Link
@@ -51,7 +84,8 @@ export function PlatformSidebar({ user }: PlatformSidebarProps) {
                   : "text-gray-400 hover:bg-gray-800 hover:text-gray-200 border-l-2 border-transparent"
               }`}
             >
-              <span className="text-base">{link.icon}</span>
+              {/* Decorative: the label beside it is the accessible name. */}
+              <Icon className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />
               {link.label}
             </Link>
           );

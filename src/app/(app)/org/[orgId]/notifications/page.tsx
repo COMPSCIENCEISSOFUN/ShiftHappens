@@ -16,12 +16,14 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { NotificationIconBadge } from "@/components/ui/notification-icon";
 import { useParams, useRouter } from "next/navigation";
 import { BellOff, CheckCheck, SearchX } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { PageLoading } from "@/components/ui/page-loading";
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { EmptyState } from "@/components/ui/empty-state";
+import { StatTile } from "@/components/ui/stat-tile";
 
 interface Notification {
   id: string;
@@ -76,41 +78,6 @@ const FILTER_NOUNS: Record<FilterKey, string> = {
   alert: "alerts",
 };
 
-/** Emoji + tint per type. Mirrors the bell so the two never look like different features. */
-function iconFor(type: string): { glyph: string; tint: string } {
-  switch (type) {
-    case "task_assigned":
-      return { glyph: "📋", tint: "bg-indigo-500/[.13]" };
-    case "task_rescheduled":
-      return { glyph: "🔄", tint: "bg-indigo-500/[.13]" };
-    case "task_cancelled":
-    case "task_unassigned":
-      return { glyph: "🚫", tint: "bg-red-500/[.12]" };
-    case "task_completed":
-    case "assignment_accepted":
-      return { glyph: "✅", tint: "bg-green-500/[.13]" };
-    case "assignment_rejected":
-      return { glyph: "❌", tint: "bg-red-500/[.12]" };
-    case "withdrawal_requested":
-      return { glyph: "📤", tint: "bg-amber-500/[.14]" };
-    case "withdrawal_approved":
-      return { glyph: "👍", tint: "bg-green-500/[.13]" };
-    case "withdrawal_denied":
-      return { glyph: "👎", tint: "bg-red-500/[.12]" };
-    case "cert_verified":
-      return { glyph: "🏆", tint: "bg-green-500/[.13]" };
-    case "cert_rejected":
-      return { glyph: "⚠️", tint: "bg-red-500/[.12]" };
-    case "hour_limit_warning":
-      return { glyph: "⏰", tint: "bg-amber-500/[.14]" };
-    case "staff_ineligible":
-      return { glyph: "🚧", tint: "bg-amber-500/[.14]" };
-    case "org_suspended":
-      return { glyph: "🔒", tint: "bg-red-500/[.12]" };
-    default:
-      return { glyph: "🔔", tint: "bg-muted" };
-  }
-}
 
 const CATEGORY_LABELS: Record<string, string> = {
   task_assigned: "Task",
@@ -165,35 +132,6 @@ function groupFor(dateStr: string): string {
   return "Older";
 }
 
-function StatTile({
-  label,
-  value,
-  detail,
-  accentColour,
-  valueColour,
-}: {
-  label: string;
-  value: number;
-  detail: string;
-  accentColour: string;
-  valueColour?: string;
-}) {
-  return (
-    <div className="relative overflow-hidden rounded-xl border border-border bg-card p-3.5 sm:p-4">
-      <div
-        className="absolute right-0 top-0 h-10 w-10 rounded-bl-[40px]"
-        style={{ background: accentColour }}
-      />
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-        {label}
-      </p>
-      <p className={`mt-1 text-xl font-bold tracking-tight sm:text-2xl ${valueColour ?? ""}`}>
-        {value}
-      </p>
-      <p className="mt-0.5 text-[11px] text-muted-foreground">{detail}</p>
-    </div>
-  );
-}
 
 export default function NotificationsPage() {
   const params = useParams();
@@ -556,7 +494,6 @@ export default function NotificationsPage() {
 
               <div className="overflow-hidden rounded-xl border border-border bg-card">
                 {group.items.map((notification) => {
-                  const { glyph, tint } = iconFor(notification.type);
                   return (
                     <div
                       key={notification.id}
@@ -579,12 +516,10 @@ export default function NotificationsPage() {
                         <span className="absolute left-0 top-0 h-full w-[3px] bg-indigo-500" />
                       )}
 
-                      <div
-                        className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[15px] ${tint}`}
-                        aria-hidden="true"
-                      >
-                        {glyph}
-                      </div>
+                      <NotificationIconBadge
+                        type={notification.type}
+                        className="mt-0.5 h-9 w-9"
+                      />
 
                       <div className="min-w-0 flex-1">
                         <p

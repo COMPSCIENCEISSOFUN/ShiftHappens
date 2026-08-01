@@ -104,7 +104,15 @@ const UNKNOWN_STATE: StateIcon = {
 
 /** Exported for tests. Accepts a bare string because the fallback is reachable. */
 export function certificationStateIcon(state: string): StateIcon {
-  return STATE_ICON[state as CertificationDisplayState] ?? UNKNOWN_STATE;
+  // `hasOwnProperty`, not `??`. STATE_ICON is a plain object literal, so it
+  // inherits from Object.prototype: a lookup of "constructor" or "toString"
+  // returns an inherited member rather than undefined, the ?? fallback never
+  // fires, and the caller destructures `Icon` off a Function — rendering
+  // `undefined` as a component and crashing the row. An own-property check is
+  // the only thing that makes the fallback cover every non-state string.
+  return Object.prototype.hasOwnProperty.call(STATE_ICON, state)
+    ? STATE_ICON[state as CertificationDisplayState]
+    : UNKNOWN_STATE;
 }
 
 interface CertificationStateIconProps {
