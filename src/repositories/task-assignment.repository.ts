@@ -198,6 +198,18 @@ export class TaskAssignmentRepository {
     });
   }
 
+  /** Memberships currently occupying task slots, used during replacement. */
+  async findActiveMembershipIdsByTaskId(taskId: string): Promise<string[]> {
+    const assignments = await prisma.taskAssignment.findMany({
+      where: {
+        taskId,
+        status: { in: SLOT_OCCUPYING_ASSIGNMENT_STATUSES },
+      },
+      select: { membershipId: true },
+    });
+    return assignments.map((assignment) => assignment.membershipId);
+  }
+
   /** Cancels (deletes) an assignment — admin/manager action */
   async cancel(id: string) {
     return prisma.taskAssignment.delete({ where: { id } });

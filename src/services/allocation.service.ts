@@ -67,7 +67,8 @@ export class AllocationService {
    */
   async getSuggestions(
     taskId: string,
-    organizationId: string
+    organizationId: string,
+    options?: { excludeMembershipIds?: string[] }
   ): Promise<RankedStaff[]> {
     const task = await this.taskRepo.findById(taskId);
     if (!task || task.organizationId !== organizationId) throw new Error("Task not found");
@@ -77,7 +78,10 @@ export class AllocationService {
       organizationId
     );
 
-    const eligibleStaff = eligibility.filter((e) => e.eligible);
+    const excludedMembershipIds = new Set(options?.excludeMembershipIds ?? []);
+    const eligibleStaff = eligibility.filter(
+      (e) => e.eligible && !excludedMembershipIds.has(e.membershipId)
+    );
 
     if (eligibleStaff.length === 0) {
       return [];
@@ -108,7 +112,17 @@ export class AllocationService {
       candidates
     );
 
-    return rankings;
+    // AI output is advisory. Only server-verified candidates may survive, and
+    // a provider cannot duplicate or invent membership IDs.
+    const eligibleIds = new Set(candidates.map((candidate) => candidate.membershipId));
+    const seen = new Set<string>();
+    return rankings.filter((ranking) => {
+      if (!eligibleIds.has(ranking.membershipId) || seen.has(ranking.membershipId)) {
+        return false;
+      }
+      seen.add(ranking.membershipId);
+      return true;
+    });
   }
 
   /**

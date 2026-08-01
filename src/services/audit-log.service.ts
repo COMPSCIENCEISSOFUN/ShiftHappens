@@ -18,6 +18,8 @@ const ACTIONS = {
   TASK_DELETED: "task.deleted",
   TASK_ASSIGNED: "task.assigned",
   TASK_UNASSIGNED: "task.unassigned",
+  TASK_REPLACEMENT_ALLOCATED: "task.replacement_allocated",
+  TASK_REPLACEMENT_UNFILLED: "task.replacement_unfilled",
   RECURRING_TASKS_GENERATED: "task.recurring_generated",
   // Assignments
   ASSIGNMENT_CLOCKED_IN: "assignment.clocked_in",

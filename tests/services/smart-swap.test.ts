@@ -1,8 +1,8 @@
 /**
- * Tests for Smart-Swap (Task Service - cancelAssignment)
+ * Tests for replacement allocation after manager removal.
  *
- * Verifies that cancelling an assignment triggers replacement
- * suggestions via notification when the task becomes understaffed.
+ * Verifies that cancelling an assignment recalculates coverage and creates
+ * real replacement assignments when eligible staff are available.
  */
 import { describe, it, expect, beforeEach } from "vitest";
 import { TaskService } from "@/services/task.service";
@@ -79,8 +79,8 @@ beforeEach(async () => {
   }
 });
 
-describe("Smart-Swap", () => {
-  it("sends replacement notification when task becomes understaffed", async () => {
+describe("Replacement allocation after manager removal", () => {
+  it("creates a replacement assignment when task becomes understaffed", async () => {
     const nextMon = getNextMonday();
     const task = await prisma.task.create({
       data: {
@@ -103,19 +103,16 @@ describe("Smart-Swap", () => {
       data: { taskId: task.id, membershipId: staffMembershipIds[1], assignedById: adminUserId, status: "assigned" },
     });
 
-    // Cancel one — task becomes understaffed (1/2)
+    // Cancel one: coverage briefly becomes 1/2, then the gap is filled.
     await taskService.cancelAssignment(a1.id, orgId, adminUserId);
 
-    // Wait for fire-and-forget notification
-    await new Promise((r) => setTimeout(r, 500));
-
-    const notifications = await notificationRepo.findByUserId(adminUserId, orgId);
-    expect(notifications.length).toBeGreaterThanOrEqual(1);
-
-    const swapNotif = notifications.find((n) => n.title === "Smart swap — replacement suggested");
-    expect(swapNotif).toBeDefined();
-    expect(swapNotif!.message).toContain("Kitchen Prep");
-    expect(swapNotif!.message).toContain("needs 1 more");
+    const active = await prisma.taskAssignment.findMany({
+      where: { taskId: task.id, status: "assigned" },
+    });
+    expect(active).toHaveLength(2);
+    expect(active.map((assignment) => assignment.membershipId)).toContain(
+      staffMembershipIds[2]
+    );
   });
 
   it("does not send notification when task is still fully staffed", async () => {
@@ -144,11 +141,10 @@ describe("Smart-Swap", () => {
     // Cancel one — still has 1/1, not understaffed
     await taskService.cancelAssignment(a1.id, orgId, adminUserId);
 
-    await new Promise((r) => setTimeout(r, 500));
-
-    const notifications = await notificationRepo.findByUserId(adminUserId, orgId);
-    const swapNotif = notifications.find((n) => n.title === "Smart swap — replacement suggested");
-    expect(swapNotif).toBeUndefined();
+    const active = await prisma.taskAssignment.count({
+      where: { taskId: task.id, status: "assigned" },
+    });
+    expect(active).toBe(1);
   });
 
   it("sends no-replacements notification when no eligible staff", async () => {
@@ -173,15 +169,15 @@ describe("Smart-Swap", () => {
 
     await taskService.cancelAssignment(a1.id, orgId, adminUserId);
 
-    await new Promise((r) => setTimeout(r, 500));
-
     const notifications = await notificationRepo.findByUserId(adminUserId, orgId);
-    const noReplace = notifications.find((n) => n.title === "Staff unassigned — no replacements");
+    const noReplace = notifications.find(
+      (n) => n.title === "Replacement needed - no eligible staff"
+    );
     expect(noReplace).toBeDefined();
     expect(noReplace!.message).toContain("Sunday Task");
   });
 
-  it("does not block cancellation if smart-swap fails", async () => {
+  it("does not block cancellation when no replacement can be allocated", async () => {
     const nextMon = getNextMonday();
     const task = await prisma.task.create({
       data: {
@@ -200,7 +196,7 @@ describe("Smart-Swap", () => {
       data: { taskId: task.id, membershipId: staffMembershipIds[0], assignedById: adminUserId, status: "assigned" },
     });
 
-    // Cancellation should always succeed regardless of smart-swap
+    // Cancellation remains valid even when coverage cannot be restored.
     const result = await taskService.cancelAssignment(a1.id, orgId, adminUserId);
     expect(result).toBeDefined();
   });
@@ -221,6 +217,6 @@ function setHour(date: Date, hour: number): Date {
   // Singapore hour. setHours() would set the runner's hour, so on a UTC
   // runner a "09:00 shift" became 17:00 SGT and fell outside the staff
   // member's availability window — making every candidate ineligible and
-  // suppressing the smart-swap suggestion this file exists to test.
+  // suppressing the replacement allocation this file exists to test.
   return atHourSgt(date, hour);
 }

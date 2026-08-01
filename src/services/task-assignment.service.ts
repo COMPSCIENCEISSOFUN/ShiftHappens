@@ -128,7 +128,7 @@ export class TaskAssignmentService {
     });
 
     const staffName = assignment.membership.user?.name || "A staff member";
-    void this.notificationService.notify(
+    await this.notificationService.notify(
       assignment.task.organizationId,
       assignment.assignedById,
       NOTIFICATION_TYPES.TASK_COMPLETED,
@@ -178,7 +178,7 @@ export class TaskAssignmentService {
     });
 
     const staffName = assignment.membership.user?.name || "A staff member";
-    void this.notificationService.notify(
+    await this.notificationService.notify(
       assignment.task.organizationId,
       assignment.assignedById,
       NOTIFICATION_TYPES.WITHDRAWAL_REQUESTED,
@@ -231,7 +231,7 @@ export class TaskAssignmentService {
         details: { taskTitle, reason: assignment.withdrawalReason },
       });
 
-      void this.notificationService.notify(
+      await this.notificationService.notify(
         assignment.task.organizationId,
         staffUserId,
         NOTIFICATION_TYPES.WITHDRAWAL_APPROVED,
@@ -240,6 +240,24 @@ export class TaskAssignmentService {
         "task",
         assignment.task.id
       );
+
+      try {
+        const { ReplacementAllocationService } = await import(
+          "@/services/replacement-allocation.service"
+        );
+        await new ReplacementAllocationService().fillCoverageGap({
+          taskId: assignment.task.id,
+          organizationId: assignment.task.organizationId,
+          actorUserId,
+          excludedMembershipIds: [assignment.membershipId],
+          removedStaffName:
+            assignment.membership.user?.name || "The withdrawn staff member",
+        });
+      } catch (error) {
+        // The withdrawal decision is already durable and must not be rolled back
+        // if replacement allocation encounters an external failure.
+        console.error("[Withdrawal Replacement Error]", error);
+      }
 
       return result;
     }
@@ -259,7 +277,7 @@ export class TaskAssignmentService {
       details: { taskTitle },
     });
 
-    void this.notificationService.notify(
+    await this.notificationService.notify(
       assignment.task.organizationId,
       staffUserId,
       NOTIFICATION_TYPES.WITHDRAWAL_DENIED,

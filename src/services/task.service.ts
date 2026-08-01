@@ -4,7 +4,7 @@
  * Business logic for task management including:
  * - Task CRUD with schedule validation
  * - Staff assignment with headcount and conflict checks
- * - Smart-swap: automatic replacement suggestions on cancellation
+ * - Automatic replacement allocation after assignment removal
  * - Department and staff task views
  * - Notification triggers on assignment
  */
@@ -429,7 +429,7 @@ export class TaskService {
     for (const membId of membershipIds) {
       const membership = await this.membershipRepo.findById(membId);
       if (membership) {
-        void this.notificationService.notifyIfEnabled(
+        await this.notificationService.notifyIfEnabled(
           organizationId,
           membership.userId,
           NOTIFICATION_TYPES.TASK_ASSIGNED,
@@ -446,9 +446,8 @@ export class TaskService {
 
   /**
    * Cancels a task assignment — admin/manager action.
-   * After cancellation, checks if the task is now understaffed.
-   * If understaffed, runs smart-swap: finds eligible replacements
-   * and notifies the admin with the top recommendation.
+   * After cancellation, recalculates coverage and assigns eligible,
+   * ranked replacements when the task is understaffed.
    */
   async cancelAssignment(assignmentId: string, orgId: string, userId?: string) {
     const assignment = await this.assignmentRepo.findById(assignmentId);
@@ -474,7 +473,7 @@ export class TaskService {
 
     // Tell the staff member they were removed from the task.
     if (assignment.membership?.userId) {
-      void this.notificationService.notifyIfEnabled(
+      await this.notificationService.notifyIfEnabled(
         assignment.task.organizationId,
         assignment.membership.userId,
         NOTIFICATION_TYPES.TASK_UNASSIGNED,
@@ -485,83 +484,22 @@ export class TaskService {
       );
     }
 
-    // Smart-swap: check if task is now understaffed and suggest replacement
-    void this.suggestReplacement(
-      assignment.task.id,
-      assignment.task.organizationId,
-      assignment.task.title,
-      assignment.task.requiredHeadcount,
-      assignment.membership?.user?.name || "A staff member",
-      userId
-    );
+    try {
+      const { ReplacementAllocationService } = await import(
+        "@/services/replacement-allocation.service"
+      );
+      await new ReplacementAllocationService().fillCoverageGap({
+        taskId: assignment.task.id,
+        organizationId: assignment.task.organizationId,
+        actorUserId: userId ?? assignment.assignedById,
+        excludedMembershipIds: [assignment.membershipId],
+        removedStaffName: assignment.membership?.user?.name || "A staff member",
+      });
+    } catch (error) {
+      console.error("[Replacement Allocation Error]", error);
+    }
 
     return result;
-  }
-
-  /**
-   * Smart-swap: Finds eligible replacement staff for an understaffed task
-   * and notifies the admin with the top recommendation.
-   * Fire-and-forget — never blocks or fails the cancellation.
-   */
-  private async suggestReplacement(
-    taskId: string,
-    organizationId: string,
-    taskTitle: string,
-    requiredHeadcount: number,
-    cancelledStaffName: string,
-    adminUserId?: string
-  ) {
-    try {
-      // Check if the task is now understaffed
-      const activeCount = await this.assignmentRepo.countActiveByTaskId(taskId);
-      if (activeCount >= requiredHeadcount) return;
-
-      const needed = requiredHeadcount - activeCount;
-
-      // Run eligibility to find available replacements
-      const eligibility = await this.eligibilityService.checkEligibilityForTask(
-        taskId,
-        organizationId
-      );
-
-      const eligibleStaff = eligibility
-        .filter((e) => e.eligible)
-        .map((e) => e.memberName);
-
-      if (eligibleStaff.length === 0) {
-        // Notify admin that no replacements are available
-        if (adminUserId) {
-          void this.notificationService.notify(
-            organizationId,
-            adminUserId,
-            NOTIFICATION_TYPES.TASK_ASSIGNED,
-            "Staff unassigned — no replacements",
-            `${cancelledStaffName} was removed from "${taskTitle}". No eligible staff available to fill the gap.`,
-            "task",
-            taskId
-          );
-        }
-        return;
-      }
-
-      // Notify admin with top replacement suggestions
-      const topSuggestions = eligibleStaff.slice(0, 3).join(", ");
-      const message = `${cancelledStaffName} was removed from "${taskTitle}" (needs ${needed} more). Recommended: ${topSuggestions}`;
-
-      if (adminUserId) {
-        void this.notificationService.notify(
-          organizationId,
-          adminUserId,
-          NOTIFICATION_TYPES.TASK_ASSIGNED,
-          "Smart swap — replacement suggested",
-          message,
-          "task",
-          taskId
-        );
-      }
-    } catch (error) {
-      console.error("[Smart-Swap Error]", error);
-    }
   }
 
   async getTasksByDepartment(departmentId: string) {

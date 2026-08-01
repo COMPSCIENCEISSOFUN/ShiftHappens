@@ -225,7 +225,7 @@ export const PRICING_FEATURES: PricingFeatureRow[] = [
   { name: 'AI-powered suggestions', free: true, pro: true, enterprise: true, category: 'ai' },
   { name: 'Smart auto-schedule', free: true, pro: true, enterprise: true, category: 'ai' },
   { name: 'Natural language tasks', free: true, pro: true, enterprise: true, category: 'ai' },
-  { name: 'Smart-swap replacements', free: true, pro: true, enterprise: true, category: 'ai' },
+  { name: 'Automatic smart-swap replacements', free: true, pro: true, enterprise: true, category: 'ai' },
   { name: 'AI dashboard insights', free: true, pro: true, enterprise: true, category: 'ai' },
   { name: 'Coverage gap detection', free: true, pro: true, enterprise: true, category: 'ai' },
   // Business tools

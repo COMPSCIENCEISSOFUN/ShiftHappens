@@ -637,7 +637,7 @@ const FEATURES = [
     icon: ArrowLeftRight,
     title: "Smart-Swap Replacements",
     description:
-      "When someone cancels, the system immediately finds qualified replacements and notifies you with the top recommendation.",
+      "When someone withdraws or is removed, the system recalculates coverage and assigns the best eligible replacement automatically.",
     featured: false,
   },
   {
@@ -993,7 +993,7 @@ const TESTIMONIALS = [
     role: "Store Manager",
     company: "Urban Threads Retail",
     quote:
-      "The smart-swap feature alone justified the switch. When someone calls in sick, I get a qualified replacement suggestion within seconds instead of working through a call list.",
+      "The smart-swap feature alone justified the switch. When someone calls in sick, the best qualified replacement is assigned automatically instead of me working through a call list.",
     rating: 5,
   },
   {
