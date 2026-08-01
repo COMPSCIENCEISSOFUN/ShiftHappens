@@ -203,7 +203,7 @@ export class ReportingRepository {
       where: {
         task: {
           organizationId,
-          ...(departmentIds?.length
+          ...(departmentIds != null
             ? { departmentId: { in: departmentIds } }
             : {}),
         },
@@ -237,7 +237,7 @@ export class ReportingRepository {
       where: {
         task: {
           organizationId,
-          ...(departmentIds?.length
+          ...(departmentIds != null
             ? { departmentId: { in: departmentIds } }
             : {}),
         },
@@ -265,7 +265,7 @@ export class ReportingRepository {
       where: {
         task: {
           organizationId,
-          ...(departmentIds?.length
+          ...(departmentIds != null
             ? { departmentId: { in: departmentIds } }
             : {}),
         },
@@ -312,7 +312,7 @@ export class ReportingRepository {
         organizationId,
         status: "active",
         role: { in: ["staff", "manager"] },
-        ...(departmentIds?.length
+        ...(departmentIds != null
           ? {
               departmentMemberships: {
                 some: { departmentId: { in: departmentIds } },
@@ -337,7 +337,7 @@ export class ReportingRepository {
         organizationId,
         status: "active",
         role: { in: ["staff", "manager"] },
-        ...(departmentIds?.length
+        ...(departmentIds != null
           ? {
               departmentMemberships: {
                 some: { departmentId: { in: departmentIds } },
@@ -461,7 +461,7 @@ export class ReportingRepository {
       where: {
         organizationId,
         status: { in: ["open", "in_progress"] },
-        ...(departmentIds?.length
+        ...(departmentIds != null
           ? { departmentId: { in: departmentIds } }
           : {}),
       },
@@ -510,7 +510,7 @@ export class ReportingRepository {
         status: { in: ["open", "in_progress"] },
         scheduledStart: { lt: endDate },
         scheduledEnd: { gt: startDate },
-        ...(departmentIds?.length
+        ...(departmentIds != null
           ? { departmentId: { in: departmentIds } }
           : {}),
       },
@@ -610,7 +610,7 @@ export class ReportingRepository {
       where: {
         task: {
           organizationId,
-          ...(departmentIds?.length
+          ...(departmentIds != null
             ? { departmentId: { in: departmentIds } }
             : {}),
         },
@@ -639,7 +639,7 @@ export class ReportingRepository {
         status: "pending",
         task: {
           organizationId,
-          ...(departmentIds?.length
+          ...(departmentIds != null
             ? { departmentId: { in: departmentIds } }
             : {}),
         },
@@ -686,7 +686,7 @@ export class ReportingRepository {
         updatedAt: { gte: since },
         task: {
           organizationId,
-          ...(departmentIds?.length
+          ...(departmentIds != null
             ? { departmentId: { in: departmentIds } }
             : {}),
         },
@@ -994,7 +994,7 @@ export class ReportingRepository {
       by: ["status"],
       where: {
         organizationId,
-        ...(departmentIds?.length
+        ...(departmentIds != null
           ? { departmentId: { in: departmentIds } }
           : {}),
       },
@@ -1070,7 +1070,7 @@ export class ReportingRepository {
         organizationId,
         status: { notIn: ["completed", "cancelled"] },
         scheduledStart: { gte: from, lte: to },
-        ...(departmentIds?.length
+        ...(departmentIds != null
           ? { departmentId: { in: departmentIds } }
           : {}),
       },

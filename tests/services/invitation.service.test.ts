@@ -379,3 +379,128 @@ describe("InvitationService", () => {
     });
   });
 });
+/**
+ * Accepting an invitation twice used to reach `membershipRepo.create` and hit
+ * the (userId, organizationId) unique constraint, surfacing as a raw Prisma
+ * P2002 that no route matched — so the caller got a 500.
+ *
+ * Two entirely ordinary situations land here: someone double-clicks Accept, or
+ * an admin adds the person manually between the invite being sent and opened.
+ * Neither is a server fault.
+ */
+
+/**
+ * A fresh, unexpired invitation for the given address. Token derived from the
+ * email so each test gets its own without a counter.
+ */
+async function createInvitationFor(email: string): Promise<string> {
+  const token = `tok-${email.split("@")[0]}`;
+  await prisma.invitationToken.create({
+    data: {
+      organizationId: orgId,
+      email,
+      role: "staff",
+      token,
+      invitedById: adminUserId,
+      expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+    },
+  });
+  return token;
+}
+
+describe("InvitationService.acceptInvitation — already a member", () => {
+  it("reports a clear error instead of a constraint violation", async () => {
+    const token = await createInvitationFor("dup@example.com");
+    await invitationService.acceptInvitation(token, {
+      name: "Dup User",
+      password: "SecurePass1!",
+    });
+
+    await expect(
+      invitationService.acceptInvitation(token, {
+        name: "Dup User",
+        password: "SecurePass1!",
+      })
+    ).rejects.toThrow(/already a member|Invalid or expired/);
+  });
+
+  it("does not raise a raw Prisma error", async () => {
+    // The specific regression: the message must be a domain sentence a route
+    // can map, not a database constraint name.
+    const token = await createInvitationFor("dup2@example.com");
+    await invitationService.acceptInvitation(token, {
+      name: "Dup User",
+      password: "SecurePass1!",
+    });
+
+    const error = await invitationService
+      .acceptInvitation(token, { name: "Dup User", password: "SecurePass1!" })
+      .catch((e: Error) => e);
+
+    expect(String((error as Error).message)).not.toMatch(/P2002|Unique constraint/i);
+  });
+
+  it("creates exactly one membership, not two", async () => {
+    const token = await createInvitationFor("dup3@example.com");
+    await invitationService.acceptInvitation(token, {
+      name: "Dup User",
+      password: "SecurePass1!",
+    });
+    await invitationService
+      .acceptInvitation(token, { name: "Dup User", password: "SecurePass1!" })
+      .catch(() => undefined);
+
+    const user = await prisma.user.findUnique({ where: { email: "dup3@example.com" } });
+    expect(
+      await prisma.membership.count({ where: { userId: user!.id, organizationId: orgId } })
+    ).toBe(1);
+  });
+
+  it("refuses a member who was added manually after the invite was sent", async () => {
+    // Not a double-click — a genuine race between an admin and the invitee.
+    const token = await createInvitationFor("manual@example.com");
+    const user = await prisma.user.create({
+      data: {
+        name: "Manual User",
+        email: "manual@example.com",
+        hashedPassword: "hash",
+        emailVerified: new Date(),
+      },
+    });
+    await prisma.membership.create({
+      data: { userId: user.id, organizationId: orgId, role: "staff", status: "active" },
+    });
+
+    await expect(
+      invitationService.acceptInvitation(token, {
+        name: "Manual User",
+        password: "SecurePass1!",
+      })
+    ).rejects.toThrow("You are already a member of this organization");
+  });
+
+  it("refuses a member who was deactivated rather than silently re-adding them", async () => {
+    // The inactive case is why the lookup deliberately includes inactive
+    // memberships: creating a second row for a deactivated member would still
+    // violate the constraint, so "not found" is not the same as "no membership".
+    const token = await createInvitationFor("inactive@example.com");
+    const user = await prisma.user.create({
+      data: {
+        name: "Inactive User",
+        email: "inactive@example.com",
+        hashedPassword: "hash",
+        emailVerified: new Date(),
+      },
+    });
+    await prisma.membership.create({
+      data: { userId: user.id, organizationId: orgId, role: "staff", status: "inactive" },
+    });
+
+    await expect(
+      invitationService.acceptInvitation(token, {
+        name: "Manual User",
+        password: "SecurePass1!",
+      })
+    ).rejects.toThrow("You are already a member of this organization");
+  });
+});

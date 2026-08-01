@@ -342,3 +342,53 @@ describe("HourAlertService.getOrganizationStatus — department scope", () => {
     expect(result.checked).toBe(1);
   });
 });
+
+/**
+ * An EMPTY department scope must mean "sees nothing", never "sees everything".
+ *
+ * `reporting.repository.ts` guarded twelve queries with `departmentIds?.length`,
+ * which is falsy for `[]` — so the filter was skipped entirely and a manager
+ * belonging to no department was handed the whole organisation. That is the
+ * opposite of what an empty scope means, and it is the exact shape of an
+ * accidental privilege escalation: the person with the least access gets the
+ * most.
+ *
+ * `TaskService.getByOrganization` always distinguished the two, so this brings
+ * the reporting layer into line with the convention the rest of the code uses.
+ */
+describe("Empty department scope means nothing, not everything", () => {
+  it("a manager in no department sees no report data", async () => {
+    const reports = await reportingService.getDashboardReports(orgId, []);
+
+    expect(reports.staffUtilization).toHaveLength(0);
+  });
+
+  it("a manager in no department sees no calendar coverage", async () => {
+    const coverage = await reportingService.getCalendarCoverage(orgId, []);
+
+    // The grid shape is fixed (7 days x 24 hours) regardless of scope — what an
+    // empty scope must zero out is the counts inside it, not the matrix itself.
+    const total = coverage.reduce((sum, cell) => sum + cell.count, 0);
+    expect(total).toBe(0);
+  });
+
+  it("a manager in no department sees no staff schedules", async () => {
+    const schedules = await reportingService.getAllStaffSchedules(orgId, []);
+
+    expect(schedules).toHaveLength(0);
+  });
+
+  it("an admin (null scope) still sees everything", async () => {
+    // The positive control. Null and [] must not be conflated in either
+    // direction — tightening [] would be worthless if it also broke null.
+    const reports = await reportingService.getDashboardReports(orgId, null);
+
+    expect(reports.staffUtilization.length).toBeGreaterThan(0);
+  });
+
+  it("an omitted scope still means unrestricted", async () => {
+    const reports = await reportingService.getDashboardReports(orgId);
+
+    expect(reports.staffUtilization.length).toBeGreaterThan(0);
+  });
+});

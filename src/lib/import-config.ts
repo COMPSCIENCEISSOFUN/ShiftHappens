@@ -47,14 +47,23 @@ export const HEADER_ALIASES: Record<string, string[]> = {
     "email", "e-mail", "email address", "mail",
   ],
   role: [
-    "role", "position", "job title", "type",
+    // "type" deliberately absent. A column headed "Type" in an HR export almost
+    // always means employment type, not job role — claiming it here made every
+    // row fail with `Unknown role: "Full-time"`, and the preview UI lets you
+    // correct values but not the column mapping, so the import was unrecoverable
+    // without editing the spreadsheet.
+    "role", "position", "job title",
   ],
   department: [
     "department", "dept", "team", "section", "unit",
   ],
   employmentType: [
-    "employment type", "work type", "contract type",
-    "emp type", "employment", "contract", "status",
+    // "status" deliberately absent — in an HR export it nearly always means
+    // active/inactive, so claiming it here made every row fail with
+    // `Unknown type: "Active"`. "employment status" is unambiguous and is
+    // accepted instead.
+    "employment type", "employment status", "work type", "contract type",
+    "emp type", "employment", "contract", "type",
   ],
 };
 

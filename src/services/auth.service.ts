@@ -83,6 +83,28 @@ export class AuthService {
    * Initiates password reset flow.
    * Silently succeeds for non-existent emails to prevent
    * email enumeration attacks (security best practice).
+   *
+   * ## Why the send is not awaited
+   *
+   * Returning the same response for both cases only hides the answer if both
+   * cases take the same TIME. Previously an unknown address returned the moment
+   * the user lookup missed, while a known one additionally waited on a token
+   * insert and a full HTTPS round trip to Resend — hundreds of milliseconds,
+   * consistently. Timing the endpoint therefore separated registered addresses
+   * from unregistered ones, defeating the exact control this method exists to
+   * provide.
+   *
+   * Not awaiting the send removes the large and variable part of that gap. The
+   * token insert remains, but it is a single indexed write on the same database
+   * connection — small enough to sit inside ordinary network jitter rather than
+   * standing out from it.
+   *
+   * The rejection handler is not optional. `void somePromise` discards the
+   * value but NOT a rejection — an unhandled rejection would still surface, and
+   * on some Node configurations terminate the process. `EmailService.dispatch`
+   * catches internally today and returns a boolean, but this method must not
+   * depend on that staying true. Following the project's fire-and-forget rule:
+   * never fail the primary operation, and always log rather than swallow.
    */
   async requestPasswordReset(email: string) {
     const user = await this.userRepo.findByEmail(email);
@@ -90,7 +112,11 @@ export class AuthService {
 
     const token = crypto.randomBytes(32).toString("hex");
     await this.tokenRepo.createPasswordResetToken(email, token);
-    await this.emailService.sendPasswordResetEmail(email, token);
+    void this.emailService
+      .sendPasswordResetEmail(email, token)
+      .catch((error) =>
+        console.error("[Password Reset] Email dispatch failed:", error)
+      );
   }
 
   /**

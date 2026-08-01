@@ -70,6 +70,15 @@ export async function POST(
     ) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
+    // Accepting an invitation you have already accepted — a double-click, or an
+    // admin who added you manually in the meantime. 409, not 500: the request
+    // was well-formed and the server is fine, the state just already holds.
+    if (
+      error instanceof Error &&
+      error.message === "You are already a member of this organization"
+    ) {
+      return NextResponse.json({ error: error.message }, { status: 409 });
+    }
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

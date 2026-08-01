@@ -154,3 +154,118 @@ describe("AuthService", () => {
     });
   });
 });
+/**
+ * `requestPasswordReset` answers identically for known and unknown addresses —
+ * that is the documented anti-enumeration control. But an identical response
+ * only hides the answer if it also takes the same TIME.
+ *
+ * It did not. An unknown address returned the instant the user lookup missed;
+ * a known one additionally waited on a token insert AND a full HTTPS round trip
+ * to Resend. That is a consistent, measurable difference of hundreds of
+ * milliseconds, and timing the endpoint separated registered addresses from
+ * unregistered ones — defeating the exact control the method exists to provide.
+ *
+ * Asserting on wall-clock timing directly would be flaky. These assert the
+ * behaviour that causes it instead: the send is dispatched but not awaited.
+ */
+describe("AuthService.requestPasswordReset — enumeration timing", () => {
+  it("does not wait for the email provider before returning", async () => {
+    await prisma.user.create({
+      data: {
+        name: "Known User",
+        email: "known@example.com",
+        hashedPassword: "hash",
+      },
+    });
+
+    // A send that never settles. If the method awaited it, this test would
+    // time out rather than pass.
+    const service = new AuthService();
+    const hang = vi
+      .spyOn(
+        (service as unknown as { emailService: { sendPasswordResetEmail: () => Promise<boolean> } })
+          .emailService,
+        "sendPasswordResetEmail"
+      )
+      .mockImplementation(() => new Promise<boolean>(() => {}));
+
+    try {
+      await expect(
+        service.requestPasswordReset("known@example.com")
+      ).resolves.toBeUndefined();
+      expect(hang).toHaveBeenCalledOnce();
+    } finally {
+      hang.mockRestore();
+    }
+  });
+
+  it("still creates the reset token for a known address", async () => {
+    // The send being fire-and-forget must not cost the token — otherwise the
+    // link in the email would never validate.
+    await prisma.user.create({
+      data: {
+        name: "Known User",
+        email: "known2@example.com",
+        hashedPassword: "hash",
+      },
+    });
+
+    await authService.requestPasswordReset("known2@example.com");
+
+    const token = await prisma.passwordResetToken.findFirst({
+      where: { email: "known2@example.com" },
+    });
+    expect(token).not.toBeNull();
+  });
+
+  it("creates no token and reveals nothing for an unknown address", async () => {
+    await expect(
+      authService.requestPasswordReset("nobody@example.com")
+    ).resolves.toBeUndefined();
+
+    expect(
+      await prisma.passwordResetToken.count({ where: { email: "nobody@example.com" } })
+    ).toBe(0);
+  });
+
+  it("does not fail the request when the provider errors", async () => {
+    // A dead mail provider must not turn a deliberately silent endpoint into a
+    // 500, which would itself reveal that the address exists.
+    await prisma.user.create({
+      data: {
+        name: "Known User",
+        email: "known3@example.com",
+        hashedPassword: "hash",
+      },
+    });
+
+    const service = new AuthService();
+    const boom = vi
+      .spyOn(
+        (service as unknown as { emailService: { sendPasswordResetEmail: () => Promise<boolean> } })
+          .emailService,
+        "sendPasswordResetEmail"
+      )
+      .mockRejectedValue(new Error("provider down"));
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      await expect(
+        service.requestPasswordReset("known3@example.com")
+      ).resolves.toBeUndefined();
+
+      // Assert the LOG, not merely the absence of a throw. `void promise`
+      // discards the value but not the rejection, so without an explicit
+      // handler this would be an unhandled rejection rather than a logged one —
+      // and "it did not throw" would pass either way.
+      await new Promise((r) => setTimeout(r, 10));
+      expect(logged).toHaveBeenCalledWith(
+        expect.stringContaining("[Password Reset] Email dispatch failed"),
+        expect.anything()
+      );
+    } finally {
+      boom.mockRestore();
+      logged.mockRestore();
+    }
+  });
+});

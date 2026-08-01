@@ -89,6 +89,25 @@ export class InvitationService {
     // TODO: Remove cast after running `npx prisma generate` — employmentType
     // was added in migration 20260726000000; Prisma types will include it.
     const invitationEmploymentType = (invitation as typeof invitation & { employmentType?: string | null }).employmentType;
+
+    // Already a member? Say so, rather than letting Prisma raise a raw P2002 on
+    // the (userId, organizationId) unique constraint — that surfaced as an
+    // unmapped 500. Two ordinary situations reach here: a double-click on
+    // Accept, and an admin adding the person manually between the invite being
+    // sent and it being opened. Neither is a server fault.
+    //
+    // The invitation is consumed either way. Leaving it open would let a stale
+    // link keep failing forever, and the person IS in the organisation, which
+    // is the outcome the invitation was for.
+    const existing = await this.membershipRepo.findByUserAndOrgIncludingInactive(
+      user!.id,
+      invitation.organizationId
+    );
+    if (existing) {
+      await this.invitationRepo.markAccepted(invitation.id);
+      throw new Error("You are already a member of this organization");
+    }
+
     const membership = await this.membershipRepo.create({
       userId: user!.id,
       organizationId: invitation.organizationId,

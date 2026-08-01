@@ -47,7 +47,7 @@ export class TaskAssignmentRepository {
       include: {
         task: {
           include: {
-            department: { select: { id: true, name: true } },
+            department: { select: { id: true, name: true, color: true } },
           },
         },
         membership: {
@@ -89,7 +89,7 @@ export class TaskAssignmentRepository {
       include: {
         task: {
           include: {
-            department: { select: { id: true, name: true } },
+            department: { select: { id: true, name: true, color: true } },
             createdBy: { select: { id: true, name: true } },
           },
         },

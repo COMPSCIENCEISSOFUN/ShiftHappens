@@ -203,3 +203,73 @@ describe("TaskAssignmentRepository", () => {
     });
   });
 });
+/**
+ * Department `color` must be present in EVERY task-department select.
+ *
+ * The project's own standing rule, and these two methods were the only selects
+ * in the codebase that omitted it — every other task-department select in
+ * `task.repository.ts` and `reporting.repository.ts` includes it. Latent rather
+ * than visible today, because the My Tasks page happens to render the name
+ * only; the moment anything shows a department chip from either of these it
+ * renders colourless beside the same department shown correctly elsewhere.
+ */
+describe("TaskAssignmentRepository — department colour is selected", () => {
+  /** A task inside a coloured department — the shared fixture task has none. */
+  async function colouredTask() {
+    const dept = await prisma.department.create({
+      data: { name: "Kitchen", organizationId: orgId, color: "#EF4444" },
+    });
+    const task = await taskRepo.create({
+      title: "Coloured task",
+      organizationId: orgId,
+      departmentId: dept.id,
+      createdById: userId,
+    });
+    return task.id;
+  }
+
+  it("findById returns the department colour", async () => {
+    const id = await colouredTask();
+    const assignment = await assignmentRepo.create({
+      taskId: id,
+      membershipId,
+      assignedById: userId,
+      status: "pending",
+    });
+
+    const found = await assignmentRepo.findById(assignment.id);
+
+    expect(found!.task.department).not.toBeNull();
+    expect(found!.task.department!.color).toBe("#EF4444");
+  });
+
+  it("findByMembershipId returns the department colour", async () => {
+    const id = await colouredTask();
+    await assignmentRepo.create({
+      taskId: id,
+      membershipId,
+      assignedById: userId,
+      status: "pending",
+    });
+
+    const rows = await assignmentRepo.findByMembershipId(membershipId);
+
+    const row = rows.find((r) => r.task.id === id);
+    expect(row!.task.department!.color).toBe("#EF4444");
+  });
+
+  it("still handles a task with no department", async () => {
+    // The fixture task is department-less; selecting an extra column must not
+    // change how that case behaves.
+    const assignment = await assignmentRepo.create({
+      taskId,
+      membershipId,
+      assignedById: userId,
+      status: "pending",
+    });
+
+    const found = await assignmentRepo.findById(assignment.id);
+
+    expect(found!.task.department).toBeNull();
+  });
+});

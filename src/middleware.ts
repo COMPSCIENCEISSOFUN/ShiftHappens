@@ -52,12 +52,44 @@ function getTier(pathname: string): keyof typeof TIER_LIMITS {
   return "relaxed";
 }
 
+/**
+ * The client's IP, as far as it can be trusted.
+ *
+ * ## Why not the first x-forwarded-for entry
+ *
+ * X-Forwarded-For is `client, proxy1, proxy2` — and the LEFT-most entry is
+ * whatever the caller sent. A client can put anything there; the proxy appends
+ * rather than replaces. Reading `[0]` therefore let anyone mint a fresh rate
+ * limit bucket per request simply by varying a header, which made the 5/min
+ * cap on credential sign-in decorative rather than protective.
+ *
+ * Behind exactly one trusted proxy — which is what Vercel is — the entry the
+ * proxy appended is the LAST one, and it is the only one the caller could not
+ * forge. So: prefer `x-real-ip`, which the platform sets and overwrites, and
+ * otherwise take the right-most forwarded entry.
+ *
+ * ⚠️ If this app is ever put behind a second proxy (a CDN in front of Vercel,
+ * say), the right-most entry becomes that proxy's address and every caller
+ * collapses into one bucket. At that point this needs to skip a known number of
+ * trusted hops instead. Nothing here can detect that automatically.
+ */
 function getClientIp(request: NextRequest): string {
-  return (
-    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-    request.headers.get("x-real-ip") ||
-    "unknown"
-  );
+  const realIp = request.headers.get("x-real-ip")?.trim();
+  if (realIp) return realIp;
+
+  const forwarded = request.headers.get("x-forwarded-for");
+  if (forwarded) {
+    const hops = forwarded
+      .split(",")
+      .map((h) => h.trim())
+      .filter(Boolean);
+    if (hops.length > 0) return hops[hops.length - 1];
+  }
+
+  // Everything without a usable address shares one bucket. That is deliberately
+  // strict: an unidentifiable caller should be limited alongside every other
+  // unidentifiable caller rather than handed its own allowance.
+  return "unknown";
 }
 
 export function middleware(request: NextRequest) {
