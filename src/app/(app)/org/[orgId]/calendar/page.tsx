@@ -21,6 +21,18 @@ import { CalendarAssignModal } from "@/components/calendar/calendar-assign-modal
 import { PageLoading } from "@/components/ui/page-loading";
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { StatTile } from "@/components/ui/stat-tile";
+import {
+  businessDayRange,
+  businessDayStart,
+  operatingWindowHours,
+} from "@/lib/business-day";
+import {
+  currentTimePosition,
+  gridHoursFor,
+  gridRows,
+  taskBlockPosition,
+} from "@/lib/calendar-grid";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -165,21 +177,6 @@ function avatarColour(name: string | null): string {
 /*  Stat Tile                                                          */
 /* ------------------------------------------------------------------ */
 
-function StatTile({
-  label, value, detail, accentColour, valueColour,
-}: {
-  label: string; value: string | number; detail: string;
-  accentColour: string; valueColour?: string;
-}) {
-  return (
-    <div className="relative overflow-hidden rounded-xl border border-border bg-card p-3.5 sm:p-4">
-      <div className="absolute right-0 top-0 h-10 w-10 rounded-bl-[40px]" style={{ background: accentColour }} />
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</p>
-      <p className={`mt-1 text-xl font-bold tracking-tight sm:text-2xl ${valueColour ?? ""}`}>{value}</p>
-      <p className="mt-0.5 text-[11px] text-muted-foreground">{detail}</p>
-    </div>
-  );
-}
 
 /* ------------------------------------------------------------------ */
 /*  Task Detail Panel (shared)                                         */
@@ -347,22 +344,83 @@ export default function CalendarPage() {
     } catch { /* non-critical */ }
   }
 
+  /**
+   * Reads the member-scoped settings route, NOT `/settings`.
+   *
+   * `/settings` is company-admin only. This page is rendered for managers and
+   * staff as well, who got a 403 that `if (res.ok)` quietly discarded — leaving
+   * the hard-coded 6–22 defaults in place. An admin who set 08:00–20:00 saw one
+   * grid and their team saw another, with nothing anywhere reporting a problem.
+   */
   async function fetchSettings() {
     try {
-      const res = await fetch(`/api/organizations/${orgId}/settings`);
+      const res = await fetch(`/api/organizations/${orgId}/settings/display`);
       if (res.ok) {
         const data = await res.json();
-        if (data.operatingHoursStart !== undefined) setOpStart(data.operatingHoursStart);
-        if (data.operatingHoursEnd !== undefined) setOpEnd(data.operatingHoursEnd);
+        if (typeof data.operatingHoursStart === "number") setOpStart(data.operatingHoursStart);
+        if (typeof data.operatingHoursEnd === "number") setOpEnd(data.operatingHoursEnd);
       }
     } catch { /* use defaults */ }
   }
 
-  const HOURS = Array.from({ length: opEnd - opStart }, (_, i) => i + opStart);
-  const totalHours = HOURS.length;
+  // Declared before the grid geometry below, which sizes itself from the tasks
+  // actually on screen and therefore needs the department filter already
+  // applied.
+  const departments = Array.from(
+    new Map(tasks.filter((t) => t.department).map((t) => [t.department!.id, t.department!])).values()
+  ).sort((a, b) => a.name.localeCompare(b.name));
 
-  function getCoverageCount(dayOfWeek: number, hour: number): number {
-    return coverage.find((c) => c.dayOfWeek === dayOfWeek && c.hour === hour)?.count ?? 0;
+  const filteredTasks = filterDept ? tasks.filter((t) => t.department?.id === filterDept) : tasks;
+  const unscheduledCount = filteredTasks.filter((t) => !t.scheduledStart || !t.scheduledEnd).length;
+
+  /* ------------------------------------------------------------------ */
+  /*  Grid geometry                                                      */
+  /*                                                                     */
+  /*  The grid is anchored to the organisation's BUSINESS DAY, which     */
+  /*  begins at `operatingHoursStart` rather than at midnight. Two       */
+  /*  consequences are worth stating, because both were bugs:            */
+  /*                                                                     */
+  /*   - A row is an offset from the day's start, not a clock hour. With */
+  /*     a 20:00 boundary, row 6 is 02:00 the NEXT calendar day, and     */
+  /*     anything keyed by weekday (the coverage heat map) has to know   */
+  /*     that.                                                           */
+  /*   - The window is a DEFAULT viewport, not a clip. It grows to cover */
+  /*     any scheduled work that falls outside it, because a calendar    */
+  /*     that silently omits a shift is worse than one that looks        */
+  /*     untidy. Previously a 22:00–06:00 shift computed a NEGATIVE      */
+  /*     height, was clamped to a 2% sliver and pinned to the bottom     */
+  /*     edge of the grid — present, but unreadable and in the wrong     */
+  /*     place.                                                          */
+  /* ------------------------------------------------------------------ */
+
+  const dayStartHour = opStart;
+  const windowHours = operatingWindowHours(opStart, opEnd);
+
+  const visibleDates = viewMode === "week" ? getWeekDates(weekStart) : [selectedDate];
+
+  /**
+   * How many hours the grid must span to show every scheduled shift on the
+   * visible days. Never less than the operating window, never more than a full
+   * business day — anything longer than that continues into the next column.
+   */
+  const gridHours = gridHoursFor(visibleDates, filteredTasks, dayStartHour, windowHours);
+
+  /**
+   * One row per hour of the grid. `dayOffset` is 1 for rows that have crossed
+   * midnight into the next calendar day, which the coverage lookup needs in
+   * order to read the right weekday.
+   */
+  const HOURS = gridRows(dayStartHour, gridHours);
+
+  type HourRow = (typeof HOURS)[number];
+
+  function getCoverageCount(dayOfWeek: number, row: HourRow): number {
+    // Past midnight the row belongs to the following weekday, so a 02:00 row in
+    // Friday's column must read Saturday's coverage.
+    const weekday = (dayOfWeek + row.dayOffset) % 7;
+    return (
+      coverage.find((c) => c.dayOfWeek === weekday && c.hour === row.clockHour)?.count ?? 0
+    );
   }
 
   function prevWeek() { const d = new Date(weekStart); d.setDate(d.getDate() - 7); setPinnedWeekStart(d); }
@@ -373,19 +431,11 @@ export default function CalendarPage() {
   function prevDay() { const d = new Date(selectedDate); d.setDate(d.getDate() - 1); setSelectedDate(d); }
   function nextDay() { const d = new Date(selectedDate); d.setDate(d.getDate() + 1); setSelectedDate(d); }
 
-  const weekDates = getWeekDates(weekStart);
+  const weekDates = visibleDates.length === 7 ? visibleDates : getWeekDates(weekStart);
   const weekEnd = new Date(weekStart); weekEnd.setDate(weekEnd.getDate() + 7);
   // Derived from the same ticking clock as the now-line so the highlighted
   // column and the line can never disagree about which day it is.
   const today = currentTime;
-  const todayStr = today.toDateString();
-
-  const departments = Array.from(
-    new Map(tasks.filter((t) => t.department).map((t) => [t.department!.id, t.department!])).values()
-  ).sort((a, b) => a.name.localeCompare(b.name));
-
-  const filteredTasks = filterDept ? tasks.filter((t) => t.department?.id === filterDept) : tasks;
-  const unscheduledCount = filteredTasks.filter((t) => !t.scheduledStart || !t.scheduledEnd).length;
 
   function getScheduledTasks(startDate: Date, endDate: Date): Task[] {
     return filteredTasks.filter((t) => {
@@ -394,27 +444,55 @@ export default function CalendarPage() {
     });
   }
 
+  /**
+   * Tasks that OVERLAP the business day, not tasks that start on the calendar
+   * date.
+   *
+   * The old start-date test meant a shift running 22:00–06:00 belonged only to
+   * the day it began; the hours it worked on the following day were absent from
+   * that day's column, its staffing counts and its understaffed tally. A shift
+   * spanning several days appeared on the first one alone.
+   */
   function getTasksForDay(date: Date): Task[] {
+    const { start, end } = businessDayRange(date, dayStartHour);
     return filteredTasks.filter((t) => {
-      if (!t.scheduledStart) return false;
-      return new Date(t.scheduledStart).toDateString() === date.toDateString();
+      if (!t.scheduledStart || !t.scheduledEnd) return false;
+      return new Date(t.scheduledStart) < end && new Date(t.scheduledEnd) > start;
     });
   }
 
-  function getTaskPosition(task: Task) {
-    const start = new Date(task.scheduledStart!);
-    const end = new Date(task.scheduledEnd!);
-    const startHour = start.getHours() + start.getMinutes() / 60;
-    const endHour = end.getHours() + end.getMinutes() / 60;
-    const top = ((startHour - opStart) / totalHours) * 100;
-    const height = ((endHour - startHour) / totalHours) * 100;
-    return { top: `${top}%`, height: `${Math.max(height, 2)}%` };
+  /** True when two instants fall in the same business day. */
+  function isSameBusinessDay(a: Date, b: Date): boolean {
+    return (
+      businessDayStart(a, dayStartHour).getTime() ===
+      businessDayStart(b, dayStartHour).getTime()
+    );
+  }
+
+  /**
+   * Where a task sits within one day's column, CLIPPED to that column.
+   *
+   * A shift crossing the boundary therefore renders once per day it touches,
+   * each piece in the right place, and the `continuesBefore` / `continuesAfter`
+   * flags let the block be drawn as a continuation rather than as two unrelated
+   * shifts. Returns null when there is no overlap at all, so the caller draws
+   * nothing rather than a zero-height artefact.
+   */
+  function getTaskPosition(task: Task, date: Date) {
+    const block = taskBlockPosition(task, date, dayStartHour, gridHours);
+    if (!block) return null;
+    return {
+      top: `${block.topPercent}%`,
+      // A two-percent floor keeps a very short shift clickable. It is a floor
+      // now, not a rescue from a negative number as it once was.
+      height: `${Math.max(block.heightPercent, 2)}%`,
+      continuesBefore: block.continuesBefore,
+      continuesAfter: block.continuesAfter,
+    };
   }
 
   function getCurrentTimePosition(): number | null {
-    const hour = currentTime.getHours() + currentTime.getMinutes() / 60;
-    if (hour < opStart || hour > opEnd) return null;
-    return ((hour - opStart) / totalHours) * 100;
+    return currentTimePosition(currentTime, dayStartHour, gridHours);
   }
 
   function getStaffForDay(date: Date) {
@@ -450,7 +528,12 @@ export default function CalendarPage() {
   // Coverage percentage: scheduled hours with ≥ 1 staff / total scheduled hours
   const coveragePercent = (() => {
     if (coverage.length === 0) return null;
-    const relevant = coverage.filter((c) => c.hour >= opStart && c.hour < opEnd);
+    // Matched against the hours the grid actually shows. The old
+    // `hour >= opStart && hour < opEnd` comparison silently selected NOTHING
+    // for a window that wraps past midnight — 22:00–06:00 has no hour that is
+    // both ≥ 22 and < 6 — so a night-shift organisation's coverage read "—".
+    const gridClockHours = new Set(HOURS.map((row) => row.clockHour));
+    const relevant = coverage.filter((c) => gridClockHours.has(c.hour));
     if (relevant.length === 0) return null;
     const covered = relevant.filter((c) => c.count > 0).length;
     return Math.round((covered / relevant.length) * 100);
@@ -471,7 +554,7 @@ export default function CalendarPage() {
   if (viewMode === "day") {
     const dayTasks = getTasksForDay(selectedDate);
     const overlapMap = calculateOverlapColumns(dayTasks);
-    const isToday = selectedDate.toDateString() === todayStr;
+    const isToday = isSameBusinessDay(selectedDate, currentTime);
     const dayStaff = getStaffForDay(selectedDate);
     const dow = selectedDate.getDay();
 
@@ -532,23 +615,23 @@ export default function CalendarPage() {
         <div className="flex flex-col gap-0 lg:flex-row">
           {/* Day grid */}
           <div className="flex-1 overflow-hidden rounded-xl border border-border bg-card lg:rounded-r-none lg:border-r-0">
-            <div className="grid" style={{ gridTemplateColumns: "50px 1fr", minHeight: `${totalHours * 48}px` }}>
+            <div className="grid" style={{ gridTemplateColumns: "50px 1fr", minHeight: `${gridHours * 48}px` }}>
               {/* Hour labels */}
               <div className="border-r border-border">
-                {HOURS.map((hour) => (
-                  <div key={hour} className="flex items-start border-b border-border px-2 pt-1 text-[11px] text-muted-foreground" style={{ height: `${100 / totalHours}%` }}>
-                    {formatHourLabel(hour)}
+                {HOURS.map((row) => (
+                  <div key={row.index} className="flex items-start border-b border-border px-2 pt-1 text-[11px] text-muted-foreground" style={{ height: `${100 / gridHours}%` }}>
+                    {formatHourLabel(row.clockHour)}
                   </div>
                 ))}
               </div>
 
               {/* Day column */}
               <div className={`relative ${isToday ? "bg-indigo-50/30 dark:bg-indigo-950/20" : ""}`}>
-                {HOURS.map((hour) => {
-                  const count = getCoverageCount(dow, hour);
+                {HOURS.map((row) => {
+                  const count = getCoverageCount(dow, row);
                   return (
-                    <div key={hour} className="relative border-b border-border" style={{
-                      height: `${100 / totalHours}%`,
+                    <div key={row.index} className="relative border-b border-border" style={{
+                      height: `${100 / gridHours}%`,
                       backgroundColor: showCoverage && coverage.length > 0 ? getCoverageTint(count, isDark) : undefined,
                     }}>
                       {showCoverage && coverage.length > 0 && (
@@ -568,7 +651,8 @@ export default function CalendarPage() {
 
                 {/* Task blocks */}
                 {dayTasks.map((task) => {
-                  const pos = getTaskPosition(task);
+                  const pos = getTaskPosition(task, selectedDate);
+                  if (!pos) return null;
                   const color = task.department?.color || "#94A3B8";
                   const overlap = overlapMap.get(task.id) || { column: 0, totalColumns: 1 };
                   const widthPercent = 100 / overlap.totalColumns;
@@ -579,16 +663,25 @@ export default function CalendarPage() {
                   return (
                     <div
                       key={task.id}
-                      className="absolute cursor-pointer overflow-hidden rounded-lg px-2.5 py-2 transition-all hover:shadow-md hover:-translate-y-px z-10"
+                      className="absolute cursor-pointer overflow-hidden px-2.5 py-2 transition-all hover:shadow-md hover:-translate-y-px z-10"
                       style={{
                         top: pos.top, height: pos.height,
                         left: `calc(${leftPercent}% + 4px)`, width: `calc(${widthPercent}% - 8px)`,
                         backgroundColor: `${color}15`, borderLeft: `4px solid ${color}`,
+                        // Square off the edge a shift runs through, so a piece
+                        // continuing into the next day reads as one shift split
+                        // across columns rather than two separate ones.
+                        borderTopLeftRadius: pos.continuesBefore ? 0 : "0.5rem",
+                        borderTopRightRadius: pos.continuesBefore ? 0 : "0.5rem",
+                        borderBottomLeftRadius: pos.continuesAfter ? 0 : "0.5rem",
+                        borderBottomRightRadius: pos.continuesAfter ? 0 : "0.5rem",
                         ...(isUnderstaffed ? { outline: "1.5px dashed #F59E0B", outlineOffset: "-1px" } : {}),
                       }}
                       onClick={() => setSelectedTask(selectedTask?.id === task.id ? null : task)}
                     >
-                      <div className="truncate text-[13px] font-semibold" style={{ color }}>{task.title}</div>
+                      <div className="truncate text-[13px] font-semibold" style={{ color }}>
+                        {pos.continuesBefore && "↑ "}{task.title}{pos.continuesAfter && " ↓"}
+                      </div>
                       <div className="mt-0.5 text-[11px] text-muted-foreground">
                         {new Date(task.scheduledStart!).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} — {new Date(task.scheduledEnd!).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
                       </div>
@@ -619,7 +712,7 @@ export default function CalendarPage() {
           </div>
 
           {/* Staff sidebar */}
-          <div className="w-full overflow-hidden rounded-xl border border-border bg-card lg:w-[280px] lg:rounded-l-none lg:border-l-0" style={{ maxHeight: `${totalHours * 48 + 2}px` }}>
+          <div className="w-full overflow-hidden rounded-xl border border-border bg-card lg:w-[280px] lg:rounded-l-none lg:border-l-0" style={{ maxHeight: `${gridHours * 48 + 2}px` }}>
             {/* Sidebar header */}
             <div className="sticky top-0 z-[2] flex items-center justify-between border-b border-border bg-card px-4 py-3">
               <h3 className="text-[13px] font-semibold">Staff — {DAYS[dow]}</h3>
@@ -627,7 +720,7 @@ export default function CalendarPage() {
             </div>
 
             {/* Staff list */}
-            <div className="overflow-y-auto p-2" style={{ maxHeight: `${totalHours * 48 - 80}px` }}>
+            <div className="overflow-y-auto p-2" style={{ maxHeight: `${gridHours * 48 - 80}px` }}>
               {dayStaff.length === 0 ? (
                 <p className="py-6 text-center text-xs text-muted-foreground">No staff data</p>
               ) : (
@@ -821,7 +914,7 @@ export default function CalendarPage() {
           {weekDates.map((date, i) => {
             const dayTasksForHeader = getTasksForDay(date);
             const dayDepts = Array.from(new Set(dayTasksForHeader.map((t) => t.department?.color).filter(Boolean)));
-            const isDateToday = date.toDateString() === todayStr;
+            const isDateToday = isSameBusinessDay(date, currentTime);
 
             return (
               <div
@@ -846,12 +939,12 @@ export default function CalendarPage() {
         </div>
 
         {/* Grid body */}
-        <div className="grid" style={{ gridTemplateColumns: "50px repeat(7, 1fr)", minHeight: `${totalHours * 40}px`, minWidth: "640px" }}>
+        <div className="grid" style={{ gridTemplateColumns: "50px repeat(7, 1fr)", minHeight: `${gridHours * 40}px`, minWidth: "640px" }}>
           {/* Hour labels */}
           <div className="border-r border-border">
-            {HOURS.map((hour) => (
-              <div key={hour} className="flex items-start border-b border-border px-2 pt-1 text-[11px] text-muted-foreground" style={{ height: `${100 / totalHours}%` }}>
-                {formatHourLabel(hour)}
+            {HOURS.map((row) => (
+              <div key={row.index} className="flex items-start border-b border-border px-2 pt-1 text-[11px] text-muted-foreground" style={{ height: `${100 / gridHours}%` }}>
+                {formatHourLabel(row.clockHour)}
               </div>
             ))}
           </div>
@@ -860,16 +953,16 @@ export default function CalendarPage() {
           {weekDates.map((date, dayIndex) => {
             const dayTasks = getTasksForDay(date);
             const overlapMap = calculateOverlapColumns(dayTasks);
-            const isToday = date.toDateString() === todayStr;
+            const isToday = isSameBusinessDay(date, currentTime);
             const dow = date.getDay();
 
             return (
               <div key={dayIndex} className={`relative border-r border-border last:border-r-0 ${isToday ? "bg-indigo-50/30 dark:bg-indigo-950/20" : ""}`}>
-                {HOURS.map((hour) => {
-                  const count = getCoverageCount(dow, hour);
+                {HOURS.map((row) => {
+                  const count = getCoverageCount(dow, row);
                   return (
-                    <div key={hour} className="relative border-b border-border" style={{
-                      height: `${100 / totalHours}%`,
+                    <div key={row.index} className="relative border-b border-border" style={{
+                      height: `${100 / gridHours}%`,
                       backgroundColor: showCoverage && coverage.length > 0 ? getCoverageTint(count, isDark) : undefined,
                     }}>
                       {showCoverage && coverage.length > 0 && (
@@ -889,7 +982,8 @@ export default function CalendarPage() {
 
                 {/* Task blocks */}
                 {dayTasks.map((task) => {
-                  const pos = getTaskPosition(task);
+                  const pos = getTaskPosition(task, date);
+                  if (!pos) return null;
                   const color = task.department?.color || "#94A3B8";
                   const overlap = overlapMap.get(task.id) || { column: 0, totalColumns: 1 };
                   const widthPercent = 100 / overlap.totalColumns;
@@ -900,16 +994,22 @@ export default function CalendarPage() {
                   return (
                     <div
                       key={task.id}
-                      className="absolute cursor-pointer overflow-hidden rounded-md px-1 py-0.5 text-xs transition-opacity hover:opacity-90 z-10"
+                      className="absolute cursor-pointer overflow-hidden px-1 py-0.5 text-xs transition-opacity hover:opacity-90 z-10"
                       style={{
                         top: pos.top, height: pos.height,
                         left: `calc(${leftPercent}% + 2px)`, width: `calc(${widthPercent}% - 4px)`,
                         backgroundColor: `${color}20`, borderLeft: `3px solid ${color}`,
+                        borderTopLeftRadius: pos.continuesBefore ? 0 : "0.375rem",
+                        borderTopRightRadius: pos.continuesBefore ? 0 : "0.375rem",
+                        borderBottomLeftRadius: pos.continuesAfter ? 0 : "0.375rem",
+                        borderBottomRightRadius: pos.continuesAfter ? 0 : "0.375rem",
                         ...(isUnderstaffed ? { outline: "1.5px dashed #F59E0B", outlineOffset: "-1px" } : {}),
                       }}
                       onClick={() => setSelectedTask(selectedTask?.id === task.id ? null : task)}
                     >
-                      <div className="truncate font-medium" style={{ color }}>{task.title}</div>
+                      <div className="truncate font-medium" style={{ color }}>
+                        {pos.continuesBefore && "↑ "}{task.title}{pos.continuesAfter && " ↓"}
+                      </div>
                       {parseFloat(pos.height) > 8 && (
                         <div className="truncate text-muted-foreground" style={{ fontSize: "10px" }}>{activeCount}/{task.requiredHeadcount} staff</div>
                       )}

@@ -190,6 +190,16 @@ export const updateRoleSchema = z.object({
  * Validates company settings updates.
  * allocationMode: manual (admin picks), suggested (AI suggests), auto (AI assigns)
  * taskAcceptanceMode: auto_accept (instant) or require_acceptance (staff confirms)
+ *
+ * Operating hours are two plain hour integers, and ANY pair is legal. There is
+ * deliberately no cross-field rule that the end must be after the start:
+ * `end <= start` means the window runs past midnight, which is how a business
+ * open 20:00–04:00 states its hours. Requiring end > start made a night-time
+ * operation literally unable to describe itself, and — because
+ * `operatingHoursStart` is also the organisation's day boundary — forced every
+ * organisation onto a boundary somewhere in the morning.
+ *
+ * See `@/lib/business-day` for how the pair is interpreted.
  */
 export const updateCompanySettingsSchema = z.object({
   allocationMode: z.enum(["manual", "suggested", "auto"]).optional(),

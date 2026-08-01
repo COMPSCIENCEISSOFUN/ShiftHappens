@@ -8,8 +8,17 @@
  * Notification preferences are stored as JSON string in the database
  * but accepted as objects in the API for ease of use.
  *
- * Operating hours are validated in merged state — even partial
- * updates are checked against existing values to ensure end > start.
+ * ## Operating hours are no longer range-checked
+ *
+ * This service used to reject any update whose merged result had
+ * `operatingHoursEnd <= operatingHoursStart`. That rule looked like sensible
+ * input validation and was in fact a modelling error: it made a window that
+ * runs past midnight inexpressible, so a business trading 20:00–04:00 could
+ * not enter its own hours, and every organisation was forced onto a day
+ * boundary somewhere in the morning.
+ *
+ * Any pair of hours is now accepted and `end <= start` means the window wraps.
+ * `@/lib/business-day` is the single place that interprets the pair.
  */
 import { SettingsRepository } from "@/repositories/settings.repository";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
@@ -25,10 +34,27 @@ export class SettingsService {
   }
 
   /**
+   * Returns only the fields any member of the organisation may see.
+   *
+   * The full settings read is company-admin only, and rightly so — it carries
+   * allocation strategy, notification policy and smart-allocation weights. But
+   * the calendar needs the operating hours to draw its grid, and it is rendered
+   * for managers and staff too. Without this they received a 403, the fetch
+   * failed silently, and the component fell back to its hard-coded 6–22
+   * defaults: an admin who set 08:00–20:00 saw one grid and their staff saw a
+   * different one, with no error anywhere to explain it.
+   */
+  async getDisplaySettings(organizationId: string) {
+    const settings = await this.settingsRepo.getOrCreate(organizationId);
+    return {
+      operatingHoursStart: settings.operatingHoursStart,
+      operatingHoursEnd: settings.operatingHoursEnd,
+    };
+  }
+
+  /**
    * Updates company settings.
    * Ensures settings exist before updating (lazy init).
-   * Validates operating hours in merged state (partial updates
-   * are checked against existing values so end > start always holds).
    * Serializes notification preferences to JSON for storage.
    */
   async updateSettings(
@@ -36,8 +62,12 @@ export class SettingsService {
     input: UpdateCompanySettingsInput,
     userId?: string
   ) {
-    // Ensure settings exist and get current values for merge validation
-    const existing = await this.settingsRepo.getOrCreate(organizationId);
+    // Lazy init. The return value was previously bound in order to merge the
+    // operating hours before range-checking them; that rule is gone, so this is
+    // now purely "make sure the row exists before we update it" — the repository
+    // update would otherwise fail for an organisation that has never opened its
+    // settings page.
+    await this.settingsRepo.getOrCreate(organizationId);
 
     // Build update data, serializing nested objects to JSON
     const updateData: {
@@ -60,13 +90,9 @@ export class SettingsService {
       updateData.notificationPreferences = JSON.stringify(input.notificationPreferences);
     }
 
-    // Validate operating hours in merged state
-    const effectiveStart = updateData.operatingHoursStart ?? existing.operatingHoursStart;
-    const effectiveEnd = updateData.operatingHoursEnd ?? existing.operatingHoursEnd;
-
-    if (effectiveEnd <= effectiveStart) {
-      throw new Error("Operating hours end must be after start");
-    }
+    // No cross-field check on operating hours — see the note at the top of this
+    // file. Zod has already bounded each hour individually, and every pair
+    // within those bounds names a real window.
 
     const settings = await this.settingsRepo.update(organizationId, updateData);
 

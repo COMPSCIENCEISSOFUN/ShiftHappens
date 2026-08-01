@@ -11,7 +11,7 @@
  *
  * Cards:
  *   Left:  Organization Details | Notification Preferences
- *   Right: Task Configuration
+ *   Right: Task Configuration | Operating Hours
  *   Full:  Subscription & Billing
  *
  * Note: Work Rules have their own dedicated page (/work-rules)
@@ -37,6 +37,11 @@ import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { TIER_CONFIG } from "@/lib/subscription-tiers";
 import {
+  formatHour,
+  operatingWindowHours,
+  windowWrapsMidnight,
+} from "@/lib/business-day";
+import {
   OTHER_INDUSTRY,
   industryFromSelection,
   resolveIndustrySelection,
@@ -60,6 +65,8 @@ interface OrgDetails {
 interface Settings {
   allocationMode: string;
   taskAcceptanceMode: string;
+  operatingHoursStart: number;
+  operatingHoursEnd: number;
   notificationPreferences: string | null;
 }
 
@@ -188,6 +195,15 @@ export default function SettingsPage() {
   );
   const [allocationMode, setAllocationMode] = useState("manual");
   const [taskAcceptanceMode, setTaskAcceptanceMode] = useState("auto_accept");
+  // Defaults mirror the database defaults, so the controls show the truth for
+  // the moment before the fetch resolves rather than an arbitrary 00:00–00:00.
+  const [opStart, setOpStart] = useState(6);
+  const [opEnd, setOpEnd] = useState(22);
+  const [hoursMessage, setHoursMessage] = useState<{
+    type: "success" | "error";
+    text: string;
+  } | null>(null);
+  const [hoursLoading, setHoursLoading] = useState(false);
   const [taskMessage, setTaskMessage] = useState<{
     type: "success" | "error";
     text: string;
@@ -323,6 +339,11 @@ export default function SettingsPage() {
       setSettings(data);
       setAllocationMode(data.allocationMode);
       setTaskAcceptanceMode(data.taskAcceptanceMode);
+      // Guarded rather than assigned blindly: these are the only numeric
+      // settings on the page, and a null from an older row would otherwise
+      // become a NaN in the <select> and silently PATCH back as invalid.
+      if (typeof data.operatingHoursStart === "number") setOpStart(data.operatingHoursStart);
+      if (typeof data.operatingHoursEnd === "number") setOpEnd(data.operatingHoursEnd);
       if (data.notificationPreferences) {
         try {
           setNotifPrefs((prev) => ({
@@ -447,6 +468,20 @@ export default function SettingsPage() {
       setTaskMessage,
       setTaskLoading,
       "Task configuration updated"
+    );
+  }
+
+  function onSaveOperatingHours(e: React.FormEvent) {
+    e.preventDefault();
+    // Saved on its own, like every other card here. Sharing a submit with task
+    // configuration would mean a failure in either one reported a single
+    // ambiguous error, and an admin adjusting only the hours would silently
+    // re-send allocation settings they had not touched.
+    saveSettings(
+      { operatingHoursStart: opStart, operatingHoursEnd: opEnd },
+      setHoursMessage,
+      setHoursLoading,
+      "Operating hours updated"
     );
   }
 
@@ -918,6 +953,126 @@ export default function SettingsPage() {
               <CardFooter>
                 <Button type="submit" disabled={taskLoading}>
                   {taskLoading ? "Saving..." : "Save Configuration"}
+                </Button>
+              </CardFooter>
+            </Card>
+          </form>
+
+          {/*
+            Card 4: Operating Hours — its own card rather than a section of Task
+            Configuration.
+
+            They are not the same kind of setting. Allocation and acceptance
+            describe how work is handed out; operating hours describe when the
+            business runs, and the opening hour additionally defines the
+            boundary every daily and weekly hour total is measured against.
+            Filed under "How tasks are allocated and accepted" that second
+            meaning had nowhere to be stated, and an admin changing it would
+            have had no reason to think it affected anything but the calendar.
+          */}
+          <form onSubmit={onSaveOperatingHours}>
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-3">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-sky-50 dark:bg-sky-950/30">
+                    <svg
+                      width="18"
+                      height="18"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      viewBox="0 0 24 24"
+                      className="text-sky-600"
+                    >
+                      <circle cx="12" cy="12" r="9" />
+                      <path d="M12 7v5l3 2" />
+                    </svg>
+                  </div>
+                  <div>
+                    <CardTitle>Operating Hours</CardTitle>
+                    <CardDescription>
+                      When the business runs, and where the day starts
+                    </CardDescription>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {hoursMessage && (
+                  <AlertBanner
+                    message={hoursMessage.text}
+                    variant={
+                      hoursMessage.type === "success" ? "success" : "error"
+                    }
+                  />
+                )}
+
+                <div className="space-y-2">
+                  <Label>Open from</Label>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <select
+                      aria-label="Opening hour"
+                      value={opStart}
+                      onChange={(e) => setOpStart(Number(e.target.value))}
+                      className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                    >
+                      {Array.from({ length: 24 }, (_, h) => (
+                        <option key={h} value={h}>
+                          {formatHour(h)}
+                        </option>
+                      ))}
+                    </select>
+                    <span className="text-sm text-muted-foreground">to</span>
+                    <select
+                      aria-label="Closing hour"
+                      value={opEnd}
+                      onChange={(e) => setOpEnd(Number(e.target.value))}
+                      className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                    >
+                      {Array.from({ length: 24 }, (_, i) => i + 1).map((h) => (
+                        <option key={h} value={h}>
+                          {formatHour(h)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/*
+                  States the LENGTH rather than repeating the two hours, which
+                  the dropdowns above already show. It also carries the one
+                  thing those dropdowns cannot: that a closing hour at or before
+                  the opening hour is a window running past midnight, not a
+                  mistake.
+                */}
+                <p className="text-sm">
+                  Open {operatingWindowHours(opStart, opEnd)}{" "}
+                  {operatingWindowHours(opStart, opEnd) === 1 ? "hour" : "hours"} a
+                  day
+                  {windowWrapsMidnight(opStart, opEnd)
+                    ? ", running past midnight into the next day."
+                    : "."}
+                </p>
+
+                <Separator />
+
+                <div className="space-y-1.5">
+                  <p className="text-sm font-medium">
+                    The day starts at {formatHour(opStart)}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    The opening hour is also where one day ends and the next
+                    begins, so a shift finishing at 03:00 counts towards the
+                    previous day&apos;s hours — the day the people working it
+                    would call it. Daily and weekly limits are measured from
+                    this boundary, and the calendar draws its grid from it.
+                  </p>
+                </div>
+              </CardContent>
+              <CardFooter>
+                <Button type="submit" disabled={hoursLoading}>
+                  {hoursLoading ? "Saving..." : "Save Operating Hours"}
                 </Button>
               </CardFooter>
             </Card>

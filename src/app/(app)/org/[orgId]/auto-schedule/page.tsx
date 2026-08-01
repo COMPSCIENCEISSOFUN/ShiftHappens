@@ -1,19 +1,48 @@
 /**
  * Auto-Schedule Page (Boundary Layer)
  *
- * Generates an AI-powered draft schedule for a selected week.
- * Admin reviews assignments, can remove individual entries,
- * then confirms to create all assignments in batch.
+ * Generates an AI draft schedule for a selected week. The admin reviews the
+ * proposed assignments, removes any they disagree with, then confirms to create
+ * them all in one batch.
  *
- * Workflow: Select week → Generate → Review → Confirm/Discard
+ * Workflow: pick a week → generate → review → confirm or discard.
+ *
+ * ## On the visual language
+ *
+ * This page predates the Phase 12 overhaul and had kept its own conventions:
+ * bespoke `bg-muted/50` summary boxes instead of the house stat tiles, an
+ * unstyled table, a bare `rounded-lg border` panel with no section header, and
+ * a "← Dashboard" button no other org page has. It now follows the same
+ * structure as Departments, Members and Calendar — page header, stat row, card
+ * panels with headed sections — so that moving between them does not feel like
+ * moving between two applications.
  */
 "use client";
 
 import { useState } from "react";
-import { dayOfWeekInTimeZone, localDateInTimeZone } from "@/lib/timezone";
-import { useParams, useRouter } from "next/navigation";
-import { Button } from "@/components/ui/button";
+import { useParams } from "next/navigation";
+import {
+  CalendarRange,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  Sparkles,
+  TriangleAlert,
+  UserCheck,
+  X,
+} from "lucide-react";
 import { AlertBanner } from "@/components/ui/alert-banner";
+import { EmptyState } from "@/components/ui/empty-state";
+import { StatTile, STAT_ACCENT } from "@/components/ui/stat-tile";
+import {
+  shiftWeeks,
+  thisMondayInOrgTime,
+  weekRangeLabel,
+} from "@/lib/schedule-week";
+
+/* ------------------------------------------------------------------ */
+/*  Types                                                              */
+/* ------------------------------------------------------------------ */
 
 interface DraftAssignment {
   taskId: string;
@@ -40,48 +69,89 @@ interface DraftSchedule {
   };
 }
 
-/**
- * The current week's Monday as a YYYY-MM-DD date string in organisation time.
- *
- * The previous implementation used getDay() + setHours(0,0,0,0) and then
- * toISOString().split("T")[0]. Those disagree: setHours works in the runtime's
- * local zone while toISOString renders UTC, so east-of-UTC local midnight
- * serialises as the PREVIOUS day. Running in Asia/Singapore it returned the
- * Sunday, shifting the whole auto-schedule window by a day — silently dropping
- * the final Monday's tasks and pulling in the previous Sunday's.
- */
-function getThisMonday(): string {
-  const now = new Date();
-  const day = dayOfWeekInTimeZone(now);
-  const diff = day === 0 ? -6 : 1 - day;
-  const monday = new Date(now.getTime() + diff * 24 * 60 * 60 * 1000);
-  return localDateInTimeZone(monday);
+/* ------------------------------------------------------------------ */
+/*  Shared page furniture                                              */
+/* ------------------------------------------------------------------ */
+
+/** The house panel: a card with a headed section, as used across the app. */
+function Panel({
+  title,
+  icon: Icon,
+  tone = "default",
+  action,
+  children,
+}: {
+  title: string;
+  icon: typeof Clock;
+  tone?: "default" | "warning";
+  action?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  const warning = tone === "warning";
+  return (
+    <div
+      className={`overflow-hidden rounded-xl border bg-card ${
+        warning ? "border-amber-300 dark:border-amber-800" : "border-border"
+      }`}
+    >
+      <div
+        className={`flex items-center justify-between gap-3 border-b px-4 py-3 ${
+          warning
+            ? "border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/40"
+            : "border-border"
+        }`}
+      >
+        <h3
+          className={`flex items-center gap-2 text-[13px] font-semibold ${
+            warning ? "text-amber-800 dark:text-amber-300" : ""
+          }`}
+        >
+          <Icon className="h-4 w-4" aria-hidden="true" />
+          {title}
+        </h3>
+        {action}
+      </div>
+      {children}
+    </div>
+  );
 }
 
-function formatWeekRange(dateStr: string): string {
-  const start = new Date(dateStr);
-  const end = new Date(start);
-  end.setDate(end.getDate() + 6);
-  return `${start.toLocaleDateString("en-US", { month: "short", day: "numeric" })} — ${end.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
-}
+const PRIMARY_BUTTON =
+  "inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-indigo-600 to-indigo-500 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:from-indigo-700 hover:to-indigo-600 disabled:cursor-not-allowed disabled:opacity-60";
+
+const SECONDARY_BUTTON =
+  "inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-indigo-400 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60";
+
+/* ------------------------------------------------------------------ */
+/*  Main Page                                                          */
+/* ------------------------------------------------------------------ */
 
 export default function AutoSchedulePage() {
   const params = useParams();
-  const router = useRouter();
   const orgId = params.orgId as string;
 
-  const [weekStart, setWeekStart] = useState(getThisMonday());
+  const [weekStart, setWeekStart] = useState(thisMondayInOrgTime());
   const [draft, setDraft] = useState<DraftSchedule | null>(null);
   const [generating, setGenerating] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  /**
+   * Whether the admin has removed anything from the generated draft.
+   *
+   * The hours distribution comes from the generator and is keyed by staff name
+   * only — there is no per-assignment figure to subtract — so removing a row
+   * cannot honestly update it. Rather than quietly showing stale numbers, or
+   * inventing a recalculation, the page says so.
+   */
+  const [edited, setEdited] = useState(false);
 
   async function handleGenerate() {
     setGenerating(true);
     setError(null);
     setDraft(null);
     setSuccess(null);
+    setEdited(false);
 
     try {
       const res = await fetch(`/api/organizations/${orgId}/auto-schedule`, {
@@ -99,7 +169,9 @@ export default function AutoSchedulePage() {
       const data: DraftSchedule = await res.json();
 
       if (data.assignments.length === 0 && data.unfilledTasks.length === 0) {
-        setError("No open tasks found for the selected week that need staffing. Try a different week or create tasks first.");
+        setError(
+          "No open tasks found for the selected week that need staffing. Try a different week, or create tasks first."
+        );
         return;
       }
 
@@ -113,13 +185,13 @@ export default function AutoSchedulePage() {
 
   function handleRemoveAssignment(index: number) {
     if (!draft) return;
-    const updated = { ...draft };
-    updated.assignments = updated.assignments.filter((_, i) => i !== index);
-    updated.summary = {
-      ...updated.summary,
-      totalAssignments: updated.assignments.length,
-    };
-    setDraft(updated);
+    const assignments = draft.assignments.filter((_, i) => i !== index);
+    setDraft({
+      ...draft,
+      assignments,
+      summary: { ...draft.summary, totalAssignments: assignments.length },
+    });
+    setEdited(true);
   }
 
   async function handleConfirm() {
@@ -144,10 +216,19 @@ export default function AutoSchedulePage() {
       }
 
       const result = await res.json();
-      setSuccess(
-        `Schedule confirmed: ${result.created} assignments created${result.failed > 0 ? `, ${result.failed} failed` : ""}`
-      );
+
+      // `rejected` counts draft rows the server refused because the task or the
+      // member did not belong to this organisation. It is reported separately
+      // from `failed`: a failure is a database problem worth retrying, whereas a
+      // rejection means the draft carried a row it should never have had, which
+      // is a different conversation.
+      const parts = [`${result.created} assignment${result.created === 1 ? "" : "s"} created`];
+      if (result.failed > 0) parts.push(`${result.failed} could not be created`);
+      if (result.rejected > 0) parts.push(`${result.rejected} rejected as out of scope`);
+
+      setSuccess(parts.join(" · "));
       setDraft(null);
+      setEdited(false);
     } catch {
       setError("Something went wrong");
     } finally {
@@ -159,166 +240,334 @@ export default function AutoSchedulePage() {
     setDraft(null);
     setError(null);
     setSuccess(null);
+    setEdited(false);
   }
 
-  const maxHours = draft?.summary.hoursDistribution.length
-    ? Math.max(...draft.summary.hoursDistribution.map((h) => h.hours))
-    : 0;
+  const hours = draft?.summary.hoursDistribution ?? [];
+  const maxHours = hours.length ? Math.max(...hours.map((h) => h.hours)) : 0;
+  const totalHours = hours.reduce((sum, h) => sum + h.hours, 0);
+
+  const reviewing = draft !== null;
+  const hasAssignments = (draft?.assignments.length ?? 0) > 0;
 
   return (
-    <div className="max-w-5xl">
-      <div className="mb-6 flex items-center justify-between">
+    <div className="w-full">
+      {/* ── Header ── */}
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-2xl font-bold">Smart auto-schedule</h2>
-          <p className="text-sm text-muted-foreground mt-1">
-            AI generates optimal staff assignments for the selected week
+          <h2 className="text-xl font-bold tracking-tight sm:text-2xl">
+            Auto-Schedule
+          </h2>
+          <p className="mt-0.5 text-[13px] text-muted-foreground">
+            Generate a draft week of assignments from availability,
+            certifications and work rules — then review before anything is saved
           </p>
         </div>
-        <Button variant="outline" onClick={() => router.push("/dashboard")}>
-          ← Dashboard
-        </Button>
+
+        {reviewing && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <button onClick={handleDiscard} className={SECONDARY_BUTTON}>
+              Discard draft
+            </button>
+            <button
+              onClick={handleConfirm}
+              disabled={confirming || !hasAssignments}
+              className={PRIMARY_BUTTON}
+            >
+              {confirming
+                ? "Confirming…"
+                : `Confirm ${draft!.assignments.length} assignment${draft!.assignments.length === 1 ? "" : "s"}`}
+            </button>
+          </div>
+        )}
       </div>
 
       {error && <AlertBanner message={error} variant="error" />}
-
       {success && <AlertBanner message={success} variant="success" />}
 
-      {/* Week selector + generate — always visible when no draft */}
-      {!draft && (
-        <div className="rounded-lg border bg-card p-6 space-y-4">
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Week starting</label>
-            <div className="flex items-center gap-3">
-              <input
-                type="date"
-                value={weekStart}
-                onChange={(e) => setWeekStart(e.target.value)}
-                className="rounded-md border px-3 py-2 text-sm bg-background text-foreground"
-                disabled={generating}
-              />
-              <span className="text-sm text-muted-foreground">
-                {formatWeekRange(weekStart)}
-              </span>
+      {/* ── Week picker ── */}
+      {!reviewing && (
+        <div className="mt-4 max-w-2xl">
+          <Panel title="Choose a week" icon={CalendarRange}>
+            <div className="space-y-4 p-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  aria-label="Previous week"
+                  onClick={() => setWeekStart(shiftWeeks(weekStart, -1))}
+                  disabled={generating}
+                  className={SECONDARY_BUTTON}
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" aria-hidden="true" />
+                </button>
+
+                <input
+                  type="date"
+                  aria-label="Week starting"
+                  value={weekStart}
+                  onChange={(e) => setWeekStart(e.target.value)}
+                  disabled={generating}
+                  className="h-8 rounded-lg border border-input bg-background px-3 text-sm text-foreground disabled:opacity-60"
+                />
+
+                <button
+                  type="button"
+                  aria-label="Next week"
+                  onClick={() => setWeekStart(shiftWeeks(weekStart, 1))}
+                  disabled={generating}
+                  className={SECONDARY_BUTTON}
+                >
+                  <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setWeekStart(thisMondayInOrgTime())}
+                  disabled={generating}
+                  className={SECONDARY_BUTTON}
+                >
+                  This week
+                </button>
+              </div>
+
+              <p className="text-[13px] text-muted-foreground">
+                {weekRangeLabel(weekStart) || "Pick a date to choose a week"}
+              </p>
+
+              <button
+                onClick={handleGenerate}
+                disabled={generating || !weekRangeLabel(weekStart)}
+                className={PRIMARY_BUTTON}
+              >
+                <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+                {generating ? "Generating…" : "Generate draft"}
+              </button>
+
+              {generating && (
+                <div className="space-y-2" role="status">
+                  <div className="h-1 overflow-hidden rounded-full bg-muted">
+                    <div className="h-full w-1/3 animate-pulse rounded-full bg-indigo-500" />
+                  </div>
+                  <p className="text-[13px] text-muted-foreground">
+                    Analysing tasks, availability, certifications and work
+                    rules…
+                  </p>
+                </div>
+              )}
+
+              <p className="text-[11px] text-muted-foreground">
+                Nothing is saved until you confirm the draft.
+              </p>
             </div>
-          </div>
-          <Button onClick={handleGenerate} disabled={generating}>
-            {generating ? "Generating..." : "Generate schedule"}
-          </Button>
-          {generating && (
-            <p className="text-sm text-muted-foreground">
-              Analyzing tasks, availability, certifications, and work rules...
-            </p>
-          )}
+          </Panel>
         </div>
       )}
 
-      {/* Draft review */}
-      {draft && draft.assignments.length > 0 && (
-        <>
-          <div className="mb-4 flex items-center justify-between">
-            <p className="text-sm text-muted-foreground">
-              Draft for {formatWeekRange(weekStart)} — review and adjust before confirming
-            </p>
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={handleDiscard}>
-                Discard
-              </Button>
-              <Button onClick={handleConfirm} disabled={confirming}>
-                {confirming
-                  ? "Confirming..."
-                  : `Confirm schedule (${draft.assignments.length})`}
-              </Button>
-            </div>
+      {/* ── Draft review ── */}
+      {reviewing && (
+        <div className="space-y-4">
+          <p className="text-[13px] text-muted-foreground">
+            Draft for {weekRangeLabel(weekStart)} — review and adjust before
+            confirming. Nothing is saved until you do.
+          </p>
+
+          {/* Stat tiles */}
+          <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">
+            <StatTile
+              label="Tasks"
+              value={draft!.summary.totalTasks}
+              detail="needed staffing"
+              accentColour={STAT_ACCENT.indigo}
+            />
+            <StatTile
+              label="Assignments"
+              value={draft!.summary.totalAssignments}
+              detail="proposed"
+              accentColour={STAT_ACCENT.green}
+              valueColour="text-green-600 dark:text-green-400"
+            />
+            <StatTile
+              label="Unfilled"
+              value={draft!.summary.totalUnfilled}
+              detail="could not be staffed"
+              accentColour={STAT_ACCENT.amber}
+              valueColour={
+                draft!.summary.totalUnfilled > 0
+                  ? "text-amber-600 dark:text-amber-400"
+                  : ""
+              }
+            />
+            <StatTile
+              label="Hours"
+              value={`${totalHours}h`}
+              detail={edited ? "as generated" : "across the week"}
+              accentColour={STAT_ACCENT.blue}
+              valueColour="text-blue-600 dark:text-blue-400"
+            />
           </div>
 
-          {/* Summary metrics */}
-          <div className="grid grid-cols-4 gap-3 mb-4">
-            <div className="rounded-md bg-muted/50 p-3">
-              <p className="text-xs text-muted-foreground">Tasks to fill</p>
-              <p className="text-xl font-medium">{draft.summary.totalTasks}</p>
-            </div>
-            <div className="rounded-md bg-muted/50 p-3">
-              <p className="text-xs text-muted-foreground">Assignments</p>
-              <p className="text-xl font-medium">{draft.summary.totalAssignments}</p>
-            </div>
-            <div className="rounded-md bg-muted/50 p-3">
-              <p className="text-xs text-muted-foreground">Unfilled</p>
-              <p className={`text-xl font-medium ${draft.summary.totalUnfilled > 0 ? "text-amber-600" : ""}`}>
-                {draft.summary.totalUnfilled}
-              </p>
-            </div>
-            <div className="rounded-md bg-muted/50 p-3">
-              <p className="text-xs text-muted-foreground">Total hours</p>
-              <p className="text-xl font-medium">
-                {draft.summary.hoursDistribution.reduce((sum, h) => sum + h.hours, 0)}h
-              </p>
-            </div>
-          </div>
+          {/* Assignments */}
+          <Panel title="Proposed assignments" icon={UserCheck}>
+            {hasAssignments ? (
+              <>
+                {/* Table — from sm up */}
+                <table className="hidden w-full text-sm sm:table">
+                  <thead>
+                    <tr className="border-b border-border bg-muted/30">
+                      <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                        Task
+                      </th>
+                      <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                        Staff
+                      </th>
+                      <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                        Why
+                      </th>
+                      <th className="w-12 px-4 py-2.5">
+                        <span className="sr-only">Remove</span>
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {draft!.assignments.map((a, index) => (
+                      <tr
+                        key={`${a.taskId}-${a.membershipId}`}
+                        className="border-b border-border last:border-b-0 transition-colors hover:bg-muted/30"
+                      >
+                        <td className="px-4 py-3 text-[13px] font-medium">
+                          {a.taskTitle}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="inline-block rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-medium text-green-700 dark:bg-green-900 dark:text-green-300">
+                            {a.staffName}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-[12px] text-muted-foreground">
+                          {a.reasoning}
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <button
+                            onClick={() => handleRemoveAssignment(index)}
+                            aria-label={`Remove ${a.staffName} from ${a.taskTitle}`}
+                            className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950"
+                          >
+                            <X className="h-3.5 w-3.5" aria-hidden="true" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
 
-          {/* Assignment table */}
-          <div className="rounded-lg border overflow-hidden mb-4">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b bg-muted/30">
-                  <th className="text-left font-medium px-4 py-3 text-muted-foreground">Task</th>
-                  <th className="text-left font-medium px-4 py-3 text-muted-foreground">Staff</th>
-                  <th className="text-left font-medium px-4 py-3 text-muted-foreground">Reasoning</th>
-                  <th className="w-16 px-4 py-3"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {draft.assignments.map((a, index) => (
-                  <tr key={`${a.taskId}-${a.membershipId}`} className="border-b last:border-b-0 hover:bg-muted/20">
-                    <td className="px-4 py-3 font-medium">{a.taskTitle}</td>
-                    <td className="px-4 py-3">
-                      <span className="inline-block rounded-full bg-green-50 dark:bg-green-950 text-green-700 dark:text-green-300 px-2 py-0.5 text-xs">
-                        {a.staffName}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground text-xs">{a.reasoning}</td>
-                    <td className="px-4 py-3">
-                      <button onClick={() => handleRemoveAssignment(index)} className="text-xs text-red-500 hover:underline">
-                        Remove
+                {/* Stacked cards — below sm, where a four-column table is
+                    unreadable and the Why column is what gets crushed first. */}
+                <ul className="divide-y divide-border sm:hidden">
+                  {draft!.assignments.map((a, index) => (
+                    <li
+                      key={`${a.taskId}-${a.membershipId}`}
+                      className="flex items-start justify-between gap-3 p-3.5"
+                    >
+                      <div className="min-w-0">
+                        <p className="text-[13px] font-medium">{a.taskTitle}</p>
+                        <span className="mt-1 inline-block rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-medium text-green-700 dark:bg-green-900 dark:text-green-300">
+                          {a.staffName}
+                        </span>
+                        <p className="mt-1.5 text-[12px] text-muted-foreground">
+                          {a.reasoning}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => handleRemoveAssignment(index)}
+                        aria-label={`Remove ${a.staffName} from ${a.taskTitle}`}
+                        className="shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950"
+                      >
+                        <X className="h-4 w-4" aria-hidden="true" />
                       </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ) : (
+              /* Removing the last row used to blank the page entirely: the
+                 review block was gated on `assignments.length > 0` while the
+                 week picker was gated on there being no draft, so neither
+                 rendered and only a reload recovered. */
+              <EmptyState
+                title="No assignments left in this draft"
+                description="You've removed every proposed assignment. Discard the draft to choose another week, or generate again."
+                icon={UserCheck}
+                action={
+                  <button onClick={handleDiscard} className={SECONDARY_BUTTON}>
+                    Discard draft
+                  </button>
+                }
+              />
+            )}
+          </Panel>
 
-          {/* Unfilled tasks */}
-          {draft.unfilledTasks.length > 0 && (
-            <div className="rounded-md bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 p-4 mb-4">
-              <p className="text-sm font-medium text-amber-800 dark:text-amber-200 mb-2">
-                {draft.unfilledTasks.length} task{draft.unfilledTasks.length > 1 ? "s" : ""} could not be fully staffed
-              </p>
-              {draft.unfilledTasks.map((t) => (
-                <p key={t.taskId} className="text-xs text-amber-700 dark:text-amber-300">
-                  {t.taskTitle} — {t.reason}
-                </p>
-              ))}
-            </div>
+          {/* Unfilled */}
+          {draft!.unfilledTasks.length > 0 && (
+            <Panel
+              title={`${draft!.unfilledTasks.length} task${draft!.unfilledTasks.length === 1 ? "" : "s"} could not be fully staffed`}
+              icon={TriangleAlert}
+              tone="warning"
+            >
+              <ul className="divide-y divide-border">
+                {draft!.unfilledTasks.map((t) => (
+                  <li key={t.taskId} className="px-4 py-2.5">
+                    <p className="text-[13px] font-medium">{t.taskTitle}</p>
+                    <p className="mt-0.5 text-[12px] text-muted-foreground">
+                      {t.reason}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            </Panel>
           )}
 
           {/* Hours distribution */}
-          {draft.summary.hoursDistribution.length > 0 && (
-            <div className="rounded-lg border p-4 mb-4">
-              <p className="text-sm font-medium mb-3">Hours distribution</p>
-              <div className="space-y-2">
-                {draft.summary.hoursDistribution.map((h) => (
-                  <div key={h.name} className="grid items-center gap-3" style={{ gridTemplateColumns: "100px 1fr 40px" }}>
-                    <span className="text-xs text-muted-foreground truncate">{h.name}</span>
-                    <div className="h-2 rounded-full bg-muted overflow-hidden">
-                      <div className="h-full rounded-full bg-blue-500" style={{ width: `${maxHours > 0 ? (h.hours / maxHours) * 100 : 0}%` }} />
+          {hours.length > 0 && (
+            <Panel title="Hours distribution" icon={Clock}>
+              <div className="space-y-2.5 p-4">
+                {hours.map((h) => (
+                  <div
+                    key={h.name}
+                    className="grid items-center gap-3"
+                    style={{ gridTemplateColumns: "minmax(80px,120px) 1fr 44px" }}
+                  >
+                    <span className="truncate text-[12px] text-muted-foreground">
+                      {h.name}
+                    </span>
+                    {/* Decorative: the name and the figure either side are
+                        already readable text, so announcing the bar as well
+                        would only repeat them. */}
+                    <div
+                      aria-hidden="true"
+                      className="h-2 overflow-hidden rounded-full bg-muted"
+                    >
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-indigo-400"
+                        style={{
+                          width: `${maxHours > 0 ? (h.hours / maxHours) * 100 : 0}%`,
+                        }}
+                      />
                     </div>
-                    <span className="text-xs text-muted-foreground text-right">{h.hours}h</span>
+                    <span className="text-right text-[12px] font-medium tabular-nums">
+                      {h.hours}h
+                    </span>
                   </div>
                 ))}
+
+                {edited && (
+                  <p className="pt-1 text-[11px] text-muted-foreground">
+                    These are the hours as generated. They do not reflect the
+                    assignments you have removed.
+                  </p>
+                )}
               </div>
-            </div>
+            </Panel>
           )}
-        </>
+        </div>
       )}
     </div>
   );

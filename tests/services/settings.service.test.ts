@@ -155,8 +155,7 @@ describe("SettingsService", () => {
         expect(updated.operatingHoursEnd).toBe(24);
       });
 
-      it("partial update: only start sent, validates against existing end", async () => {
-        // Default end is 22, so start=8 is valid
+      it("partial update: only start sent, leaves the end alone", async () => {
         const updated = await settingsService.updateSettings(orgId, {
           operatingHoursStart: 8,
         });
@@ -164,8 +163,7 @@ describe("SettingsService", () => {
         expect(updated.operatingHoursEnd).toBe(22); // unchanged
       });
 
-      it("partial update: only end sent, validates against existing start", async () => {
-        // Default start is 6, so end=20 is valid
+      it("partial update: only end sent, leaves the start alone", async () => {
         const updated = await settingsService.updateSettings(orgId, {
           operatingHoursEnd: 20,
         });
@@ -174,54 +172,106 @@ describe("SettingsService", () => {
       });
     });
 
-    describe("operating hours — invalid updates", () => {
-      it("throws when end is less than start", async () => {
-        await expect(
-          settingsService.updateSettings(orgId, {
-            operatingHoursStart: 22,
-            operatingHoursEnd: 10,
-          })
-        ).rejects.toThrow("Operating hours end must be after start");
-      });
-
-      it("throws when end equals start (zero-hour window)", async () => {
-        await expect(
-          settingsService.updateSettings(orgId, {
-            operatingHoursStart: 12,
-            operatingHoursEnd: 12,
-          })
-        ).rejects.toThrow("Operating hours end must be after start");
-      });
-
-      it("throws on partial update: only start sent, exceeds existing end", async () => {
-        // Default end is 22, sending start=22 creates end <= start
-        await expect(
-          settingsService.updateSettings(orgId, {
-            operatingHoursStart: 22,
-          })
-        ).rejects.toThrow("Operating hours end must be after start");
-      });
-
-      it("throws on partial update: only end sent, below existing start", async () => {
-        // Default start is 6, sending end=5 creates end <= start
-        await expect(
-          settingsService.updateSettings(orgId, {
-            operatingHoursEnd: 5,
-          })
-        ).rejects.toThrow("Operating hours end must be after start");
-      });
-
-      it("throws on partial update: only start sent, equals existing end", async () => {
-        // First set end to 15
-        await settingsService.updateSettings(orgId, {
-          operatingHoursEnd: 15,
+    /**
+     * These replace an "invalid updates" block that asserted the service threw
+     * "Operating hours end must be after start" for any window with
+     * `end <= start`.
+     *
+     * That rule has been deliberately removed. It read as ordinary input
+     * validation but was a modelling error: it made a window running past
+     * midnight inexpressible, so a business trading 20:00–04:00 could not enter
+     * its own hours. Since `operatingHoursStart` is also the organisation's day
+     * boundary, it additionally forced every organisation onto a boundary
+     * somewhere in the morning.
+     *
+     * The tests below pin the new contract, so that a future reader who assumes
+     * the old rule was simply lost finds it stated as a decision instead.
+     */
+    describe("operating hours — a window may wrap past midnight", () => {
+      it("accepts a night-time window", async () => {
+        const updated = await settingsService.updateSettings(orgId, {
+          operatingHoursStart: 20,
+          operatingHoursEnd: 4,
         });
-        // Then try to set start=15 (equals end)
-        await expect(
-          settingsService.updateSettings(orgId, {
-            operatingHoursStart: 15,
-          })
-        ).rejects.toThrow("Operating hours end must be after start");
+        expect(updated.operatingHoursStart).toBe(20);
+        expect(updated.operatingHoursEnd).toBe(4);
+      });
+
+      it("accepts an identical start and end, meaning open around the clock", async () => {
+        const updated = await settingsService.updateSettings(orgId, {
+          operatingHoursStart: 12,
+          operatingHoursEnd: 12,
+        });
+        expect(updated.operatingHoursStart).toBe(12);
+        expect(updated.operatingHoursEnd).toBe(12);
+      });
+
+      it("accepts a partial update that makes the merged window wrap", async () => {
+        // Default end is 22. Sending start=22 alone once threw; it now means a
+        // 24-hour operation whose day begins at 22:00.
+        const updated = await settingsService.updateSettings(orgId, {
+          operatingHoursStart: 22,
+        });
+        expect(updated.operatingHoursStart).toBe(22);
+        expect(updated.operatingHoursEnd).toBe(22);
+      });
+
+      it("accepts a partial update that pulls the end below the start", async () => {
+        const updated = await settingsService.updateSettings(orgId, {
+          operatingHoursEnd: 5,
+        });
+        expect(updated.operatingHoursStart).toBe(6); // unchanged
+        expect(updated.operatingHoursEnd).toBe(5);
+      });
+
+      it("stores the pair verbatim rather than normalising it", async () => {
+        // 20→4 and 20→28 describe the same window, but only one of them is a
+        // legal hour. The service must not silently rewrite what the admin
+        // entered, or the settings screen would show something they did not
+        // type.
+        const updated = await settingsService.updateSettings(orgId, {
+          operatingHoursStart: 20,
+          operatingHoursEnd: 4,
+        });
+        expect(updated.operatingHoursEnd).toBe(4);
+      });
+    });
+
+    describe("getDisplaySettings", () => {
+      it("returns the operating hours", async () => {
+        await settingsService.updateSettings(orgId, {
+          operatingHoursStart: 9,
+          operatingHoursEnd: 18,
+        });
+
+        const display = await settingsService.getDisplaySettings(orgId);
+
+        expect(display.operatingHoursStart).toBe(9);
+        expect(display.operatingHoursEnd).toBe(18);
+      });
+
+      it("leaks nothing else — this read is not admin-gated", async () => {
+        // The whole point of the narrow shape. Any member of the organisation
+        // can call this, so allocation strategy, notification policy and smart
+        // allocation weights must not travel with it.
+        await settingsService.updateSettings(orgId, {
+          allocationMode: "auto",
+          taskAcceptanceMode: "require_acceptance",
+        });
+
+        const display = await settingsService.getDisplaySettings(orgId);
+
+        expect(Object.keys(display).sort()).toEqual([
+          "operatingHoursEnd",
+          "operatingHoursStart",
+        ]);
+      });
+
+      it("lazily creates settings for an organisation that has none", async () => {
+        const display = await settingsService.getDisplaySettings(orgId);
+
+        expect(display.operatingHoursStart).toBe(6);
+        expect(display.operatingHoursEnd).toBe(22);
       });
     });
 

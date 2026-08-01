@@ -77,6 +77,14 @@ export const ROUTES: RouteSpec[] = [
   org("permissions", "GET", ADMIN),
   org("settings", "GET", ADMIN),
   org("settings", "PATCH", ADMIN, { suspension: true }),
+  // Deliberately MEMBER where its parent is ADMIN. The calendar draws its grid
+  // from the operating hours and is rendered for managers and staff, who were
+  // getting a 403 from the admin-only read and silently falling back to
+  // hard-coded defaults — so admins and their teams saw different calendars.
+  // The route returns operating hours and nothing else; the narrow shape is
+  // what makes the wider audience safe, and is asserted in
+  // settings.service.test.ts.
+  org("settings/display", "GET", MEMBER),
   org("subscription", "GET", MEMBER),
   org("checkout", "POST", ADMIN),
   org("invitations", "GET", ADMIN),

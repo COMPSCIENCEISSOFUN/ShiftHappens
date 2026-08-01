@@ -31,6 +31,7 @@ import { AlertBanner } from "@/components/ui/alert-banner";
 import { EmptyState } from "@/components/ui/empty-state";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { toDateTimeLocalValue } from "@/lib/timezone";
+import { OperatingHoursNotice } from "@/components/tasks/operating-hours-notice";
 
 // ============================================================
 // Constants
@@ -178,6 +179,19 @@ export default function TasksPage() {
   const [allocationMode, setAllocationMode] = useState<string>("manual");
   const [autoAssigningId, setAutoAssigningId] = useState<string | null>(null);
 
+  // Operating hours, for the out-of-hours notice. Defaults mirror the database
+  // defaults so the notice never compares against a window nobody set.
+  const [opStart, setOpStart] = useState(6);
+  const [opEnd, setOpEnd] = useState(22);
+
+  // Mirrors of the two schedule inputs on each form. The inputs themselves stay
+  // UNCONTROLLED — the AI parser writes into them through the DOM, and making
+  // them controlled would mean that write is discarded on the next render.
+  // These shadow values exist only to drive the notice, so a stale one costs a
+  // warning and never a wrong submission.
+  const [createSchedule, setCreateSchedule] = useState({ start: "", end: "" });
+  const [editSchedule, setEditSchedule] = useState({ start: "", end: "" });
+
   // ── Data fetching ────────────────────────────────
 
   useEffect(() => {
@@ -185,6 +199,7 @@ export default function TasksPage() {
     fetchDepartments();
     fetchMembers();
     fetchSettings();
+    fetchOperatingHours();
   }, [orgId]);
 
   async function fetchTasks() {
@@ -213,6 +228,22 @@ export default function TasksPage() {
       if (!res.ok) return;
       const data = await res.json();
       setAllocationMode(data.allocationMode ?? "manual");
+    } catch {}
+  }
+
+  /**
+   * Operating hours come from the member-scoped route, not `/settings`, because
+   * managers reach this page too and the admin-only read would 403 for them —
+   * leaving the out-of-hours notice silently comparing against the 6–22
+   * defaults instead of the organisation's actual hours.
+   */
+  async function fetchOperatingHours() {
+    try {
+      const res = await fetch(`/api/organizations/${orgId}/settings/display`);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (typeof data.operatingHoursStart === "number") setOpStart(data.operatingHoursStart);
+      if (typeof data.operatingHoursEnd === "number") setOpEnd(data.operatingHoursEnd);
     } catch {}
   }
 
@@ -353,6 +384,13 @@ export default function TasksPage() {
         if (endInput && parsed.scheduledEnd) {
           endInput.value = toDateTimeLocalValue(new Date(parsed.scheduledEnd));
         }
+        // Writing `.value` through the DOM does not fire React's onChange, so
+        // the notice would otherwise keep judging the previous times — or none
+        // at all — after the parser filled the form in.
+        setCreateSchedule({
+          start: startInput?.value ?? "",
+          end: endInput?.value ?? "",
+        });
       }, 100);
     } catch {
       setError("Something went wrong");
@@ -927,11 +965,33 @@ export default function TasksPage() {
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="scheduledStart" className="text-xs font-semibold text-muted-foreground">Start time</Label>
-                <Input id="scheduledStart" name="scheduledStart" type="datetime-local" />
+                <Input
+                  id="scheduledStart"
+                  name="scheduledStart"
+                  type="datetime-local"
+                  onChange={(e) =>
+                    setCreateSchedule((s) => ({ ...s, start: e.target.value }))
+                  }
+                />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="scheduledEnd" className="text-xs font-semibold text-muted-foreground">End time</Label>
-                <Input id="scheduledEnd" name="scheduledEnd" type="datetime-local" />
+                <Input
+                  id="scheduledEnd"
+                  name="scheduledEnd"
+                  type="datetime-local"
+                  onChange={(e) =>
+                    setCreateSchedule((s) => ({ ...s, end: e.target.value }))
+                  }
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <OperatingHoursNotice
+                  start={createSchedule.start}
+                  end={createSchedule.end}
+                  operatingHoursStart={opStart}
+                  operatingHoursEnd={opEnd}
+                />
               </div>
 
               {/* ─── Recurrence ─────────────────────── */}
@@ -1211,7 +1271,26 @@ export default function TasksPage() {
                       {/* Edit */}
                       <button
                         type="button"
-                        onClick={() => setEditingTaskId(editingTaskId === task.id ? null : task.id)}
+                        onClick={() => {
+                          const opening = editingTaskId !== task.id;
+                          setEditingTaskId(opening ? task.id : null);
+                          // Seeded from the task so an ALREADY out-of-hours
+                          // shift is flagged the moment the form opens, rather
+                          // than only after someone happens to touch a time
+                          // field.
+                          setEditSchedule(
+                            opening
+                              ? {
+                                  start: task.scheduledStart
+                                    ? toDateTimeLocalValue(new Date(task.scheduledStart))
+                                    : "",
+                                  end: task.scheduledEnd
+                                    ? toDateTimeLocalValue(new Date(task.scheduledEnd))
+                                    : "",
+                                }
+                              : { start: "", end: "" }
+                          );
+                        }}
                         className={`flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-[12px] font-medium transition-colors ${
                           editingTaskId === task.id
                             ? "border-indigo-500 bg-indigo-50 text-indigo-600 dark:border-indigo-400 dark:bg-indigo-950 dark:text-indigo-400"
@@ -1299,11 +1378,33 @@ export default function TasksPage() {
                             </div>
                             <div className="space-y-1">
                               <Label className="text-xs font-semibold text-muted-foreground">Start time</Label>
-                              <Input name="editStart" type="datetime-local" defaultValue={task.scheduledStart ? toDateTimeLocalValue(new Date(task.scheduledStart)) : ""} />
+                              <Input
+                                name="editStart"
+                                type="datetime-local"
+                                defaultValue={task.scheduledStart ? toDateTimeLocalValue(new Date(task.scheduledStart)) : ""}
+                                onChange={(e) =>
+                                  setEditSchedule((s) => ({ ...s, start: e.target.value }))
+                                }
+                              />
                             </div>
                             <div className="space-y-1">
                               <Label className="text-xs font-semibold text-muted-foreground">End time</Label>
-                              <Input name="editEnd" type="datetime-local" defaultValue={task.scheduledEnd ? toDateTimeLocalValue(new Date(task.scheduledEnd)) : ""} />
+                              <Input
+                                name="editEnd"
+                                type="datetime-local"
+                                defaultValue={task.scheduledEnd ? toDateTimeLocalValue(new Date(task.scheduledEnd)) : ""}
+                                onChange={(e) =>
+                                  setEditSchedule((s) => ({ ...s, end: e.target.value }))
+                                }
+                              />
+                            </div>
+                            <div className="sm:col-span-2">
+                              <OperatingHoursNotice
+                                start={editSchedule.start}
+                                end={editSchedule.end}
+                                operatingHoursStart={opStart}
+                                operatingHoursEnd={opEnd}
+                              />
                             </div>
                           </div>
                           <div className="flex gap-2 pt-1">

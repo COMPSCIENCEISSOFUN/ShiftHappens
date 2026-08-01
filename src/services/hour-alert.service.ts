@@ -98,15 +98,43 @@ export class HourAlertService {
     const limits: LimitStatus[] = [];
 
     // Hours are only fetched for the windows we actually need.
+    //
+    // The `??=` memo already avoids re-computing a window; the shared cache
+    // avoids re-QUERYING for it. All three windows are derived from the same
+    // per-member assignment list, so without it a member subject to a break
+    // rule, a daily cap and a weekly cap costs three identical queries. Scoped
+    // to this member's check and discarded with it.
+    const hoursCache = new Map();
     let hours24h: number | null = null;
     let hoursToday: number | null = null;
     let hoursWeek: number | null = null;
     const last24h = async () =>
-      (hours24h ??= await this.eligibilityService.getHoursInLast24h(membershipId));
+      (hours24h ??= await this.eligibilityService.getHoursInLast24h(
+        membershipId,
+        undefined,
+        hoursCache
+      ));
+    // The organisation's day boundary is passed through so the figure shown on
+    // the dashboard is measured the same way as the one the eligibility engine
+    // blocks on. Without it, a member could be told they had worked 4h today
+    // while being refused a shift for having worked 11h that day — the same
+    // question answered against two different days.
     const today = async () =>
-      (hoursToday ??= await this.eligibilityService.getHoursOnDate(membershipId, now));
+      (hoursToday ??= await this.eligibilityService.getHoursOnDate(
+        membershipId,
+        now,
+        undefined,
+        hoursCache,
+        settings.operatingHoursStart
+      ));
     const week = async () =>
-      (hoursWeek ??= await this.eligibilityService.getHoursInWeek(membershipId, now));
+      (hoursWeek ??= await this.eligibilityService.getHoursInWeek(
+        membershipId,
+        now,
+        undefined,
+        hoursCache,
+        settings.operatingHoursStart
+      ));
 
     // 1. Company-wide break rule
     if (settings.breakRuleHoursWorked > 0) {

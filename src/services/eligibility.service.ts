@@ -26,12 +26,13 @@ import { MembershipRepository } from "@/repositories/membership.repository";
 import { WorkRuleRepository } from "@/repositories/work-rule.repository";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 import { DEFAULT_EMPLOYMENT_TYPE } from "@/lib/role-config";
+import { localDateInTimeZone, timeOfDayInTimeZone } from "@/lib/timezone";
 import {
-  dayOfWeekInTimeZone,
-  endOfDayInTimeZone,
-  startOfDayInTimeZone,
-  timeOfDayInTimeZone,
-} from "@/lib/timezone";
+  DEFAULT_DAY_START_HOUR,
+  businessDayRange,
+  businessWeekRange,
+  overlapHours,
+} from "@/lib/business-day";
 
 interface EligibilityCheck {
   eligible: boolean;
@@ -52,6 +53,16 @@ interface StaffEligibility {
   };
   overrides: string[];
 }
+
+/**
+ * Per-evaluation memo of committed assignments, keyed by
+ * `membershipId|excludeTaskId`. Created by the caller and passed down, so its
+ * lifetime is one eligibility run — see `loadCommittedAssignments`.
+ */
+type CommittedAssignmentsCache = Map<
+  string,
+  ReturnType<TaskAssignmentRepository["findCommittedWithSchedule"]>
+>;
 
 export class EligibilityService {
   private availRepo = new AvailabilityRepository();
@@ -113,6 +124,12 @@ export class EligibilityService {
     // Load all overrides for this task once, grouped by member.
     const overridesByMember = await this.getOverrideMap(taskId);
 
+    // One memo for the whole evaluation. Every member is checked against the
+    // break rule, the daily cap and the weekly cap, and all three read the same
+    // per-member assignment list — without this they issue that query three
+    // times each. Scoped to this call, so it cannot go stale between requests.
+    const hoursCache: CommittedAssignmentsCache = new Map();
+
     const results: StaffEligibility[] = [];
 
     for (const member of eligibleMembers) {
@@ -139,7 +156,7 @@ export class EligibilityService {
       // 1. Hours limit
       const hoursCheck = applyOverride(
         this.OVERRIDE_KEYS.hoursLimit,
-        await this.checkHoursLimit(member.id, settings.breakRuleHoursWorked, task.id)
+        await this.checkHoursLimit(member.id, settings.breakRuleHoursWorked, task.id, hoursCache)
       );
 
       // 2. Availability
@@ -189,7 +206,9 @@ export class EligibilityService {
           allWorkRules,
           task,
           memberDeptIds,
-          memberCustomRoleId || null
+          memberCustomRoleId || null,
+          hoursCache,
+          settings.operatingHoursStart
         )
       );
 
@@ -251,9 +270,10 @@ export class EligibilityService {
   async checkHoursLimit(
     membershipId: string,
     maxHours: number,
-    excludeTaskId?: string
+    excludeTaskId?: string,
+    cache?: CommittedAssignmentsCache
   ): Promise<EligibilityCheck> {
-    const totalHours = await this.getHoursInLast24h(membershipId, excludeTaskId);
+    const totalHours = await this.getHoursInLast24h(membershipId, excludeTaskId, cache);
 
     if (totalHours >= maxHours) {
       return {
@@ -338,8 +358,10 @@ export class EligibilityService {
    * - Role rules → apply if member has that custom role
    * - Both set → apply if member matches both
    *
-   * Task duration is added to already-worked hours before comparing
-   * against daily/weekly limits.
+   * The part of the task falling inside the window is added to already-worked
+   * hours before comparing against daily/weekly limits — both halves of that
+   * sum are clipped to the same business day or week, so they are measured the
+   * same way.
    *
    * Returns ineligible with the first violated rule's name and reason.
    */
@@ -348,7 +370,9 @@ export class EligibilityService {
     rules: Awaited<ReturnType<WorkRuleRepository["findApplicableRules"]>>,
     task: { id: string; scheduledStart: Date | null; scheduledEnd: Date | null },
     memberDepartmentIds: string[],
-    memberCustomRoleId: string | null
+    memberCustomRoleId: string | null,
+    cache?: CommittedAssignmentsCache,
+    dayStartHour: number = DEFAULT_DAY_START_HOUR
   ): Promise<EligibilityCheck> {
     if (rules.length === 0) {
       return { eligible: true };
@@ -367,7 +391,7 @@ export class EligibilityService {
       switch (rule.type) {
         case "break_interval": {
           if (!rule.hoursThreshold) break;
-          const hours = await this.getHoursInLast24h(membershipId, task.id);
+          const hours = await this.getHoursInLast24h(membershipId, task.id, cache);
           if (hours >= rule.hoursThreshold) {
             violated = true;
             reason = `${hours.toFixed(1)}h in last 24h (rule "${rule.name}": max ${rule.hoursThreshold}h before break)`;
@@ -375,34 +399,87 @@ export class EligibilityService {
           break;
         }
 
+        /*
+         * Both cap rules below check EVERY window the task touches, and clip
+         * the task to each one. The previous implementation did neither, and
+         * the two omissions cancelled each other out badly enough to look
+         * plausible:
+         *
+         *   - It added the task's WHOLE duration to a total that was already
+         *     clipped to the day — two conventions in one sum. A 22:00–06:00
+         *     shift charged all eight hours to the day it began, and a
+         *     three-day task charged all 72 against a DAILY cap.
+         *   - It checked only the window containing the task's START. The
+         *     hours spilling into the next day were therefore never tested
+         *     against that day's cap at all: a shift could be refused for
+         *     hours it would work tomorrow, while genuinely overloading
+         *     tomorrow went unnoticed.
+         *
+         * Iterating costs nothing extra in queries — every call shares the
+         * per-evaluation assignment cache, so only the arithmetic repeats.
+         */
         case "max_hours_daily": {
           if (!rule.maxHours || !task.scheduledStart || !task.scheduledEnd) break;
-          // Hours already committed that day (clocked + scheduled), excluding
-          // this task so it isn't counted against itself.
-          const dailyHours = await this.getHoursOnDate(
-            membershipId,
+
+          for (const window of this.windowsSpanned(
             task.scheduledStart,
-            task.id
-          );
-          const taskDuration = (task.scheduledEnd.getTime() - task.scheduledStart.getTime()) / (1000 * 60 * 60);
-          if (dailyHours + taskDuration > rule.maxHours) {
-            violated = true;
-            reason = `Would total ${(dailyHours + taskDuration).toFixed(1)}h that day (rule "${rule.name}": max ${rule.maxHours}h/day)`;
+            task.scheduledEnd,
+            (d) => businessDayRange(d, dayStartHour)
+          )) {
+            const taskHours = overlapHours(
+              task.scheduledStart,
+              task.scheduledEnd,
+              window.start,
+              window.end
+            );
+            if (taskHours <= 0) continue;
+
+            // Hours already committed that day (clocked + scheduled), excluding
+            // this task so it isn't counted against itself.
+            const committed = await this.getHoursOnDate(
+              membershipId,
+              window.start,
+              task.id,
+              cache,
+              dayStartHour
+            );
+            if (committed + taskHours > rule.maxHours) {
+              violated = true;
+              reason = `Would total ${(committed + taskHours).toFixed(1)}h on ${localDateInTimeZone(window.start)} (rule "${rule.name}": max ${rule.maxHours}h/day)`;
+              break;
+            }
           }
           break;
         }
 
         case "max_hours_weekly": {
           if (!rule.maxHours || !task.scheduledStart || !task.scheduledEnd) break;
-          const weeklyHours = await this.getHoursInWeek(
-            membershipId,
+
+          for (const window of this.windowsSpanned(
             task.scheduledStart,
-            task.id
-          );
-          const taskDuration = (task.scheduledEnd.getTime() - task.scheduledStart.getTime()) / (1000 * 60 * 60);
-          if (weeklyHours + taskDuration > rule.maxHours) {
-            violated = true;
-            reason = `Would total ${(weeklyHours + taskDuration).toFixed(1)}h that week (rule "${rule.name}": max ${rule.maxHours}h/week)`;
+            task.scheduledEnd,
+            (d) => businessWeekRange(d, dayStartHour)
+          )) {
+            const taskHours = overlapHours(
+              task.scheduledStart,
+              task.scheduledEnd,
+              window.start,
+              window.end
+            );
+            if (taskHours <= 0) continue;
+
+            const committed = await this.getHoursInWeek(
+              membershipId,
+              window.start,
+              task.id,
+              cache,
+              dayStartHour
+            );
+            if (committed + taskHours > rule.maxHours) {
+              violated = true;
+              reason = `Would total ${(committed + taskHours).toFixed(1)}h in the week of ${localDateInTimeZone(window.start)} (rule "${rule.name}": max ${rule.maxHours}h/week)`;
+              break;
+            }
           }
           break;
         }
@@ -493,21 +570,108 @@ export class EligibilityService {
    * so hour totals can count BOTH clocked time and future scheduled shifts.
    * `excludeTaskId` drops the task currently being evaluated to avoid
    * counting it against itself (e.g. when re-checking after a reschedule).
+   *
+   * ## The cache
+   *
+   * `getHoursInLast24h`, `getHoursOnDate` and `getHoursInWeek` each called this
+   * independently, so evaluating one member against a break rule, a daily cap
+   * and a weekly cap issued the SAME query three times. Multiplied across every
+   * member of an organisation and run sequentially, a 150-staff org spent
+   * hundreds of serial round trips on one eligibility check — and that check
+   * runs fire-and-forget on every reschedule.
+   *
+   * The cache is a PARAMETER, deliberately, not a field on the service. This
+   * class is held as a long-lived field by `TaskService` and others, so
+   * instance state would be shared by every request that instance ever serves:
+   * stale hour totals across requests, and two interleaved requests reading
+   * each other's data. Passing it in scopes it to a single evaluation and makes
+   * that scope visible at every call site.
+   *
+   * It caches the PROMISE rather than the resolved value, so concurrent callers
+   * for the same member share one query instead of racing to start two.
    */
   private async loadCommittedAssignments(
     membershipId: string,
-    excludeTaskId?: string
+    excludeTaskId?: string,
+    cache?: CommittedAssignmentsCache
   ) {
-    return this.assignmentRepo.findCommittedWithSchedule(
+    if (!cache) {
+      return this.assignmentRepo.findCommittedWithSchedule(
+        membershipId,
+        EligibilityService.COMMITTED_STATUSES,
+        excludeTaskId
+      );
+    }
+
+    const key = `${membershipId}|${excludeTaskId ?? ""}`;
+    const cached = cache.get(key);
+    if (cached) return cached;
+
+    const pending = this.assignmentRepo.findCommittedWithSchedule(
       membershipId,
       EligibilityService.COMMITTED_STATUSES,
       excludeTaskId
     );
+    cache.set(key, pending);
+    return pending;
   }
 
   /**
-   * Sums effective assignment hours whose interval STARTS within
-   * [windowStart, windowEnd). A null windowEnd means "no upper bound".
+   * Every consecutive window (business day, business week) that `[start, end)`
+   * touches, in order.
+   *
+   * `windowFor` must return a window CONTAINING the instant it is given and
+   * must tile the timeline without gaps — both `businessDayRange` and
+   * `businessWeekRange` do. The cursor therefore always advances by a full
+   * window and the loop terminates.
+   *
+   * The iteration cap is a backstop against corrupt data, not a policy: a task
+   * with a scheduled end years after its start would otherwise spin here. It is
+   * set far above anything a real roster contains, and hitting it truncates the
+   * check rather than hanging the request — an under-check on absurd data,
+   * which is the safer failure of the two available.
+   */
+  private *windowsSpanned(
+    start: Date,
+    end: Date,
+    windowFor: (date: Date) => { start: Date; end: Date }
+  ): Generator<{ start: Date; end: Date }> {
+    const MAX_WINDOWS = 400;
+
+    let window = windowFor(start);
+    for (let i = 0; i < MAX_WINDOWS; i++) {
+      yield window;
+      if (window.end.getTime() >= end.getTime()) return;
+      window = windowFor(window.end);
+    }
+  }
+
+  /**
+   * Sums the portion of each assignment that OVERLAPS [windowStart, windowEnd).
+   * A null windowEnd means "no upper bound".
+   *
+   * ## Why overlap, and not "starts within"
+   *
+   * This previously selected intervals whose START fell inside the window and
+   * then added the interval's ENTIRE duration. That is wrong in both
+   * directions, and both were reachable:
+   *
+   *  - OVER-COUNT. A long shift beginning inside the window contributed all of
+   *    its hours, including those outside it. Production showed
+   *    "168.0h of 6h (2800%)" on a rolling 24-hour break rule — 168 hours is
+   *    exactly seven days, and a 24-hour window cannot contain more than 24
+   *    hours of work, so the figure was impossible rather than merely odd. The
+   *    visible cost is false rest-break alarms.
+   *
+   *  - UNDER-COUNT. A shift that began BEFORE the window and is still running
+   *    was skipped entirely. Someone twelve hours into an overnight shift read
+   *    as zero hours worked, so a break rule that should have fired did not.
+   *    This is the dangerous half: a false alarm is noise, a missed rest break
+   *    is a safety failure.
+   *
+   * Clipping each interval to the window fixes both at once, and makes the
+   * total bounded by the window's own length — which is the property that made
+   * the original bug self-evident once anyone looked at the number.
    */
   private sumHoursInWindow(
     assignments: {
@@ -518,72 +682,88 @@ export class EligibilityService {
     windowStart: Date,
     windowEnd: Date | null
   ): number {
+    // An open-ended window is expressed as a far-future end rather than a
+    // branch, so there is exactly one overlap calculation in the codebase.
+    const end = windowEnd ?? new Date(8.64e15);
+
     let total = 0;
     for (const a of assignments) {
       const interval = this.effectiveInterval(a);
       if (!interval) continue;
-      if (interval.start < windowStart) continue;
-      if (windowEnd && interval.start >= windowEnd) continue;
-      total +=
-        (interval.end.getTime() - interval.start.getTime()) / (1000 * 60 * 60);
+      total += overlapHours(interval.start, interval.end, windowStart, end);
     }
     return Math.round(total * 10) / 10;
   }
 
   /**
    * Total committed hours in the last 24 hours (rolling). Counts actual
-   * clocked time plus any committed shift that started within the window.
+   * clocked time where it exists, otherwise the schedule, and counts only the
+   * portion of each that falls inside the window — so the result can never
+   * exceed 24, and a shift still in progress contributes the hours already
+   * worked rather than nothing.
    */
   async getHoursInLast24h(
     membershipId: string,
-    excludeTaskId?: string
+    excludeTaskId?: string,
+    cache?: CommittedAssignmentsCache
   ): Promise<number> {
     const now = new Date();
     const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-    const assignments = await this.loadCommittedAssignments(membershipId, excludeTaskId);
+    const assignments = await this.loadCommittedAssignments(membershipId, excludeTaskId, cache);
     return this.sumHoursInWindow(assignments, oneDayAgo, now);
   }
 
   /**
-   * Total committed hours on a calendar date — clocked time AND scheduled
-   * shifts on that day — so daily caps prevent over-scheduling future work.
+   * Total committed hours on the BUSINESS DAY containing `date` — clocked time
+   * AND scheduled shifts — so daily caps prevent over-scheduling future work.
+   *
+   * `dayStartHour` is the organisation's `operatingHoursStart`, and it decides
+   * where one day ends and the next begins. It defaults to midnight so that
+   * every existing caller keeps its previous behaviour until it opts in.
+   *
+   * Why the boundary is configurable at all: a restaurant's Friday ends when
+   * the kitchen closes at 2am, not at midnight. Judged against midnight, a
+   * single 22:00–02:00 shift is split across two days and a daily cap fires on
+   * work nobody thinks of as belonging to either. Moving the boundary to 06:00
+   * puts the whole shift where the people working it would put it.
    */
   async getHoursOnDate(
     membershipId: string,
     date: Date,
-    excludeTaskId?: string
+    excludeTaskId?: string,
+    cache?: CommittedAssignmentsCache,
+    dayStartHour: number = DEFAULT_DAY_START_HOUR
   ): Promise<number> {
-    // The organisation's calendar day, not the server's. On Vercel a naive
-    // setHours(0,0,0,0) starts the day at 08:00 Singapore time, so a morning
-    // shift counts against the previous day's cap.
-    const dayStart = startOfDayInTimeZone(date);
-    const dayEnd = endOfDayInTimeZone(date);
+    // Resolved in the organisation's timezone, not the server's. On Vercel a
+    // naive setHours(0,0,0,0) starts the day at 08:00 Singapore time, so a
+    // morning shift counts against the previous day's cap.
+    const { start, end } = businessDayRange(date, dayStartHour);
 
-    const assignments = await this.loadCommittedAssignments(membershipId, excludeTaskId);
-    return this.sumHoursInWindow(assignments, dayStart, dayEnd);
+    const assignments = await this.loadCommittedAssignments(membershipId, excludeTaskId, cache);
+    return this.sumHoursInWindow(assignments, start, end);
   }
 
   /**
-   * Total committed hours in the calendar week (Mon–Sun) containing the date —
+   * Total committed hours in the business week (Mon–Sun) containing the date —
    * clocked time AND scheduled shifts — so weekly caps prevent over-scheduling.
+   *
+   * The week is built from business days, so with a 06:00 boundary a shift at
+   * 03:00 on Monday belongs to Sunday's business day and therefore to the week
+   * that is ending. Reading the weekday off the raw instant would file it under
+   * the new week instead, and the small hours of Monday would escape both
+   * weeks' caps.
    */
   async getHoursInWeek(
     membershipId: string,
     date: Date,
-    excludeTaskId?: string
+    excludeTaskId?: string,
+    cache?: CommittedAssignmentsCache,
+    dayStartHour: number = DEFAULT_DAY_START_HOUR
   ): Promise<number> {
-    // Monday-start week in the organisation's timezone. Both the weekday and
-    // the day boundary have to be resolved there: near midnight the server's
-    // weekday can be a different day, which would shift the whole window.
-    const day = dayOfWeekInTimeZone(date);
-    const diff = day === 0 ? -6 : 1 - day;
+    const { start, end } = businessWeekRange(date, dayStartHour);
 
-    const DAY_MS = 24 * 60 * 60 * 1000;
-    const weekStart = startOfDayInTimeZone(new Date(date.getTime() + diff * DAY_MS));
-    const weekEnd = new Date(weekStart.getTime() + 7 * DAY_MS);
-
-    const assignments = await this.loadCommittedAssignments(membershipId, excludeTaskId);
-    return this.sumHoursInWindow(assignments, weekStart, weekEnd);
+    const assignments = await this.loadCommittedAssignments(membershipId, excludeTaskId, cache);
+    return this.sumHoursInWindow(assignments, start, end);
   }
 
   /**

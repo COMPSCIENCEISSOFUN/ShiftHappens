@@ -66,13 +66,12 @@ export async function PATCH(
 
     const updated = await settingsService.updateSettings(orgId, parsed.data, user.id);
     return NextResponse.json(updated);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "";
-
-    if (message === "Operating hours end must be after start") {
-      return NextResponse.json({ error: message }, { status: 400 });
-    }
-
+  } catch {
+    // The "Operating hours end must be after start" mapping that used to live
+    // here has been removed along with the rule itself: `end <= start` now
+    // means the window wraps past midnight, which is a legal window and not an
+    // error. Zod bounds each hour individually, so there is nothing left for
+    // this handler to translate.
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
