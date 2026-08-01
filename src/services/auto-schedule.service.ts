@@ -21,7 +21,11 @@ import { EligibilityService } from "@/services/eligibility.service";
 import { NotificationService, NOTIFICATION_TYPES } from "@/services/notification.service";
 import { prisma } from "@/lib/prisma";
 import { ASSIGNMENT_STATUSES } from "@/lib/assignment-status";
-import { ASSIGNABLE_SYSTEM_ROLES } from "@/lib/role-config";
+import {
+  ASSIGNABLE_SYSTEM_ROLES,
+  normalizeEmploymentType,
+  requiresManagedAvailability,
+} from "@/lib/role-config";
 import type { AutoScheduleAssignmentReference } from "@/lib/validations";
 import { isDepartmentInScope } from "@/lib/department-scope";
 import {
@@ -35,6 +39,7 @@ interface StaffInfo {
   userId: string;
   name: string;
   role: string;
+  employmentType: string;
   departments: string[];
   availability: {
     dayOfWeek: number;
@@ -168,6 +173,7 @@ export class AutoScheduleService {
         userId: member.user.id,
         name: member.user.name || member.user.email,
         role: member.role,
+        employmentType: normalizeEmploymentType(member.employmentType),
         departments: member.departmentMemberships.map((dm) => dm.department.name),
         availability: availability.map((a) => ({
           dayOfWeek: a.dayOfWeek,
@@ -235,10 +241,12 @@ export class AutoScheduleService {
 
       const candidates = context.staff
         .filter((s) => {
-          const daySchedule = s.availability.find((a) => a.dayOfWeek === taskDayOfWeek);
-          if (!daySchedule || !daySchedule.isAvailable) return false;
-          if (daySchedule.startTime > taskStartHour) return false;
-          if (daySchedule.endTime < taskEndHour) return false;
+          if (requiresManagedAvailability(s.employmentType)) {
+            const daySchedule = s.availability.find((a) => a.dayOfWeek === taskDayOfWeek);
+            if (!daySchedule || !daySchedule.isAvailable) return false;
+            if (daySchedule.startTime > taskStartHour) return false;
+            if (daySchedule.endTime < taskEndHour) return false;
+          }
           const existingSlots = staffSlots.get(s.membershipId) || [];
           if (existingSlots.some((slot) => taskStart < slot.end && taskEnd > slot.start)) return false;
           const hours = cumulativeHours.get(s.membershipId) || 0;
@@ -339,13 +347,16 @@ export class AutoScheduleService {
     const staffLines = context.staff.map((s, i) => {
       const label = STAFF_LABELS[i] || `S${i}`;
       staffMap.set(label, s.membershipId);
-      const avail = s.availability
-        .filter((a) => a.isAvailable)
-        .map((a) => {
-          const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-          return `${days[a.dayOfWeek]} ${a.startTime}-${a.endTime}`;
-        }).join(", ");
-      return `  Staff ${label}: ${s.name} (${s.departments.join("/") || "no dept"}, ${Math.round(s.hoursThisWeek)}h worked, certs: ${s.certifications.join(", ") || "none"}, available: ${avail || "none"})`;
+      const avail = requiresManagedAvailability(s.employmentType)
+        ? s.availability
+            .filter((a) => a.isAvailable)
+            .map((a) => {
+              const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+              return `${days[a.dayOfWeek]} ${a.startTime}-${a.endTime}`;
+            })
+            .join(", ") || "none"
+        : "not required";
+      return `  Staff ${label}: ${s.name} (${s.departments.join("/") || "no dept"}, ${Math.round(s.hoursThisWeek)}h worked, certs: ${s.certifications.join(", ") || "none"}, availability: ${avail})`;
     }).join("\n");
 
     const ruleLines = context.workRules.map((r) => {
@@ -366,7 +377,7 @@ WORK RULES:
 ${ruleLines || "  None"}
 
 RULES:
-1. Match staff availability to task times — staff must be available for the full duration
+1. Temporary or part-time staff must be available for the full task duration
 2. No double-booking — one task at a time per staff member
 3. Distribute hours fairly — prioritize staff with fewer hours
 4. Prefer staff in the matching department

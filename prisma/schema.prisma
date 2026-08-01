@@ -70,7 +70,7 @@ model Membership {
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
   customRoleId      String?
-  employmentType    String?  // "casual" | "full_time"
+  employmentType    String?  // "casual" | "temporary_part_time"
 
   user                  User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   organization          Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -168,7 +168,7 @@ model InvitationToken {
   email          String
   role           String
   departmentId   String?
-  employmentType String?   // "casual" | "full_time" — carried to membership on accept
+  employmentType String?   // "casual" | "temporary_part_time" — carried to membership on accept
   token          String    @unique
   invitedById    String
   expires        DateTime

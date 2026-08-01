@@ -47,7 +47,7 @@ async function makeStaff(name: string, departmentId?: string) {
       organizationId: orgId,
       role: "staff",
       status: "active",
-      employmentType: "full_time",
+      employmentType: "casual",
     },
   });
   if (departmentId) {

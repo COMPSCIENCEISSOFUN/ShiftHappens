@@ -206,9 +206,14 @@ describe("inviteUserSchema", () => {
     expect(result.success).toBe(true);
   });
 
-  it("accepts invitation with employmentType full_time", () => {
-    const result = inviteUserSchema.safeParse({ email: "john@example.com", role: "staff", employmentType: "full_time" });
+  it("accepts invitation with temporary or part-time employment", () => {
+    const result = inviteUserSchema.safeParse({ email: "john@example.com", role: "staff", employmentType: "temporary_part_time" });
     expect(result.success).toBe(true);
+  });
+
+  it("rejects the legacy full_time employment type", () => {
+    const result = inviteUserSchema.safeParse({ email: "john@example.com", role: "staff", employmentType: "full_time" });
+    expect(result.success).toBe(false);
   });
 
   it("accepts invitation with employmentType casual", () => {
@@ -239,7 +244,7 @@ describe("updateUserRoleSchema", () => {
   });
 
   it("accepts role update with employmentType", () => {
-    const result = updateUserRoleSchema.safeParse({ role: "staff", employmentType: "full_time" });
+    const result = updateUserRoleSchema.safeParse({ role: "staff", employmentType: "temporary_part_time" });
     expect(result.success).toBe(true);
   });
 

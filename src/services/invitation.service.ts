@@ -14,6 +14,7 @@
  * - Passwords hashed with bcrypt before storage
  */
 import bcrypt from "bcryptjs";
+import { normalizeEmploymentType } from "@/lib/role-config";
 import { InvitationRepository } from "@/repositories/invitation.repository";
 import { MembershipRepository } from "@/repositories/membership.repository";
 import { UserRepository } from "@/repositories/user.repository";
@@ -93,7 +94,10 @@ export class InvitationService {
       userId: user!.id,
       organizationId: invitation.organizationId,
       role: invitation.role,
-      employmentType: invitationEmploymentType ?? undefined,
+      employmentType:
+        invitation.role === "staff"
+          ? normalizeEmploymentType(invitationEmploymentType)
+          : undefined,
     });
 
     // Assign department if specified in the invitation

@@ -74,7 +74,7 @@ beforeEach(async () => {
       organizationId: orgId,
       role: "staff",
       status: "active",
-      employmentType: "full_time",
+      employmentType: "casual",
     },
   });
   staffMembershipId = staffMembership.id;

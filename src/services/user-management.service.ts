@@ -13,6 +13,7 @@
  */
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
+import { normalizeEmploymentType } from "@/lib/role-config";
 import { MembershipRepository } from "@/repositories/membership.repository";
 import { InvitationRepository } from "@/repositories/invitation.repository";
 import { UserRepository } from "@/repositories/user.repository";
@@ -103,7 +104,10 @@ export class UserManagementService {
       email: input.email,
       role: input.role,
       departmentId: input.departmentId,
-      employmentType: input.employmentType,
+      employmentType:
+        input.role === "staff"
+          ? normalizeEmploymentType(input.employmentType)
+          : undefined,
       token,
       invitedById,
     });

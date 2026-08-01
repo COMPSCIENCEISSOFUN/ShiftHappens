@@ -130,12 +130,27 @@ Higher score = better fit.`,
       const parsed = JSON.parse(cleaned);
 
       if (Array.isArray(parsed)) {
-        return parsed.map((item: any, index: number) => ({
-          membershipId: item.membershipId || candidates[index]?.membershipId || "",
-          rank: item.rank || index + 1,
-          score: Math.min(100, Math.max(0, item.score || 0)),
-          explanation: item.explanation || "No explanation provided",
-        }));
+        return parsed.map((item: unknown, index: number) => {
+          const value =
+            typeof item === "object" && item !== null
+              ? (item as Record<string, unknown>)
+              : {};
+          return {
+            membershipId:
+              typeof value.membershipId === "string"
+                ? value.membershipId
+                : candidates[index]?.membershipId || "",
+            rank: typeof value.rank === "number" ? value.rank : index + 1,
+            score: Math.min(
+              100,
+              Math.max(0, typeof value.score === "number" ? value.score : 0)
+            ),
+            explanation:
+              typeof value.explanation === "string"
+                ? value.explanation
+                : "No explanation provided",
+          };
+        });
       }
     } catch (error) {
       console.error("[Groq Parse Error]", error, "Content:", content);

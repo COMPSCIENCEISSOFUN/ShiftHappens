@@ -110,22 +110,22 @@ describe("UserManagementService", () => {
 
     it("creates invitation with employmentType", async () => {
       const invitation = await userMgmtService.inviteUser(
-        { email: "ft@example.com", role: "staff", employmentType: "full_time" },
+        { email: "temp@example.com", role: "staff", employmentType: "temporary_part_time" },
         orgId,
         adminUserId
       );
 
-      expect(invitation.employmentType).toBe("full_time");
+      expect(invitation.employmentType).toBe("temporary_part_time");
     });
 
-    it("creates invitation without employmentType (defaults to null)", async () => {
+    it("creates a Staff invitation without employmentType as casual", async () => {
       const invitation = await userMgmtService.inviteUser(
         { email: "noet@example.com", role: "staff" },
         orgId,
         adminUserId
       );
 
-      expect(invitation.employmentType).toBeNull();
+      expect(invitation.employmentType).toBe("casual");
     });
   });
 
@@ -242,16 +242,16 @@ describe("UserManagementService", () => {
 
       await userMgmtService.updateMemberRole(user2.id, orgId, {
         role: "staff",
-        employmentType: "full_time",
+        employmentType: "temporary_part_time",
       });
 
       const updated = await prisma.membership.findUnique({
         where: { id: membership.id },
       });
-      expect(updated!.employmentType).toBe("full_time");
+      expect(updated!.employmentType).toBe("temporary_part_time");
     });
 
-    it("changes employmentType from full_time to casual", async () => {
+    it("changes employmentType from temporary_part_time to casual", async () => {
       const user2 = await userRepo.create({
         name: "Staff User",
         email: "staff3@example.com",
@@ -263,7 +263,7 @@ describe("UserManagementService", () => {
           organizationId: orgId,
           role: "staff",
           status: "active",
-          employmentType: "full_time",
+          employmentType: "temporary_part_time",
         },
       });
 
@@ -571,7 +571,7 @@ describe("UserManagementService", () => {
             email: "emma@example.com",
             role: "staff",
             departmentName: null,
-            employmentType: "full_time",
+            employmentType: "temporary_part_time",
           },
           {
             name: "Liam Chen",
@@ -649,7 +649,7 @@ describe("UserManagementService", () => {
             email: "emma@example.com",
             role: "staff",
             departmentName: null,
-            employmentType: "full_time",
+            employmentType: "temporary_part_time",
           },
         ],
         adminUserId
@@ -658,7 +658,7 @@ describe("UserManagementService", () => {
       const membership = await prisma.membership.findFirst({
         where: { organizationId: orgId, role: "staff" },
       });
-      expect(membership!.employmentType).toBe("full_time");
+      expect(membership!.employmentType).toBe("temporary_part_time");
     });
 
     it("marks imported users' emails as verified", async () => {
@@ -716,7 +716,7 @@ describe("UserManagementService", () => {
             email: "emma@example.com",
             role: "manager",
             departmentName: null,
-            employmentType: "full_time",
+            employmentType: "temporary_part_time",
           },
         ],
         adminUserId
@@ -804,7 +804,7 @@ describe("UserManagementService", () => {
             email: "alsogood@example.com",
             role: "manager",
             departmentName: null,
-            employmentType: "full_time",
+            employmentType: "temporary_part_time",
           },
         ],
         adminUserId
@@ -832,7 +832,7 @@ describe("UserManagementService", () => {
             email: "liam@example.com",
             role: "manager",
             departmentName: null,
-            employmentType: "full_time",
+            employmentType: "temporary_part_time",
           },
         ],
         adminUserId

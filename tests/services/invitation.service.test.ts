@@ -231,7 +231,7 @@ describe("InvitationService", () => {
   });
 
   describe("acceptInvitation — employmentType carry-through", () => {
-    it("carries employmentType from invitation to membership", async () => {
+    it("maps a legacy full_time invitation to casual membership", async () => {
       await prisma.invitationToken.create({
         data: {
           organizationId: orgId,
@@ -246,7 +246,7 @@ describe("InvitationService", () => {
 
       const result = await invitationService.acceptInvitation(
         "ft-invite-token",
-        { name: "Full-time User", password: "SecurePass1!" }
+        { name: "Legacy Full-time User", password: "SecurePass1!" }
       );
 
       const membership = await prisma.membership.findFirst({
@@ -256,7 +256,7 @@ describe("InvitationService", () => {
         },
       });
       expect(membership).not.toBeNull();
-      expect(membership!.employmentType).toBe("full_time");
+      expect(membership!.employmentType).toBe("casual");
     });
 
     it("carries casual employmentType from invitation to membership", async () => {
@@ -286,7 +286,31 @@ describe("InvitationService", () => {
       expect(membership!.employmentType).toBe("casual");
     });
 
-    it("sets null employmentType when invitation has none", async () => {
+    it("carries temporary or part-time employmentType to membership", async () => {
+      await prisma.invitationToken.create({
+        data: {
+          organizationId: orgId,
+          email: "temporary@example.com",
+          role: "staff",
+          employmentType: "temporary_part_time",
+          token: "temporary-invite-token",
+          invitedById: adminUserId,
+          expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        },
+      });
+
+      const result = await invitationService.acceptInvitation(
+        "temporary-invite-token",
+        { name: "Temporary User", password: "SecurePass1!" }
+      );
+      const membership = await prisma.membership.findFirst({
+        where: { userId: result.user.id, organizationId: orgId },
+      });
+
+      expect(membership!.employmentType).toBe("temporary_part_time");
+    });
+
+    it("defaults a Staff invitation without employmentType to casual", async () => {
       await prisma.invitationToken.create({
         data: {
           organizationId: orgId,
@@ -309,10 +333,10 @@ describe("InvitationService", () => {
           organizationId: orgId,
         },
       });
-      expect(membership!.employmentType).toBeNull();
+      expect(membership!.employmentType).toBe("casual");
     });
 
-    it("carries employmentType for existing user accepting invitation", async () => {
+    it("normalizes legacy employmentType for an existing user", async () => {
       const existingUser = await userRepo.create({
         name: "Existing FT",
         email: "existingft@example.com",
@@ -344,7 +368,7 @@ describe("InvitationService", () => {
           organizationId: orgId,
         },
       });
-      expect(membership!.employmentType).toBe("full_time");
+      expect(membership!.employmentType).toBe("casual");
     });
   });
 

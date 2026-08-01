@@ -46,7 +46,7 @@ async function createMembership(
       organizationId: options?.organizationId ?? organizationId,
       role: options?.role ?? "staff",
       status: options?.status ?? "active",
-      employmentType: options?.employmentType ?? "full_time",
+      employmentType: options?.employmentType ?? "casual",
     },
   });
   return { user, membership };
@@ -164,7 +164,7 @@ describe("Phase 4 final assignment integrity", () => {
 
   it("rejects stale availability and certification decisions", async () => {
     const unavailable = await createMembership("Unavailable", {
-      employmentType: "casual",
+      employmentType: "temporary_part_time",
     });
     const uncertified = await createMembership("Uncertified");
     const scheduledTask = await createTask({ scheduled: true });
@@ -193,7 +193,7 @@ describe("Phase 4 final assignment integrity", () => {
   it("rolls back the whole selected batch when one member is ineligible", async () => {
     const eligible = await createMembership("Eligible");
     const unavailable = await createMembership("Unavailable", {
-      employmentType: "casual",
+      employmentType: "temporary_part_time",
     });
     const task = await createTask({ requiredHeadcount: 2, scheduled: true });
 

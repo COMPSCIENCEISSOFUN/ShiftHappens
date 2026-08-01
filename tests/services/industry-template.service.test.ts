@@ -11,6 +11,7 @@ import { prisma } from "@/lib/prisma";
 import { cleanDatabase } from "../helpers/cleanup";
 
 const templateService = new IndustryTemplateService();
+type TemplateInput = Parameters<IndustryTemplateService["createTemplate"]>[0];
 
 // --- Reusable test data ---
 
@@ -32,7 +33,7 @@ const validWorkRules = [
 const validCertifications = ["Food Safety", "First Aid"];
 
 /** Builds a valid createTemplate input with optional overrides */
-function makeInput(overrides: Record<string, unknown> = {}): any {
+function makeInput(overrides: Partial<TemplateInput> = {}): TemplateInput {
   return {
     name: "Hospitality",
     icon: "UtensilsCrossed",
@@ -216,7 +217,7 @@ describe("IndustryTemplateService", () => {
     });
 
     it("throws when departments exceed maximum of 10", async () => {
-      const tooMany = Array.from({ length: 11 }, (_, i) => ({
+      const tooMany: TemplateInput["departments"] = Array.from({ length: 11 }, (_, i) => ({
         name: `Dept ${i}`,
         description: `Department ${i}`,
         color: `#${String(i).padStart(6, "0")}`,
@@ -242,7 +243,7 @@ describe("IndustryTemplateService", () => {
     });
 
     it("throws when work rules exceed maximum of 10", async () => {
-      const tooMany = Array.from({ length: 11 }, (_, i) => ({
+      const tooMany: TemplateInput["workRules"] = Array.from({ length: 11 }, (_, i) => ({
         name: `Rule ${i}`,
         type: "break_interval",
         hoursThreshold: 6,
@@ -320,7 +321,11 @@ describe("IndustryTemplateService", () => {
         templateService.createTemplate(
           makeInput({
             workRules: [
-              { name: "Bad Rule", type: "invalid_type" as any, reason: "None" },
+              {
+                name: "Bad Rule",
+                type: "invalid_type" as unknown as TemplateInput["workRules"][number]["type"],
+                reason: "None",
+              },
             ],
           })
         )
@@ -395,7 +400,7 @@ describe("IndustryTemplateService", () => {
     it("validates work rules when updating them", async () => {
       const template = await templateService.createTemplate(makeInput());
 
-      const badRules = Array.from({ length: 11 }, (_, i) => ({
+      const badRules: TemplateInput["workRules"] = Array.from({ length: 11 }, (_, i) => ({
         name: `Rule ${i}`,
         type: "break_interval" as const,
         hoursThreshold: 6,

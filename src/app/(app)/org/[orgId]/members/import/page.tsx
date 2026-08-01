@@ -245,7 +245,7 @@ export default function MemberImportPage() {
       const rawEmpType = (raw[targetMap.get("employmentType") || ""] || "").trim();
 
       // ── Name validation ──
-      let name = rawName;
+      const name = rawName;
       if (!name) {
         errors.name = "Name is required";
       } else if (name.length < 2) {
@@ -253,7 +253,7 @@ export default function MemberImportPage() {
       }
 
       // ── Email validation ──
-      let email = rawEmail.toLowerCase();
+      const email = rawEmail.toLowerCase();
       if (!email) {
         errors.email = "Email is required";
       } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -459,7 +459,7 @@ export default function MemberImportPage() {
         Email: "jane@example.com",
         Role: "staff",
         Department: departments[0]?.name || "Kitchen",
-        "Employment Type": "full_time",
+        "Employment Type": "temporary_part_time",
       },
       {
         Name: "John Doe",
@@ -734,7 +734,7 @@ export default function MemberImportPage() {
               <p className="font-medium text-foreground text-xs mb-1">Expected columns</p>
               <p>
                 Name (required), Email (required), Role (staff or manager — defaults to staff),
-                Department (must match existing), Employment Type (full_time or casual — defaults to casual)
+                Department (must match existing), Employment Type (temporary_part_time or casual — defaults to casual)
               </p>
             </div>
           </div>

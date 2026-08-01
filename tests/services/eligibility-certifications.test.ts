@@ -49,7 +49,7 @@ beforeEach(async () => {
       organizationId: org.id,
       role: "staff",
       status: "active",
-      employmentType: "full_time", // skip availability entirely
+      employmentType: "casual", // skip availability entirely
     },
   });
   staffMembershipId = membership.id;

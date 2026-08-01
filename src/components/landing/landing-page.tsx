@@ -1001,7 +1001,7 @@ const TESTIMONIALS = [
     role: "Shift Coordinator",
     company: "Horizon Hotel Group",
     quote:
-      "Managing availability across full-time, part-time, and casual staff was a nightmare on spreadsheets. The role-based dashboards mean everyone sees exactly what they need.",
+      "Managing availability across temporary, part-time, and casual staff was a nightmare on spreadsheets. The role-based dashboards mean everyone sees exactly what they need.",
     rating: 4,
   },
 ];

@@ -22,20 +22,39 @@ export function isAssignableSystemRole(role: string): boolean {
   return (ASSIGNABLE_SYSTEM_ROLES as readonly string[]).includes(role);
 }
 
-export const EMPLOYMENT_TYPE_LABELS: Record<string, string> = {
-  full_time: "Full-time",
+export const EMPLOYMENT_TYPES = ["casual", "temporary_part_time"] as const;
+export type EmploymentType = (typeof EMPLOYMENT_TYPES)[number];
+
+export const EMPLOYMENT_TYPE_LABELS: Record<EmploymentType, string> = {
   casual: "Casual",
+  temporary_part_time: "Temporary or Part-Time",
 };
 
 /** Employment type keys for iteration (select options, filters) */
-export const EMPLOYMENT_TYPE_KEYS = Object.keys(EMPLOYMENT_TYPE_LABELS);
+export const EMPLOYMENT_TYPE_KEYS = [...EMPLOYMENT_TYPES];
 
 /** Default employment type for new staff members */
 export const DEFAULT_EMPLOYMENT_TYPE = "casual";
 
+/** Maps legacy and missing database values to an approved employment type. */
+export function normalizeEmploymentType(
+  employmentType?: string | null
+): EmploymentType {
+  return employmentType === "temporary_part_time"
+    ? "temporary_part_time"
+    : DEFAULT_EMPLOYMENT_TYPE;
+}
+
+/** The approved WBS places weekly availability under this staff type only. */
+export function requiresManagedAvailability(
+  employmentType?: string | null
+): boolean {
+  return normalizeEmploymentType(employmentType) === "temporary_part_time";
+}
+
 /**
  * Builds the system role display label.
- * For staff, prepends employment type (e.g. "Full-time Staff", "Casual Staff").
+ * For staff, prepends the approved employment type label.
  * Admins and managers don't have employment types.
  */
 export function getSystemRoleLabel(
@@ -46,7 +65,6 @@ export function getSystemRoleLabel(
   if (systemRole === "manager") return SYSTEM_ROLE_LABELS.manager;
 
   const empLabel =
-    EMPLOYMENT_TYPE_LABELS[employmentType || "casual"] ||
-    EMPLOYMENT_TYPE_LABELS.casual;
+    EMPLOYMENT_TYPE_LABELS[normalizeEmploymentType(employmentType)];
   return `${empLabel} Staff`;
 }

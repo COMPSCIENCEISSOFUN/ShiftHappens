@@ -4,8 +4,8 @@
  * Verifies the four-dimensional eligibility engine:
  * 1. Hours limit (24h rolling window)
  * 2. Availability (weekly schedule + overrides)
- *    - Casual staff: availability is a hard constraint
- *    - Full-time staff: availability check skipped (always available)
+ *    - Temporary or part-time staff: availability is a hard constraint
+ *    - Casual staff: availability check skipped by default
  * 3. Scheduling conflicts (overlapping assignments)
  * 4. Work rules (break_interval, max_hours_daily, max_hours_weekly)
  *
@@ -59,6 +59,7 @@ beforeEach(async () => {
       organizationId: org.id,
       role: "staff",
       status: "active",
+      employmentType: "temporary_part_time",
     },
   });
   staffMembershipId = staffMembership.id;
@@ -560,10 +561,10 @@ describe("EligibilityService", () => {
   });
 
   describe("employment type", () => {
-    it("full-time staff is eligible without any availability set", async () => {
+    it("casual staff is eligible without any availability set", async () => {
       await prisma.membership.update({
         where: { id: staffMembershipId },
-        data: { employmentType: "full_time" },
+        data: { employmentType: "casual" },
       });
 
       const task = await taskRepo.create({
@@ -584,10 +585,14 @@ describe("EligibilityService", () => {
       );
       expect(staffResult!.eligible).toBe(true);
       expect(staffResult!.checks.availability.eligible).toBe(true);
-      expect(staffResult!.employmentType).toBe("full_time");
+      expect(staffResult!.employmentType).toBe("casual");
     });
 
-    it("casual staff is still ineligible without availability", async () => {
+    it("temporary or part-time staff is ineligible without availability", async () => {
+      await prisma.membership.update({
+        where: { id: staffMembershipId },
+        data: { employmentType: "temporary_part_time" },
+      });
       const task = await taskRepo.create({
         title: "Scheduled task",
         organizationId: orgId,
@@ -606,10 +611,10 @@ describe("EligibilityService", () => {
       );
       expect(staffResult!.eligible).toBe(false);
       expect(staffResult!.checks.availability.eligible).toBe(false);
-      expect(staffResult!.employmentType).toBe("casual");
+      expect(staffResult!.employmentType).toBe("temporary_part_time");
     });
 
-    it("full-time staff is still blocked by scheduling conflicts", async () => {
+    it("legacy full-time staff normalizes to casual and is still blocked by scheduling conflicts", async () => {
       await prisma.membership.update({
         where: { id: staffMembershipId },
         data: { employmentType: "full_time" },
@@ -652,7 +657,7 @@ describe("EligibilityService", () => {
       expect(staffResult!.checks.availability.eligible).toBe(true);
     });
 
-    it("full-time staff is still blocked by work rules", async () => {
+    it("legacy full-time staff normalizes to casual and is still blocked by work rules", async () => {
       await prisma.membership.update({
         where: { id: staffMembershipId },
         data: { employmentType: "full_time" },
@@ -709,14 +714,14 @@ describe("EligibilityService", () => {
     });
 
     it("returns employmentType in results for all staff", async () => {
-      const ftUser = await userRepo.create({
-        name: "Full Timer",
+      const legacyUser = await userRepo.create({
+        name: "Legacy Full Timer",
         email: "fulltime@example.com",
         hashedPassword: "hash",
       });
       await prisma.membership.create({
         data: {
-          userId: ftUser.id,
+          userId: legacyUser.id,
           organizationId: orgId,
           role: "staff",
           status: "active",
@@ -735,13 +740,13 @@ describe("EligibilityService", () => {
         orgId
       );
 
-      const casualResult = results.find(
+      const temporaryResult = results.find(
         (r) => r.membershipId === staffMembershipId
       );
-      const ftResult = results.find((r) => r.memberName === "Full Timer");
+      const legacyResult = results.find((r) => r.memberName === "Legacy Full Timer");
 
-      expect(casualResult!.employmentType).toBe("casual");
-      expect(ftResult!.employmentType).toBe("full_time");
+      expect(temporaryResult!.employmentType).toBe("temporary_part_time");
+      expect(legacyResult!.employmentType).toBe("casual");
     });
   });
 

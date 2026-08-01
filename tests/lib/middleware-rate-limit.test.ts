@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { getTier } from "@/middleware";
+import { getTier } from "@/proxy";
 
-describe("middleware rate-limit tiers", () => {
+describe("proxy rate-limit tiers", () => {
   it("keeps normal NextAuth support endpoints relaxed", () => {
     expect(getTier("/api/auth/providers")).toBe("relaxed");
     expect(getTier("/api/auth/csrf")).toBe("relaxed");

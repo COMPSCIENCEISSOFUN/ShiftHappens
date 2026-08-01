@@ -8,7 +8,7 @@
  * ever tripping the cap. Rejected/withdrawn assignments must NOT count, and
  * the task being evaluated must not be counted against itself.
  *
- * Members are full-time so the availability dimension always passes, isolating
+ * Members are casual so the availability dimension always passes, isolating
  * the work-rule hour math.
  */
 import { describe, it, expect, beforeEach } from "vitest";
@@ -53,7 +53,7 @@ beforeEach(async () => {
       organizationId: org.id,
       role: "staff",
       status: "active",
-      employmentType: "full_time", // skip availability
+      employmentType: "casual", // skip availability
     },
   });
   staffMembershipId = membership.id;

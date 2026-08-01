@@ -46,10 +46,10 @@ const bar = { department: { id: "dept-bar", name: "Bar" } };
 const MEMBERS: FilterableMember[] = [
   makeMember({ id: "m1", userId: "u1", name: "Alice Smith", email: "alice@oceangrill.com", role: "company_admin", employmentType: null, departmentMemberships: [] }),
   makeMember({ id: "m2", userId: "u2", name: "Bob Jones", email: "bob@oceangrill.com", role: "manager", employmentType: null, departmentMemberships: [kitchen] }),
-  makeMember({ id: "m3", userId: "u3", name: "Charlie Brown", email: "charlie@oceangrill.com", role: "staff", employmentType: "full_time", departmentMemberships: [kitchen] }),
+  makeMember({ id: "m3", userId: "u3", name: "Charlie Brown", email: "charlie@oceangrill.com", role: "staff", employmentType: "temporary_part_time", departmentMemberships: [kitchen] }),
   makeMember({ id: "m4", userId: "u4", name: "Diana Lee", email: "diana@oceangrill.com", role: "staff", employmentType: "casual", departmentMemberships: [bar] }),
   makeMember({ id: "m5", userId: "u5", name: "Eve O'Connor", email: "eve@oceangrill.com", role: "staff", employmentType: null, departmentMemberships: [kitchen, bar] }),
-  makeMember({ id: "m6", userId: "u6", name: null, email: "noname@oceangrill.com", role: "staff", employmentType: "full_time", departmentMemberships: [], status: "inactive" }),
+  makeMember({ id: "m6", userId: "u6", name: null, email: "noname@oceangrill.com", role: "staff", employmentType: "temporary_part_time", departmentMemberships: [], status: "inactive" }),
 ];
 
 /* ------------------------------------------------------------------ */
@@ -186,8 +186,8 @@ describe("filterMembers — role filter", () => {
 /* ------------------------------------------------------------------ */
 
 describe("filterMembers — employment type filter", () => {
-  it("filters full_time members", () => {
-    const result = filterMembers(MEMBERS, { ...EMPTY_FILTERS, employmentType: "full_time" });
+  it("filters temporary_part_time members", () => {
+    const result = filterMembers(MEMBERS, { ...EMPTY_FILTERS, employmentType: "temporary_part_time" });
     expect(result).toHaveLength(2); // m3 (explicit) and m6 (explicit)
     const ids = result.map((m) => m.id);
     expect(ids).toContain("m3");
@@ -292,8 +292,8 @@ describe("filterMembers — combined filters", () => {
     expect(ids).toContain("m5");
   });
 
-  it("role + employment type: staff + full_time", () => {
-    const result = filterMembers(MEMBERS, { ...EMPTY_FILTERS, role: "staff", employmentType: "full_time" });
+  it("role + employment type: staff + temporary_part_time", () => {
+    const result = filterMembers(MEMBERS, { ...EMPTY_FILTERS, role: "staff", employmentType: "temporary_part_time" });
     expect(result).toHaveLength(2); // m3 and m6
   });
 
@@ -307,7 +307,7 @@ describe("filterMembers — combined filters", () => {
     const result = filterMembers(MEMBERS, {
       search: "charlie",
       role: "staff",
-      employmentType: "full_time",
+      employmentType: "temporary_part_time",
       departmentId: "dept-kitchen",
       status: "active",
     });

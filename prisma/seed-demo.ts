@@ -207,7 +207,7 @@ async function seedAll(tx: Tx) {
       },
     });
 
-    const isFullTime = ["Alex Rivera", "Jamie Park", "Taylor Smith"].includes(staff.name);
+    const isTemporaryPartTime = ["Alex Rivera", "Jamie Park", "Taylor Smith"].includes(staff.name);
 
     const membership = await tx.membership.upsert({
       where: {
@@ -216,14 +216,14 @@ async function seedAll(tx: Tx) {
       update: {
         role: "staff",
         status: "active",
-        employmentType: isFullTime ? "full_time" : "casual",
+        employmentType: isTemporaryPartTime ? "temporary_part_time" : "casual",
       },
       create: {
         userId: user.id,
         organizationId: orgId,
         role: "staff",
         status: "active",
-        employmentType: isFullTime ? "full_time" : "casual",
+        employmentType: isTemporaryPartTime ? "temporary_part_time" : "casual",
       },
     });
 
@@ -874,9 +874,9 @@ async function seedAll(tx: Tx) {
   console.log("  Admin:    admin@oceangrill.com");
   console.log("  Manager:  sarah@oceangrill.com (Kitchen)");
   console.log("  Manager:  marcus@oceangrill.com (Bar)");
-  console.log("  Staff:    alex@oceangrill.com (Kitchen, Full-time, Morning Mon-Fri)");
-  console.log("  Staff:    jamie@oceangrill.com (Kitchen, Full-time, Evening Mon-Sat)");
-  console.log("  Staff:    taylor@oceangrill.com (Kitchen, Full-time, Full day Mon-Fri)");
+  console.log("  Staff:    alex@oceangrill.com (Kitchen, Temporary/Part-Time, Morning Mon-Fri)");
+  console.log("  Staff:    jamie@oceangrill.com (Kitchen, Temporary/Part-Time, Evening Mon-Sat)");
+  console.log("  Staff:    taylor@oceangrill.com (Kitchen, Temporary/Part-Time, Full day Mon-Fri)");
   console.log("  Staff:    jordan@oceangrill.com (Bar, Casual, Part time Wed-Sun)");
   console.log("  Staff:    casey@oceangrill.com (Front of House, Casual, Flexible all week)");
   console.log("  Staff:    sam@oceangrill.com (Bar, Casual)");

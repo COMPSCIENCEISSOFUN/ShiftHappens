@@ -62,7 +62,13 @@ beforeEach(async () => {
       data: { name: s.name, email: s.email, hashedPassword, emailVerified: new Date() },
     });
     const membership = await prisma.membership.create({
-      data: { userId: user.id, organizationId: orgId, role: "staff", status: "active" },
+      data: {
+        userId: user.id,
+        organizationId: orgId,
+        role: "staff",
+        status: "active",
+        employmentType: "temporary_part_time",
+      },
     });
     staffUserIds.push(user.id);
     staffMembershipIds.push(membership.id);

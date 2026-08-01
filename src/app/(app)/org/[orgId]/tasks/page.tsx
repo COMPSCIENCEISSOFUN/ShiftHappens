@@ -138,6 +138,25 @@ interface Member {
   user: { id: string; name: string | null; email: string };
 }
 
+interface EligibilityCheckResult {
+  eligible: boolean;
+  reason?: string;
+}
+
+interface EligibilityResult {
+  membershipId: string;
+  memberName: string;
+  eligible: boolean;
+  checks: Record<string, EligibilityCheckResult>;
+}
+
+interface StaffSuggestion {
+  membershipId: string;
+  rank: number;
+  score: number;
+  explanation?: string;
+}
+
 // ============================================================
 // Main component
 // ============================================================
@@ -166,8 +185,8 @@ export default function TasksPage() {
   const [success, setSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
-  const [eligibility, setEligibility] = useState<Record<string, any>>({});
-  const [suggestions, setSuggestions] = useState<any[]>([]);
+  const [eligibility, setEligibility] = useState<Record<string, EligibilityResult>>({});
+  const [suggestions, setSuggestions] = useState<StaffSuggestion[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [loadingEligibility, setLoadingEligibility] = useState(false);
@@ -234,8 +253,8 @@ export default function TasksPage() {
         `/api/organizations/${orgId}/tasks/${taskId}/eligibility`
       );
       const data = await res.json();
-      const map: Record<string, any> = {};
-      for (const item of data) {
+      const map: Record<string, EligibilityResult> = {};
+      for (const item of data as EligibilityResult[]) {
         map[item.membershipId] = item;
       }
       setEligibility(map);
@@ -262,7 +281,7 @@ export default function TasksPage() {
         setSuggestions(data);
         const topIds = data
           .slice(0, tasks.find((t) => t.id === taskId)?.requiredHeadcount || 1)
-          .map((s: any) => s.membershipId);
+          .map((s: StaffSuggestion) => s.membershipId);
         setSelectedMembers(topIds);
       }
     } catch {
@@ -1413,11 +1432,11 @@ export default function TasksPage() {
                                 AI Picks — top {task.requiredHeadcount} auto-selected
                               </p>
                               <div className="space-y-2">
-                                {suggestions.map((s: any) => {
+                                {suggestions.map((s) => {
                                   const member = members.find((m) => m.id === s.membershipId);
                                   const eligEntry = Object.values(eligibility).find(
-                                    (e: any) => e.membershipId === s.membershipId
-                                  ) as any;
+                                    (e) => e.membershipId === s.membershipId
+                                  );
                                   const name = member?.user.name || member?.user.email || eligEntry?.memberName || "Unknown";
                                   return (
                                     <div
@@ -1456,7 +1475,7 @@ export default function TasksPage() {
                                   <div className="max-h-[280px] overflow-y-auto">
                                     <div className="grid gap-1.5 sm:grid-cols-2">
                                       {eligibleMembers.map((m) => {
-                                        const suggestion = suggestions.find((s: any) => s.membershipId === m.id);
+                                        const suggestion = suggestions.find((s) => s.membershipId === m.id);
                                         const selected = selectedMembers.includes(m.id);
                                         const atLimit = !selected && selectedMembers.length >= task.requiredHeadcount;
 
@@ -1518,7 +1537,7 @@ export default function TasksPage() {
                                         const selected = selectedMembers.includes(m.id);
                                         const atLimit = !selected && selectedMembers.length >= task.requiredHeadcount;
                                         const canSelect = hasOverride;
-                                        const suggestion = suggestions.find((s: any) => s.membershipId === m.id);
+                                        const suggestion = suggestions.find((s) => s.membershipId === m.id);
 
                                         const warnings: string[] =
                                           (["availability", "scheduling", "workRules", "hoursLimit", "certifications"] as const)

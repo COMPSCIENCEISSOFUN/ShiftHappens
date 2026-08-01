@@ -351,12 +351,12 @@ describe("MembershipRepository", () => {
 
       const updated = await membershipRepo.updateEmploymentType(
         membership.id,
-        "full_time"
+        "temporary_part_time"
       );
-      expect(updated.employmentType).toBe("full_time");
+      expect(updated.employmentType).toBe("temporary_part_time");
     });
 
-    it("changes employment type from full_time to casual", async () => {
+    it("changes employment type from temporary_part_time to casual", async () => {
       const user2 = await userRepo.create({
         name: "Staff User",
         email: "staff@example.com",
@@ -367,7 +367,7 @@ describe("MembershipRepository", () => {
         userId: user2.id,
         organizationId: orgId,
         role: "staff",
-        employmentType: "full_time",
+        employmentType: "temporary_part_time",
       });
 
       const updated = await membershipRepo.updateEmploymentType(
@@ -381,7 +381,7 @@ describe("MembershipRepository", () => {
   describe("create with employmentType", () => {
     it("creates membership with employmentType", async () => {
       const user2 = await userRepo.create({
-        name: "FT Staff",
+        name: "Temporary Staff",
         email: "ftstaff@example.com",
         hashedPassword: "hash",
       });
@@ -390,13 +390,13 @@ describe("MembershipRepository", () => {
         userId: user2.id,
         organizationId: orgId,
         role: "staff",
-        employmentType: "full_time",
+        employmentType: "temporary_part_time",
       });
 
-      expect(membership.employmentType).toBe("full_time");
+      expect(membership.employmentType).toBe("temporary_part_time");
     });
 
-    it("defaults employmentType to null when not provided", async () => {
+    it("defaults Staff employmentType to casual when not provided", async () => {
       const user2 = await userRepo.create({
         name: "No ET Staff",
         email: "noet@example.com",
@@ -409,7 +409,7 @@ describe("MembershipRepository", () => {
         role: "staff",
       });
 
-      expect(membership.employmentType).toBeNull();
+      expect(membership.employmentType).toBe("casual");
     });
   });
 

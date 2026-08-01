@@ -9,6 +9,7 @@
  * Security: Prisma parameterized queries prevent SQL injection.
  */
 import { prisma } from "@/lib/prisma";
+import { normalizeEmploymentType } from "@/lib/role-config";
 
 export class MembershipRepository {
   /**
@@ -132,7 +133,10 @@ export class MembershipRepository {
         organizationId: data.organizationId,
         role: data.role,
         status: "active",
-        employmentType: data.employmentType || null,
+        employmentType:
+          data.role === "staff"
+            ? normalizeEmploymentType(data.employmentType)
+            : null,
       },
     });
   }
@@ -153,11 +157,11 @@ export class MembershipRepository {
     });
   }
 
-  /** Updates a member's employment type (full_time / casual) */
+  /** Updates a member to one of the approved employment types. */
   async updateEmploymentType(membershipId: string, employmentType: string) {
     return prisma.membership.update({
       where: { id: membershipId },
-      data: { employmentType },
+      data: { employmentType: normalizeEmploymentType(employmentType) },
     });
   }
 

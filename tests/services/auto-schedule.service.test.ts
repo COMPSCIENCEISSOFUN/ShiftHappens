@@ -269,6 +269,49 @@ describe("AutoScheduleService", () => {
       const unique = new Set(staffNames);
       expect(unique.size).toBe(3);
     });
+
+    it("applies weekly availability only to temporary or part-time staff", async () => {
+      await prisma.membership.update({
+        where: { id: staffMembershipIds[0] },
+        data: { employmentType: "temporary_part_time" },
+      });
+      await prisma.membership.update({
+        where: { id: staffMembershipIds[1] },
+        data: { employmentType: "casual" },
+      });
+      await prisma.membership.update({
+        where: { id: staffMembershipIds[2] },
+        data: { status: "inactive" },
+      });
+      await prisma.availability.deleteMany({
+        where: { membershipId: { in: staffMembershipIds.slice(0, 2) } },
+      });
+
+      const taskDate = new Date(getNextMonday());
+      taskDate.setDate(taskDate.getDate() + 1);
+      await prisma.task.create({
+        data: {
+          title: "Employment availability task",
+          organizationId: orgId,
+          departmentId: deptId,
+          requiredHeadcount: 2,
+          scheduledStart: setHour(taskDate, 9),
+          scheduledEnd: setHour(taskDate, 12),
+          createdById: adminUserId,
+        },
+      });
+
+      const draft = await new AutoScheduleService().generateSchedule(
+        orgId,
+        getNextMonday()
+      );
+      const selectedIds = draft.assignments.map(
+        (assignment) => assignment.membershipId
+      );
+
+      expect(selectedIds).toContain(staffMembershipIds[1]);
+      expect(selectedIds).not.toContain(staffMembershipIds[0]);
+    });
   });
 
   describe("confirmSchedule", () => {

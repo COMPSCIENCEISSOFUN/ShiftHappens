@@ -8,6 +8,7 @@
  * Security: Prevents malformed input from reaching business logic.
  */
 import { z } from "zod";
+import { EMPLOYMENT_TYPES } from "@/lib/role-config";
 
 /**
  * Reusable password schema enforcing strong password policy:
@@ -140,7 +141,7 @@ export const inviteUserSchema = z.object({
   email: z.string().email("Invalid email address"),
   role: z.enum(["manager", "staff"]),
   departmentId: z.string().optional(),
-  employmentType: z.enum(["full_time", "casual"]).optional(),
+  employmentType: z.enum(EMPLOYMENT_TYPES).optional(),
 });
 
 /**
@@ -151,7 +152,7 @@ export const inviteUserSchema = z.object({
 export const updateUserRoleSchema = z.object({
   role: z.enum(["company_admin", "manager", "staff"]),
   departmentIds: z.array(z.string()).optional(),
-  employmentType: z.enum(["full_time", "casual"]).optional(),
+  employmentType: z.enum(EMPLOYMENT_TYPES).optional(),
   customRoleId: z.string().nullable().optional(),
 });
 
@@ -414,7 +415,7 @@ export const importMemberSchema = z.object({
   email: z.string().email("Invalid email address"),
   role: z.enum(["staff", "manager"]),
   departmentName: z.string().max(100).nullable(),
-  employmentType: z.enum(["full_time", "casual"]),
+  employmentType: z.enum(EMPLOYMENT_TYPES),
 });
 
 /** Validates the full batch import request */

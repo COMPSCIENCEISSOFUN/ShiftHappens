@@ -20,7 +20,7 @@ import { Label } from "@/components/ui/label";
 import { PageLoading } from "@/components/ui/page-loading";
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { SYSTEM_ROLE_LABELS, EMPLOYMENT_TYPE_LABELS, DEFAULT_EMPLOYMENT_TYPE } from "@/lib/role-config";
+import { SYSTEM_ROLE_LABELS, EMPLOYMENT_TYPE_LABELS, DEFAULT_EMPLOYMENT_TYPE, normalizeEmploymentType } from "@/lib/role-config";
 import { filterMembers, hasActiveFilters as checkActiveFilters } from "@/lib/member-filters";
 
 /* ------------------------------------------------------------------ */
@@ -296,8 +296,8 @@ export default function MembersPage() {
     managers: members.filter((m) => m.role === "manager").length,
     staff: members.filter((m) => m.role === "staff").length,
   };
-  const ftCount = members.filter((m) => m.role === "staff" && m.employmentType === "full_time").length;
-  const casualCount = members.filter((m) => m.role === "staff" && (m.employmentType === DEFAULT_EMPLOYMENT_TYPE || !m.employmentType)).length;
+  const temporaryPartTimeCount = members.filter((m) => m.role === "staff" && normalizeEmploymentType(m.employmentType) === "temporary_part_time").length;
+  const casualCount = members.filter((m) => m.role === "staff" && normalizeEmploymentType(m.employmentType) === "casual").length;
 
   // ── Filter members ──
   const currentFilters = { search, role: filterRole, employmentType: filterEmpType, departmentId: filterDept, status: filterStatus };
@@ -335,7 +335,7 @@ export default function MembersPage() {
       <div className="mb-4 grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">
         <StatTile label="Team" value={members.length} detail={`${roleBreakdown.admins} admin · ${roleBreakdown.managers} mgr · ${roleBreakdown.staff} staff`} accentColour="rgba(99,102,241,.08)" />
         <StatTile label="Pending" value={pendingInvitations.length} detail="invitations" accentColour="rgba(245,158,11,.08)" valueColour={pendingInvitations.length > 0 ? "text-amber-600 dark:text-amber-400" : ""} />
-        <StatTile label="Employment" value={roleBreakdown.staff} detail={`${ftCount} full-time · ${casualCount} casual`} accentColour="rgba(59,130,246,.08)" />
+        <StatTile label="Employment" value={roleBreakdown.staff} detail={`${temporaryPartTimeCount} temporary/part-time · ${casualCount} casual`} accentColour="rgba(59,130,246,.08)" />
         <StatTile label="Status" value={activeCount} detail={`${activeCount} active · ${inactiveCount} inactive`} accentColour="rgba(34,197,94,.08)" valueColour="text-green-600 dark:text-green-400" />
       </div>
 
@@ -577,7 +577,7 @@ export default function MembersPage() {
                       {member.role === "staff" ? (
                         <select
                           className="rounded-lg border border-border bg-background px-2 py-1 text-xs"
-                          value={member.employmentType || DEFAULT_EMPLOYMENT_TYPE}
+                          value={normalizeEmploymentType(member.employmentType)}
                           onChange={(e) => onUpdateEmploymentType(member.user.id, e.target.value)}
                         >
                           {Object.entries(EMPLOYMENT_TYPE_LABELS).map(([value, label]) => (
@@ -657,7 +657,7 @@ export default function MembersPage() {
                       <StatusBadge value={member.role} palette="role" />
                       {member.role === "staff" && member.employmentType && (
                         <span className="rounded-full bg-blue-100 dark:bg-blue-900/40 px-2 py-0.5 text-[10px] font-medium text-blue-700 dark:text-blue-300">
-                          {EMPLOYMENT_TYPE_LABELS[member.employmentType || DEFAULT_EMPLOYMENT_TYPE]}
+                          {EMPLOYMENT_TYPE_LABELS[normalizeEmploymentType(member.employmentType)]}
                         </span>
                       )}
                       {member.customRole && (

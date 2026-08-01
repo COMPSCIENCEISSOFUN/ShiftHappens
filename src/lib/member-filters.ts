@@ -7,7 +7,7 @@
  * All filtering is client-side — no API calls needed since the
  * full member list is already loaded.
  */
-import { DEFAULT_EMPLOYMENT_TYPE } from "@/lib/role-config";
+import { normalizeEmploymentType } from "@/lib/role-config";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -84,7 +84,7 @@ export function filterMembers(
     // ── Employment type (only applies to staff; admins/managers have none) ──
     if (filters.employmentType) {
       if (m.role !== "staff") return false;
-      const empType = m.employmentType || DEFAULT_EMPLOYMENT_TYPE;
+      const empType = normalizeEmploymentType(m.employmentType);
       if (empType !== filters.employmentType) return false;
     }
 
