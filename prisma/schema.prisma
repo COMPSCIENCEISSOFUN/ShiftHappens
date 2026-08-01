@@ -245,6 +245,8 @@ model Task {
   departmentId      String?
   title             String
   description       String?
+  location          String?
+  instructions      String?
   requiredHeadcount Int       @default(1)
   // Names of certifications a staff member must hold (verified + non-expired)
   // to be eligible for this task. Empty = no certification requirement.

@@ -56,6 +56,9 @@ async function createSeries(pattern: object, offsetDays = 0) {
   return taskService.create(
     {
       title: "Morning shift",
+      location: "Main kitchen",
+      instructions: "Complete the opening checklist.",
+      requiredCertifications: ["Food Safety"],
       scheduledStart: start,
       scheduledEnd: end,
       isRecurring: true,
@@ -85,6 +88,9 @@ describe("RecurringTaskService", () => {
         expect(inst.recurringPattern).toBeNull();
         expect(inst.parentTaskId).toBe(template.id);
         expect(inst.title).toBe("Morning shift");
+        expect(inst.location).toBe("Main kitchen");
+        expect(inst.instructions).toBe("Complete the opening checklist.");
+        expect(inst.requiredCertifications).toEqual(["Food Safety"]);
       }
     });
 

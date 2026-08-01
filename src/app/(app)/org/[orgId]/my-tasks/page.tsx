@@ -20,6 +20,7 @@ import { PageLoading } from "@/components/ui/page-loading";
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { EmptyState } from "@/components/ui/empty-state";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { ClipboardList, MapPin } from "lucide-react";
 
 interface Assignment {
   id: string;
@@ -31,6 +32,8 @@ interface Assignment {
     id: string;
     title: string;
     description: string | null;
+    location: string | null;
+    instructions: string | null;
     scheduledStart: string | null;
     scheduledEnd: string | null;
     department: { name: string } | null;
@@ -234,6 +237,18 @@ function AssignmentSection({
                 <p className="mb-3 text-sm text-muted-foreground">
                   {assignment.task.description}
                 </p>
+              )}
+              {assignment.task.location && (
+                <p className="mb-2 flex items-center gap-1.5 text-sm text-muted-foreground">
+                  <MapPin className="h-4 w-4 shrink-0" />
+                  {assignment.task.location}
+                </p>
+              )}
+              {assignment.task.instructions && (
+                <div className="mb-3 flex items-start gap-1.5 text-sm text-muted-foreground">
+                  <ClipboardList className="mt-0.5 h-4 w-4 shrink-0" />
+                  <p><span className="font-medium text-foreground">Instructions:</span> {assignment.task.instructions}</p>
+                </div>
               )}
 
               {assignment.status === "withdrawal_requested" ? (

@@ -402,8 +402,28 @@ describe("updateCompanySettingsSchema", () => {
 
 describe("createTaskSchema", () => {
   it("accepts valid task data", () => {
-    const result = createTaskSchema.safeParse({ title: "Clean kitchen", description: "Deep clean", priority: "high", requiredHeadcount: 2 });
+    const result = createTaskSchema.safeParse({
+      title: "Clean kitchen",
+      description: "Deep clean",
+      location: "Main kitchen",
+      instructions: "Sanitize every preparation surface before opening.",
+      priority: "high",
+      requiredHeadcount: 2,
+    });
     expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.location).toBe("Main kitchen");
+      expect(result.data.instructions).toContain("Sanitize");
+    }
+  });
+
+  it("rejects task details above their limits", () => {
+    expect(
+      createTaskSchema.safeParse({ title: "Task", location: "x".repeat(201) }).success
+    ).toBe(false);
+    expect(
+      createTaskSchema.safeParse({ title: "Task", instructions: "x".repeat(4001) }).success
+    ).toBe(false);
   });
 
   it("rejects empty title", () => {
@@ -445,7 +465,12 @@ describe("createTaskSchema", () => {
 
 describe("updateTaskSchema", () => {
   it("accepts partial update", () => {
-    const result = updateTaskSchema.safeParse({ title: "Updated title", priority: "urgent" });
+    const result = updateTaskSchema.safeParse({
+      title: "Updated title",
+      location: "Loading dock",
+      instructions: "Use the west entrance.",
+      priority: "urgent",
+    });
     expect(result.success).toBe(true);
   });
 

@@ -24,6 +24,8 @@ import {
 interface ParsedTask {
   title: string;
   description: string;
+  location: string | null;
+  instructions: string | null;
   departmentId: string | null;
   departmentName: string | null;
   priority: string;
@@ -95,6 +97,8 @@ Respond with ONLY valid JSON:
 {
   "title": "short task title",
   "description": "fuller description of what needs to be done",
+  "location": "specific work location or null",
+  "instructions": "operational instructions or null",
   "departmentName": "matched department name from the list or null",
   "priority": "low|medium|high|urgent",
   "requiredHeadcount": number,
@@ -110,6 +114,7 @@ RULES:
 - ALL times are local to ${DEFAULT_TIMEZONE}. Return ISO 8601 WITH the offset, e.g. "${today}T07:00:00${offset}".
   Never return a bare "Z" time — it would be read as UTC and land hours away from what the user asked for.
 - If headcount not specified, default to 1.
+- Keep location separate from instructions when either is provided.
 - Always provide a concise title and a more detailed description.`;
 
     const groqKey = process.env.GROQ_API_KEY;
@@ -193,6 +198,14 @@ RULES:
       return {
         title: parsed.title || "New Task",
         description: parsed.description || "",
+        location:
+          typeof parsed.location === "string"
+            ? parsed.location.trim().slice(0, 200) || null
+            : null,
+        instructions:
+          typeof parsed.instructions === "string"
+            ? parsed.instructions.trim().slice(0, 4000) || null
+            : null,
         departmentId,
         departmentName: parsed.departmentName || null,
         priority: ["low", "medium", "high", "urgent"].includes(parsed.priority)
@@ -237,6 +250,13 @@ RULES:
 
     let scheduledStart: string | null = null;
     let scheduledEnd: string | null = null;
+    const locationMatch = text.match(
+      /\bat\s+([a-z0-9][^.!?]*?)(?=\.\s*instructions?\s*:|[.!?]|$)/i
+    );
+    const instructionsMatch = text.match(/\binstructions?\s*:\s*(.+)$/i);
+    const location = locationMatch?.[1]?.trim().slice(0, 200) || null;
+    const instructions =
+      instructionsMatch?.[1]?.trim().slice(0, 4000) || null;
     // Tomorrow's midnight in the organisation's timezone. The previous version
     // built "${date}T07:00:00.000Z", which asserts 07:00 UTC — 15:00 in
     // Singapore — while meaning 7am local. It only looked right because the
@@ -263,6 +283,8 @@ RULES:
     return {
       title: text.slice(0, 100) || "New Task",
       description: text,
+      location,
+      instructions,
       departmentId,
       departmentName,
       priority,

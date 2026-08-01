@@ -31,6 +31,7 @@ import { AlertBanner } from "@/components/ui/alert-banner";
 import { EmptyState } from "@/components/ui/empty-state";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { toDateTimeLocalValue } from "@/lib/timezone";
+import { ClipboardList, MapPin } from "lucide-react";
 
 // ============================================================
 // Constants
@@ -103,6 +104,8 @@ interface Task {
   id: string;
   title: string;
   description: string | null;
+  location: string | null;
+  instructions: string | null;
   status: string;
   priority: string;
   requiredHeadcount: number;
@@ -350,6 +353,8 @@ export default function TasksPage() {
 
         const titleInput = form.querySelector('[name="title"]') as HTMLInputElement;
         const descInput = form.querySelector('[name="description"]') as HTMLTextAreaElement;
+        const locationInput = form.querySelector('[name="location"]') as HTMLInputElement;
+        const instructionsInput = form.querySelector('[name="instructions"]') as HTMLTextAreaElement;
         const deptSelect = form.querySelector('[name="departmentId"]') as HTMLSelectElement;
         const prioritySelect = form.querySelector('[name="priority"]') as HTMLSelectElement;
         const headcountInput = form.querySelector('[name="requiredHeadcount"]') as HTMLInputElement;
@@ -358,6 +363,8 @@ export default function TasksPage() {
 
         if (titleInput) titleInput.value = parsed.title || "";
         if (descInput) descInput.value = parsed.description || "";
+        if (locationInput) locationInput.value = parsed.location || "";
+        if (instructionsInput) instructionsInput.value = parsed.instructions || "";
         if (deptSelect && parsed.departmentId) deptSelect.value = parsed.departmentId;
         if (prioritySelect) prioritySelect.value = parsed.priority || "medium";
         if (headcountInput) headcountInput.value = String(parsed.requiredHeadcount || 1);
@@ -389,6 +396,8 @@ export default function TasksPage() {
     const taskData: Record<string, unknown> = {
       title: formData.get("title"),
       description: formData.get("description") || undefined,
+      location: formData.get("location") || undefined,
+      instructions: formData.get("instructions") || undefined,
       departmentId: formData.get("departmentId") || undefined,
       priority: formData.get("priority"),
       requiredHeadcount: Number(formData.get("requiredHeadcount")) || 1,
@@ -591,6 +600,8 @@ export default function TasksPage() {
     const updateData: Record<string, unknown> = {
       title: formData.get("editTitle"),
       description: formData.get("editDescription") || undefined,
+      location: String(formData.get("editLocation") ?? ""),
+      instructions: String(formData.get("editInstructions") ?? ""),
       departmentId: formData.get("editDepartment") || undefined,
       priority: formData.get("editPriority"),
       requiredHeadcount: Number(formData.get("editHeadcount")) || 1,
@@ -896,6 +907,20 @@ export default function TasksPage() {
                   placeholder="What needs to be done..."
                 />
               </div>
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label htmlFor="location" className="text-xs font-semibold text-muted-foreground">Location</Label>
+                <Input id="location" name="location" maxLength={200} placeholder="e.g. Main kitchen, loading dock" />
+              </div>
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label htmlFor="instructions" className="text-xs font-semibold text-muted-foreground">Instructions</Label>
+                <textarea
+                  id="instructions"
+                  name="instructions"
+                  maxLength={4000}
+                  className="min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/10"
+                  placeholder="Operational steps, access notes, or handover details..."
+                />
+              </div>
               <div className="space-y-1.5">
                 <Label htmlFor="departmentId" className="text-xs font-semibold text-muted-foreground">Department</Label>
                 <select
@@ -1127,6 +1152,13 @@ export default function TasksPage() {
                         </span>
                       )}
 
+                      {task.location && (
+                        <span className="flex items-center gap-1.5">
+                          <MapPin className="h-3.5 w-3.5 shrink-0 opacity-60" />
+                          {task.location}
+                        </span>
+                      )}
+
                       {/* Staffing */}
                       <span className="flex items-center gap-2">
                         <span className="inline-block h-1.5 w-14 overflow-hidden rounded-full bg-muted">
@@ -1152,6 +1184,12 @@ export default function TasksPage() {
                     {/* ── Description ─────────────── */}
                     {task.description && editingTaskId !== task.id && (
                       <p className="mt-3 text-[13px] leading-relaxed text-muted-foreground">{task.description}</p>
+                    )}
+                    {task.instructions && editingTaskId !== task.id && (
+                      <div className="mt-2 flex items-start gap-2 text-[13px] leading-relaxed text-muted-foreground">
+                        <ClipboardList className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                        <p><span className="font-medium text-foreground">Instructions:</span> {task.instructions}</p>
+                      </div>
                     )}
 
                     {/* ── Actions ─────────────────── */}
@@ -1271,6 +1309,19 @@ export default function TasksPage() {
                                 defaultValue={task.description || ""}
                                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm min-h-[80px]"
                                 placeholder="Task details..."
+                              />
+                            </div>
+                            <div className="space-y-1 sm:col-span-2">
+                              <Label className="text-xs font-semibold text-muted-foreground">Location</Label>
+                              <Input name="editLocation" maxLength={200} defaultValue={task.location || ""} />
+                            </div>
+                            <div className="space-y-1 sm:col-span-2">
+                              <Label className="text-xs font-semibold text-muted-foreground">Instructions</Label>
+                              <textarea
+                                name="editInstructions"
+                                maxLength={4000}
+                                defaultValue={task.instructions || ""}
+                                className="min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                               />
                             </div>
                             <div className="space-y-1">

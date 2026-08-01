@@ -67,6 +67,8 @@ export class TaskService {
     const task = await this.taskRepo.create({
       title: input.title,
       description: input.description,
+      location: input.location,
+      instructions: input.instructions,
       organizationId: orgId,
       departmentId: input.departmentId,
       requiredHeadcount: input.requiredHeadcount,
@@ -200,13 +202,21 @@ export class TaskService {
     const updated = await this.taskRepo.update(taskId, {
       title: input.title,
       description: input.description,
+      location: input.location === "" ? null : input.location,
+      instructions: input.instructions === "" ? null : input.instructions,
       departmentId: input.departmentId,
       requiredHeadcount: input.requiredHeadcount,
       requiredCertifications: input.requiredCertifications,
       priority: input.priority,
       status: input.status,
-      scheduledStart: input.scheduledStart ? new Date(input.scheduledStart) : null,
-      scheduledEnd: input.scheduledEnd ? new Date(input.scheduledEnd) : null,
+      ...(startProvided && {
+        scheduledStart: input.scheduledStart
+          ? new Date(input.scheduledStart)
+          : null,
+      }),
+      ...(endProvided && {
+        scheduledEnd: input.scheduledEnd ? new Date(input.scheduledEnd) : null,
+      }),
     });
 
     await this.auditService.log({

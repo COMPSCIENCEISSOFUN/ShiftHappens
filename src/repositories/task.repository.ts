@@ -19,6 +19,8 @@ export class TaskRepository {
   async create(data: {
     title: string;
     description?: string;
+    location?: string;
+    instructions?: string;
     organizationId: string;
     departmentId?: string;
     requiredHeadcount?: number;
@@ -35,6 +37,8 @@ export class TaskRepository {
       data: {
         title: data.title,
         description: data.description,
+        location: data.location,
+        instructions: data.instructions,
         organizationId: data.organizationId,
         departmentId: data.departmentId,
         requiredHeadcount: data.requiredHeadcount ?? 1,
@@ -163,6 +167,8 @@ export class TaskRepository {
     data: {
       title?: string;
       description?: string;
+      location?: string | null;
+      instructions?: string | null;
       departmentId?: string;
       requiredHeadcount?: number;
       requiredCertifications?: string[];

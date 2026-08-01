@@ -87,6 +87,8 @@ describe("TaskService", () => {
         {
           title: "Clean kitchen",
           description: "Deep clean",
+          location: "Main kitchen",
+          instructions: "Lock the chemical cabinet afterward.",
           departmentId: deptId,
           priority: "high",
           requiredHeadcount: 2,
@@ -98,6 +100,8 @@ describe("TaskService", () => {
       expect(task.title).toBe("Clean kitchen");
       expect(task.priority).toBe("high");
       expect(task.status).toBe("open");
+      expect(task.location).toBe("Main kitchen");
+      expect(task.instructions).toBe("Lock the chemical cabinet afterward.");
     });
 
     it("throws if scheduledEnd is before scheduledStart", async () => {
@@ -167,10 +171,38 @@ describe("TaskService", () => {
       const updated = await taskService.update(task.id, orgId, {
         title: "New",
         priority: "urgent",
+        location: "Loading dock",
+        instructions: "Meet the delivery driver.",
       });
 
       expect(updated.title).toBe("New");
       expect(updated.priority).toBe("urgent");
+      expect(updated.location).toBe("Loading dock");
+      expect(updated.instructions).toBe("Meet the delivery driver.");
+    });
+
+    it("preserves schedule when updating only task details", async () => {
+      const task = await taskService.create(
+        {
+          title: "Scheduled delivery",
+          scheduledStart: "2026-06-01T08:00:00.000Z",
+          scheduledEnd: "2026-06-01T10:00:00.000Z",
+        },
+        orgId,
+        userId
+      );
+
+      const updated = await taskService.update(task.id, orgId, {
+        location: "Loading dock",
+        instructions: "Use the west entrance.",
+      });
+
+      expect(updated.scheduledStart?.toISOString()).toBe(
+        "2026-06-01T08:00:00.000Z"
+      );
+      expect(updated.scheduledEnd?.toISOString()).toBe(
+        "2026-06-01T10:00:00.000Z"
+      );
     });
 
     it("clears scheduled times when set to empty", async () => {

@@ -604,6 +604,8 @@ async function seedAll(tx: Tx) {
   interface SeedTask {
     title: string;
     description: string;
+    location: string;
+    instructions: string;
     departmentId: string;
     priority: string;
     requiredHeadcount: number;
@@ -616,6 +618,8 @@ async function seedAll(tx: Tx) {
     {
       title: "Morning Kitchen Prep",
       description: "Prepare mise en place, check deliveries, prep sauces",
+      location: "Main Kitchen - Prep Station",
+      instructions: "Review the delivery sheet before starting mise en place.",
       departmentId: departments[0].id,
       priority: "high",
       requiredHeadcount: 2,
@@ -631,6 +635,8 @@ async function seedAll(tx: Tx) {
     {
       title: "Lunch Service",
       description: "Full lunch service including cooking and plating",
+      location: "Main Kitchen - Hot Line",
+      instructions: "Complete the pre-service temperature and allergen checks.",
       departmentId: departments[0].id,
       priority: "urgent",
       requiredHeadcount: 3,
@@ -640,6 +646,8 @@ async function seedAll(tx: Tx) {
     {
       title: "Bar Setup & Inventory",
       description: "Stock bar, prepare garnishes, check inventory levels",
+      location: "Ocean Grill Bar",
+      instructions: "Record low-stock items in the handover log before service.",
       departmentId: departments[1].id,
       priority: "medium",
       requiredHeadcount: 1,
@@ -649,6 +657,8 @@ async function seedAll(tx: Tx) {
     {
       title: "Evening Dining Service",
       description: "Full dinner service, table management, guest relations",
+      location: "Main Dining Room",
+      instructions: "Check assigned tables and dietary notes at the briefing.",
       departmentId: departments[2].id,
       priority: "high",
       requiredHeadcount: 2,
@@ -658,6 +668,8 @@ async function seedAll(tx: Tx) {
     {
       title: "Deep Clean Kitchen",
       description: "Weekly deep clean of all kitchen surfaces and equipment",
+      location: "Main Kitchen",
+      instructions: "Follow the closing checklist and sign off each cleaned zone.",
       departmentId: departments[0].id,
       priority: "medium",
       requiredHeadcount: 2,
@@ -676,6 +688,8 @@ async function seedAll(tx: Tx) {
       data: {
         title: t.title,
         description: t.description,
+        location: t.location,
+        instructions: t.instructions,
         organizationId: orgId,
         departmentId: t.departmentId,
         priority: t.priority,

@@ -110,9 +110,12 @@ export class RecurringTaskService {
         await this.taskRepo.create({
           title: template.title,
           description: template.description ?? undefined,
+          location: template.location ?? undefined,
+          instructions: template.instructions ?? undefined,
           organizationId,
           departmentId: template.departmentId ?? undefined,
           requiredHeadcount: template.requiredHeadcount,
+          requiredCertifications: template.requiredCertifications,
           priority: template.priority,
           scheduledStart: occ.start,
           scheduledEnd: occ.end,

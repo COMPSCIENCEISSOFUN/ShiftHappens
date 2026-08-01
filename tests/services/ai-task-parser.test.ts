@@ -207,6 +207,18 @@ describe("AITaskParserService", () => {
       expect(result).toHaveProperty("requiredHeadcount");
       expect(result).toHaveProperty("scheduledStart");
       expect(result).toHaveProperty("scheduledEnd");
+      expect(result).toHaveProperty("location");
+      expect(result).toHaveProperty("instructions");
+    });
+
+    it("extracts explicit location and instructions in fallback mode", async () => {
+      const result = await parser.parseTaskDescription(
+        "Prepare stock at Loading Dock. Instructions: use the west entrance",
+        orgId
+      );
+
+      expect(result.location).toBe("Loading Dock");
+      expect(result.instructions).toContain("use the west entrance");
     });
 
     it("returns valid priority value", async () => {

@@ -213,6 +213,8 @@ export const updateCompanySettingsSchema = z.object({
 export const createTaskSchema = z.object({
   title: z.string().min(1, "Title is required").max(200),
   description: z.string().max(2000).optional(),
+  location: z.string().trim().max(200).optional(),
+  instructions: z.string().trim().max(4000).optional(),
   departmentId: z.string().optional(),
   requiredHeadcount: z.number().int().min(1).max(50).optional(),
   requiredCertifications: z.array(z.string().min(1).max(200)).max(20).optional(),
@@ -227,6 +229,8 @@ export const createTaskSchema = z.object({
 export const updateTaskSchema = z.object({
   title: z.string().min(1, "Title is required").max(200).optional(),
   description: z.string().max(2000).optional(),
+  location: z.string().trim().max(200).optional(),
+  instructions: z.string().trim().max(4000).optional(),
   departmentId: z.string().optional(),
   requiredHeadcount: z.number().int().min(1).max(50).optional(),
   requiredCertifications: z.array(z.string().min(1).max(200)).max(20).optional(),

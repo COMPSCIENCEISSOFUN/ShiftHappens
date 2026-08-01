@@ -49,6 +49,8 @@ describe("TaskRepository", () => {
       const task = await taskRepo.create({
         title: "Clean kitchen",
         description: "Deep clean all surfaces",
+        location: "Main kitchen",
+        instructions: "Use food-safe sanitizer.",
         organizationId: orgId,
         departmentId: deptId,
         requiredHeadcount: 2,
@@ -61,6 +63,8 @@ describe("TaskRepository", () => {
       expect(task.requiredHeadcount).toBe(2);
       expect(task.priority).toBe("high");
       expect(task.status).toBe("open");
+      expect(task.location).toBe("Main kitchen");
+      expect(task.instructions).toBe("Use food-safe sanitizer.");
     });
 
     it("creates a task without department", async () => {
@@ -179,11 +183,15 @@ describe("TaskRepository", () => {
         title: "New title",
         priority: "urgent",
         status: "in_progress",
+        location: "Back room",
+        instructions: "Check the inventory sheet.",
       });
 
       expect(updated.title).toBe("New title");
       expect(updated.priority).toBe("urgent");
       expect(updated.status).toBe("in_progress");
+      expect(updated.location).toBe("Back room");
+      expect(updated.instructions).toBe("Check the inventory sheet.");
     });
   });
 
