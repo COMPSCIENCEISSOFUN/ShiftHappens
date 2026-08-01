@@ -3,8 +3,9 @@
  * POST /api/assignments/[assignmentId]/withdrawal
  *
  * Manager/Admin action — approves or denies a staff member's pending
- * withdrawal request (US-76). Approve unassigns the staff member (frees the
- * slot); deny keeps them assigned. The staff member is notified either way.
+ * withdrawal request (US-76). Approve marks the preserved assignment row as
+ * withdrawn; deny restores the pre-request active state. The staff member is
+ * notified either way.
  *
  * Body: { decision: "approve" | "deny" }
  */

@@ -139,25 +139,28 @@ describe("Tenant isolation — TaskService", () => {
   });
 
   it("assignStaff refuses a membership from another org", async () => {
-    const taskA = await taskService.create({ title: "A task" }, orgA.orgId, orgA.adminUserId);
+    const taskA = await taskService.create(
+      { title: "A task", requiredHeadcount: 2 },
+      orgA.orgId,
+      orgA.adminUserId
+    );
 
     await expect(
       taskService.assignStaff(taskA.id, orgA.orgId, [orgB.staffMembershipId], orgA.adminUserId)
     ).rejects.toThrow(/does not belong to this organization/);
 
-    // No assignment should have been created.
-    const count = await prisma.taskAssignment.count({ where: { taskId: taskA.id } });
+    // No assignment should have been created for the other org's membership.
+    const count = await prisma.taskAssignment.count({
+      where: { taskId: taskA.id, membershipId: orgB.staffMembershipId },
+    });
     expect(count).toBe(0);
   });
 
   it("cancelAssignment refuses an assignment in another org", async () => {
     const taskB = await taskService.create({ title: "B task" }, orgB.orgId, orgB.adminUserId);
-    const [assignment] = await taskService.assignStaff(
-      taskB.id,
-      orgB.orgId,
-      [orgB.staffMembershipId],
-      orgB.adminUserId
-    );
+    const assignment = await prisma.taskAssignment.findFirstOrThrow({
+      where: { taskId: taskB.id },
+    });
 
     await expect(
       taskService.cancelAssignment(assignment.id, orgA.orgId, orgA.adminUserId)
@@ -229,12 +232,9 @@ describe("Tenant isolation — EligibilityService", () => {
 describe("Tenant isolation — TaskAssignmentService", () => {
   it("resolveWithdrawal refuses an assignment in another org", async () => {
     const taskB = await taskService.create({ title: "B task" }, orgB.orgId, orgB.adminUserId);
-    const [assignment] = await taskService.assignStaff(
-      taskB.id,
-      orgB.orgId,
-      [orgB.staffMembershipId],
-      orgB.adminUserId
-    );
+    const assignment = await prisma.taskAssignment.findFirstOrThrow({
+      where: { taskId: taskB.id },
+    });
     await prisma.taskAssignment.update({
       where: { id: assignment.id },
       data: { status: "withdrawal_requested", withdrawalReason: "need off" },

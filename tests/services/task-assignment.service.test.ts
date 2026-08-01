@@ -149,6 +149,8 @@ describe("TaskAssignmentService", () => {
 
       expect(result.status).toBe("withdrawal_requested");
       expect(result.withdrawalReason).toBe("Family emergency");
+      expect(result.withdrawalRequestedAt).toBeInstanceOf(Date);
+      expect(result.withdrawalStatusBeforeRequest).toBe("assigned");
     });
 
     it("records a withdrawal request on an in-progress task", async () => {
@@ -162,6 +164,7 @@ describe("TaskAssignmentService", () => {
       );
 
       expect(result.status).toBe("withdrawal_requested");
+      expect(result.withdrawalStatusBeforeRequest).toBe("in_progress");
     });
 
     it("throws if the assignment is not active", async () => {
@@ -171,10 +174,23 @@ describe("TaskAssignmentService", () => {
         assignmentService.requestWithdrawal(assignment.id, membershipId, "reason")
       ).rejects.toThrow("Can only withdraw from an active task");
     });
+
+    it("prevents duplicate unresolved withdrawal requests", async () => {
+      const assignment = await createAssignment();
+      await assignmentService.requestWithdrawal(
+        assignment.id,
+        membershipId,
+        "First reason"
+      );
+
+      await expect(
+        assignmentService.requestWithdrawal(assignment.id, membershipId, "Second reason")
+      ).rejects.toThrow("Can only withdraw from an active task");
+    });
   });
 
   describe("resolveWithdrawal", () => {
-    it("approve returns withdrawn and keeps the action explicit", async () => {
+    it("approve marks withdrawn and preserves the assignment row", async () => {
       const assignment = await createAssignment();
       await assignmentService.requestWithdrawal(assignment.id, membershipId, "reason");
 
@@ -186,6 +202,15 @@ describe("TaskAssignmentService", () => {
       );
 
       expect(result.status).toBe("withdrawn");
+      expect(result.withdrawalDecision).toBe("approved");
+      expect(result.withdrawalReviewedById).toBe(userId);
+      expect(result.withdrawalReviewedAt).toBeInstanceOf(Date);
+
+      const stillExists = await prisma.taskAssignment.findUnique({
+        where: { id: assignment.id },
+      });
+      expect(stillExists).not.toBeNull();
+      expect(stillExists!.status).toBe("withdrawn");
     });
 
     it("deny reverts the assignment to assigned", async () => {
@@ -200,6 +225,43 @@ describe("TaskAssignmentService", () => {
       );
 
       expect(result.status).toBe("assigned");
+      expect(result.withdrawalDecision).toBe("denied");
+      expect(result.withdrawalReviewedById).toBe(userId);
+      expect(result.withdrawalReviewedAt).toBeInstanceOf(Date);
+    });
+
+    it("deny restores in_progress when request was made after clock-in", async () => {
+      const assignment = await createAssignment();
+      await assignmentService.clockIn(assignment.id, membershipId);
+      await assignmentService.requestWithdrawal(assignment.id, membershipId, "reason");
+
+      const result = await assignmentService.resolveWithdrawal(
+        assignment.id,
+        "deny",
+        userId,
+        orgId
+      );
+
+      expect(result.status).toBe("in_progress");
+      expect(result.clockInTime).toBeInstanceOf(Date);
+      expect(result.clockOutTime).toBeNull();
+    });
+
+    it("approve after clock-in closes the partial worked interval", async () => {
+      const assignment = await createAssignment();
+      await assignmentService.clockIn(assignment.id, membershipId);
+      await assignmentService.requestWithdrawal(assignment.id, membershipId, "reason");
+
+      const result = await assignmentService.resolveWithdrawal(
+        assignment.id,
+        "approve",
+        userId,
+        orgId
+      );
+
+      expect(result.status).toBe("withdrawn");
+      expect(result.clockInTime).toBeInstanceOf(Date);
+      expect(result.clockOutTime).toBeInstanceOf(Date);
     });
   });
 });

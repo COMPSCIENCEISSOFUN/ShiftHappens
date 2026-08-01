@@ -5,7 +5,8 @@
  * route pattern matching. Non-API routes (pages, assets) pass through.
  * 
  * Tiers:
- * - Strict (5 req/min): auth endpoints vulnerable to brute force
+ * - Strict (5 req/min): registration and password recovery endpoints
+ * - Moderate (20 req/min): credential login and AI endpoints
  * - Moderate (20 req/min): AI and invitation endpoints
  * - Relaxed (100 req/min): all other API endpoints
  * 
@@ -22,10 +23,10 @@ const STRICT_PATTERNS = [
   "/api/register",
   "/api/forgot-password",
   "/api/reset-password",
-  "/api/auth",
 ];
 
 const MODERATE_PATTERNS = [
+  "/api/auth/callback/credentials",
   "/api/verify-email",
   "/api/invitations",
   "/tasks/suggest",
@@ -42,7 +43,7 @@ const TIER_LIMITS = {
   relaxed: 100,
 } as const;
 
-function getTier(pathname: string): keyof typeof TIER_LIMITS {
+export function getTier(pathname: string): keyof typeof TIER_LIMITS {
   for (const pattern of STRICT_PATTERNS) {
     if (pathname.startsWith(pattern)) return "strict";
   }

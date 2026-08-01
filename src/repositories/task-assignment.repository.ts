@@ -133,23 +133,52 @@ export class TaskAssignmentRepository {
   }
 
   /** Records a staff withdrawal request with a reason. Slot stays reserved. */
-  async requestWithdrawal(id: string, reason: string) {
+  async requestWithdrawal(id: string, reason: string, statusBeforeRequest: string) {
     return prisma.taskAssignment.update({
       where: { id },
       data: {
         status: ASSIGNMENT_STATUSES.WITHDRAWAL_REQUESTED,
         withdrawalReason: reason,
+        withdrawalRequestedAt: new Date(),
+        withdrawalStatusBeforeRequest: statusBeforeRequest,
+        withdrawalReviewedAt: null,
+        withdrawalReviewedById: null,
+        withdrawalDecision: null,
+      },
+    });
+  }
+
+  /** Manager approves a withdrawal request while preserving the work record. */
+  async approveWithdrawal(id: string, reviewerUserId: string) {
+    const assignment = await prisma.taskAssignment.findUnique({ where: { id } });
+    const shouldClosePartialInterval =
+      Boolean(assignment?.clockInTime) && !assignment?.clockOutTime;
+
+    return prisma.taskAssignment.update({
+      where: { id },
+      data: {
+        status: ASSIGNMENT_STATUSES.WITHDRAWN,
+        withdrawalReviewedAt: new Date(),
+        withdrawalReviewedById: reviewerUserId,
+        withdrawalDecision: "approved",
+        ...(shouldClosePartialInterval ? { clockOutTime: new Date() } : {}),
       },
     });
   }
 
   /** Manager denies a withdrawal request; assignment returns to its active path. */
-  async denyWithdrawal(id: string, nextStatus = ASSIGNMENT_STATUSES.ASSIGNED) {
+  async denyWithdrawal(id: string, reviewerUserId: string) {
+    const assignment = await prisma.taskAssignment.findUnique({ where: { id } });
+    const nextStatus =
+      assignment?.withdrawalStatusBeforeRequest ?? ASSIGNMENT_STATUSES.ASSIGNED;
+
     return prisma.taskAssignment.update({
       where: { id },
       data: {
         status: nextStatus,
-        withdrawalReason: null,
+        withdrawalReviewedAt: new Date(),
+        withdrawalReviewedById: reviewerUserId,
+        withdrawalDecision: "denied",
       },
     });
   }

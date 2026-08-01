@@ -161,4 +161,59 @@ describe("TaskAssignmentRepository", () => {
 
     expect(count).toBe(1);
   });
+
+  it("stores withdrawal request metadata and the previous status", async () => {
+    const assignment = await assignmentRepo.create({
+      taskId,
+      membershipId,
+      assignedById: userId,
+    });
+    await assignmentRepo.clockIn(assignment.id);
+
+    const requested = await assignmentRepo.requestWithdrawal(
+      assignment.id,
+      "Feeling unwell",
+      "in_progress"
+    );
+
+    expect(requested.status).toBe("withdrawal_requested");
+    expect(requested.withdrawalReason).toBe("Feeling unwell");
+    expect(requested.withdrawalRequestedAt).toBeInstanceOf(Date);
+    expect(requested.withdrawalStatusBeforeRequest).toBe("in_progress");
+  });
+
+  it("approves withdrawal without deleting the assignment", async () => {
+    const assignment = await assignmentRepo.create({
+      taskId,
+      membershipId,
+      assignedById: userId,
+    });
+    await assignmentRepo.requestWithdrawal(assignment.id, "Need to leave", "assigned");
+
+    const approved = await assignmentRepo.approveWithdrawal(assignment.id, userId);
+    const found = await assignmentRepo.findById(assignment.id);
+
+    expect(approved.status).toBe("withdrawn");
+    expect(approved.withdrawalDecision).toBe("approved");
+    expect(approved.withdrawalReviewedById).toBe(userId);
+    expect(approved.withdrawalReviewedAt).toBeInstanceOf(Date);
+    expect(found).not.toBeNull();
+  });
+
+  it("denies withdrawal and restores the previous active status", async () => {
+    const assignment = await assignmentRepo.create({
+      taskId,
+      membershipId,
+      assignedById: userId,
+    });
+    await assignmentRepo.clockIn(assignment.id);
+    await assignmentRepo.requestWithdrawal(assignment.id, "Need to leave", "in_progress");
+
+    const denied = await assignmentRepo.denyWithdrawal(assignment.id, userId);
+
+    expect(denied.status).toBe("in_progress");
+    expect(denied.withdrawalDecision).toBe("denied");
+    expect(denied.withdrawalReviewedById).toBe(userId);
+    expect(denied.withdrawalReviewedAt).toBeInstanceOf(Date);
+  });
 });

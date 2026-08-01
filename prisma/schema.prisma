@@ -285,6 +285,11 @@ model TaskAssignment {
   // Off-ramps: withdrawal_requested -> withdrawn, or cancelled
   status          String    @default("assigned")
   withdrawalReason String?  // reason a staff member gave when requesting to withdraw
+  withdrawalRequestedAt DateTime?
+  withdrawalReviewedAt  DateTime?
+  withdrawalReviewedById String?
+  withdrawalDecision     String?
+  withdrawalStatusBeforeRequest String?
   clockInTime     DateTime?
   clockOutTime    DateTime?
   assignedById    String

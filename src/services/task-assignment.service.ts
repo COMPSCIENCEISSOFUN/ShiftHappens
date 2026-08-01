@@ -162,7 +162,11 @@ export class TaskAssignmentService {
       throw new Error("Can only withdraw from an active task");
     }
 
-    const result = await this.assignmentRepo.requestWithdrawal(assignmentId, reason);
+    const result = await this.assignmentRepo.requestWithdrawal(
+      assignmentId,
+      reason,
+      assignment.status
+    );
 
     await this.auditService.log({
       organizationId: assignment.task.organizationId,
@@ -189,8 +193,8 @@ export class TaskAssignmentService {
 
   /**
    * Manager approves or denies a pending withdrawal request.
-   * Approve removes the staff member from the task (frees the slot);
-   * deny reverts the assignment to assigned. Notifies the staff member.
+   * Approve marks the assignment withdrawn while preserving the row;
+   * deny restores the active state from before the request. Notifies staff.
    * Authorization (manager/admin) is enforced at the route layer.
    */
   async resolveWithdrawal(
@@ -213,8 +217,10 @@ export class TaskAssignmentService {
     const taskTitle = assignment.task.title;
 
     if (decision === "approve") {
-      // Remove the staff member from the task, freeing the slot.
-      await this.assignmentRepo.cancel(assignmentId);
+      const result = await this.assignmentRepo.approveWithdrawal(
+        assignmentId,
+        actorUserId
+      );
 
       await this.auditService.log({
         organizationId: assignment.task.organizationId,
@@ -235,11 +241,14 @@ export class TaskAssignmentService {
         assignment.task.id
       );
 
-      return { id: assignmentId, status: "withdrawn" };
+      return result;
     }
 
-    // Deny — keep the task active for the staff member.
-    const result = await this.assignmentRepo.denyWithdrawal(assignmentId);
+    // Deny: keep the task active for the staff member.
+    const result = await this.assignmentRepo.denyWithdrawal(
+      assignmentId,
+      actorUserId
+    );
 
     await this.auditService.log({
       organizationId: assignment.task.organizationId,

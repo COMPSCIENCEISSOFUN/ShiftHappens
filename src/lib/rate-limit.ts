@@ -5,8 +5,8 @@
  * Keyed by IP + route pattern to allow different limits per tier.
  * 
  * Tiers:
- * - Strict (5 req/min): auth endpoints (login, register, password reset)
- * - Moderate (20 req/min): AI endpoints, invitations, email verification
+ * - Strict (5 req/min): registration and password recovery endpoints
+ * - Moderate (20 req/min): credential login, AI endpoints, invitations, email verification
  * - Relaxed (100 req/min): all other API routes
  * 
  * Production note: In-memory storage works for single-server deployments.
