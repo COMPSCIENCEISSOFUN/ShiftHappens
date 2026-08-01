@@ -7,6 +7,7 @@
  * 
  * Security: Prisma parameterized queries prevent SQL injection.
  */
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import {
   ASSIGNMENT_STATUSES,
@@ -107,6 +108,112 @@ export class TaskAssignmentRepository {
         status: ASSIGNMENT_STATUSES.IN_PROGRESS,
       },
     });
+  }
+
+  /**
+   * Creates a selected assignment batch atomically. Serializable isolation
+   * makes concurrent requests re-check the same authoritative headcount.
+   */
+  async createBatchAtomic(data: {
+    taskId: string;
+    organizationId: string;
+    membershipIds: string[];
+    assignedById: string;
+  }) {
+    const maxAttempts = 3;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        return await prisma.$transaction(
+          async (tx) => {
+            const task = await tx.task.findUnique({
+              where: { id: data.taskId },
+              select: {
+                organizationId: true,
+                departmentId: true,
+                requiredHeadcount: true,
+              },
+            });
+            if (!task || task.organizationId !== data.organizationId) {
+              throw new Error("Task not found");
+            }
+
+            const activeCount = await tx.taskAssignment.count({
+              where: {
+                taskId: data.taskId,
+                status: { in: SLOT_OCCUPYING_ASSIGNMENT_STATUSES },
+              },
+            });
+            if (activeCount + data.membershipIds.length > task.requiredHeadcount) {
+              throw new Error(
+                `Assignment exceeds required headcount of ${task.requiredHeadcount}`
+              );
+            }
+
+            const eligibleMembershipCount = await tx.membership.count({
+              where: {
+                id: { in: data.membershipIds },
+                organizationId: data.organizationId,
+                status: "active",
+                role: "staff",
+                user: { isPlatformAdmin: false },
+                ...(task.departmentId
+                  ? {
+                      departmentMemberships: {
+                        some: { departmentId: task.departmentId },
+                      },
+                    }
+                  : {}),
+              },
+            });
+            if (eligibleMembershipCount !== data.membershipIds.length) {
+              throw new Error(
+                "Staff member cannot be assigned because eligibility changed"
+              );
+            }
+
+            const existingCount = await tx.taskAssignment.count({
+              where: {
+                taskId: data.taskId,
+                membershipId: { in: data.membershipIds },
+              },
+            });
+            if (existingCount > 0) {
+              throw new Error(
+                "Staff member already has an assignment for this task"
+              );
+            }
+
+            const assignments = [];
+            for (const membershipId of data.membershipIds) {
+              assignments.push(
+                await tx.taskAssignment.create({
+                  data: {
+                    taskId: data.taskId,
+                    membershipId,
+                    assignedById: data.assignedById,
+                    status: ASSIGNMENT_STATUSES.ASSIGNED,
+                  },
+                })
+              );
+            }
+            return assignments;
+          },
+          {
+            isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+            maxWait: 5_000,
+            timeout: 15_000,
+          }
+        );
+      } catch (error) {
+        const isWriteConflict =
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === "P2034";
+        if (!isWriteConflict || attempt === maxAttempts) throw error;
+      }
+    }
+
+    throw new Error("Assignment transaction failed");
   }
 
   /**

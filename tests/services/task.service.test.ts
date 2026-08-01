@@ -3,7 +3,7 @@
  * Verifies task CRUD business logic including
  * scheduling validation and assignment management.
  */
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { TaskService } from "@/services/task.service";
 import { OrganizationRepository } from "@/repositories/organization.repository";
 import { DepartmentRepository } from "@/repositories/department.repository";
@@ -74,6 +74,7 @@ beforeEach(async () => {
       organizationId: orgId,
       role: "staff",
       status: "active",
+      employmentType: "full_time",
     },
   });
   staffMembershipId = staffMembership.id;

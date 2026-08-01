@@ -27,6 +27,7 @@ export class MembershipRepository {
             email: true,
             image: true,
             emailVerified: true,
+            isPlatformAdmin: true,
           },
         },
         departmentMemberships: {
@@ -221,7 +222,14 @@ export class MembershipRepository {
     return prisma.membership.findUnique({
       where: { id },
       include: {
-        user: { select: { id: true, name: true, email: true } },
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            isPlatformAdmin: true,
+          },
+        },
         departmentMemberships: {
           include: { department: { select: { id: true, name: true } } },
         },

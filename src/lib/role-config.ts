@@ -15,6 +15,13 @@ export const SYSTEM_ROLE_LABELS: Record<string, string> = {
   staff: "Staff",
 };
 
+/** System roles that may occupy task-assignment slots. */
+export const ASSIGNABLE_SYSTEM_ROLES = ["staff"] as const;
+
+export function isAssignableSystemRole(role: string): boolean {
+  return (ASSIGNABLE_SYSTEM_ROLES as readonly string[]).includes(role);
+}
+
 export const EMPLOYMENT_TYPE_LABELS: Record<string, string> = {
   full_time: "Full-time",
   casual: "Casual",

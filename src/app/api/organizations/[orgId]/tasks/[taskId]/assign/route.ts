@@ -55,7 +55,14 @@ export async function POST(
     return NextResponse.json(assignments, { status: 201 });
   } catch (error) {
     if (error instanceof Error) {
-      if (error.message.includes("headcount") || error.message.includes("conflict") || error.message.includes("cannot be assigned")) {
+      if (
+        error.message.includes("headcount") ||
+        error.message.includes("conflict") ||
+        error.message.includes("cannot be assigned") ||
+        error.message.includes("task department") ||
+        error.message.includes("already has an assignment") ||
+        error.message.includes("Duplicate staff")
+      ) {
         return NextResponse.json({ error: error.message }, { status: 409 });
       }
       if (error.message === "Task not found") {

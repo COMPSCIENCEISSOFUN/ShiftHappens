@@ -24,7 +24,10 @@ import { TaskAssignmentRepository } from "@/repositories/task-assignment.reposit
 import { MembershipRepository } from "@/repositories/membership.repository";
 import { WorkRuleRepository } from "@/repositories/work-rule.repository";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
-import { DEFAULT_EMPLOYMENT_TYPE } from "@/lib/role-config";
+import {
+  DEFAULT_EMPLOYMENT_TYPE,
+  isAssignableSystemRole,
+} from "@/lib/role-config";
 import { COMMITTED_ASSIGNMENT_STATUSES, SLOT_OCCUPYING_ASSIGNMENT_STATUSES } from "@/lib/assignment-status";
 import { prisma } from "@/lib/prisma";
 import {
@@ -84,7 +87,8 @@ export class EligibilityService {
    */
   async checkEligibilityForTask(
     taskId: string,
-    organizationId: string
+    organizationId: string,
+    options?: { membershipIds?: string[] }
   ): Promise<StaffEligibility[]> {
     const task = await prisma.task.findUnique({ where: { id: taskId } });
     // Cross-tenant tasks are invisible — never evaluate another org's task.
@@ -95,13 +99,21 @@ export class EligibilityService {
     // Get all active work rules for this org
     const allWorkRules = await this.workRuleRepo.findApplicableRules(organizationId);
 
-    // Get all active non-admin members. When the task belongs to a department,
+    // Get active, assignable staff only. Administrative memberships and
+    // platform administrators never enter candidate ranking.
     // only staff in that department are candidates (PRD §7.4 department scope);
     // department-less tasks consider everyone.
     const allMembers = await this.membershipRepo.findByOrgId(organizationId);
     let eligibleMembers = allMembers.filter(
-      (m) => m.status === "active" && m.role !== "company_admin"
+      (m) =>
+        m.status === "active" &&
+        isAssignableSystemRole(m.role) &&
+        !m.user.isPlatformAdmin
     );
+    if (options?.membershipIds) {
+      const selectedIds = new Set(options.membershipIds);
+      eligibleMembers = eligibleMembers.filter((member) => selectedIds.has(member.id));
+    }
     if (task.departmentId) {
       eligibleMembers = eligibleMembers.filter((m) =>
         (m.departmentMemberships ?? []).some(
@@ -228,6 +240,120 @@ export class EligibilityService {
     }
 
     return results;
+  }
+
+  /**
+   * Final server-side assertion used immediately before assignment creation.
+   * Candidate lists and AI rankings are advisory and may be stale.
+   */
+  async assertEligibleForAssignment(
+    taskId: string,
+    organizationId: string,
+    membershipIds: string[]
+  ): Promise<void> {
+    if (membershipIds.length === 0) {
+      throw new Error("At least one staff member is required");
+    }
+    if (new Set(membershipIds).size !== membershipIds.length) {
+      throw new Error("Duplicate staff members cannot be assigned in one batch");
+    }
+
+    const task = await prisma.task.findUnique({
+      where: { id: taskId },
+      select: {
+        organizationId: true,
+        departmentId: true,
+        requiredHeadcount: true,
+      },
+    });
+    if (!task || task.organizationId !== organizationId) {
+      throw new Error("Task not found");
+    }
+
+    const memberships = await prisma.membership.findMany({
+      where: { id: { in: membershipIds } },
+      include: {
+        user: { select: { isPlatformAdmin: true } },
+        departmentMemberships: { select: { departmentId: true } },
+      },
+    });
+    const membershipsById = new Map(
+      memberships.map((membership) => [membership.id, membership])
+    );
+
+    for (const membershipId of membershipIds) {
+      const membership = membershipsById.get(membershipId);
+      if (!membership || membership.organizationId !== organizationId) {
+        throw new Error("Staff member does not belong to this organization");
+      }
+      if (membership.status !== "active") {
+        throw new Error("Inactive staff cannot be assigned to tasks");
+      }
+      if (membership.user.isPlatformAdmin) {
+        throw new Error("Platform Admins cannot be assigned to tasks");
+      }
+      if (membership.role === "company_admin") {
+        throw new Error("Company Admins cannot be assigned to tasks");
+      }
+      if (membership.role === "manager") {
+        throw new Error("Managers cannot be assigned to tasks");
+      }
+      if (!isAssignableSystemRole(membership.role)) {
+        throw new Error("Only Staff Members can be assigned to tasks");
+      }
+      if (
+        task.departmentId &&
+        !membership.departmentMemberships.some(
+          (department) => department.departmentId === task.departmentId
+        )
+      ) {
+        throw new Error("Staff member is not assigned to the task department");
+      }
+    }
+
+    const existingAssignments = await prisma.taskAssignment.findMany({
+      where: { taskId, membershipId: { in: membershipIds } },
+      select: { membershipId: true },
+    });
+    if (existingAssignments.length > 0) {
+      throw new Error("Staff member already has an assignment for this task");
+    }
+
+    const activeCount = await this.assignmentRepo.countActiveByTaskId(taskId);
+    if (activeCount + membershipIds.length > task.requiredHeadcount) {
+      throw new Error(
+        `Assignment exceeds required headcount of ${task.requiredHeadcount}`
+      );
+    }
+
+    const eligibility = await this.checkEligibilityForTask(taskId, organizationId, {
+      membershipIds,
+    });
+    const eligibilityById = new Map(
+      eligibility.map((candidate) => [candidate.membershipId, candidate])
+    );
+    for (const membershipId of membershipIds) {
+      const candidate = eligibilityById.get(membershipId);
+      if (!candidate?.eligible) {
+        const failedChecks = candidate
+          ? Object.entries(candidate.checks).filter(([, check]) => !check.eligible)
+          : [];
+        const reason = failedChecks
+          .map(([name, check]) => {
+            const label =
+              name === "availability"
+                ? "not available"
+                : name === "scheduling"
+                  ? "scheduling conflict"
+                  : name;
+            return `${label}: ${check.reason ?? "blocked"}`;
+          })
+          .join("; ");
+        throw new Error(
+          `Staff member cannot be assigned: ${reason || "failed final eligibility validation"}`
+        );
+      }
+    }
   }
 
   /** Builds a map of membershipId → set of overridden rule keys for a task. */

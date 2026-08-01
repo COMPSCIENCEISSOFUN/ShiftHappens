@@ -17,7 +17,6 @@ import type { CreateTaskInput, UpdateTaskInput } from "@/lib/validations";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 import { NotificationService, NOTIFICATION_TYPES } from "@/services/notification.service";
 import { SubscriptionService } from "@/services/subscription.service";
-import { EligibilityOverrideRepository } from "@/repositories/eligibility-override.repository";
 import {
   RecurringTaskService,
   DEFAULT_HORIZON_DAYS,
@@ -37,7 +36,6 @@ export class TaskService {
   private auditService = new AuditLogService();
   private notificationService = new NotificationService();
   private eligibilityService = new EligibilityService();
-  private overrideRepo = new EligibilityOverrideRepository();
   private subscriptionService = new SubscriptionService();
 
   async create(input: CreateTaskInput, orgId: string, userId: string) {
@@ -352,8 +350,8 @@ export class TaskService {
 
   /**
    * Assigns staff members to a task.
-   * Checks headcount, admin guard, scheduling conflicts.
-   * Notifies each assigned staff member (fire-and-forget).
+   * Revalidates complete eligibility, then creates the selected batch in one
+   * serializable transaction. Notifications are sent only after commit.
    */
   async assignStaff(
     taskId: string,
@@ -362,60 +360,22 @@ export class TaskService {
     assignedById: string
   ) {
     const task = await this.taskRepo.findById(taskId);
-    if (!task || task.organizationId !== organizationId) throw new Error("Task not found");
-
-    const currentCount = await this.assignmentRepo.countActiveByTaskId(taskId);
-    if (currentCount + membershipIds.length > task.requiredHeadcount) {
-      throw new Error(
-        `Assignment exceeds required headcount of ${task.requiredHeadcount}`
-      );
+    if (!task || task.organizationId !== organizationId) {
+      throw new Error("Task not found");
     }
 
-    for (const membId of membershipIds) {
-      const membership = await this.membershipRepo.findById(membId);
-      // A membership from another tenant must never be assignable to this
-      // org's task — validate ownership before any role check.
-      if (!membership || membership.organizationId !== organizationId) {
-        throw new Error("Staff member does not belong to this organization");
-      }
-      if (membership.role === "company_admin") {
-        throw new Error("Company Admins cannot be assigned to tasks");
-      }
-    }
+    await this.eligibilityService.assertEligibleForAssignment(
+      taskId,
+      organizationId,
+      membershipIds
+    );
 
-    if (task.scheduledStart && task.scheduledEnd) {
-      for (const membId of membershipIds) {
-        const conflicts = await this.taskRepo.findConflictingTasks(
-          membId,
-          task.scheduledStart,
-          task.scheduledEnd,
-          taskId
-        );
-        if (conflicts.length > 0) {
-          // A manager can override a scheduling conflict with a documented
-          // reason (recorded as an eligibility override before assigning).
-          const overridden =
-            (await this.overrideRepo.hasOverride(taskId, membId, "scheduling")) ||
-            (await this.overrideRepo.hasOverride(taskId, membId, "all"));
-          if (!overridden) {
-            throw new Error(
-              `Staff has a scheduling conflict with "${conflicts[0].title}"`
-            );
-          }
-        }
-      }
-    }
-
-    const assignments = [];
-    for (const membId of membershipIds) {
-      const assignment = await this.assignmentRepo.create({
-        taskId,
-        membershipId: membId,
-        assignedById,
-        status: ASSIGNMENT_STATUSES.ASSIGNED,
-      });
-      assignments.push(assignment);
-    }
+    const assignments = await this.assignmentRepo.createBatchAtomic({
+      taskId,
+      organizationId,
+      membershipIds,
+      assignedById,
+    });
 
     await this.auditService.log({
       organizationId,

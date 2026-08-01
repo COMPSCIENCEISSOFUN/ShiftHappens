@@ -16,11 +16,11 @@ import { AvailabilityRepository } from "@/repositories/availability.repository";
 import { CertificationRepository } from "@/repositories/certification.repository";
 import { WorkRuleRepository } from "@/repositories/work-rule.repository";
 import { TaskAssignmentRepository } from "@/repositories/task-assignment.repository";
-import { MembershipRepository } from "@/repositories/membership.repository";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
-import { NotificationService, NOTIFICATION_TYPES } from "@/services/notification.service";
+import { TaskService } from "@/services/task.service";
 import { prisma } from "@/lib/prisma";
 import { ASSIGNMENT_STATUSES } from "@/lib/assignment-status";
+import { ASSIGNABLE_SYSTEM_ROLES } from "@/lib/role-config";
 import {
   DEFAULT_TIMEZONE,
   dayOfWeekInTimeZone,
@@ -92,9 +92,8 @@ export class AutoScheduleService {
   private certRepo = new CertificationRepository();
   private workRuleRepo = new WorkRuleRepository();
   private assignmentRepo = new TaskAssignmentRepository();
-  private membershipRepo = new MembershipRepository();
   private auditService = new AuditLogService();
-  private notificationService = new NotificationService();
+  private taskService = new TaskService();
 
   async collectWeekData(organizationId: string, weekStart: Date): Promise<ScheduleContext> {
     const weekEnd = new Date(weekStart);
@@ -126,7 +125,12 @@ export class AutoScheduleService {
     }
 
     const members = await prisma.membership.findMany({
-      where: { organizationId, status: "active", role: { in: ["staff", "manager"] } },
+      where: {
+        organizationId,
+        status: "active",
+        role: { in: [...ASSIGNABLE_SYSTEM_ROLES] },
+        user: { isPlatformAdmin: false },
+      },
       include: {
         user: { select: { id: true, name: true, email: true } },
         departmentMemberships: { include: { department: { select: { id: true, name: true } } } },
@@ -483,34 +487,36 @@ Use the exact task numbers (1, 2, 3...) and staff letters (A, B, C...) from abov
   }
 
   async confirmSchedule(organizationId: string, assignments: DraftAssignment[], confirmedById: string) {
-    const created = [];
+    let createdCount = 0;
+    let failedCount = 0;
+    const draftsByTask = new Map<string, DraftAssignment[]>();
     for (const draft of assignments) {
-      try {
-        const assignment = await this.assignmentRepo.create({
-          taskId: draft.taskId, membershipId: draft.membershipId,
-          assignedById: confirmedById, status: ASSIGNMENT_STATUSES.ASSIGNED,
-        });
-        created.push(assignment);
+      const taskDrafts = draftsByTask.get(draft.taskId) ?? [];
+      taskDrafts.push(draft);
+      draftsByTask.set(draft.taskId, taskDrafts);
+    }
 
-        const member = await this.membershipRepo.findById(draft.membershipId);
-        if (member) {
-          void this.notificationService.notify(
-            organizationId, member.userId, NOTIFICATION_TYPES.TASK_ASSIGNED,
-            "New task assignment", `You've been assigned to "${draft.taskTitle}"`,
-            "assignment", draft.taskId
-          );
-        }
+    for (const [taskId, drafts] of draftsByTask) {
+      try {
+        const created = await this.taskService.assignStaff(
+          taskId,
+          organizationId,
+          drafts.map((draft) => draft.membershipId),
+          confirmedById
+        );
+        createdCount += created.length;
       } catch (error) {
-        console.error(`[Auto-Schedule] Failed: ${draft.staffName} → ${draft.taskTitle}:`, error);
+        failedCount += drafts.length;
+        console.error(`[Auto-Schedule] Failed task ${taskId}:`, error);
       }
     }
 
     await this.auditService.log({
       organizationId, userId: confirmedById,
       action: ACTIONS.TASK_ASSIGNED, entityType: "auto-schedule",
-      details: { assignmentsCreated: created.length, totalPlanned: assignments.length, status: ASSIGNMENT_STATUSES.ASSIGNED },
+      details: { assignmentsCreated: createdCount, totalPlanned: assignments.length, status: ASSIGNMENT_STATUSES.ASSIGNED },
     });
 
-    return { created: created.length, failed: assignments.length - created.length };
+    return { created: createdCount, failed: failedCount };
   }
 }
