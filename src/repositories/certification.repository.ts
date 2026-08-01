@@ -46,6 +46,7 @@ export class CertificationRepository {
         membership: {
           include: {
             user: { select: { id: true, name: true, email: true } },
+            departmentMemberships: { select: { departmentId: true } },
           },
         },
         verifiedBy: { select: { id: true, name: true } },
@@ -65,16 +66,31 @@ export class CertificationRepository {
   }
 
   /** Gets all certifications for an org, optionally filtered by status */
-  async findByOrganizationId(organizationId: string, status?: string) {
+  async findByOrganizationId(
+    organizationId: string,
+    status?: string,
+    departmentIds: string[] | null = null
+  ) {
     return prisma.certification.findMany({
       where: {
         membership: { organizationId },
+        ...(departmentIds !== null
+          ? {
+              membership: {
+                organizationId,
+                departmentMemberships: {
+                  some: { departmentId: { in: departmentIds } },
+                },
+              },
+            }
+          : {}),
         ...(status && { status }),
       },
       include: {
         membership: {
           include: {
             user: { select: { id: true, name: true, email: true } },
+            departmentMemberships: { select: { departmentId: true } },
           },
         },
         verifiedBy: { select: { id: true, name: true } },

@@ -128,6 +128,24 @@ describe("CertificationService", () => {
       expect(verified.verifiedById).toBe(adminUserId);
     });
 
+    it("hides and blocks submissions outside a Manager department scope", async () => {
+      const cert = await submit();
+
+      await expect(
+        certService.getByOrganization(orgId, undefined, [])
+      ).resolves.toEqual([]);
+      await expect(
+        certService.updateStatus(
+          cert.id,
+          orgId,
+          "verified",
+          adminUserId,
+          undefined,
+          []
+        )
+      ).rejects.toThrow("Certification not found");
+    });
+
     it("notifies the holder", async () => {
       const cert = await submit();
       await certService.updateStatus(cert.id, orgId, "verified", adminUserId);

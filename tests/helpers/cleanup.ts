@@ -10,6 +10,7 @@ export async function cleanDatabase() {
   await prisma.auditLog.deleteMany();
   await prisma.eligibilityOverride.deleteMany();
   await prisma.certification.deleteMany();
+  await prisma.certificationDefinition.deleteMany();
   await prisma.availabilityOverride.deleteMany();
   await prisma.availability.deleteMany();
   await prisma.taskAssignment.deleteMany();

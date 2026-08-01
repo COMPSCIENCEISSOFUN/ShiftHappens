@@ -80,8 +80,16 @@ export class CertificationService {
   }
 
   /** Gets all certifications for an org, optionally filtered by status */
-  async getByOrganization(organizationId: string, status?: string) {
-    return this.certRepo.findByOrganizationId(organizationId, status);
+  async getByOrganization(
+    organizationId: string,
+    status?: string,
+    departmentIds: string[] | null = null
+  ) {
+    return this.certRepo.findByOrganizationId(
+      organizationId,
+      status,
+      departmentIds
+    );
   }
 
   /**
@@ -94,10 +102,14 @@ export class CertificationService {
     organizationId: string,
     status: string,
     verifiedById: string,
-    reason?: { rejectionReason?: string; rejectionNotes?: string }
+    reason?: { rejectionReason?: string; rejectionNotes?: string },
+    departmentIds: string[] | null = null
   ) {
     const cert = await this.certRepo.findById(certId);
     if (!cert || cert.membership.organizationId !== organizationId) {
+      throw new Error("Certification not found");
+    }
+    if (!this.isWithinDepartmentScope(cert, departmentIds)) {
       throw new Error("Certification not found");
     }
 
@@ -147,10 +159,14 @@ export class CertificationService {
     certId: string,
     organizationId: string,
     revokedById: string,
-    reason: { rejectionReason: string; rejectionNotes?: string }
+    reason: { rejectionReason: string; rejectionNotes?: string },
+    departmentIds: string[] | null = null
   ) {
     const cert = await this.certRepo.findById(certId);
     if (!cert || cert.membership.organizationId !== organizationId) {
+      throw new Error("Certification not found");
+    }
+    if (!this.isWithinDepartmentScope(cert, departmentIds)) {
       throw new Error("Certification not found");
     }
 
@@ -337,6 +353,18 @@ export class CertificationService {
       }${detail ? `: ${detail}` : "."}`,
       "certification",
       cert.id
+    );
+  }
+
+  private isWithinDepartmentScope(
+    cert: { membership: { departmentMemberships: { departmentId: string }[] } },
+    departmentIds: string[] | null
+  ) {
+    return (
+      departmentIds === null ||
+      cert.membership.departmentMemberships.some((membership) =>
+        departmentIds.includes(membership.departmentId)
+      )
     );
   }
 }

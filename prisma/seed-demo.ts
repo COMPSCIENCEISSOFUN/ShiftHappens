@@ -128,6 +128,68 @@ async function seedAll(tx: Tx) {
   console.log(`Created ${departments.length} departments`);
 
   // ============================================================
+  // Certification definitions
+  // ============================================================
+  const certificationDefinitions = [
+    {
+      name: "Food Safety Level 2",
+      description: "Approved food-handling qualification for kitchen work",
+      requirements: [
+        { department: "Kitchen", isRequired: true },
+        { department: "Front of House", isRequired: false },
+      ],
+    },
+    {
+      name: "RSA Certification",
+      description: "Responsible service of alcohol qualification",
+      requirements: [
+        { department: "Bar", isRequired: true },
+        { department: "Front of House", isRequired: false },
+      ],
+    },
+    {
+      name: "First Aid",
+      description: "Current workplace first-aid qualification",
+      requirements: departments.map((department) => ({
+        department: department.name,
+        isRequired: false,
+      })),
+    },
+  ];
+
+  for (const definition of certificationDefinitions) {
+    const record = await tx.certificationDefinition.upsert({
+      where: {
+        organizationId_name: { organizationId: orgId, name: definition.name },
+      },
+      update: {
+        description: definition.description,
+        isActive: true,
+      },
+      create: {
+        organizationId: orgId,
+        name: definition.name,
+        description: definition.description,
+      },
+    });
+
+    await tx.certificationDefinitionDepartment.deleteMany({
+      where: { certificationDefinitionId: record.id },
+    });
+    await tx.certificationDefinitionDepartment.createMany({
+      data: definition.requirements.map((requirement) => ({
+        certificationDefinitionId: record.id,
+        departmentId: departments.find(
+          (department) => department.name === requirement.department
+        )!.id,
+        isRequired: requirement.isRequired,
+      })),
+    });
+  }
+
+  console.log(`Created ${certificationDefinitions.length} certification definitions`);
+
+  // ============================================================
   // Managers
   // ============================================================
   const managers = [

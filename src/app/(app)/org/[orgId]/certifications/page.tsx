@@ -26,6 +26,7 @@ import { AlertBanner } from "@/components/ui/alert-banner";
 import { EmptyState } from "@/components/ui/empty-state";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { CertificationStateIcon } from "@/components/ui/certification-state-icon";
+import { CertificationDefinitionManager } from "@/components/certifications/certification-definition-manager";
 import { getSystemRoleLabel } from "@/lib/role-config";
 import {
   EXPIRY_WARNING_DAYS,
@@ -403,9 +404,8 @@ export default function CertificationsPage() {
    * of the screen and does not depend on this. It fails quietly to `null`, and
    * the Uncertified pill says so rather than claiming zero.
    *
-   * Note this endpoint is department-scoped for managers while the certification
-   * list is not, so a manager's Uncertified view covers their own departments
-   * while the other pills cover the whole organisation.
+   * Both this endpoint and the certification review list are department-scoped
+   * for Managers, so the member counts and review cards describe the same team.
    */
   const fetchMembers = useCallback(async () => {
     try {
@@ -665,6 +665,8 @@ export default function CertificationsPage() {
       )}
 
       {/* ── Stat tiles ── */}
+      <CertificationDefinitionManager orgId={orgId} />
+
       <div className="mb-4 grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">
         <StatTile
           label="Pending review"

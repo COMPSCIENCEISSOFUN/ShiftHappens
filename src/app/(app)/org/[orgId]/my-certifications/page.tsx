@@ -62,6 +62,12 @@ interface FormState {
   documentUrl: string;
 }
 
+interface CertificationDefinition {
+  id: string;
+  name: string;
+  description: string | null;
+}
+
 const EMPTY_FORM: FormState = {
   name: "",
   issuedDate: "",
@@ -128,6 +134,7 @@ export default function MyCertificationsPage() {
   const orgId = params.orgId as string;
 
   const [certifications, setCertifications] = useState<MyCertification[]>([]);
+  const [definitions, setDefinitions] = useState<CertificationDefinition[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -167,9 +174,23 @@ export default function MyCertificationsPage() {
     }
   }, [orgId]);
 
+  const fetchDefinitions = useCallback(async () => {
+    try {
+      const response = await fetch(
+        `/api/organizations/${orgId}/certification-definitions`
+      );
+      const data = await response.json();
+      setDefinitions(
+        response.ok && Array.isArray(data.definitions) ? data.definitions : []
+      );
+    } catch {
+      setDefinitions([]);
+    }
+  }, [orgId]);
+
   useEffect(() => {
-    void fetchCertifications();
-  }, [fetchCertifications]);
+    void Promise.all([fetchCertifications(), fetchDefinitions()]);
+  }, [fetchCertifications, fetchDefinitions]);
 
   /**
    * Opens the form blank, or prefilled from the certificate being replaced.
@@ -462,15 +483,42 @@ export default function MyCertificationsPage() {
               >
                 Certification name <span className="text-red-600">*</span>
               </label>
-              <input
-                id="cert-name"
-                value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-                maxLength={200}
-                required
-                placeholder="e.g. Food Safety Level 2"
-                className="h-9 w-full rounded-lg border border-border bg-background px-3 text-[13px] outline-none focus:border-indigo-400"
-              />
+              {definitions.length > 0 ? (
+                <select
+                  id="cert-name"
+                  value={form.name}
+                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                  required
+                  className="h-9 w-full rounded-lg border border-border bg-background px-3 text-[13px] outline-none focus:border-indigo-400"
+                >
+                  <option value="">Select a certification</option>
+                  {definitions.map((definition) => (
+                    <option key={definition.id} value={definition.name}>
+                      {definition.name}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  id="cert-name"
+                  value={form.name}
+                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                  maxLength={200}
+                  required
+                  placeholder="e.g. Food Safety Level 2"
+                  className="h-9 w-full rounded-lg border border-border bg-background px-3 text-[13px] outline-none focus:border-indigo-400"
+                />
+              )}
+              {definitions.find((definition) => definition.name === form.name)
+                ?.description && (
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  {
+                    definitions.find(
+                      (definition) => definition.name === form.name
+                    )?.description
+                  }
+                </p>
+              )}
             </div>
 
             <div>

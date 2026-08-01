@@ -139,6 +139,19 @@ export const ROUTES: RouteSpec[] = [
   org("certifications/[certId]", "POST", MANAGER, { extraParams: ["certId"] }),
   org("certifications/[certId]", "DELETE", MEMBER, { extraParams: ["certId"] }),
   org("my-certifications", "GET", MEMBER),
+  org("certification-definitions", "GET", MEMBER),
+  org("certification-definitions", "POST", ADMIN, { suspension: true }),
+  org("certification-definitions/[definitionId]", "GET", MEMBER, {
+    extraParams: ["definitionId"],
+  }),
+  org("certification-definitions/[definitionId]", "PATCH", ADMIN, {
+    suspension: true,
+    extraParams: ["definitionId"],
+  }),
+  org("certification-definitions/[definitionId]", "DELETE", ADMIN, {
+    suspension: true,
+    extraParams: ["definitionId"],
+  }),
 
   // ── Personal views ──────────────────────────────────────────────────
   org("my-tasks", "GET", MEMBER),

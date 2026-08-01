@@ -10,9 +10,12 @@ import { CertificationService } from "@/services/certification.service";
 import { createCertificationSchema } from "@/lib/validations";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
 import { MembershipRepository } from "@/repositories/membership.repository";
+import { CertificationDefinitionService } from "@/services/certification-definition.service";
+import { departmentScopeFor } from "@/lib/department-scope";
 
 const certService = new CertificationService();
 const membershipRepo = new MembershipRepository();
+const definitionService = new CertificationDefinitionService();
 
 export async function GET(
   request: NextRequest,
@@ -32,7 +35,11 @@ export async function GET(
     const { searchParams } = new URL(request.url);
     const status = searchParams.get("status") || undefined;
 
-    const certs = await certService.getByOrganization(orgId, status);
+    const certs = await certService.getByOrganization(
+      orgId,
+      status,
+      departmentScopeFor(membership)
+    );
     return NextResponse.json(certs);
   } catch {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
@@ -64,9 +71,22 @@ export async function POST(
       );
     }
 
-    const cert = await certService.create(membership.id, parsed.data);
+    const name = await definitionService.resolveSubmissionName(
+      orgId,
+      parsed.data.name
+    );
+    const cert = await certService.create(membership.id, {
+      ...parsed.data,
+      name,
+    });
     return NextResponse.json(cert, { status: 201 });
-  } catch {
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message === "Select an active certification definition"
+    ) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

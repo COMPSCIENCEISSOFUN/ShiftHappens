@@ -46,6 +46,9 @@ const ACTIONS = {
   CERTIFICATION_REJECTED: "certification.rejected",
   CERTIFICATION_REVOKED: "certification.revoked",
   CERTIFICATION_WITHDRAWN: "certification.withdrawn",
+  CERTIFICATION_DEFINITION_CREATED: "certification_definition.created",
+  CERTIFICATION_DEFINITION_UPDATED: "certification_definition.updated",
+  CERTIFICATION_DEFINITION_DELETED: "certification_definition.deleted",
   // Settings
   SETTINGS_UPDATED: "settings.updated",
   // Roles

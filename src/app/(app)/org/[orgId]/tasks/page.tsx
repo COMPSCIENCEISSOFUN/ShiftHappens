@@ -141,6 +141,15 @@ interface Member {
   user: { id: string; name: string | null; email: string };
 }
 
+interface CertificationDefinition {
+  id: string;
+  name: string;
+  departmentRequirements: {
+    departmentId: string;
+    isRequired: boolean;
+  }[];
+}
+
 interface EligibilityCheckResult {
   eligible: boolean;
   reason?: string;
@@ -169,6 +178,11 @@ export default function TasksPage() {
   const orgId = params.orgId as string;
   const [tasks, setTasks] = useState<Task[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
+  const [certificationDefinitions, setCertificationDefinitions] = useState<
+    CertificationDefinition[]
+  >([]);
+  const [createDepartmentId, setCreateDepartmentId] = useState("");
+  const [createRequiredCerts, setCreateRequiredCerts] = useState<string[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
   const [showCreate, setShowCreate] = useState(false);
   // Recurrence controls on the create form ("" = does not repeat)
@@ -206,6 +220,7 @@ export default function TasksPage() {
     fetchDepartments();
     fetchMembers();
     fetchSettings();
+    fetchCertificationDefinitions();
   }, [orgId]);
 
   async function fetchTasks() {
@@ -235,6 +250,40 @@ export default function TasksPage() {
       const data = await res.json();
       setAllocationMode(data.allocationMode ?? "auto");
     } catch {}
+  }
+
+  async function fetchCertificationDefinitions() {
+    try {
+      const res = await fetch(
+        `/api/organizations/${orgId}/certification-definitions`
+      );
+      const data = await res.json();
+      setCertificationDefinitions(
+        res.ok && Array.isArray(data.definitions) ? data.definitions : []
+      );
+    } catch {
+      setCertificationDefinitions([]);
+    }
+  }
+
+  function selectCreateDepartment(departmentId: string) {
+    setCreateDepartmentId(departmentId);
+    const required = certificationDefinitions
+      .filter((definition) =>
+        definition.departmentRequirements.some(
+          (item) => item.departmentId === departmentId && item.isRequired
+        )
+      )
+      .map((definition) => definition.name);
+    setCreateRequiredCerts((current) => [...new Set([...current, ...required])]);
+  }
+
+  function toggleCreateCertification(name: string, checked: boolean) {
+    setCreateRequiredCerts((current) =>
+      checked
+        ? [...new Set([...current, name])]
+        : current.filter((item) => item !== name)
+    );
   }
 
   async function fetchMembers() {
@@ -404,7 +453,7 @@ export default function TasksPage() {
     };
 
     // Required certifications — comma-separated names, e.g. "Food Safety, RSA".
-    const createCerts = parseCertList(formData.get("requiredCertifications") as string);
+    const createCerts = parseCertList(createRequiredCerts.join(","));
     if (createCerts.length > 0) taskData.requiredCertifications = createCerts;
 
     const start = formData.get("scheduledStart") as string;
@@ -448,6 +497,8 @@ export default function TasksPage() {
       }
 
       setShowCreate(false);
+      setCreateDepartmentId("");
+      setCreateRequiredCerts([]);
       setSuccess(
         repeatFreq
           ? "Recurring task created — upcoming occurrences generated"
@@ -733,6 +784,11 @@ export default function TasksPage() {
 
   return (
     <div>
+      <datalist id="certification-definition-options">
+        {certificationDefinitions.map((definition) => (
+          <option key={definition.id} value={definition.name} />
+        ))}
+      </datalist>
       {/* ──────────────────────────────────────────────── */}
       {/* 1. Page header                                   */}
       {/* ──────────────────────────────────────────────── */}
@@ -926,6 +982,8 @@ export default function TasksPage() {
                 <select
                   id="departmentId"
                   name="departmentId"
+                  value={createDepartmentId}
+                  onChange={(event) => selectCreateDepartment(event.target.value)}
                   className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                 >
                   <option value="">No department</option>
@@ -954,8 +1012,47 @@ export default function TasksPage() {
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="requiredCertifications" className="text-xs font-semibold text-muted-foreground">Required certifications</Label>
-                <Input id="requiredCertifications" name="requiredCertifications" placeholder="e.g. Food Safety, RSA" />
-                <p className="text-[11px] text-muted-foreground">Comma-separated. Leave blank for none.</p>
+                <Input
+                  id="requiredCertifications"
+                  name="requiredCertifications"
+                  list="certification-definition-options"
+                  value={createRequiredCerts.join(", ")}
+                  onChange={(event) =>
+                    setCreateRequiredCerts(parseCertList(event.target.value))
+                  }
+                  placeholder="e.g. Food Safety, RSA"
+                />
+                {certificationDefinitions.length > 0 && (
+                  <div className="mt-2 flex flex-col gap-1.5">
+                    {certificationDefinitions.map((definition) => {
+                      const required = definition.departmentRequirements.some(
+                        (item) =>
+                          item.departmentId === createDepartmentId &&
+                          item.isRequired
+                      );
+                      return (
+                        <label key={definition.id} className="flex items-center gap-2 text-xs">
+                          <input
+                            type="checkbox"
+                            checked={createRequiredCerts.includes(definition.name)}
+                            disabled={required}
+                            onChange={(event) =>
+                              toggleCreateCertification(
+                                definition.name,
+                                event.target.checked
+                              )
+                            }
+                          />
+                          <span>{definition.name}</span>
+                          {required && (
+                            <span className="text-muted-foreground">Required by department</span>
+                          )}
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+                <p className="text-[11px] text-muted-foreground">Department requirements are added automatically.</p>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="scheduledStart" className="text-xs font-semibold text-muted-foreground">Start time</Label>
@@ -1348,7 +1445,7 @@ export default function TasksPage() {
                             </div>
                             <div className="space-y-1">
                               <Label className="text-xs font-semibold text-muted-foreground">Required certifications</Label>
-                              <Input name="editRequiredCertifications" defaultValue={(task.requiredCertifications || []).join(", ")} placeholder="e.g. Food Safety, RSA" />
+                              <Input name="editRequiredCertifications" list="certification-definition-options" defaultValue={(task.requiredCertifications || []).join(", ")} placeholder="e.g. Food Safety, RSA" />
                               <p className="text-[11px] text-muted-foreground">Comma-separated. Clear the field to remove all requirements.</p>
                             </div>
                             <div className="space-y-1">

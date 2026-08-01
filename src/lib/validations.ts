@@ -322,6 +322,50 @@ export const createCertificationSchema = z.object({
   documentUrl: z.string().url().optional(),
 });
 
+const certificationDepartmentRequirementSchema = z.object({
+  departmentId: z.string().min(1),
+  isRequired: z.boolean(),
+});
+
+const certificationDepartmentRequirementsSchema = z
+  .array(certificationDepartmentRequirementSchema)
+  .max(100);
+
+const certificationDefinitionFields = {
+  name: z.string().trim().min(1, "Certification name is required").max(200),
+  description: z.string().trim().max(2000).optional(),
+  isActive: z.boolean().optional(),
+  departmentRequirements: certificationDepartmentRequirementsSchema.default([]),
+};
+
+function requireUniqueDepartments(
+  value: { departmentRequirements?: { departmentId: string }[] },
+  ctx: z.RefinementCtx
+) {
+  const ids = value.departmentRequirements?.map((item) => item.departmentId) ?? [];
+  if (new Set(ids).size !== ids.length) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["departmentRequirements"],
+      message: "Each department can only be assigned once",
+    });
+  }
+}
+
+export const createCertificationDefinitionSchema = z
+  .object(certificationDefinitionFields)
+  .superRefine(requireUniqueDepartments);
+
+export const updateCertificationDefinitionSchema = z
+  .object({
+    name: certificationDefinitionFields.name.optional(),
+    description: certificationDefinitionFields.description.nullable(),
+    isActive: certificationDefinitionFields.isActive,
+    departmentRequirements: certificationDepartmentRequirementsSchema.optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, "At least one field is required")
+  .superRefine(requireUniqueDepartments);
+
 /**
  * Predefined certificate rejection reasons, mirroring the task-rejection
  * pattern (fixed set + optional notes) so both are reportable rather than
@@ -472,6 +516,12 @@ export type SetAvailabilityInput = z.infer<typeof setAvailabilitySchema>;
 export type SetWeeklyAvailabilityInput = z.infer<typeof setWeeklyAvailabilitySchema>;
 export type CreateAvailabilityOverrideInput = z.infer<typeof createAvailabilityOverrideSchema>;
 export type CreateCertificationInput = z.infer<typeof createCertificationSchema>;
+export type CreateCertificationDefinitionInput = z.infer<
+  typeof createCertificationDefinitionSchema
+>;
+export type UpdateCertificationDefinitionInput = z.infer<
+  typeof updateCertificationDefinitionSchema
+>;
 export type VerifyCertificationInput = z.infer<typeof verifyCertificationSchema>;
 export type RevokeCertificationInput = z.infer<typeof revokeCertificationSchema>;
 export type CertificationRejectionReason =

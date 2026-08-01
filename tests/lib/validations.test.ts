@@ -29,6 +29,8 @@ import {
   setWeeklyAvailabilitySchema,
   createAvailabilityOverrideSchema,
   createCertificationSchema,
+  createCertificationDefinitionSchema,
+  updateCertificationDefinitionSchema,
   verifyCertificationSchema,
   revokeCertificationSchema,
   createEligibilityOverrideSchema,
@@ -36,6 +38,51 @@ import {
   withdrawTaskSchema,
   withdrawalDecisionSchema,
 } from "@/lib/validations";
+
+describe("certification definition schemas", () => {
+  const valid = {
+    name: " Food Safety Level 2 ",
+    description: "Required food-handling qualification",
+    isActive: true,
+    departmentRequirements: [
+      { departmentId: "kitchen", isRequired: true },
+      { departmentId: "bar", isRequired: false },
+    ],
+  };
+
+  it("normalizes a complete definition", () => {
+    const result = createCertificationDefinitionSchema.parse(valid);
+    expect(result.name).toBe("Food Safety Level 2");
+    expect(result.departmentRequirements).toHaveLength(2);
+  });
+
+  it("rejects duplicate department assignments", () => {
+    const result = createCertificationDefinitionSchema.safeParse({
+      ...valid,
+      departmentRequirements: [
+        { departmentId: "kitchen", isRequired: true },
+        { departmentId: "kitchen", isRequired: false },
+      ],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects oversized names and descriptions", () => {
+    expect(
+      createCertificationDefinitionSchema.safeParse({
+        name: "x".repeat(201),
+        description: "y".repeat(2001),
+      }).success
+    ).toBe(false);
+  });
+
+  it("allows a partial update but rejects an empty update", () => {
+    expect(
+      updateCertificationDefinitionSchema.safeParse({ isActive: false }).success
+    ).toBe(true);
+    expect(updateCertificationDefinitionSchema.safeParse({}).success).toBe(false);
+  });
+});
 
 describe("registerSchema", () => {
   it("accepts valid registration data", () => {

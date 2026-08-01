@@ -18,6 +18,7 @@ import {
 import { validationErrorResponse } from "@/lib/api-utils";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
 import { MembershipRepository } from "@/repositories/membership.repository";
+import { departmentScopeFor } from "@/lib/department-scope";
 
 const certService = new CertificationService();
 const membershipRepo = new MembershipRepository();
@@ -39,6 +40,19 @@ export async function GET(
 
     const cert = await certService.getById(certId, orgId);
     if (!cert) {
+      return NextResponse.json({ error: "Certification not found" }, { status: 404 });
+    }
+    const canReview = ["company_admin", "manager"].includes(membership.role);
+    const scope = departmentScopeFor(membership);
+    const inScope =
+      scope === null ||
+      cert.membership.departmentMemberships.some((item) =>
+        scope.includes(item.departmentId)
+      );
+    if (
+      (canReview && !inScope) ||
+      (!canReview && cert.membershipId !== membership.id)
+    ) {
       return NextResponse.json({ error: "Certification not found" }, { status: 404 });
     }
 
@@ -76,7 +90,8 @@ export async function PATCH(
       {
         rejectionReason: parsed.data.rejectionReason,
         rejectionNotes: parsed.data.rejectionNotes,
-      }
+      },
+      departmentScopeFor(membership)
     );
     return NextResponse.json(updated);
   } catch (error) {
@@ -123,7 +138,7 @@ export async function POST(
     const updated = await certService.revoke(certId, orgId, user.id, {
       rejectionReason: parsed.data.rejectionReason,
       rejectionNotes: parsed.data.rejectionNotes,
-    });
+    }, departmentScopeFor(membership));
     return NextResponse.json(updated);
   } catch (error) {
     if (error instanceof Error) {
