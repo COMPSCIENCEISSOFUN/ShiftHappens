@@ -41,7 +41,7 @@ beforeEach(async () => {
   });
 
   await prisma.companySettings.create({
-    data: { organizationId: orgId, taskAcceptanceMode: "require_acceptance" },
+    data: { organizationId: orgId, allocationMode: "auto" },
   });
 
   const dept = await prisma.department.create({
@@ -97,10 +97,10 @@ describe("Smart-Swap", () => {
 
     // Assign 2 staff
     const a1 = await prisma.taskAssignment.create({
-      data: { taskId: task.id, membershipId: staffMembershipIds[0], assignedById: adminUserId, status: "accepted" },
+      data: { taskId: task.id, membershipId: staffMembershipIds[0], assignedById: adminUserId, status: "assigned" },
     });
     await prisma.taskAssignment.create({
-      data: { taskId: task.id, membershipId: staffMembershipIds[1], assignedById: adminUserId, status: "accepted" },
+      data: { taskId: task.id, membershipId: staffMembershipIds[1], assignedById: adminUserId, status: "assigned" },
     });
 
     // Cancel one — task becomes understaffed (1/2)
@@ -109,7 +109,7 @@ describe("Smart-Swap", () => {
     // Wait for fire-and-forget notification
     await new Promise((r) => setTimeout(r, 500));
 
-    const notifications = await notificationRepo.findByUserId(adminUserId);
+    const notifications = await notificationRepo.findByUserId(adminUserId, orgId);
     expect(notifications.length).toBeGreaterThanOrEqual(1);
 
     const swapNotif = notifications.find((n) => n.title === "Smart swap — replacement suggested");
@@ -135,10 +135,10 @@ describe("Smart-Swap", () => {
 
     // Assign 2 staff to a task needing 1 (over-staffed scenario via direct DB)
     const a1 = await prisma.taskAssignment.create({
-      data: { taskId: task.id, membershipId: staffMembershipIds[0], assignedById: adminUserId, status: "accepted" },
+      data: { taskId: task.id, membershipId: staffMembershipIds[0], assignedById: adminUserId, status: "assigned" },
     });
     await prisma.taskAssignment.create({
-      data: { taskId: task.id, membershipId: staffMembershipIds[1], assignedById: adminUserId, status: "accepted" },
+      data: { taskId: task.id, membershipId: staffMembershipIds[1], assignedById: adminUserId, status: "assigned" },
     });
 
     // Cancel one — still has 1/1, not understaffed
@@ -146,7 +146,7 @@ describe("Smart-Swap", () => {
 
     await new Promise((r) => setTimeout(r, 500));
 
-    const notifications = await notificationRepo.findByUserId(adminUserId);
+    const notifications = await notificationRepo.findByUserId(adminUserId, orgId);
     const swapNotif = notifications.find((n) => n.title === "Smart swap — replacement suggested");
     expect(swapNotif).toBeUndefined();
   });
@@ -168,14 +168,14 @@ describe("Smart-Swap", () => {
     });
 
     const a1 = await prisma.taskAssignment.create({
-      data: { taskId: task.id, membershipId: staffMembershipIds[0], assignedById: adminUserId, status: "pending" },
+      data: { taskId: task.id, membershipId: staffMembershipIds[0], assignedById: adminUserId, status: "assigned" },
     });
 
     await taskService.cancelAssignment(a1.id, orgId, adminUserId);
 
     await new Promise((r) => setTimeout(r, 500));
 
-    const notifications = await notificationRepo.findByUserId(adminUserId);
+    const notifications = await notificationRepo.findByUserId(adminUserId, orgId);
     const noReplace = notifications.find((n) => n.title === "Staff unassigned — no replacements");
     expect(noReplace).toBeDefined();
     expect(noReplace!.message).toContain("Sunday Task");
@@ -197,7 +197,7 @@ describe("Smart-Swap", () => {
     });
 
     const a1 = await prisma.taskAssignment.create({
-      data: { taskId: task.id, membershipId: staffMembershipIds[0], assignedById: adminUserId, status: "accepted" },
+      data: { taskId: task.id, membershipId: staffMembershipIds[0], assignedById: adminUserId, status: "assigned" },
     });
 
     // Cancellation should always succeed regardless of smart-swap

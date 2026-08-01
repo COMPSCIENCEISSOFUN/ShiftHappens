@@ -1,0 +1,24 @@
+export const ASSIGNMENT_STATUSES = {
+  ASSIGNED: "assigned",
+  IN_PROGRESS: "in_progress",
+  CLOCKED_OUT: "clocked_out",
+  COMPLETED: "completed",
+  WITHDRAWAL_REQUESTED: "withdrawal_requested",
+  WITHDRAWN: "withdrawn",
+  CANCELLED: "cancelled",
+} as const;
+
+export type AssignmentStatus =
+  (typeof ASSIGNMENT_STATUSES)[keyof typeof ASSIGNMENT_STATUSES];
+
+export const SLOT_OCCUPYING_ASSIGNMENT_STATUSES: AssignmentStatus[] = [
+  ASSIGNMENT_STATUSES.ASSIGNED,
+  ASSIGNMENT_STATUSES.IN_PROGRESS,
+  ASSIGNMENT_STATUSES.WITHDRAWAL_REQUESTED,
+  ASSIGNMENT_STATUSES.CLOCKED_OUT,
+];
+
+export const COMMITTED_ASSIGNMENT_STATUSES: AssignmentStatus[] = [
+  ...SLOT_OCCUPYING_ASSIGNMENT_STATUSES,
+  ASSIGNMENT_STATUSES.COMPLETED,
+];

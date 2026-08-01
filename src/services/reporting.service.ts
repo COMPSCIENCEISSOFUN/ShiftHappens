@@ -22,6 +22,10 @@ import {
   localDateInTimeZone,
   startOfDayInTimeZone,
 } from "@/lib/timezone";
+import {
+  ASSIGNMENT_STATUSES,
+  SLOT_OCCUPYING_ASSIGNMENT_STATUSES,
+} from "@/lib/assignment-status";
 
 /**
  * One day in milliseconds. Adding whole days to a day boundary resolved in a
@@ -43,7 +47,6 @@ import type {
 export interface NeedsAttentionItem {
   type:
     | "understaffed"
-    | "pending_acceptance"
     | "expiring_cert"
     | "pending_verification";
   severity: "danger" | "warning" | "info";
@@ -89,9 +92,9 @@ export interface CoverageSummary {
 export interface KeyMetrics {
   assignmentPipeline: {
     total: number;
-    accepted: number;
-    pending: number;
-    rejected: number;
+    assigned: number;
+    in_progress: number;
+    clocked_out: number;
     completed: number;
   };
   completionRate: {
@@ -144,21 +147,13 @@ export interface DepartmentWorkloadItem {
   isImbalanced: boolean;
 }
 
-/** Staff rejection data grouped for trend analysis */
-export interface RejectionTrendItem {
-  staffName: string;
-  membershipId: string;
-  rejectionCount: number;
-  reasons: { reason: string; count: number }[];
-}
-
 /** Team member with shift status badge for manager roster */
 export interface TeamMemberItem {
   membershipId: string;
   name: string;
-  status: "on_shift" | "has_pending" | "available" | "off_today";
+  status: "on_shift" | "assigned_today" | "available" | "off_today";
   statusLabel: string;
-  pendingCount: number;
+  assignedCount: number;
 }
 
 /** Complete staff dashboard data bundle */
@@ -172,7 +167,7 @@ export interface StaffDashboardData {
   } | null;
   tasksThisWeek: {
     total: number;
-    pending: number;
+    active: number;
   };
   weekAssignments: StaffAssignmentRecord[];
   availability: StaffAvailabilityRecord[];
@@ -180,7 +175,7 @@ export interface StaffDashboardData {
   stats: {
     shiftsThisMonth: number;
     hoursThisMonth: number;
-    acceptanceRate: number;
+    completionRate: number;
     onTimeRate: number;
   };
 }
@@ -310,10 +305,9 @@ export class ReportingService {
     organizationId: string,
     departmentIds?: string[]
   ): Promise<NeedsAttentionItem[]> {
-    const [understaffed, pendingAssignments, expiringCerts, pendingVerifications] =
+    const [understaffed, expiringCerts, pendingVerifications] =
       await Promise.all([
         this.reportingRepo.getUnderstaffedTasks(organizationId, departmentIds),
-        this.reportingRepo.getPendingAssignments(organizationId, departmentIds),
         this.reportingRepo.getExpiringCertifications(organizationId, 30),
         this.reportingRepo.getPendingCertVerifications(organizationId),
       ]);
@@ -330,24 +324,6 @@ export class ReportingService {
         actionLabel: "Assign",
         actionUrl: `/org/${organizationId}/tasks`,
         entityId: task.id,
-      });
-    }
-
-    // Amber: pending acceptances (grouped into one alert)
-    if (pendingAssignments.length > 0) {
-      const uniqueNames = [
-        ...new Set(pendingAssignments.map((a) => a.staffName)),
-      ];
-      const nameList =
-        uniqueNames.length <= 3
-          ? uniqueNames.join(", ")
-          : `${uniqueNames.slice(0, 2).join(", ")} +${uniqueNames.length - 2} more`;
-      items.push({
-        type: "pending_acceptance",
-        severity: "warning",
-        message: `${pendingAssignments.length} assignment${pendingAssignments.length !== 1 ? "s" : ""} pending acceptance from ${nameList}`,
-        actionLabel: "View",
-        actionUrl: `/org/${organizationId}/tasks`,
       });
     }
 
@@ -431,7 +407,13 @@ export class ReportingService {
       ]);
 
     // Assignment pipeline
-    const pipeline = { total: 0, accepted: 0, pending: 0, rejected: 0, completed: 0 };
+    const pipeline = {
+      total: 0,
+      assigned: 0,
+      in_progress: 0,
+      clocked_out: 0,
+      completed: 0,
+    };
     for (const s of statusCounts) {
       pipeline.total += s.count;
       if (s.status in pipeline) {
@@ -621,68 +603,11 @@ export class ReportingService {
     }));
   }
 
-  // ===== Rejection Trends (Admin & Manager) =====
-
-  /**
-   * Groups rejection data by staff member with reason breakdown.
-   * Sorted by rejection count descending (most rejections first).
-   * The AI recommendations service can use this for pattern analysis.
-   */
-  async getRejectionTrends(
-    organizationId: string,
-    departmentIds?: string[]
-  ): Promise<RejectionTrendItem[]> {
-    const sevenDaysAgo = new Date(
-      startOfDayInTimeZone(new Date()).getTime() - 7 * DAY_MS
-    );
-
-    const rejections = await this.reportingRepo.getRejectionData(
-      organizationId,
-      sevenDaysAgo,
-      departmentIds
-    );
-
-    // Group by staff
-    const staffMap = new Map<
-      string,
-      { name: string; reasons: Map<string, number> }
-    >();
-
-    for (const r of rejections) {
-      if (!staffMap.has(r.membershipId)) {
-        staffMap.set(r.membershipId, {
-          name: r.staffName,
-          reasons: new Map(),
-        });
-      }
-      const entry = staffMap.get(r.membershipId)!;
-      const reason = r.rejectionReason || "unspecified";
-      entry.reasons.set(reason, (entry.reasons.get(reason) || 0) + 1);
-    }
-
-    // Build sorted result
-    const items: RejectionTrendItem[] = [];
-    for (const [membershipId, data] of staffMap) {
-      const reasons = Array.from(data.reasons.entries())
-        .map(([reason, count]) => ({ reason, count }))
-        .sort((a, b) => b.count - a.count);
-
-      items.push({
-        staffName: data.name,
-        membershipId,
-        rejectionCount: reasons.reduce((sum, r) => sum + r.count, 0),
-        reasons,
-      });
-    }
-
-    return items.sort((a, b) => b.rejectionCount - a.rejectionCount);
-  }
-
   // ===== Team Roster (Manager) =====
 
   /**
    * Gets team members with current shift status for the manager dashboard.
-   * Status badges: "on_shift" (green), "has_pending" (amber),
+   * Status badges: "on_shift" (green), "assigned_today" (blue),
    * "available" (gray), "off_today" (gray).
    */
   async getTeamRoster(
@@ -706,18 +631,18 @@ export class ReportingService {
       let status: TeamMemberItem["status"];
       let statusLabel: string;
 
-      const hasAccepted = m.todayAssignments.some(
-        (a) => a.status === "accepted"
+      const isInProgress = m.todayAssignments.some(
+        (a) => a.status === ASSIGNMENT_STATUSES.IN_PROGRESS
       );
-      const hasPending = m.pendingCount > 0;
+      const hasAssignment = m.assignedCount > 0;
       const isAvailable = m.availability?.isAvailable ?? false;
 
-      if (hasAccepted) {
+      if (isInProgress) {
         status = "on_shift";
         statusLabel = "On shift";
-      } else if (hasPending) {
-        status = "has_pending";
-        statusLabel = `${m.pendingCount} pending`;
+      } else if (hasAssignment) {
+        status = "assigned_today";
+        statusLabel = `${m.assignedCount} assigned`;
       } else if (isAvailable) {
         status = "available";
         statusLabel = "Available";
@@ -731,7 +656,7 @@ export class ReportingService {
         name: m.staffName,
         status,
         statusLabel,
-        pendingCount: m.pendingCount,
+        assignedCount: m.assignedCount,
       };
     });
   }
@@ -793,7 +718,7 @@ export class ReportingService {
       (a) =>
         a.scheduledStart &&
         a.scheduledStart > now &&
-        (a.status === "accepted" || a.status === "pending")
+        (SLOT_OCCUPYING_ASSIGNMENT_STATUSES as string[]).includes(a.status)
     );
     const nextShift = upcoming?.scheduledStart && upcoming?.scheduledEnd
       ? {
@@ -804,22 +729,15 @@ export class ReportingService {
       : null;
 
     // Tasks this week summary — a shift is "done" once clocked out or completed
-    const activeWeekAssignments = weekAssignments.filter(
-      (a) => !["clocked_out", "completed"].includes(a.status)
+    const activeWeekAssignments = weekAssignments.filter((a) =>
+      (SLOT_OCCUPYING_ASSIGNMENT_STATUSES as string[]).includes(a.status)
     );
-    const pendingWeekCount = weekAssignments.filter(
-      (a) => a.status === "pending"
-    ).length;
 
     // Personal stats from assignment history
     const totalAssignments = assignmentHistory.length;
-    const acceptedOrCompleted = assignmentHistory.filter(
-      (a) => ["accepted", "clocked_out", "completed"].includes(a.status)
+    const completedAssignmentCount = assignmentHistory.filter(
+      (a) => a.status === ASSIGNMENT_STATUSES.COMPLETED
     ).length;
-    const rejectedCount = assignmentHistory.filter(
-      (a) => a.status === "rejected"
-    ).length;
-    const decidedCount = acceptedOrCompleted + rejectedCount;
 
     const onTimeCount = assignmentHistory.filter(
       (a) =>
@@ -837,7 +755,7 @@ export class ReportingService {
       nextShift,
       tasksThisWeek: {
         total: activeWeekAssignments.length,
-        pending: pendingWeekCount,
+        active: activeWeekAssignments.length,
       },
       weekAssignments,
       availability,
@@ -847,9 +765,9 @@ export class ReportingService {
           (a) => ["clocked_out", "completed"].includes(a.status)
         ).length,
         hoursThisMonth: Math.round(hoursThisMonth * 10) / 10,
-        acceptanceRate:
-          decidedCount > 0
-            ? Math.round((acceptedOrCompleted / decidedCount) * 100)
+        completionRate:
+          totalAssignments > 0
+            ? Math.round((completedAssignmentCount / totalAssignments) * 100)
             : 100,
         onTimeRate:
           clockedInCount > 0

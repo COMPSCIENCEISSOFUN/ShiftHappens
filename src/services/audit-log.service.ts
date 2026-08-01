@@ -20,8 +20,6 @@ const ACTIONS = {
   TASK_UNASSIGNED: "task.unassigned",
   RECURRING_TASKS_GENERATED: "task.recurring_generated",
   // Assignments
-  ASSIGNMENT_ACCEPTED: "assignment.accepted",
-  ASSIGNMENT_REJECTED: "assignment.rejected",
   ASSIGNMENT_CLOCKED_IN: "assignment.clocked_in",
   ASSIGNMENT_CLOCKED_OUT: "assignment.clocked_out",
   ASSIGNMENT_COMPLETED: "assignment.completed",

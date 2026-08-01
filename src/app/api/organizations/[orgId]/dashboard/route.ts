@@ -78,7 +78,6 @@ export async function GET(
       tomorrowsScheduleResult,
       completionChartResult,
       staffUtilizationResult,
-      rejectionTrendsResult,
       taskSummaryResult,
       coverageSummaryResult,
     ] = await Promise.allSettled([
@@ -87,7 +86,6 @@ export async function GET(
       reportingService.getTomorrowsSchedule(orgId, departmentIds),
       reportingService.getCompletionChart(orgId, departmentIds),
       reportingService.getStaffUtilization(orgId, departmentIds),
-      reportingService.getRejectionTrends(orgId, departmentIds),
       reportingService.getTaskSummary(orgId, departmentIds),
       reportingService.getCoverageSummary(orgId, departmentIds),
     ]);
@@ -99,7 +97,6 @@ export async function GET(
       tomorrowsSchedule: extractResult(tomorrowsScheduleResult, "TomorrowsSchedule"),
       completionChart: extractResult(completionChartResult, "CompletionChart"),
       staffUtilization: extractResult(staffUtilizationResult, "StaffUtilization"),
-      rejectionTrends: extractResult(rejectionTrendsResult, "RejectionTrends"),
       taskSummary: extractResult(taskSummaryResult, "TaskSummary"),
       coverageSummary: extractResult(coverageSummaryResult, "CoverageSummary"),
     };

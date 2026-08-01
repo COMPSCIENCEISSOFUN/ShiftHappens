@@ -35,12 +35,9 @@ const PRIORITY_STYLES: Record<string, string> = {
 };
 
 const ASSIGNMENT_STATUS_STYLES: Record<string, string> = {
-  pending:
-    "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300",
-  accepted:
+  assigned:
     "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300",
-  rejected: "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300",
-  clocked_in:
+  in_progress:
     "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300",
   clocked_out:
     "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400",
@@ -49,6 +46,8 @@ const ASSIGNMENT_STATUS_STYLES: Record<string, string> = {
   withdrawal_requested:
     "bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300",
   withdrawn:
+    "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400",
+  cancelled:
     "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400",
 };
 
@@ -96,8 +95,8 @@ const MEMBERSHIP_STATUS_STYLES: Record<string, string> = {
 const TEAM_STATUS_STYLES: Record<string, string> = {
   on_shift:
     "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300",
-  has_pending:
-    "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300",
+  assigned_today:
+    "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300",
   available:
     "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400",
   off_today:

@@ -3,7 +3,7 @@
  * GET /api/organizations/[orgId]/dashboard-insights
  * 
  * Returns AI-generated workforce summary, proactive alerts,
- * and rejection pattern analysis. Requires admin/manager role.
+ * and review-queue analysis. Requires admin/manager role.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { AIDashboardService } from "@/services/ai-dashboard.service";

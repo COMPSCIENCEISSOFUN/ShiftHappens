@@ -16,6 +16,10 @@
  * Security: Prisma parameterized queries prevent SQL injection.
  */
 import { prisma } from "@/lib/prisma";
+import {
+  COMMITTED_ASSIGNMENT_STATUSES,
+  SLOT_OCCUPYING_ASSIGNMENT_STATUSES,
+} from "@/lib/assignment-status";
 
 // ============================================================
 // Return type interfaces
@@ -47,17 +51,6 @@ export interface UnderstaffedTaskRecord {
   scheduledEnd: Date | null;
 }
 
-/** Pending assignment awaiting staff response */
-export interface PendingAssignmentRecord {
-  id: string;
-  taskId: string;
-  taskTitle: string;
-  staffName: string;
-  staffEmail: string;
-  membershipId: string;
-  createdAt: Date;
-}
-
 /** Certification approaching expiry */
 export interface ExpiringCertRecord {
   id: string;
@@ -84,15 +77,6 @@ export interface AssignmentStatusCount {
   count: number;
 }
 
-/** Individual rejection record with staff and reason details */
-export interface RejectionRecord {
-  membershipId: string;
-  staffName: string;
-  staffEmail: string;
-  rejectionReason: string | null;
-  rejectionNotes: string | null;
-}
-
 /** Task scheduled within a date range with assignment breakdown */
 export interface ScheduledTaskRecord {
   id: string;
@@ -100,7 +84,7 @@ export interface ScheduledTaskRecord {
   status: string;
   requiredHeadcount: number;
   assignedCount: number;
-  acceptedCount: number;
+  activeAssignmentCount: number;
   departmentName: string | null;
   departmentColor: string | null;
   scheduledStart: Date | null;
@@ -132,7 +116,7 @@ export interface TeamMemberRecord {
     startTime: string;
     endTime: string;
   } | null;
-  pendingCount: number;
+  assignedCount: number;
 }
 
 /** Staff assignment for personal calendar view */
@@ -399,7 +383,7 @@ export class ReportingRepository {
         user: { select: { name: true, email: true } },
         taskAssignments: {
           where: {
-            status: { in: ["pending", "accepted"] },
+            status: { in: SLOT_OCCUPYING_ASSIGNMENT_STATUSES },
             task: {
               scheduledStart: { lt: todayEnd },
               scheduledEnd: { gt: todayStart },
@@ -441,7 +425,7 @@ export class ReportingRepository {
             endTime: m.availabilities[0].endTime,
           }
         : null,
-      pendingCount: m.taskAssignments.filter((a) => a.status === "pending")
+      assignedCount: m.taskAssignments.filter((a) => a.status === "assigned")
         .length,
     }));
   }
@@ -450,7 +434,7 @@ export class ReportingRepository {
 
   /**
    * Gets tasks where active assignment count < requiredHeadcount.
-   * Only considers open/in-progress tasks with pending/accepted assignments.
+   * Only considers open/in-progress tasks with active slot-occupying assignments.
    * Filtering happens in-code after fetch (Prisma lacks HAVING clause).
    */
   async getUnderstaffedTasks(
@@ -473,7 +457,7 @@ export class ReportingRepository {
         scheduledEnd: true,
         department: { select: { name: true, color: true } },
         assignments: {
-          where: { status: { in: ["pending", "accepted"] } },
+          where: { status: { in: SLOT_OCCUPYING_ASSIGNMENT_STATUSES } },
           select: { id: true },
         },
       },
@@ -523,7 +507,7 @@ export class ReportingRepository {
         scheduledEnd: true,
         department: { select: { name: true, color: true } },
         assignments: {
-          where: { status: { in: ["pending", "accepted"] } },
+          where: { status: { in: SLOT_OCCUPYING_ASSIGNMENT_STATUSES } },
           select: { id: true, status: true },
         },
       },
@@ -536,7 +520,9 @@ export class ReportingRepository {
       status: t.status,
       requiredHeadcount: t.requiredHeadcount,
       assignedCount: t.assignments.length,
-      acceptedCount: t.assignments.filter((a) => a.status === "accepted")
+      activeAssignmentCount: t.assignments.filter((a) =>
+        (SLOT_OCCUPYING_ASSIGNMENT_STATUSES as string[]).includes(a.status)
+      )
         .length,
       departmentName: t.department?.name ?? null,
       departmentColor: t.department?.color ?? null,
@@ -613,93 +599,6 @@ export class ReportingRepository {
     return result.map((r) => ({
       status: r.status,
       count: r._count._all,
-    }));
-  }
-
-  /**
-   * Gets pending assignments with staff and task details.
-   * Used for "pending acceptances" alert in needs-attention section.
-   * Ordered by creation date descending (newest first).
-   */
-  async getPendingAssignments(
-    organizationId: string,
-    departmentIds?: string[]
-  ): Promise<PendingAssignmentRecord[]> {
-    const records = await prisma.taskAssignment.findMany({
-      where: {
-        status: "pending",
-        task: {
-          organizationId,
-          ...(departmentIds?.length
-            ? { departmentId: { in: departmentIds } }
-            : {}),
-        },
-      },
-      select: {
-        id: true,
-        taskId: true,
-        membershipId: true,
-        createdAt: true,
-        task: { select: { title: true } },
-        membership: {
-          select: {
-            user: { select: { name: true, email: true } },
-          },
-        },
-      },
-      orderBy: { createdAt: "desc" },
-    });
-
-    return records.map((r) => ({
-      id: r.id,
-      taskId: r.taskId,
-      taskTitle: r.task.title,
-      staffName: r.membership.user.name || r.membership.user.email,
-      staffEmail: r.membership.user.email,
-      membershipId: r.membershipId,
-      createdAt: r.createdAt,
-    }));
-  }
-
-  /**
-   * Gets rejected assignments with staff name and rejection reason.
-   * Service layer groups by staff and analyzes patterns.
-   * Used for rejection trends narrative display.
-   */
-  async getRejectionData(
-    organizationId: string,
-    since: Date,
-    departmentIds?: string[]
-  ): Promise<RejectionRecord[]> {
-    const records = await prisma.taskAssignment.findMany({
-      where: {
-        status: "rejected",
-        updatedAt: { gte: since },
-        task: {
-          organizationId,
-          ...(departmentIds?.length
-            ? { departmentId: { in: departmentIds } }
-            : {}),
-        },
-      },
-      select: {
-        membershipId: true,
-        rejectionReason: true,
-        rejectionNotes: true,
-        membership: {
-          select: {
-            user: { select: { name: true, email: true } },
-          },
-        },
-      },
-    });
-
-    return records.map((r) => ({
-      membershipId: r.membershipId,
-      staffName: r.membership.user.name || r.membership.user.email,
-      staffEmail: r.membership.user.email,
-      rejectionReason: r.rejectionReason,
-      rejectionNotes: r.rejectionNotes,
     }));
   }
 
@@ -796,7 +695,7 @@ export class ReportingRepository {
   /**
    * Gets a staff member's task assignments within a date range.
    * Used for personal weekly calendar view.
-   * Includes pending, accepted, and completed assignments.
+   * Includes committed active and completed assignments.
    */
   async getStaffAssignments(
     membershipId: string,
@@ -806,7 +705,7 @@ export class ReportingRepository {
     const records = await prisma.taskAssignment.findMany({
       where: {
         membershipId,
-        status: { in: ["pending", "accepted", "completed"] },
+        status: { in: COMMITTED_ASSIGNMENT_STATUSES },
         task: {
           scheduledStart: { lt: endDate },
           scheduledEnd: { gt: startDate },
@@ -901,7 +800,7 @@ export class ReportingRepository {
 
   /**
    * Gets raw assignment data for computing personal stats.
-   * Service layer calculates acceptance rate, on-time rate, etc.
+   * Service layer calculates completion and on-time rates.
    * Returns minimal fields to keep the query efficient.
    */
   async getStaffAssignmentHistory(
@@ -1034,7 +933,7 @@ export class ReportingRepository {
   /**
    * Upcoming tasks with their required headcount and how many slots are
    * actually taken — the raw material for the coverage summary.
-   * Only slot-occupying assignments count (pending/accepted/withdrawal_requested).
+   * Only slot-occupying assignments count.
    */
   async getUpcomingCoverage(
     organizationId: string,
@@ -1057,7 +956,7 @@ export class ReportingRepository {
           select: {
             assignments: {
               where: {
-                status: { in: ["pending", "accepted", "withdrawal_requested"] },
+                status: { in: SLOT_OCCUPYING_ASSIGNMENT_STATUSES },
               },
             },
           },

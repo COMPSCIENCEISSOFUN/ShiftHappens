@@ -47,8 +47,6 @@ function timeAgo(dateStr: string): string {
 function notificationIcon(type: string): string {
   switch (type) {
     case "task_assigned": return "📋";
-    case "assignment_accepted": return "✅";
-    case "assignment_rejected": return "❌";
     case "cert_verified": return "🏆";
     case "cert_rejected": return "⚠️";
     case "org_suspended": return "🔒";

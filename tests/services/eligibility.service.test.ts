@@ -161,7 +161,7 @@ describe("EligibilityService", () => {
           taskId: task1.id,
           membershipId: staffMembershipId,
           assignedById: adminUserId,
-          status: "accepted",
+          status: "assigned",
         },
       });
 
@@ -627,7 +627,7 @@ describe("EligibilityService", () => {
           taskId: task1.id,
           membershipId: staffMembershipId,
           assignedById: adminUserId,
-          status: "accepted",
+          status: "assigned",
         },
       });
 
@@ -817,7 +817,7 @@ describe("EligibilityService", () => {
           taskId: task1.id,
           membershipId: staffMembershipId,
           assignedById: adminUserId,
-          status: "accepted",
+          status: "assigned",
         },
       });
       const task2 = await taskRepo.create({

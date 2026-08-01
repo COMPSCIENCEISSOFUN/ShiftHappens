@@ -74,7 +74,7 @@ interface StaffData {
   } | null;
   tasksThisWeek: {
     total: number;
-    pending: number;
+    active: number;
   };
   weekAssignments: StaffAssignment[];
   availability: StaffAvailability[];
@@ -82,7 +82,7 @@ interface StaffData {
   stats: {
     shiftsThisMonth: number;
     hoursThisMonth: number;
-    acceptanceRate: number;
+    completionRate: number;
     onTimeRate: number;
   };
 }
@@ -270,8 +270,10 @@ export default function StaffDashboard({
   const hoursPercent = data.weeklyCapacity
     ? Math.min(100, Math.round((data.hoursThisWeek / data.weeklyCapacity) * 100))
     : 0;
-  const completedTasks = data.tasksThisWeek.total - data.tasksThisWeek.pending;
-  const pendingCount = data.tasksThisWeek.pending;
+  const completedTasks = data.weekAssignments.filter((a) =>
+    ["clocked_out", "completed"].includes(a.status)
+  ).length;
+  const activeCount = data.tasksThisWeek.active;
 
   // Build a lookup: dayIndex (0=Mon) -> assignments for that day
   const assignmentsByDay: Record<number, StaffAssignment[]> = {};
@@ -305,8 +307,8 @@ export default function StaffDashboard({
           {data.nextShift
             ? `You have ${data.tasksThisWeek.total} shift${data.tasksThisWeek.total !== 1 ? "s" : ""} this week`
             : "No upcoming shifts scheduled"}
-          {pendingCount > 0 &&
-            ` · ${pendingCount} pending assignment${pendingCount !== 1 ? "s" : ""}`}
+          {activeCount > 0 &&
+            ` · ${activeCount} active assignment${activeCount !== 1 ? "s" : ""}`}
         </p>
       </div>
 
@@ -421,12 +423,12 @@ export default function StaffDashboard({
       </div>
 
       {/* ------------------------------------------------------------------ */}
-      {/* Action required                                                    */}
+      {/* Active assignments                                                 */}
       {/* ------------------------------------------------------------------ */}
-      {pendingCount > 0 && (
+      {activeCount > 0 && (
         <section>
           <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            Action required
+            Active assignments
           </h3>
           <Card>
             <CardContent className="flex items-center gap-4 p-5">
@@ -437,11 +439,10 @@ export default function StaffDashboard({
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium">
-                  {pendingCount} pending assignment{pendingCount !== 1 ? "s" : ""}
+                  {activeCount} active assignment{activeCount !== 1 ? "s" : ""}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  Review and accept or decline your pending task
-                  {pendingCount !== 1 ? "s" : ""}
+                  Your tasks are ready. Open My Tasks to clock in or request withdrawal.
                 </p>
               </div>
               <Link
@@ -449,7 +450,7 @@ export default function StaffDashboard({
                 className="inline-flex items-center gap-1 rounded-lg px-4 py-2 text-sm font-medium text-white transition-colors hover:opacity-90"
                 style={{ background: "#4f46e5" }}
               >
-                Review
+                View
                 <ChevronRight className="h-4 w-4" />
               </Link>
             </CardContent>
@@ -495,13 +496,13 @@ export default function StaffDashboard({
                   {/* Tags */}
                   <div className="mt-1 flex flex-col items-center gap-1 w-full">
                     {dayAssignments.map((a) => {
-                      if (a.status === "pending") {
+                      if (a.status === "assigned") {
                         return (
                           <span
                             key={a.id}
                             className="inline-flex w-full items-center justify-center rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-600 dark:bg-amber-950 dark:text-amber-400"
                           >
-                            pending
+                            assigned
                           </span>
                         );
                       }
@@ -638,16 +639,16 @@ export default function StaffDashboard({
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-2 gap-4">
-              {/* Acceptance rate */}
+              {/* Completion rate */}
               <div className="rounded-xl bg-indigo-50 p-4 dark:bg-indigo-950">
                 <div className="flex items-center gap-2">
                   <TrendingUp className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
                   <span className="text-xs font-medium text-indigo-700 dark:text-indigo-300">
-                    Acceptance
+                    Completion
                   </span>
                 </div>
                 <p className="mt-2 text-xl font-bold tabular-nums text-indigo-600 dark:text-indigo-400">
-                  {data.stats.acceptanceRate}%
+                  {data.stats.completionRate}%
                 </p>
               </div>
 

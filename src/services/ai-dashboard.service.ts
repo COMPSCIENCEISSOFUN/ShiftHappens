@@ -4,7 +4,7 @@
  * Generates AI-powered dashboard insights including:
  * - Natural language workforce summary (US-67)
  * - Proactive staffing alerts (US-68)
- * - Rejection pattern analysis (US-70)
+ * - Review-focused operational alerts (US-70)
  * - Ranked actionable recommendations (Phase 8)
  *
  * Uses the same AI provider infrastructure (Groq/Gemini/fallback)
@@ -30,7 +30,6 @@ interface DashboardData {
   unassignedTasks: number;
   understaffedTasks: { title: string; department: string; required: number; assigned: number; needed: number; taskId: string }[];
   staffNearLimit: { name: string; hours: number }[];
-  recentRejections: { staffName: string; membershipId: string; count: number; reasons: string[] }[];
   completedToday: number;
   pendingCertifications: number;
   departmentCount: number;
@@ -69,7 +68,7 @@ You MUST respond with ONLY valid JSON matching this structure:
 CRITICAL RULES:
 - Be specific with names, numbers, and departments from the provided data ONLY.
 - NEVER invent or hallucinate data. Only reference staff, tasks, and departments mentioned in the input.
-- If there are no rejections in the data, rejectionPatterns MUST be an empty array [].
+- rejectionPatterns MUST be an empty array []; staff no longer reject assigned work.
 - If there are no issues, say so positively. Do not manufacture problems.
 - Maximum 5 alerts. Keep alerts actionable and based on real data.`;
 
@@ -141,14 +140,6 @@ CRITICAL RULES:
       prompt += `STAFF NEAR HOUR LIMITS:\n`;
       for (const s of data.staffNearLimit) {
         prompt += `- ${s.name}: ${s.hours.toFixed(1)}h worked (limit: ${data.maxHours}h)\n`;
-      }
-      prompt += `\n`;
-    }
-
-    if (data.recentRejections.length > 0) {
-      prompt += `REJECTION PATTERNS (7 days):\n`;
-      for (const r of data.recentRejections) {
-        prompt += `- ${r.staffName}: ${r.count} rejections. Reasons: ${r.reasons.join(", ") || "unspecified"}\n`;
       }
       prompt += `\n`;
     }
@@ -277,7 +268,7 @@ CRITICAL RULES:
 
   /**
    * Generates recommendations using rule-based analysis.
-   * Prioritizes: understaffed tasks → rejection patterns → dept imbalances → certs.
+   * Prioritizes: understaffed tasks, department imbalances, and certifications.
    */
   private generateAlgorithmicRecommendations(
     data: DashboardData,
@@ -297,34 +288,7 @@ CRITICAL RULES:
       });
     }
 
-    // 2. Rejection patterns — schedule conflicts suggest availability mismatch
-    for (const r of data.recentRejections.slice(0, 2)) {
-      const scheduleConflicts = r.reasons.filter(
-        (reason) => reason === "schedule_conflict"
-      ).length;
-      const hasScheduleIssue =
-        scheduleConflicts > 0 || r.reasons.includes("schedule_conflict");
-
-      if (hasScheduleIssue) {
-        recommendations.push({
-          priority: priority++,
-          title: `Update ${r.staffName}'s availability`,
-          reasoning: `${r.count} rejections recently — schedule conflicts suggest their availability doesn't match assigned shifts`,
-          actionType: "edit_availability",
-          actionUrl: `/org/${organizationId}/availability`,
-        });
-      } else {
-        recommendations.push({
-          priority: priority++,
-          title: `Review ${r.staffName}'s rejection pattern`,
-          reasoning: `${r.count} rejections recently. Top reason: ${r.reasons[0] || "unspecified"}`,
-          actionType: "view_tasks",
-          actionUrl: `/org/${organizationId}/tasks`,
-        });
-      }
-    }
-
-    // 3. Departments with tasks but no staff
+    // 2. Departments with tasks but no staff
     for (const dept of data.departments) {
       if (dept.taskCount > 0 && dept.memberCount === 0) {
         recommendations.push({
@@ -488,7 +452,7 @@ CRITICAL RULES:
       return {
         summary: parsed.summary || "Dashboard data loaded.",
         alerts: Array.isArray(parsed.alerts) ? parsed.alerts.slice(0, 5) : [],
-        rejectionPatterns: Array.isArray(parsed.rejectionPatterns) ? parsed.rejectionPatterns : [],
+        rejectionPatterns: [],
       };
     } catch {
       console.error("[Dashboard AI] Failed to parse response");
@@ -537,11 +501,6 @@ CRITICAL RULES:
       });
     }
 
-    const rejectionPatterns = data.recentRejections.map((r) => ({
-      staffName: r.staffName,
-      pattern: `Rejected ${r.count} task${r.count > 1 ? "s" : ""} recently. ${r.reasons.length > 0 ? `Common reason: "${r.reasons[0]}"` : ""}`,
-    }));
-
     const parts: string[] = [];
     parts.push(`You have ${data.totalTasks} active task${data.totalTasks !== 1 ? "s" : ""} across ${data.departmentCount} department${data.departmentCount !== 1 ? "s" : ""} with ${data.activeStaff} staff available.`);
 
@@ -556,7 +515,7 @@ CRITICAL RULES:
     return {
       summary: parts.join(" "),
       alerts: alerts.slice(0, 5),
-      rejectionPatterns,
+      rejectionPatterns: [],
     };
   }
 
@@ -586,15 +545,6 @@ CRITICAL RULES:
       prompt += `\n`;
     }
 
-    if (data.recentRejections.length > 0) {
-      prompt += `RECENT REJECTIONS (last 7 days):\n`;
-      for (const r of data.recentRejections) {
-        prompt += `- ${r.staffName}: rejected ${r.count} tasks. Reasons: ${r.reasons.join(", ") || "not provided"}\n`;
-      }
-    } else {
-      prompt += `RECENT REJECTIONS: None in the last 7 days.\n`;
-    }
-    prompt += `\n`;
 
     if (data.pendingCertifications > 0) {
       prompt += `PENDING CERTIFICATIONS: ${data.pendingCertifications} awaiting verification\n\n`;
@@ -666,38 +616,6 @@ CRITICAL RULES:
       }
     }
 
-    const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-    const rejections = await prisma.taskAssignment.findMany({
-      where: {
-        task: { organizationId },
-        status: "rejected",
-        createdAt: { gte: oneWeekAgo },
-      },
-      include: {
-        membership: {
-          include: { user: { select: { name: true, email: true } } },
-        },
-      },
-    });
-
-    const rejectionMap: Record<string, { staffName: string; membershipId: string; count: number; reasons: string[] }> = {};
-    for (const r of rejections) {
-      const key = r.membershipId;
-      if (!rejectionMap[key]) {
-        rejectionMap[key] = {
-          staffName: r.membership.user.name || r.membership.user.email,
-          membershipId: r.membershipId,
-          count: 0,
-          reasons: [],
-        };
-      }
-      rejectionMap[key].count++;
-      if (r.rejectionReason && !rejectionMap[key].reasons.includes(r.rejectionReason)) {
-        rejectionMap[key].reasons.push(r.rejectionReason);
-      }
-    }
-
-    const recentRejections = Object.values(rejectionMap).filter((r) => r.count >= 2);
 
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
@@ -737,7 +655,6 @@ CRITICAL RULES:
       unassignedTasks: unassignedTasks.length,
       understaffedTasks,
       staffNearLimit,
-      recentRejections,
       completedToday,
       pendingCertifications,
       departmentCount: departments.length,

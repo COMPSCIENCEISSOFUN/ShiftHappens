@@ -226,8 +226,7 @@ model RolePermission {
 model CompanySettings {
   id                      String   @id @default(cuid())
   organizationId          String   @unique
-  allocationMode          String   @default("manual")
-  taskAcceptanceMode      String   @default("auto_accept")
+  allocationMode          String   @default("auto")
   breakRuleHoursWorked    Int      @default(8)
   breakRuleBreakHours     Int      @default(1)
   operatingHoursStart     Int      @default(6)
@@ -282,11 +281,9 @@ model TaskAssignment {
   id              String    @id @default(cuid())
   taskId          String
   membershipId    String
-  // Lifecycle: pending → accepted → clocked_out → completed
-  // Off-ramps: rejected (from pending), withdrawal_requested → withdrawn (from accepted)
-  status          String    @default("pending")
-  rejectionReason String?
-  rejectionNotes  String?
+  // Lifecycle: assigned -> in_progress -> clocked_out -> completed
+  // Off-ramps: withdrawal_requested -> withdrawn, or cancelled
+  status          String    @default("assigned")
   withdrawalReason String?  // reason a staff member gave when requesting to withdraw
   clockInTime     DateTime?
   clockOutTime    DateTime?

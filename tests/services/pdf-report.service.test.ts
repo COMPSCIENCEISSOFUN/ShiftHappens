@@ -107,7 +107,7 @@ describe("PdfReportService", () => {
       expect(result.byteLength).toBeGreaterThan(0);
     });
 
-    it("handles rejection data in the report", async () => {
+    it("handles cancelled assignment data in the report", async () => {
       const dept = await prisma.department.create({
         data: { name: "Bar", color: "#00FF00", organizationId: orgId },
       });
@@ -142,8 +142,7 @@ describe("PdfReportService", () => {
         data: {
           taskId: task.id,
           membershipId: membership.id,
-          status: "rejected",
-          rejectionReason: "schedule_conflict",
+          status: "cancelled",
           assignedById: adminUserId,
         },
       });

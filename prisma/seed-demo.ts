@@ -700,8 +700,7 @@ async function seedAll(tx: Tx) {
     await tx.companySettings.create({
       data: {
         organizationId: orgId,
-        allocationMode: "suggested",
-        taskAcceptanceMode: "require_acceptance",
+        allocationMode: "auto",
         breakRuleHoursWorked: 8,
         breakRuleBreakHours: 1,
       },
@@ -823,49 +822,6 @@ async function seedAll(tx: Tx) {
   }
 
   console.log("Created historical tasks with clock data");
-
-  // ============================================================
-  // Rejected assignments (for AI rejection pattern detection)
-  // ============================================================
-  console.log("Creating rejection data...");
-
-  const recentTasks = await tx.task.findMany({
-    where: { organizationId: orgId, status: "open" },
-    take: 5,
-  });
-
-  const rejectionData = [
-    { staffIndex: 0, taskIndex: 0, reason: "schedule_conflict", notes: "Have class until 3pm" },
-    { staffIndex: 0, taskIndex: 1, reason: "exceeds_preferred_hours", notes: "Already worked 35hrs this week" },
-    { staffIndex: 0, taskIndex: 2, reason: "schedule_conflict", notes: "Exam preparation" },
-    { staffIndex: 1, taskIndex: 0, reason: "feeling_unwell" },
-    { staffIndex: 1, taskIndex: 1, reason: "transport_issues", notes: "Bus route cancelled" },
-  ];
-
-  for (const rej of rejectionData) {
-    if (rej.taskIndex >= recentTasks.length) continue;
-
-    const membershipId = staffMembershipIds[rej.staffIndex];
-    const taskId = recentTasks[rej.taskIndex].id;
-
-    const existingAssignment = await tx.taskAssignment.findUnique({
-      where: { taskId_membershipId: { taskId, membershipId } },
-    });
-    if (existingAssignment) continue;
-
-    await tx.taskAssignment.create({
-      data: {
-        taskId,
-        membershipId,
-        assignedById: adminUser.id,
-        status: "rejected",
-        rejectionReason: rej.reason,
-        rejectionNotes: rej.notes,
-      },
-    });
-  }
-
-  console.log("Created 5 rejected assignments (Alex: 3, Jamie: 2)");
 
   // ============================================================
   // Unaffiliated user (for onboarding demo)

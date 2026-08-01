@@ -2,7 +2,7 @@
  * Withdraw Assignment API Endpoint (Boundary Layer)
  * POST /api/assignments/[assignmentId]/withdraw
  *
- * Staff action — requests to withdraw/abort an accepted assignment with a
+ * Staff action — requests to withdraw/abort an active assignment with a
  * reason (US-76). The assigning manager is notified and resolves the request.
  * Requires authentication. Only the assigned member can request withdrawal.
  */

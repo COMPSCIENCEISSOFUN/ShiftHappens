@@ -12,6 +12,7 @@
  * for calendar view and any UI that shows department colors.
  */
 import { prisma } from "@/lib/prisma";
+import { SLOT_OCCUPYING_ASSIGNMENT_STATUSES } from "@/lib/assignment-status";
 
 export class TaskRepository {
   /** Creates a new task within an organization */
@@ -190,7 +191,7 @@ export class TaskRepository {
   /**
    * Finds tasks that conflict with a given time range for a specific member.
    * Used for scheduling conflict detection (US-38).
-   * Only considers active assignments (pending or accepted).
+   * Only considers active slot-occupying assignments.
    * Excludes optional taskId to allow checking conflicts for updates.
    */
   async findConflictingTasks(
@@ -204,7 +205,7 @@ export class TaskRepository {
         assignments: {
           some: {
             membershipId,
-            status: { in: ["pending", "accepted"] },
+            status: { in: SLOT_OCCUPYING_ASSIGNMENT_STATUSES },
           },
         },
         scheduledStart: { lt: scheduledEnd },

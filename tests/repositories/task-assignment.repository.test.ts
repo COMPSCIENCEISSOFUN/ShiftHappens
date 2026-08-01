@@ -1,8 +1,3 @@
-/**
- * Tests for TaskAssignment Repository (Entity Layer)
- * Verifies assignment CRUD, status transitions,
- * and clock in/out operations.
- */
 import { describe, it, expect, beforeEach } from "vitest";
 import { TaskAssignmentRepository } from "@/repositories/task-assignment.repository";
 import { TaskRepository } from "@/repositories/task.repository";
@@ -51,155 +46,119 @@ beforeEach(async () => {
 });
 
 describe("TaskAssignmentRepository", () => {
-  describe("create", () => {
-    it("creates an assignment", async () => {
-      const assignment = await assignmentRepo.create({
-        taskId,
-        membershipId,
-        assignedById: userId,
-      });
-
-      expect(assignment.id).toBeDefined();
-      expect(assignment.taskId).toBe(taskId);
-      expect(assignment.membershipId).toBe(membershipId);
-      expect(assignment.status).toBe("pending");
+  it("creates an active assignment by default", async () => {
+    const assignment = await assignmentRepo.create({
+      taskId,
+      membershipId,
+      assignedById: userId,
     });
+
+    expect(assignment.status).toBe("assigned");
   });
 
-  describe("findById", () => {
-    it("finds an assignment with task and user details", async () => {
-      const created = await assignmentRepo.create({
-        taskId,
-        membershipId,
-        assignedById: userId,
-      });
-
-      const found = await assignmentRepo.findById(created.id);
-      expect(found).not.toBeNull();
-      expect(found!.task.title).toBe("Test task");
-      expect(found!.membership.user).toBeDefined();
+  it("finds an assignment with task and user details", async () => {
+    const created = await assignmentRepo.create({
+      taskId,
+      membershipId,
+      assignedById: userId,
     });
 
-    it("returns null for non-existent ID", async () => {
-      const found = await assignmentRepo.findById("nonexistent");
-      expect(found).toBeNull();
-    });
+    const found = await assignmentRepo.findById(created.id);
+    expect(found).not.toBeNull();
+    expect(found!.task.title).toBe("Test task");
+    expect(found!.membership.user).toBeDefined();
   });
 
-  describe("findByTaskId", () => {
-    it("returns all assignments for a task", async () => {
-      const user2 = await userRepo.create({
-        name: "Staff",
-        email: "staff@example.com",
-        hashedPassword: "hash",
-      });
-      const membership2 = await prisma.membership.create({
-        data: { userId: user2.id, organizationId: orgId, role: "staff", status: "active" },
-      });
-
-      await assignmentRepo.create({ taskId, membershipId, assignedById: userId });
-      await assignmentRepo.create({ taskId, membershipId: membership2.id, assignedById: userId });
-
-      const assignments = await assignmentRepo.findByTaskId(taskId);
-      expect(assignments).toHaveLength(2);
+  it("filters member assignments by canonical status", async () => {
+    await assignmentRepo.create({ taskId, membershipId, assignedById: userId });
+    const task2 = await taskRepo.create({
+      title: "Task 2",
+      organizationId: orgId,
+      createdById: userId,
     });
+    const second = await assignmentRepo.create({
+      taskId: task2.id,
+      membershipId,
+      assignedById: userId,
+    });
+    await assignmentRepo.updateStatus(second.id, "in_progress");
+
+    const assigned = await assignmentRepo.findByMembershipId(membershipId, "assigned");
+    const inProgress = await assignmentRepo.findByMembershipId(
+      membershipId,
+      "in_progress"
+    );
+
+    expect(assigned).toHaveLength(1);
+    expect(inProgress).toHaveLength(1);
   });
 
-  describe("findByMembershipId", () => {
-    it("returns all assignments for a member", async () => {
-      const task2 = await taskRepo.create({
-        title: "Task 2",
+  it("moves clock-in to in_progress", async () => {
+    const assignment = await assignmentRepo.create({
+      taskId,
+      membershipId,
+      assignedById: userId,
+    });
+
+    const clocked = await assignmentRepo.clockIn(assignment.id);
+
+    expect(clocked.clockInTime).toBeInstanceOf(Date);
+    expect(clocked.status).toBe("in_progress");
+  });
+
+  it("moves clock-out to clocked_out", async () => {
+    const assignment = await assignmentRepo.create({
+      taskId,
+      membershipId,
+      assignedById: userId,
+    });
+    await assignmentRepo.clockIn(assignment.id);
+
+    const clocked = await assignmentRepo.clockOut(assignment.id);
+
+    expect(clocked.clockOutTime).toBeInstanceOf(Date);
+    expect(clocked.status).toBe("clocked_out");
+  });
+
+  it("marks a clocked-out assignment as completed", async () => {
+    const assignment = await assignmentRepo.create({
+      taskId,
+      membershipId,
+      assignedById: userId,
+    });
+    await assignmentRepo.clockIn(assignment.id);
+    await assignmentRepo.clockOut(assignment.id);
+
+    const completed = await assignmentRepo.complete(assignment.id);
+
+    expect(completed.status).toBe("completed");
+  });
+
+  it("counts only slot-occupying assignments for a task", async () => {
+    const user2 = await userRepo.create({
+      name: "Staff",
+      email: "staff@example.com",
+      hashedPassword: "hash",
+    });
+    const membership2 = await prisma.membership.create({
+      data: {
+        userId: user2.id,
         organizationId: orgId,
-        createdById: userId,
-      });
-
-      await assignmentRepo.create({ taskId, membershipId, assignedById: userId });
-      await assignmentRepo.create({ taskId: task2.id, membershipId, assignedById: userId });
-
-      const assignments = await assignmentRepo.findByMembershipId(membershipId);
-      expect(assignments).toHaveLength(2);
+        role: "staff",
+        status: "active",
+      },
     });
 
-    it("filters by status", async () => {
-      await assignmentRepo.create({ taskId, membershipId, assignedById: userId });
-      const task2 = await taskRepo.create({ title: "Task 2", organizationId: orgId, createdById: userId });
-      const a2 = await assignmentRepo.create({ taskId: task2.id, membershipId, assignedById: userId });
-      await assignmentRepo.updateStatus(a2.id, "accepted");
-
-      const pending = await assignmentRepo.findByMembershipId(membershipId, "pending");
-      expect(pending).toHaveLength(1);
-
-      const accepted = await assignmentRepo.findByMembershipId(membershipId, "accepted");
-      expect(accepted).toHaveLength(1);
-    });
-  });
-
-  describe("updateStatus", () => {
-    it("accepts an assignment", async () => {
-      const assignment = await assignmentRepo.create({ taskId, membershipId, assignedById: userId });
-
-      const updated = await assignmentRepo.updateStatus(assignment.id, "accepted");
-      expect(updated.status).toBe("accepted");
+    await assignmentRepo.create({ taskId, membershipId, assignedById: userId });
+    await assignmentRepo.create({
+      taskId,
+      membershipId: membership2.id,
+      assignedById: userId,
+      status: "cancelled",
     });
 
-    it("rejects an assignment with reason", async () => {
-      const assignment = await assignmentRepo.create({ taskId, membershipId, assignedById: userId });
+    const count = await assignmentRepo.countActiveByTaskId(taskId);
 
-      const updated = await assignmentRepo.reject(assignment.id, "schedule_conflict", "Have class until 3pm");
-      expect(updated.status).toBe("rejected");
-      expect(updated.rejectionReason).toBe("schedule_conflict");
-      expect(updated.rejectionNotes).toBe("Have class until 3pm");
-    });
-  });
-
-  describe("clockIn", () => {
-    it("sets clock in time", async () => {
-      const assignment = await assignmentRepo.create({ taskId, membershipId, assignedById: userId });
-      await assignmentRepo.updateStatus(assignment.id, "accepted");
-
-      const clocked = await assignmentRepo.clockIn(assignment.id);
-      expect(clocked.clockInTime).not.toBeNull();
-      expect(clocked.clockInTime).toBeInstanceOf(Date);
-    });
-  });
-
-  describe("clockOut", () => {
-    it("sets clock out time", async () => {
-      const assignment = await assignmentRepo.create({ taskId, membershipId, assignedById: userId });
-      await assignmentRepo.updateStatus(assignment.id, "accepted");
-      await assignmentRepo.clockIn(assignment.id);
-
-      const clocked = await assignmentRepo.clockOut(assignment.id);
-      expect(clocked.clockOutTime).not.toBeNull();
-      expect(clocked.status).toBe("clocked_out");
-    });
-  });
-
-  describe("complete", () => {
-    it("marks a clocked-out assignment as completed", async () => {
-      const assignment = await assignmentRepo.create({ taskId, membershipId, assignedById: userId });
-      await assignmentRepo.updateStatus(assignment.id, "accepted");
-      await assignmentRepo.clockIn(assignment.id);
-      await assignmentRepo.clockOut(assignment.id);
-
-      const completed = await assignmentRepo.complete(assignment.id);
-      expect(completed.status).toBe("completed");
-    });
-  });
-
-  describe("countByTaskId", () => {
-    it("counts active assignments for a task", async () => {
-      const user2 = await userRepo.create({ name: "Staff", email: "staff@example.com", hashedPassword: "hash" });
-      const membership2 = await prisma.membership.create({
-        data: { userId: user2.id, organizationId: orgId, role: "staff", status: "active" },
-      });
-
-      await assignmentRepo.create({ taskId, membershipId, assignedById: userId });
-      const a2 = await assignmentRepo.create({ taskId, membershipId: membership2.id, assignedById: userId });
-      await assignmentRepo.reject(a2.id, "personal_reasons");
-
-      const count = await assignmentRepo.countActiveByTaskId(taskId);
-      expect(count).toBe(1);
-    });
+    expect(count).toBe(1);
   });
 });

@@ -214,7 +214,7 @@ describe("TaskRepository", () => {
         data: {
           taskId: task1.id,
           membershipId: membership!.id,
-          status: "accepted",
+          status: "assigned",
           assignedById: userId,
         },
       });
@@ -244,7 +244,7 @@ describe("TaskRepository", () => {
         data: {
           taskId: task1.id,
           membershipId: membership!.id,
-          status: "accepted",
+          status: "assigned",
           assignedById: userId,
         },
       });
@@ -258,11 +258,11 @@ describe("TaskRepository", () => {
       expect(conflicts).toHaveLength(0);
     });
 
-    it("ignores rejected and completed assignments", async () => {
+    it("ignores cancelled and completed assignments", async () => {
       const membership = await prisma.membership.findFirst({ where: { organizationId: orgId } });
 
       const task1 = await taskRepo.create({
-        title: "Rejected shift",
+        title: "Cancelled shift",
         organizationId: orgId,
         createdById: userId,
         scheduledStart: new Date("2026-06-01T08:00:00Z"),
@@ -273,7 +273,7 @@ describe("TaskRepository", () => {
         data: {
           taskId: task1.id,
           membershipId: membership!.id,
-          status: "rejected",
+          status: "cancelled",
           assignedById: userId,
         },
       });

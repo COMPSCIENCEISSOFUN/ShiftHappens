@@ -87,9 +87,7 @@ function iconFor(type: string): { glyph: string; tint: string } {
     case "task_unassigned":
       return { glyph: "🚫", tint: "bg-red-500/[.12]" };
     case "task_completed":
-    case "assignment_accepted":
       return { glyph: "✅", tint: "bg-green-500/[.13]" };
-    case "assignment_rejected":
       return { glyph: "❌", tint: "bg-red-500/[.12]" };
     case "withdrawal_requested":
       return { glyph: "📤", tint: "bg-amber-500/[.14]" };
@@ -118,8 +116,6 @@ const CATEGORY_LABELS: Record<string, string> = {
   task_cancelled: "Task",
   task_rescheduled: "Task",
   task_completed: "Task",
-  assignment_accepted: "Assignment",
-  assignment_rejected: "Assignment",
   withdrawal_requested: "Assignment",
   withdrawal_approved: "Assignment",
   withdrawal_denied: "Assignment",

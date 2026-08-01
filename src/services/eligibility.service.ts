@@ -25,6 +25,7 @@ import { MembershipRepository } from "@/repositories/membership.repository";
 import { WorkRuleRepository } from "@/repositories/work-rule.repository";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 import { DEFAULT_EMPLOYMENT_TYPE } from "@/lib/role-config";
+import { COMMITTED_ASSIGNMENT_STATUSES, SLOT_OCCUPYING_ASSIGNMENT_STATUSES } from "@/lib/assignment-status";
 import { prisma } from "@/lib/prisma";
 import {
   dayOfWeekInTimeZone,
@@ -316,8 +317,8 @@ export class EligibilityService {
         assignments: {
           some: {
             membershipId,
-            // A pending withdrawal still occupies the schedule until resolved.
-            status: { in: ["pending", "accepted", "withdrawal_requested"] },
+            // A withdrawal request still occupies the schedule until resolved.
+            status: { in: SLOT_OCCUPYING_ASSIGNMENT_STATUSES },
           },
         },
         scheduledStart: { lt: task.scheduledEnd },
@@ -465,15 +466,9 @@ export class EligibilityService {
 
   /**
    * Assignment statuses that represent a real or committed time commitment.
-   * rejected/withdrawn are excluded — they no longer occupy the person's time.
+   * withdrawn/cancelled are excluded — they no longer occupy the person's time.
    */
-  private static readonly COMMITTED_STATUSES = [
-    "pending",
-    "accepted",
-    "withdrawal_requested",
-    "clocked_out",
-    "completed",
-  ];
+  private static readonly COMMITTED_STATUSES = COMMITTED_ASSIGNMENT_STATUSES;
 
   /**
    * The effective time interval an assignment occupies:

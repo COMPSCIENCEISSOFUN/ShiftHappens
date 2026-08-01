@@ -188,12 +188,10 @@ export const updateRoleSchema = z.object({
 
 /**
  * Validates company settings updates.
- * allocationMode: manual (admin picks), suggested (AI suggests), auto (AI assigns)
- * taskAcceptanceMode: auto_accept (instant) or require_acceptance (staff confirms)
+ * allocationMode: auto (AI assigns by default) or manual (manager assigns).
  */
 export const updateCompanySettingsSchema = z.object({
-  allocationMode: z.enum(["manual", "suggested", "auto"]).optional(),
-  taskAcceptanceMode: z.enum(["auto_accept", "require_acceptance"]).optional(),
+  allocationMode: z.enum(["auto", "manual"]).optional(),
   breakRuleHoursWorked: z.number().int().min(1).max(24).optional(),
   breakRuleBreakHours: z.number().int().min(1).max(24).optional(),
   operatingHoursStart: z.number().int().min(0).max(23).optional(),
@@ -201,7 +199,6 @@ export const updateCompanySettingsSchema = z.object({
   notificationPreferences: z.object({
     emailNotifications: z.boolean().optional(),
     taskAssignment: z.boolean().optional(),
-    taskRejection: z.boolean().optional(),
     hourLimitWarning: z.boolean().optional(),
     certificationExpiry: z.boolean().optional(),
   }).optional(),
@@ -243,22 +240,7 @@ export const assignTaskSchema = z.object({
   membershipIds: z.array(z.string()).min(1, "Select at least one staff member"),
 });
 
-/** Validates task rejection with required reason */
-export const rejectTaskSchema = z.object({
-  rejectionReason: z.enum([
-    "schedule_conflict",
-    "feeling_unwell",
-    "exceeds_preferred_hours",
-    "transport_issues",
-    "insufficient_notice",
-    "rest_period_needed",
-    "personal_reasons",
-    "other",
-  ]),
-  rejectionNotes: z.string().max(500).optional(),
-});
-
-/** Validates a staff withdrawal/abort request on an accepted assignment */
+/** Validates a staff withdrawal/abort request on an active assignment */
 export const withdrawTaskSchema = z.object({
   reason: z.string().min(3, "Please give a brief reason").max(500),
 });
@@ -446,7 +428,6 @@ export type UpdateCompanySettingsInput = z.infer<typeof updateCompanySettingsSch
 export type CreateTaskInput = z.infer<typeof createTaskSchema>;
 export type UpdateTaskInput = z.infer<typeof updateTaskSchema>;
 export type AssignTaskInput = z.infer<typeof assignTaskSchema>;
-export type RejectTaskInput = z.infer<typeof rejectTaskSchema>;
 export type SetAvailabilityInput = z.infer<typeof setAvailabilitySchema>;
 export type SetWeeklyAvailabilityInput = z.infer<typeof setWeeklyAvailabilitySchema>;
 export type CreateAvailabilityOverrideInput = z.infer<typeof createAvailabilityOverrideSchema>;

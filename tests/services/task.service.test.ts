@@ -40,11 +40,12 @@ beforeEach(async () => {
   );
   orgId = org.id;
 
-  // Ensure require_acceptance mode for assignment tests
+  // Use manual mode here so task creation does not auto-fill before each
+  // assignment test controls the selected staff member.
   await prisma.companySettings.create({
     data: {
       organizationId: orgId,
-      taskAcceptanceMode: "require_acceptance",
+      allocationMode: "manual",
     },
   });
 
@@ -323,17 +324,11 @@ describe("TaskService", () => {
 
       expect(assignments).toHaveLength(1);
       expect(assignments[0].membershipId).toBe(staffMembershipId);
-      expect(assignments[0].status).toBe("pending");
+      expect(assignments[0].status).toBe("assigned");
     });
 
-    it("auto-accepts assignments when taskAcceptanceMode is auto_accept", async () => {
-      // Update settings to auto_accept
-      await prisma.companySettings.updateMany({
-        where: { organizationId: orgId },
-        data: { taskAcceptanceMode: "auto_accept" },
-      });
-
-      const task = await taskService.create({ title: "Auto test" }, orgId, userId);
+    it("creates immediate active assignments", async () => {
+      const task = await taskService.create({ title: "Active test" }, orgId, userId);
 
       const assignments = await taskService.assignStaff(
         task.id,
@@ -343,7 +338,7 @@ describe("TaskService", () => {
       );
 
       expect(assignments).toHaveLength(1);
-      expect(assignments[0].status).toBe("accepted");
+      expect(assignments[0].status).toBe("assigned");
     });
 
     it("throws if exceeding required headcount", async () => {
@@ -382,7 +377,7 @@ describe("TaskService", () => {
       await taskService.assignStaff(task1.id, orgId, [staffMembershipId], userId);
       await prisma.taskAssignment.updateMany({
         where: { taskId: task1.id },
-        data: { status: "accepted" },
+        data: { status: "assigned" },
       });
 
       const task2 = await taskService.create(
@@ -413,7 +408,7 @@ describe("TaskService", () => {
       await taskService.assignStaff(task1.id, orgId, [staffMembershipId], userId);
       await prisma.taskAssignment.updateMany({
         where: { taskId: task1.id },
-        data: { status: "accepted" },
+        data: { status: "assigned" },
       });
 
       const task2 = await taskService.create(
@@ -458,7 +453,7 @@ describe("TaskService", () => {
   });
 
   describe("cancelAssignment", () => {
-    it("cancels a pending assignment", async () => {
+    it("cancels an assigned assignment", async () => {
       const task = await taskService.create({ title: "Test" }, orgId, userId);
       const assignments = await taskService.assignStaff(task.id, orgId, [staffMembershipId], userId);
 

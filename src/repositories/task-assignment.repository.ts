@@ -2,16 +2,19 @@
  * TaskAssignment Repository (Entity Layer)
  * 
  * Data access layer for task assignment operations.
- * Handles assignment creation, status transitions
- * (pending → accepted → clocked in → completed),
- * rejection with reason, and clock in/out tracking.
+ * Handles immediate assignment creation, status transitions,
+ * withdrawal requests, and clock in/out tracking.
  * 
  * Security: Prisma parameterized queries prevent SQL injection.
  */
 import { prisma } from "@/lib/prisma";
+import {
+  ASSIGNMENT_STATUSES,
+  SLOT_OCCUPYING_ASSIGNMENT_STATUSES,
+} from "@/lib/assignment-status";
 
 export class TaskAssignmentRepository {
-  /** Creates a new task assignment with pending status */
+  /** Creates a new active task assignment */
   async create(data: {
     taskId: string;
     membershipId: string;
@@ -23,7 +26,7 @@ export class TaskAssignmentRepository {
         taskId: data.taskId,
         membershipId: data.membershipId,
         assignedById: data.assignedById,
-        status: data.status ?? "pending",
+        status: data.status ?? ASSIGNMENT_STATUSES.ASSIGNED,
       },
     });
   }
@@ -95,23 +98,14 @@ export class TaskAssignmentRepository {
     });
   }
 
-  /** Rejects an assignment with a required reason */
-  async reject(id: string, reason: string, notes?: string) {
-    return prisma.taskAssignment.update({
-      where: { id },
-      data: {
-        status: "rejected",
-        rejectionReason: reason,
-        rejectionNotes: notes,
-      },
-    });
-  }
-
-  /** Records clock-in time for an accepted assignment */
+  /** Records clock-in time and moves the assignment into progress */
   async clockIn(id: string) {
     return prisma.taskAssignment.update({
       where: { id },
-      data: { clockInTime: new Date() },
+      data: {
+        clockInTime: new Date(),
+        status: ASSIGNMENT_STATUSES.IN_PROGRESS,
+      },
     });
   }
 
@@ -125,7 +119,7 @@ export class TaskAssignmentRepository {
       where: { id },
       data: {
         clockOutTime: new Date(),
-        status: "clocked_out",
+        status: ASSIGNMENT_STATUSES.CLOCKED_OUT,
       },
     });
   }
@@ -134,7 +128,7 @@ export class TaskAssignmentRepository {
   async complete(id: string) {
     return prisma.taskAssignment.update({
       where: { id },
-      data: { status: "completed" },
+      data: { status: ASSIGNMENT_STATUSES.COMPLETED },
     });
   }
 
@@ -143,18 +137,18 @@ export class TaskAssignmentRepository {
     return prisma.taskAssignment.update({
       where: { id },
       data: {
-        status: "withdrawal_requested",
+        status: ASSIGNMENT_STATUSES.WITHDRAWAL_REQUESTED,
         withdrawalReason: reason,
       },
     });
   }
 
-  /** Manager denies a withdrawal request — assignment reverts to accepted. */
-  async denyWithdrawal(id: string) {
+  /** Manager denies a withdrawal request; assignment returns to its active path. */
+  async denyWithdrawal(id: string, nextStatus = ASSIGNMENT_STATUSES.ASSIGNED) {
     return prisma.taskAssignment.update({
       where: { id },
       data: {
-        status: "accepted",
+        status: nextStatus,
         withdrawalReason: null,
       },
     });
@@ -162,15 +156,15 @@ export class TaskAssignmentRepository {
 
   /**
    * Counts active (slot-occupying) assignments for a task.
-   * pending, accepted, and withdrawal_requested all reserve a slot —
-   * a pending withdrawal keeps the seat until a manager resolves it.
+   * Active, in-progress, clocked-out, and withdrawal-requested assignments
+   * reserve a slot until they are completed, withdrawn, cancelled, or removed.
    * Used to check against requiredHeadcount before adding more.
    */
   async countActiveByTaskId(taskId: string): Promise<number> {
     return prisma.taskAssignment.count({
       where: {
         taskId,
-        status: { in: ["pending", "accepted", "withdrawal_requested"] },
+        status: { in: SLOT_OCCUPYING_ASSIGNMENT_STATUSES },
       },
     });
   }

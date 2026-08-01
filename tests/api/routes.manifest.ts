@@ -160,7 +160,7 @@ export const ROUTES: RouteSpec[] = [
   // This group takes orgId from the QUERY STRING, not the path. Without it they
   // return 400 "orgId required" before the membership check — so a sweep that
   // omitted it would misread seven routes as passing.
-  ...(["accept", "clock-in", "clock-out", "complete", "reject", "withdraw"] as const).map(
+  ...(["clock-in", "clock-out", "complete", "withdraw"] as const).map(
     (action): RouteSpec => ({
       path: `assignments/[assignmentId]/${action}`,
       method: "POST",

@@ -23,6 +23,10 @@ import {
   DEFAULT_HORIZON_DAYS,
 } from "@/services/recurring-task.service";
 import { parseRecurrencePattern } from "@/lib/recurrence";
+import {
+  ASSIGNMENT_STATUSES,
+  SLOT_OCCUPYING_ASSIGNMENT_STATUSES,
+} from "@/lib/assignment-status";
 
 export class TaskService {
   private taskRepo = new TaskRepository();
@@ -261,7 +265,7 @@ export class TaskService {
       const assignedIds = new Set(
         task.assignments
           .filter((a) =>
-            ["pending", "accepted", "withdrawal_requested"].includes(a.status)
+            (SLOT_OCCUPYING_ASSIGNMENT_STATUSES as string[]).includes(a.status)
           )
           .map((a) => a.membershipId)
       );
@@ -329,7 +333,7 @@ export class TaskService {
 
   /**
    * User IDs of staff still holding a slot on a task (i.e. would be affected
-   * if it's cancelled or rescheduled). Excludes rejected/withdrawn/finished.
+   * if it's cancelled or rescheduled). Excludes withdrawn/cancelled/finished.
    */
   private stillAssignedUserIds(task: {
     assignments: {
@@ -337,9 +341,12 @@ export class TaskService {
       membership: { userId: string } | null;
     }[];
   }): string[] {
-    const ACTIVE = ["pending", "accepted", "withdrawal_requested"];
     return task.assignments
-      .filter((a) => ACTIVE.includes(a.status) && a.membership?.userId)
+      .filter(
+        (a) =>
+          (SLOT_OCCUPYING_ASSIGNMENT_STATUSES as string[]).includes(a.status) &&
+          a.membership?.userId
+      )
       .map((a) => a.membership!.userId);
   }
 
@@ -399,16 +406,13 @@ export class TaskService {
       }
     }
 
-    const settings = await this.settingsRepo.getOrCreate(organizationId);
-    const assignmentStatus = settings.taskAcceptanceMode === "auto_accept" ? "accepted" : "pending";
-
     const assignments = [];
     for (const membId of membershipIds) {
       const assignment = await this.assignmentRepo.create({
         taskId,
         membershipId: membId,
         assignedById,
-        status: assignmentStatus,
+        status: ASSIGNMENT_STATUSES.ASSIGNED,
       });
       assignments.push(assignment);
     }
@@ -419,7 +423,7 @@ export class TaskService {
       action: ACTIONS.TASK_ASSIGNED,
       entityType: "task",
       entityId: taskId,
-      details: { membershipIds, status: assignmentStatus },
+      details: { membershipIds, status: ASSIGNMENT_STATUSES.ASSIGNED },
     });
 
     for (const membId of membershipIds) {

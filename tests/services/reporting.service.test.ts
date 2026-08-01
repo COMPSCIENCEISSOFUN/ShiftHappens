@@ -67,7 +67,6 @@ async function createTaskAndAssignment(opts: {
   scheduledEnd?: Date;
   clockInTime?: Date;
   clockOutTime?: Date;
-  rejectionReason?: string;
 }) {
   const task = await taskRepo.create({
     title: opts.title,
@@ -92,11 +91,10 @@ async function createTaskAndAssignment(opts: {
       data: {
         taskId: task.id,
         membershipId: opts.membershipId,
-        status: opts.assignmentStatus ?? "pending",
+        status: opts.assignmentStatus ?? "assigned",
         assignedById: userId,
         clockInTime: opts.clockInTime,
         clockOutTime: opts.clockOutTime,
-        rejectionReason: opts.rejectionReason,
       },
     });
   }
@@ -238,7 +236,7 @@ describe("ReportingService", () => {
         title: "Big event",
         requiredHeadcount: 3,
         membershipId: staffMembershipId,
-        assignmentStatus: "accepted",
+        assignmentStatus: "assigned",
       });
 
       const items = await reportingService.getNeedsAttention(orgId);
@@ -250,20 +248,16 @@ describe("ReportingService", () => {
       expect(understaffed[0].actionLabel).toBe("Assign");
     });
 
-    it("returns pending assignment alerts as warning severity", async () => {
+    it("does not create review alerts for freshly assigned work", async () => {
       await createTaskAndAssignment({
-        title: "Pending task",
+        title: "Assigned task",
         membershipId: staffMembershipId,
-        assignmentStatus: "pending",
+        assignmentStatus: "assigned",
       });
 
       const items = await reportingService.getNeedsAttention(orgId);
 
-      const pending = items.filter((i) => i.type === "pending_acceptance");
-      expect(pending).toHaveLength(1);
-      expect(pending[0].severity).toBe("warning");
-      expect(pending[0].message).toContain("1 assignment");
-      expect(pending[0].message).toContain("Staff User");
+      expect(items).toHaveLength(0);
     });
 
     it("returns expiring certification alerts", async () => {
@@ -322,23 +316,23 @@ describe("ReportingService", () => {
   describe("getKeyMetrics", () => {
     it("returns assignment pipeline breakdown", async () => {
       await createTaskAndAssignment({
-        title: "Pending",
+        title: "Assigned",
         membershipId: staffMembershipId,
-        assignmentStatus: "pending",
+        assignmentStatus: "assigned",
       });
 
       const jamie = await createStaff("Jamie", "jamie@example.com", deptId);
       await createTaskAndAssignment({
-        title: "Accepted",
+        title: "In progress",
         membershipId: jamie,
-        assignmentStatus: "accepted",
+        assignmentStatus: "in_progress",
       });
 
       const metrics = await reportingService.getKeyMetrics(orgId);
 
       expect(metrics.assignmentPipeline.total).toBeGreaterThanOrEqual(2);
-      expect(metrics.assignmentPipeline.pending).toBeGreaterThanOrEqual(1);
-      expect(metrics.assignmentPipeline.accepted).toBeGreaterThanOrEqual(1);
+      expect(metrics.assignmentPipeline.assigned).toBeGreaterThanOrEqual(1);
+      expect(metrics.assignmentPipeline.in_progress).toBeGreaterThanOrEqual(1);
     });
 
     it("returns completion rate with trend direction", async () => {
@@ -385,7 +379,7 @@ describe("ReportingService", () => {
       await createTaskAndAssignment({
         title: "Morning prep",
         membershipId: staffMembershipId,
-        assignmentStatus: "accepted",
+        assignmentStatus: "assigned",
         scheduledStart: start,
         scheduledEnd: end,
       });
@@ -546,91 +540,6 @@ describe("ReportingService", () => {
     });
   });
 
-  // ===========================================================
-  // Rejection Trends
-  // ===========================================================
-
-  describe("getRejectionTrends", () => {
-    it("groups rejections by staff with reason breakdown", async () => {
-      await createTaskAndAssignment({
-        title: "R1",
-        membershipId: staffMembershipId,
-        assignmentStatus: "rejected",
-        rejectionReason: "schedule_conflict",
-      });
-      await createTaskAndAssignment({
-        title: "R2",
-        membershipId: staffMembershipId,
-        assignmentStatus: "rejected",
-        rejectionReason: "schedule_conflict",
-      });
-      await createTaskAndAssignment({
-        title: "R3",
-        membershipId: staffMembershipId,
-        assignmentStatus: "rejected",
-        rejectionReason: "feeling_unwell",
-      });
-
-      const trends = await reportingService.getRejectionTrends(orgId);
-
-      expect(trends).toHaveLength(1);
-      expect(trends[0].staffName).toBe("Staff User");
-      expect(trends[0].rejectionCount).toBe(3);
-      expect(trends[0].reasons).toHaveLength(2);
-
-      // Sorted by count: schedule_conflict (2) before feeling_unwell (1)
-      expect(trends[0].reasons[0].reason).toBe("schedule_conflict");
-      expect(trends[0].reasons[0].count).toBe(2);
-      expect(trends[0].reasons[1].reason).toBe("feeling_unwell");
-      expect(trends[0].reasons[1].count).toBe(1);
-    });
-
-    it("sorts staff by rejection count descending", async () => {
-      const jamie = await createStaff("Jamie", "jamie@example.com", deptId);
-
-      // Staff User: 1 rejection
-      await createTaskAndAssignment({
-        title: "R1",
-        membershipId: staffMembershipId,
-        assignmentStatus: "rejected",
-        rejectionReason: "personal_reasons",
-      });
-
-      // Jamie: 3 rejections
-      await createTaskAndAssignment({
-        title: "R2",
-        membershipId: jamie,
-        assignmentStatus: "rejected",
-        rejectionReason: "transport_issues",
-      });
-      await createTaskAndAssignment({
-        title: "R3",
-        membershipId: jamie,
-        assignmentStatus: "rejected",
-        rejectionReason: "transport_issues",
-      });
-      await createTaskAndAssignment({
-        title: "R4",
-        membershipId: jamie,
-        assignmentStatus: "rejected",
-        rejectionReason: "schedule_conflict",
-      });
-
-      const trends = await reportingService.getRejectionTrends(orgId);
-
-      expect(trends).toHaveLength(2);
-      expect(trends[0].staffName).toBe("Jamie");
-      expect(trends[0].rejectionCount).toBe(3);
-      expect(trends[1].staffName).toBe("Staff User");
-      expect(trends[1].rejectionCount).toBe(1);
-    });
-
-    it("returns empty array when no rejections", async () => {
-      const trends = await reportingService.getRejectionTrends(orgId);
-      expect(trends).toHaveLength(0);
-    });
-  });
-
   // ─── Company-admin dashboard summaries (PRD 3.15) ───────────────────────
 
   describe("getTaskSummary", () => {
@@ -724,7 +633,7 @@ describe("ReportingService", () => {
       await createTaskAndAssignment({
         title: "Covered",
         membershipId: staffMembershipId,
-        assignmentStatus: "accepted",
+        assignmentStatus: "assigned",
         requiredHeadcount: 1,
         scheduledStart: inTwoDays,
         scheduledEnd: end,
@@ -734,7 +643,7 @@ describe("ReportingService", () => {
       await createTaskAndAssignment({
         title: "Short",
         membershipId: staff2,
-        assignmentStatus: "accepted",
+        assignmentStatus: "assigned",
         requiredHeadcount: 2,
         scheduledStart: inTwoDays,
         scheduledEnd: end,

@@ -2,7 +2,7 @@
  * Dashboard AI Insights Component (Boundary Layer)
  * 
  * Client component that fetches and displays AI-generated
- * workforce insights, proactive alerts, and rejection patterns.
+ * workforce insights, proactive alerts, and review queues.
  * Auto-loads on mount and caches results. Refresh button
  * for manual re-query after making changes.
  */

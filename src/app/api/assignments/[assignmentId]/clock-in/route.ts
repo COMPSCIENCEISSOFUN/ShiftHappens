@@ -2,7 +2,7 @@
  * Clock In API Endpoint (Boundary Layer)
  * POST /api/assignments/[assignmentId]/clock-in
  * 
- * Staff action — records start time for an accepted assignment.
+ * Staff action — records start time for an active assignment.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { TaskAssignmentService } from "@/services/task-assignment.service";

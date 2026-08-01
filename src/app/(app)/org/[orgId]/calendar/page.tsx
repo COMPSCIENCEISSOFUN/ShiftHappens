@@ -18,6 +18,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { CalendarAssignModal } from "@/components/calendar/calendar-assign-modal";
+import { SLOT_OCCUPYING_ASSIGNMENT_STATUSES } from "@/lib/assignment-status";
 import { PageLoading } from "@/components/ui/page-loading";
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -42,13 +43,10 @@ interface Task {
   }[];
 }
 
-/** Statuses that no longer occupy a staffing slot. */
-const INACTIVE_ASSIGNMENT_STATUSES = ["rejected", "withdrawn"];
-
 /** Assignments that still count toward the staffing headcount. */
 function activeAssignments(task: Task) {
   return task.assignments.filter(
-    (a) => !INACTIVE_ASSIGNMENT_STATUSES.includes(a.status)
+    (a) => (SLOT_OCCUPYING_ASSIGNMENT_STATUSES as readonly string[]).includes(a.status)
   );
 }
 

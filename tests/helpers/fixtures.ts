@@ -86,7 +86,7 @@ export async function createTenant(
   await prisma.companySettings.create({
     data: {
       organizationId: org.id,
-      taskAcceptanceMode: "require_acceptance",
+      allocationMode: "auto",
       breakRuleHoursWorked: 8,
     },
   });

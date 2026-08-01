@@ -318,9 +318,9 @@ describe("NotificationService", () => {
       await notificationService.notify(
         orgId,
         userId,
-        NOTIFICATION_TYPES.ASSIGNMENT_REJECTED,
-        "Mike declined",
-        "Schedule conflict"
+        NOTIFICATION_TYPES.WITHDRAWAL_REQUESTED,
+        "Withdrawal requested",
+        "Mike needs manager review"
       );
       await notificationService.notify(
         orgId,
@@ -359,7 +359,7 @@ describe("NotificationService", () => {
 
     it("counts the ones that need action", async () => {
       const feed = await notificationService.getFeed(userId, orgId);
-      // assignment_rejected + hour_limit_warning
+      // withdrawal_requested + hour_limit_warning
       expect(feed.needsActionCount).toBe(2);
     });
 
@@ -464,8 +464,9 @@ describe("NotificationService", () => {
   describe("NOTIFICATION_TYPES", () => {
     it("exports all expected type constants", () => {
       expect(NOTIFICATION_TYPES.TASK_ASSIGNED).toBe("task_assigned");
-      expect(NOTIFICATION_TYPES.ASSIGNMENT_ACCEPTED).toBe("assignment_accepted");
-      expect(NOTIFICATION_TYPES.ASSIGNMENT_REJECTED).toBe("assignment_rejected");
+      expect(NOTIFICATION_TYPES.WITHDRAWAL_REQUESTED).toBe("withdrawal_requested");
+      expect(NOTIFICATION_TYPES.WITHDRAWAL_APPROVED).toBe("withdrawal_approved");
+      expect(NOTIFICATION_TYPES.WITHDRAWAL_DENIED).toBe("withdrawal_denied");
       expect(NOTIFICATION_TYPES.CERT_VERIFIED).toBe("cert_verified");
       expect(NOTIFICATION_TYPES.CERT_REJECTED).toBe("cert_rejected");
       expect(NOTIFICATION_TYPES.ORG_SUSPENDED).toBe("org_suspended");
@@ -524,7 +525,7 @@ describe("NotificationService — preference gating", () => {
       expect(
         await notificationService.isTypeEnabled(
           prefOrgId,
-          NOTIFICATION_TYPES.ASSIGNMENT_ACCEPTED
+          NOTIFICATION_TYPES.WITHDRAWAL_APPROVED
         )
       ).toBe(true);
     });

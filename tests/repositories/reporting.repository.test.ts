@@ -3,7 +3,7 @@
  *
  * Integration tests verifying dashboard analytics queries:
  * completion metrics, staff utilization, needs-attention alerts,
- * assignment pipeline, rejection data, and department workload.
+ * assignment pipeline, certification review data, and department workload.
  *
  * All queries are verified for org-scoped isolation.
  * Department filtering is verified for manager-scoped views.
@@ -67,7 +67,6 @@ async function createTaskAndAssignment(opts: {
   scheduledEnd?: Date;
   clockInTime?: Date;
   clockOutTime?: Date;
-  rejectionReason?: string;
 }) {
   const task = await taskRepo.create({
     title: opts.title,
@@ -92,11 +91,10 @@ async function createTaskAndAssignment(opts: {
       data: {
         taskId: task.id,
         membershipId: opts.membershipId,
-        status: opts.assignmentStatus ?? "pending",
+        status: opts.assignmentStatus ?? "assigned",
         assignedById: adminUserId,
         clockInTime: opts.clockInTime,
         clockOutTime: opts.clockOutTime,
-        rejectionReason: opts.rejectionReason,
       },
     });
   }
@@ -449,7 +447,7 @@ describe("ReportingRepository", () => {
         title: "Big task",
         deptId: kitchenDeptId,
         membershipId: alexMembershipId,
-        assignmentStatus: "accepted",
+        assignmentStatus: "assigned",
         requiredHeadcount: 3,
       });
 
@@ -468,7 +466,7 @@ describe("ReportingRepository", () => {
         title: "Staffed task",
         deptId: kitchenDeptId,
         membershipId: alexMembershipId,
-        assignmentStatus: "accepted",
+        assignmentStatus: "assigned",
         requiredHeadcount: 1,
       });
 
@@ -530,7 +528,7 @@ describe("ReportingRepository", () => {
         title: "Tomorrow shift",
         deptId: kitchenDeptId,
         membershipId: alexMembershipId,
-        assignmentStatus: "accepted",
+        assignmentStatus: "assigned",
         scheduledStart: start,
         scheduledEnd: end,
       });
@@ -549,7 +547,7 @@ describe("ReportingRepository", () => {
       expect(result).toHaveLength(1);
       expect(result[0].title).toBe("Tomorrow shift");
       expect(result[0].assignedCount).toBe(1);
-      expect(result[0].acceptedCount).toBe(1);
+      expect(result[0].activeAssignmentCount).toBe(1);
     });
 
     it("excludes tasks outside the date range", async () => {
@@ -700,118 +698,35 @@ describe("ReportingRepository", () => {
         title: "T1",
         deptId: kitchenDeptId,
         membershipId: alexMembershipId,
-        assignmentStatus: "pending",
+        assignmentStatus: "assigned",
       });
       await createTaskAndAssignment({
         title: "T2",
         deptId: kitchenDeptId,
         membershipId: alexMembershipId,
-        assignmentStatus: "accepted",
+        assignmentStatus: "in_progress",
       });
       await createTaskAndAssignment({
         title: "T3",
         deptId: barDeptId,
         membershipId: jamieMembershipId,
-        assignmentStatus: "rejected",
-        rejectionReason: "schedule_conflict",
+        assignmentStatus: "cancelled",
       });
 
       const result = await reportingRepo.countAssignmentsByStatus(orgId, since);
 
-      const pending = result.find((r) => r.status === "pending");
-      const accepted = result.find((r) => r.status === "accepted");
-      const rejected = result.find((r) => r.status === "rejected");
+      const assigned = result.find((r) => r.status === "assigned");
+      const inProgress = result.find((r) => r.status === "in_progress");
+      const cancelled = result.find((r) => r.status === "cancelled");
 
-      expect(pending?.count).toBe(1);
-      expect(accepted?.count).toBe(1);
-      expect(rejected?.count).toBe(1);
+      expect(assigned?.count).toBe(1);
+      expect(inProgress?.count).toBe(1);
+      expect(cancelled?.count).toBe(1);
     });
   });
 
-  describe("getPendingAssignments", () => {
-    it("returns only pending assignments with staff details", async () => {
-      await createTaskAndAssignment({
-        title: "Pending task",
-        deptId: kitchenDeptId,
-        membershipId: alexMembershipId,
-        assignmentStatus: "pending",
-      });
-      await createTaskAndAssignment({
-        title: "Accepted task",
-        deptId: barDeptId,
-        membershipId: jamieMembershipId,
-        assignmentStatus: "accepted",
-      });
-
-      const result = await reportingRepo.getPendingAssignments(orgId);
-
-      expect(result).toHaveLength(1);
-      expect(result[0].taskTitle).toBe("Pending task");
-      expect(result[0].staffName).toBe("Alex");
-      expect(result[0].membershipId).toBe(alexMembershipId);
-    });
-
-    it("filters by department", async () => {
-      await createTaskAndAssignment({
-        title: "Kitchen pending",
-        deptId: kitchenDeptId,
-        membershipId: alexMembershipId,
-        assignmentStatus: "pending",
-      });
-      await createTaskAndAssignment({
-        title: "Bar pending",
-        deptId: barDeptId,
-        membershipId: jamieMembershipId,
-        assignmentStatus: "pending",
-      });
-
-      const kitchenOnly = await reportingRepo.getPendingAssignments(orgId, [
-        kitchenDeptId,
-      ]);
-
-      expect(kitchenOnly).toHaveLength(1);
-      expect(kitchenOnly[0].taskTitle).toBe("Kitchen pending");
-    });
-  });
-
-  describe("getRejectionData", () => {
-    it("returns rejection records with reasons", async () => {
-      const since = new Date();
-      since.setDate(since.getDate() - 7);
-      since.setHours(0, 0, 0, 0);
-
-      await createTaskAndAssignment({
-        title: "Rejected task",
-        deptId: kitchenDeptId,
-        membershipId: alexMembershipId,
-        assignmentStatus: "rejected",
-        rejectionReason: "schedule_conflict",
-      });
-
-      const result = await reportingRepo.getRejectionData(orgId, since);
-
-      expect(result).toHaveLength(1);
-      expect(result[0].staffName).toBe("Alex");
-      expect(result[0].rejectionReason).toBe("schedule_conflict");
-    });
-
-    it("excludes non-rejected assignments", async () => {
-      const since = new Date();
-      since.setDate(since.getDate() - 7);
-      since.setHours(0, 0, 0, 0);
-
-      await createTaskAndAssignment({
-        title: "Accepted task",
-        deptId: kitchenDeptId,
-        membershipId: alexMembershipId,
-        assignmentStatus: "accepted",
-      });
-
-      const result = await reportingRepo.getRejectionData(orgId, since);
-
-      expect(result).toHaveLength(0);
-    });
-  });
+  // Pending-assignment and rejection-analysis queries were removed with the
+  // auto-assigned lifecycle; staff no longer accept or reject assigned work.
 
   // ===========================================================
   // Certification Metrics
@@ -922,7 +837,7 @@ describe("ReportingRepository", () => {
         title: "My shift",
         deptId: kitchenDeptId,
         membershipId: alexMembershipId,
-        assignmentStatus: "accepted",
+        assignmentStatus: "assigned",
         scheduledStart: start,
         scheduledEnd: end,
       });
@@ -941,12 +856,12 @@ describe("ReportingRepository", () => {
 
       expect(result).toHaveLength(1);
       expect(result[0].taskTitle).toBe("My shift");
-      expect(result[0].status).toBe("accepted");
+      expect(result[0].status).toBe("assigned");
       expect(result[0].departmentName).toBe("Kitchen");
       expect(result[0].departmentColor).toBe("#EF4444");
     });
 
-    it("excludes rejected assignments", async () => {
+    it("excludes cancelled assignments", async () => {
       const tomorrow = new Date();
       tomorrow.setDate(tomorrow.getDate() + 1);
       const start = new Date(tomorrow);
@@ -955,13 +870,12 @@ describe("ReportingRepository", () => {
       end.setHours(12, 0, 0, 0);
 
       await createTaskAndAssignment({
-        title: "Rejected shift",
+        title: "Cancelled shift",
         deptId: kitchenDeptId,
         membershipId: alexMembershipId,
-        assignmentStatus: "rejected",
+        assignmentStatus: "cancelled",
         scheduledStart: start,
         scheduledEnd: end,
-        rejectionReason: "feeling_unwell",
       });
 
       const weekStart = new Date(tomorrow);
@@ -1032,11 +946,10 @@ describe("ReportingRepository", () => {
         clockOutTime: new Date(tomorrow.setHours(12, 5, 0, 0)),
       });
       await createTaskAndAssignment({
-        title: "Rejected",
+        title: "Assigned",
         deptId: kitchenDeptId,
         membershipId: alexMembershipId,
-        assignmentStatus: "rejected",
-        rejectionReason: "feeling_unwell",
+        assignmentStatus: "assigned",
       });
 
       const result = await reportingRepo.getStaffAssignmentHistory(
@@ -1046,9 +959,9 @@ describe("ReportingRepository", () => {
 
       expect(result).toHaveLength(2);
       const completed = result.find((r) => r.status === "completed");
-      const rejected = result.find((r) => r.status === "rejected");
+      const assigned = result.find((r) => r.status === "assigned");
       expect(completed).toBeDefined();
-      expect(rejected).toBeDefined();
+      expect(assigned).toBeDefined();
       expect(completed!.clockInTime).toBeInstanceOf(Date);
     });
   });
@@ -1097,12 +1010,10 @@ describe("ReportingRepository", () => {
 
       // All queries scoped to our org should return 0
       const understaffed = await reportingRepo.getUnderstaffedTasks(orgId);
-      const pending = await reportingRepo.getPendingAssignments(orgId);
       const certs = await reportingRepo.getPendingCertVerifications(orgId);
       const metrics = await reportingRepo.getDepartmentMetrics(orgId);
 
       expect(understaffed).toHaveLength(0);
-      expect(pending).toHaveLength(0);
       expect(certs).toHaveLength(0);
 
       // Our org has 2 departments (Kitchen, Bar) but no tasks

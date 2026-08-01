@@ -1,421 +1,750 @@
-# Smart Task Allocation — Product Requirements Document
+# ShiftHappens Product Requirements Document
 
-> **Project**: ShiftHappens (Smart Task Allocation)  
-> **Version**: 2.0 (Revised June 2026)  
-> **Team**: Group 22 — CSIT321 Final Year Project  
-> **Supervisor**: Liaw Chun Huei  
-> **Stack**: Next.js 16 · TypeScript · Prisma · PostgreSQL · NextAuth v5 · Tailwind CSS · shadcn/ui
+**Document status:** Repository source of truth  
+**Version:** 2.0  
+**Last updated:** 31 July 2026  
+**Project:** ShiftHappens - Smart Task Allocation System  
+**Repository:** `COMPSCIENCEISSOFUN/ShiftHappens`
+
+> This PRD defines the final intended product workflow. It overrides older repository references to task acceptance, task rejection, unresponded assignments, and manual allocation as the default mode.
 
 ---
 
-## 1. Overview
+## 1. Purpose
 
-Smart Task Allocation is a multi-tenant SaaS web application that helps small and medium-sized businesses manage casual staff task allocation. The system centralizes task creation, staff eligibility checking, ranked staff suggestions, assignment, time tracking, notifications, and audit logging in one platform.
+ShiftHappens is a multi-tenant web application that helps organizations allocate casual, temporary, part-time, and other flexible Staff Members to operational tasks.
 
-### 1.1 Problem Statement
+The system centralizes:
 
-Businesses relying on casual/hourly staff often manage allocation through spreadsheets or messaging apps. This leads to missed eligibility checks, overlapping assignments, unclear accountability, and slow decision-making.
+- organization onboarding and subscription plans;
+- departments, members, roles, certifications, and workforce rules;
+- task creation and required headcount;
+- deterministic eligibility checking;
+- explainable candidate ranking;
+- automatic allocation by default;
+- manual Manager assignment as an alternative;
+- time recording and assignment completion;
+- withdrawal requests and replacement allocation;
+- notifications and audit logging.
 
-### 1.2 Solution
+The core product objective is to reduce repetitive Manager effort while preserving control, transparency, and rule enforcement.
 
-A web-based platform that:
-- Checks staff eligibility (availability, certifications, hour limits, department scope) before assignment
-- Provides AI-assisted ranked staff suggestions with clear explanations
-- Supports manager-confirmed or auto-assignment workflows
-- Records important actions in audit logs for accountability
-- Enforces subscription-based member limits
+---
 
-### 1.3 Key Differentiators
+## 2. Document Authority and Precedence
 
-| Differentiator | Description |
+When product documents or code disagree, use this order of precedence:
+
+1. This `PRD.md`.
+2. Supervisor-approved Work Breakdown Structure and final report requirements.
+3. Current approved use cases and final workflow diagrams.
+4. Implementation documentation and tests.
+5. Older PRD, PTD, README, seed data, comments, and UI text.
+
+The following older concepts are obsolete and must not be reintroduced:
+
+- Staff Member task acceptance;
+- Staff Member task rejection;
+- pending acceptance states;
+- unresponded assignment reminders;
+- `taskAcceptanceMode`;
+- manual allocation as the default;
+- AI being allowed to bypass eligibility rules.
+
+---
+
+## 3. Product Goals
+
+### 3.1 Primary goals
+
+1. Allocate suitable Staff Members to tasks using clear eligibility rules.
+2. Use automatic allocation as the default workflow.
+3. Keep manual Manager assignment available for contextual decisions.
+4. Explain why candidates are eligible, warned, blocked, or ranked highly.
+5. Prevent cross-organization and unauthorized department access.
+6. Support urgent withdrawal before or during task execution.
+7. Preserve worked-time evidence when a Staff Member withdraws after clock-in.
+8. Maintain notifications and audit records for important actions.
+
+### 3.2 Success criteria
+
+The product is considered successful when the following end-to-end workflow works reliably:
+
+1. A Company Admin creates or joins an organization.
+2. Departments and Staff Members are configured.
+3. A Manager creates a task with schedule, department, headcount, and requirements.
+4. The system checks candidate eligibility.
+5. The system ranks eligible candidates and explains its results.
+6. Automatic allocation selects the highest-ranked eligible Staff Members by default.
+7. Manual assignment remains possible using the same eligibility results.
+8. Assignments become active immediately.
+9. Staff Members can clock in, clock out, and complete their own assignments.
+10. Staff Members can request withdrawal before starting or while work is in progress.
+11. Managers can approve or deny withdrawal requests.
+12. Approved withdrawals can trigger automatic or manual replacement allocation.
+13. Relevant notifications and audit records are produced.
+
+---
+
+## 4. Non-Goals
+
+The following are outside the required Final Year Project scope:
+
+- payroll processing;
+- leave management;
+- recruitment and applicant tracking;
+- employee benefits and performance appraisal;
+- live production payment processing;
+- taxes, refunds, proration, and failed-payment recovery;
+- native iOS and Android applications;
+- full business-intelligence reporting;
+- two-way external calendar synchronization;
+- enterprise HR, payroll, biometric, or identity-provider integrations;
+- AI making final eligibility decisions.
+
+---
+
+## 5. Actors and Access Boundaries
+
+### 5.1 Unregistered User
+
+May access public content only, including product information, subscription plans, registration, email verification, privacy policy, terms, and contact information.
+
+### 5.2 Platform Admin
+
+May manage platform-level organization tenants and platform summaries. The Platform Admin does not normally participate in an organization's internal task-allocation workflow.
+
+### 5.3 Company Admin
+
+May manage organization-wide administration, including:
+
+- organization profile;
+- subscription information and limits;
+- departments;
+- members and invitations;
+- roles and permitted custom permissions;
+- certification definitions;
+- workforce and allocation settings;
+- notifications;
+- audit logs.
+
+The actor name remains **Company Admin**, but organization entities and descriptions use **organization**.
+
+### 5.4 Manager
+
+May manage operational records only within authorized departments, including:
+
+- tasks;
+- Staff Member records;
+- eligibility and ranking results;
+- automatic and manual allocation;
+- certifications requiring review;
+- withdrawal requests;
+- replacement allocation;
+- department calendars and notifications.
+
+### 5.5 Staff Member
+
+May access personal records and assignments, including:
+
+- assigned tasks;
+- task details and status;
+- clock-in and clock-out;
+- worked hours;
+- assignment completion;
+- withdrawal requests;
+- certifications;
+- personal calendar and history;
+- notifications.
+
+### 5.6 Staff types
+
+The approved product distinguishes:
+
+- **Casual Staff**;
+- **Temporary or Part-Time Staff**.
+
+Temporary or Part-Time Staff manage weekly availability. Availability for other Staff Member types is applied only when required by organization policy and supported by their workforce records.
+
+---
+
+## 6. Canonical Terminology
+
+Use these terms consistently in code, UI, tests, comments, seed data, diagrams, and documentation.
+
+| Canonical term | Meaning |
 |---|---|
-| Task-level allocation | Assigns staff to specific tasks (not just shifts) |
-| Unified eligibility engine | Checks availability, certs, hours, overlaps, and dept scope together |
-| Explainable suggestions | Shows ranked staff with clear reasons for each recommendation |
-| Configurable enforcement | Supports strict blocks AND warning-based overrides with recorded reasons |
-| Allocation auditability | Records assignments, overrides, cert decisions, clock adjustments |
-| Department-scoped access | Clear role boundaries (Platform Admin → Company Admin → Manager → Staff) |
+| Organization | A tenant using ShiftHappens |
+| Company Admin | Organization-level administrator actor |
+| Manager | Department-scoped operational user |
+| Staff Member | Assignable workforce member |
+| Task | Work requiring one or more Staff Members |
+| Required headcount | Number of active Staff Member assignments needed |
+| Eligibility check | Deterministic rule evaluation before ranking or assignment |
+| Candidate ranking | Ordering eligible candidates using configured factors and optional AI assistance |
+| Automatic allocation | Default process that selects the highest-ranked eligible candidates |
+| Manual assignment | Manager-selected allocation using the same eligibility rules |
+| Active assignment | Confirmed assignment that does not require Staff Member acceptance |
+| Withdrawal request | Staff Member request to leave an assignment, with a mandatory reason |
+| Replacement allocation | Allocation of another eligible Staff Member after approved withdrawal or removal |
+| Warning | Non-blocking condition that may require authorized override |
+| Block | Strict condition that prevents normal assignment |
+
+Avoid these obsolete product terms:
+
+- pending acceptance;
+- accept assignment;
+- reject assignment;
+- rejection reason for an assignment;
+- unresponded assignment;
+- auto-accept;
+- task acceptance mode.
+
+Certification rejection remains valid because it refers to a Manager rejecting an invalid certification submission, not a Staff Member rejecting an assignment.
 
 ---
 
-## 2. User Roles and Access
+## 7. Canonical Workflow
 
-### 2.1 Role Hierarchy
+### 7.1 Automatic allocation path
 
-| Track | Role | Scope |
-|---|---|---|
-| Public | Unregistered User | Landing page, pricing, registration |
-| Management | Platform Admin | Platform-wide tenant management |
-| Management | Company Admin | Organization-wide (inherits Manager capabilities) |
-| Management | Manager | Assigned department(s) within one organization |
-| Workforce | Staff Member | Own profile, tasks, availability, certifications |
+```text
+Task creation
+-> Eligibility checking
+-> Candidate ranking
+-> Automatic staff selection
+-> Immediate active assignment
+-> Task execution or withdrawal request
+```
 
-### 2.2 Role Rules
+Automatic allocation is the default.
 
-- Platform Admins manage tenants but do NOT participate in task allocation
-- Company Admins have company-wide access and inherit Manager-level capabilities
-- Managers access only tasks/staff/certs within their assigned department scope
-- Staff Members can belong to multiple departments within the same organization
-- Each organization operates as a separate tenant with isolated data
-- Company Admins can invite users only within the subscription plan's member limit
+### 7.2 Manual assignment path
 
-### 2.3 Employment Types
+```text
+Task creation
+-> Eligibility checking
+-> Ranked staff suggestions
+-> Manager selection
+-> Immediate active assignment
+-> Task execution or withdrawal request
+```
 
-Staff Members have an employment type that affects scheduling:
-- **Casual** — default, flexible availability
-- **Full-time** — standard schedule expectations
+Manual assignment is an alternative, not a separate eligibility system.
 
----
+### 7.3 Normal execution path
 
-## 3. Subscription Plans
+```text
+Active assignment
+-> Clock in
+-> Clock out
+-> Complete individual assignment
+```
 
-| Plan | Member Limit | Price (Monthly) | Key Features |
-|---|---|---|---|
-| Free | Up to 10 | $0 | Core features, 2 departments, 20 active tasks |
-| Pro | Up to 50 | $29 | Custom roles, PDF export, mass import, 10 departments |
-| Enterprise | Unlimited | Contact us | Audit log, priority support, unlimited everything |
+Completing one assignment must not automatically complete the assignments of other Staff Members on the same task.
 
-### 3.1 Stripe Integration (Sandbox/Test Mode)
+### 7.4 Withdrawal before work starts
 
-- Stripe checkout for paid plan selection during registration
-- Webhook handling for subscription lifecycle events
-- Test mode only — no real payments processed
-- Production billing (recurring billing, invoices, refunds, proration) is out of scope
+```text
+Active assignment
+-> Withdrawal request with reason
+-> Manager review
+-> Approval or denial
+-> Replacement allocation where required
+```
 
----
+### 7.5 Withdrawal during task execution
 
-## 4. Functional Requirements — User Stories
+A Staff Member who has already clocked in may still request withdrawal when an urgent reason prevents continued work.
 
-### 4.1 Unregistered User (Public Website)
+```text
+Clocked in / work in progress
+-> Withdrawal request with reason
+-> Stop current work session and preserve partial worked time
+-> Manager review
+-> Approval or denial
+-> Replacement allocation where required
+```
 
-| ID | User Story | Area |
-|---|---|---|
-| 1 | View landing page and product overview | Public Website |
-| 2 | View feature benefits | Public Website |
-| 3 | View tutorial or marketing content | Public Website |
-| 4 | View pricing and subscription plans (Free, Pro, Enterprise) | Public Website |
-| 5 | View contact information | Public Website |
-| 6 | View privacy policy and terms of service | Public Website |
-| 7 | Select a subscription plan | Subscription & Registration |
-| 8 | Complete payment for a paid plan (Stripe sandbox) | Subscription & Registration |
-| 9 | Register as Company Admin | Subscription & Registration |
-| 10 | Verify email during registration | Subscription & Registration |
-| 11 | Register organization after account creation | Subscription & Registration |
-
-### 4.2 All Authenticated Users
-
-| ID | User Story | Area |
-|---|---|---|
-| 12 | Log in with email and password | Authentication |
-| 13 | Log out securely | Authentication |
-| 14 | Reset password via email | Authentication |
-| 15 | Update own profile details | Profile |
-| 16 | View notification inbox and mark as read | Notifications |
-| 17 | See role-specific dashboard on login | Dashboard |
-
-### 4.3 Platform Admin
-
-| ID | User Story | Area |
-|---|---|---|
-| 18 | View company tenants (name, status, user count, created date) | Tenant Management |
-| 19 | Update a company tenant's details | Tenant Management |
-| 20 | Activate or deactivate a company tenant | Tenant Management |
-| 21 | View platform-wide metrics (companies, users, tasks, trends) | Metrics |
-
-### 4.4 Company Admin
-
-| ID | User Story | Area |
-|---|---|---|
-| 22 | Update organization profile (name, logo, industry, address) | Organization |
-| 23 | View current subscription plan | Subscription |
-| 24 | View current member usage | Subscription |
-| 25 | See whether member limit is reached | Subscription |
-| 26 | Upgrade subscription plan | Subscription |
-| 27 | Downgrade subscription plan | Subscription |
-| 28 | Create a new department | Departments |
-| 29 | View departments (name, managers, staff count) | Departments |
-| 30 | Update department details | Departments |
-| 31 | Delete a department | Departments |
-| 32 | Invite a new user to the company | Users |
-| 33 | View users (role, department, status) | Users |
-| 34 | Update user's role or department | Users |
-| 35 | Activate or deactivate a user account | Users |
-| 36 | View affected task assignments when deactivating a user | Users |
-| 37 | Create a custom role with specific permissions | RBAC |
-| 38 | View all roles (default + custom) | RBAC |
-| 39 | Update a role's details/permissions | RBAC |
-| 40 | Delete a custom role | RBAC |
-| 41 | Create an eligibility rule (hour limits, cert requirements, enforcement mode) | Eligibility Rules |
-| 42 | View all eligibility rules | Eligibility Rules |
-| 43 | Update an eligibility rule | Eligibility Rules |
-| 44 | Delete an eligibility rule | Eligibility Rules |
-| 45 | Configure task allocation settings (mode, ranking priorities) | Settings |
-| 46 | Configure workforce rules | Settings |
-| 47 | Configure notification preferences | Settings |
-| 48 | View dashboard summaries | Reporting |
-| 49 | View task issue alerts | Reporting |
-| 50 | View audit logs | Audit |
-
-### 4.5 Manager
-
-| ID | User Story | Area |
-|---|---|---|
-| 51 | Accept invitation and set up account | Onboarding |
-| 52 | View manager dashboard (tasks, issues, department activity) | Dashboard |
-| 53 | Create a new task (description, date, time, headcount, certs, priority) | Tasks |
-| 54 | Create a recurring task with repeating schedule | Tasks |
-| 55 | View tasks in department (status, staff, history, notes) | Tasks |
-| 56 | Search and filter tasks (date, status, staff, certification) | Tasks |
-| 57 | Update task details and notes | Tasks |
-| 58 | Cancel a task (notify affected staff) | Tasks |
-| 59 | View AI-assisted ranked staff suggestions for a task | Allocation |
-| 60 | View explanation reasons for staff suggestions | Allocation |
-| 61 | Confirm one or more staff members for a task | Allocation |
-| 62 | Reassign a task to different staff | Allocation |
-| 63 | Be warned about overlapping task assignments | Allocation |
-| 64 | Override eligibility warning with a reason (where allowed) | Allocation |
-| 65 | Auto-assign best-fit staff (when company settings allow) | Allocation |
-| 66 | View, search, and filter staff by availability/certs/hours | Staff Oversight |
-| 67 | Verify a staff member's uploaded certification | Staff Oversight |
-| 68 | Reject a certification with a reason | Staff Oversight |
-| 69 | Receive notification when staff requests task withdrawal | Notifications |
-| 70 | Receive notification when a task is overdue | Notifications |
-| 71 | Receive task issue alerts (staff ineligible/unavailable) | Notifications |
-| 72 | Receive hour-limit alert for approaching limits | Notifications |
-
-### 4.6 Staff Member
-
-| ID | User Story | Area |
-|---|---|---|
-| 73 | View staff dashboard (assigned, upcoming, completed, notifications) | Dashboard |
-| 74 | View assigned tasks (details, notes, time, requirements) | Tasks |
-| 75 | Assigned tasks appear automatically after Manager confirmation | Tasks |
-| 76 | Request to withdraw from assigned task with reason | Tasks |
-| 77 | Clock in and out of a task | Time Tracking |
-| 78 | Mark assigned task as completed | Tasks |
-| 79 | View past/completed task history | Tasks |
-| 80 | View tasks in calendar view | Calendar |
-| 81 | Subscribe to iCal feed | Calendar |
-| 82 | View own profile (hours worked, remaining hours, certifications) | Profile |
-| 83 | Manage availability (recurring weekly + date-specific overrides) | Availability |
-| 84 | Manage certifications (upload, update, expiry dates) | Certifications |
-| 85 | Receive hour-limit alert approaching allowed hours | Notifications |
-| 86 | Receive notification when new task assigned | Notifications |
-| 87 | Receive notification when certification is expiring | Notifications |
+A withdrawal request does not immediately remove the Staff Member from the assignment. The request and assignment must be separate records or independently represented states.
 
 ---
 
-## 5. Priority Classification
+## 8. Assignment and Work-Time State Model
 
-### 5.1 Must-Have (MVP)
+### 8.1 Recommended assignment statuses
 
-- Authentication (login, register, email verify, password reset, invitation acceptance)
-- Landing page with pricing
-- Subscription plan selection + Stripe sandbox checkout
-- Organization setup + onboarding
-- Department management (CRUD)
-- Role-based access control + member-limit enforcement
-- Task creation (one-off, with date/time/headcount/priority/certs)
-- Staff availability management (weekly + overrides)
-- Certification records (submit, verify, reject)
-- Working hour limit checks
-- AI-assisted ranked staff suggestions with explanations
-- Manager-confirmed assignment + notification to staff
-- Staff task withdrawal request
-- Staff clock in/out + mark task as completed
-- Basic notifications (assignment, withdrawal, overdue)
-- Audit logs for important actions
+Use a small, explicit assignment lifecycle:
 
-### 5.2 Should-Have
-
-- Recurring tasks with instance generation
-- Auto-assignment mode
-- Calendar view (department + personal)
-- Dashboard summaries (Company Admin + Manager)
-- Subscription plan upgrade/downgrade
-- Task issue alerts page
-- Manager clock-time adjustment
-- CSV/PDF export
-- Eligibility warning display + override during assignment flow
-
-### 5.3 Nice-to-Have
-
-- iCal feed subscription
-- Advanced custom role configuration
-- Platform-wide metrics (trends, charts)
-- Billing history / invoice download
-- Certification expiry notifications (scheduled)
-- Predictive alerts (approaching limits, coverage gaps)
-
----
-
-## 6. Technical Architecture
-
-### 6.1 Tech Stack
-
-| Layer | Technology |
+| Status | Meaning |
 |---|---|
-| Framework | Next.js 16 (App Router) |
-| Language | TypeScript |
-| Database | PostgreSQL |
-| ORM | Prisma 6 |
-| Authentication | NextAuth v5 (credentials) |
-| Payment | Stripe (test mode) |
-| Email | Resend |
-| UI | shadcn/ui + Tailwind CSS 4 |
-| Icons | Lucide React |
-| Validation | Zod v4 |
-| Testing | Vitest + Testing Library |
-| Excel Import | xlsx |
-| Theming | next-themes (dark mode) |
+| `assigned` | Active assignment created; Staff Member has not started work |
+| `in_progress` | Staff Member has at least one active work session |
+| `completed` | Staff Member completed the individual assignment |
+| `withdrawn` | Manager approved withdrawal |
+| `cancelled` | Assignment ended because the task or assignment was administratively cancelled |
 
-### 6.2 Multi-Tenant Architecture
+Do not use `pending`, `accepted`, or `rejected` as assignment lifecycle states.
 
-- Each organization is a separate tenant identified by `orgId`
-- All data queries are scoped by `organizationId`
-- Route groups: `(auth)` for public auth, `(app)` for authenticated org users, `(platform)` for platform admins
-- URL pattern: `/org/[orgId]/...` for org-scoped pages
+### 8.2 Withdrawal request statuses
 
-### 6.3 Database Schema (Key Models)
+Use a separate withdrawal request lifecycle:
 
-| Model | Purpose |
+| Status | Meaning |
 |---|---|
-| User | Account, auth, platform admin flag |
-| Organization | Tenant with subscription tier, Stripe IDs, status |
-| Membership | Links user → org with role + employment type |
-| Department | Org structure unit |
-| DepartmentMembership | Links member → department(s) |
-| Task | Work item with scheduling, priority, headcount |
-| TaskAssignment | Links task → member with status, clock times |
-| Availability | Recurring weekly schedule |
-| AvailabilityOverride | Date-specific availability changes |
-| Certification | Staff qualifications with verification workflow |
-| WorkRule | Configurable hour limits, break rules |
-| EligibilityOverride | Recorded rule overrides with reason |
-| CompanySettings | Allocation mode, acceptance mode, operating hours |
-| Role / Permission | Custom RBAC |
-| AuditLog | Action history |
-| Notification | In-app alerts |
-| IndustryTemplate | Pre-configured org setup templates |
+| `pending` | Request submitted and awaiting Manager decision |
+| `approved` | Manager approved withdrawal |
+| `denied` | Manager denied withdrawal |
+
+A separate record is strongly recommended:
+
+```text
+WithdrawalRequest
+- id
+- assignmentId
+- requestedByUserId
+- reason
+- assignmentStateAtRequest
+- requestedAt
+- reviewedByUserId
+- decision
+- decisionReason optional
+- reviewedAt
+```
+
+### 8.3 Work sessions
+
+To support partial work and possible multiple clock-in periods, use a separate work-session record rather than a single clock-in and clock-out pair stored directly on the assignment.
+
+```text
+WorkSession
+- id
+- assignmentId
+- clockedInAt
+- clockedOutAt optional
+- stopReason optional: normal | withdrawal_request | manager_action | task_cancelled
+- createdAt
+- updatedAt
+```
+
+MVP rule for mid-task withdrawal:
+
+1. A Staff Member may request withdrawal from `assigned` or `in_progress`.
+2. If the assignment is `in_progress`, close the active work session at the withdrawal-request timestamp.
+3. Preserve all completed work-session durations.
+4. While the request is pending, prevent another clock-in unless the request is denied.
+5. On approval, set the assignment to `withdrawn`.
+6. On denial, return the assignment to `assigned`; the Staff Member may start a new work session.
+
+This design avoids losing partial worked time and avoids corrupting the assignment state.
 
 ---
 
-## 7. Key Workflows
+## 9. Task State Model
 
-### 7.1 Registration Flow
+Recommended task states:
 
-1. View landing page → Select plan → Stripe checkout (paid plans)
-2. Create account (name, email, password)
-3. Register organization (name, industry, address, logo)
-4. Verify email
-5. Redirect to onboarding/dashboard
-
-### 7.2 Task Allocation Flow
-
-1. Manager creates task (title, date/time, headcount, required certs, priority)
-2. System generates ranked staff suggestions (checks availability, certs, hour limits, overlaps, dept scope)
-3. Manager reviews suggestions with explanations
-4. Manager confirms assignment (or system auto-assigns if enabled)
-5. System validates eligibility — shows warnings for issues
-6. If warning: Manager can override with recorded reason (or blocked if strict rule)
-7. Staff receives notification → task appears in their list
-8. Staff clocks in → works → clocks out → marks completed
-
-### 7.3 Staff Withdrawal Flow
-
-1. Staff requests withdrawal with required reason
-2. System notifies Manager
-3. Manager reviews and reassigns if needed
-
-### 7.4 Eligibility Check Factors
-
-- **Availability**: Is staff available during the task time slot?
-- **Certifications**: Does staff have the required verified certifications?
-- **Hour Limits**: Would this task push staff over their weekly/daily limit?
-- **Task Overlap**: Does staff have another task at the same time?
-- **Department Scope**: Is staff assigned to the task's department?
-
----
-
-## 8. Constraints and Assumptions
-
-### Assumptions
-- Organizations use departments for structure
-- Each org operates as a separate isolated tenant
-- Managers confirm task assignments (unless auto-assign is enabled)
-- Staff maintain their own availability
-- Only verified certifications count toward eligibility
-- Users access the system online (web only)
-
-### Constraints
-- Web application only (no native mobile)
-- Stripe sandbox only (no real payments)
-- One-way calendar support only
-- No payroll, HR management, or enterprise compliance
-- FYP timeline limits scope
-
----
-
-## 9. Out of Scope
-
-- Native mobile applications
-- Payroll processing
-- Two-way calendar synchronization
-- Enterprise-level compliance certification
-- Full HR management features
-- Live commercial payment processing
-- Advanced billing automation (recurring billing, invoices, refunds, tax, proration)
-
----
-
-## 10. Development Phases
-
-| Phase | Focus |
+| Status | Meaning |
 |---|---|
-| 1 | Foundation, public website, authentication |
-| 2 | Registration, Stripe checkout, organization management |
-| 3 | RBAC, company settings, eligibility rules |
-| 4 | Task management |
-| 5 | Eligibility engine + staff suggestions |
-| 6 | Task allocation + staff workflow (assign, withdraw, clock, complete) |
-| 7 | Notifications, calendar, audit logs, dashboard summaries |
-| 8 | Testing, polish, deployment |
+| `unallocated` | No active assignments |
+| `partially_filled` | Active assignments are below required headcount |
+| `filled` | Required headcount is met before task start |
+| `active` | Task time has started or work is in progress |
+| `completed` | Completion conditions are met |
+| `cancelled` | Manager cancelled the task |
+
+Task coverage must be calculated from current active assignment records, not trusted from a client-provided value.
 
 ---
 
-## 11. Current Implementation Status
+## 10. Functional Requirements
 
-### ✅ Completed
-- Landing page
-- Full authentication suite (login, register, verify email, reset password, accept invitation)
-- Organization onboarding with industry templates
-- Department management (CRUD)
-- Member management (invite, CSV import, role/dept assignment, activate/deactivate)
-- RBAC with custom roles and permissions
-- Task creation/management (including recurring patterns, NL parsing)
-- Smart staff suggestions + auto-schedule
-- Availability management (weekly + date-specific overrides)
-- Certification management (submit, verify, reject)
-- Time tracking (clock in/out)
-- Notifications (inbox, mark read, unread count)
-- Audit logs
-- Calendar view with coverage
-- Work rules / eligibility rules
-- Company settings
-- Platform admin (tenants, metrics)
-- Role-specific dashboards with AI insights
-- Subscription tier enforcement (limits + feature gating)
-- Stripe integration (package installed, schema has Stripe fields)
+### 10.1 Public access and onboarding
 
-### 🔲 Remaining
-- Stripe checkout session + webhook handlers (flow not wired)
-- Staff task withdrawal request (dedicated flow)
-- Mark task as completed endpoint
-- Eligibility warning UI during assignment
-- System-triggered notifications (assignment, overdue, hour-limit)
-- Recurring task instance generation (scheduler)
-- Subscription upgrade/downgrade UI
-- Task issue alerts page
-- Manager clock-time adjustment
-- iCal feed endpoint
-- Certification expiry scheduled notifications
+- Public users can view the landing page, features, benefits, pricing, privacy policy, terms, and contact information.
+- Public users can select a plan.
+- Paid-plan demonstrations use Stripe sandbox only.
+- A user can register as the initial Company Admin.
+- Email verification is required before account activation.
+- The verified Company Admin can create an organization.
+- The selected plan is associated with the organization.
+
+### 10.2 Authentication and account management
+
+- Invited Managers and Staff Members can accept an invitation and set a password.
+- Authenticated users can log in, log out, reset a password, and update their profile.
+- Users are routed to role-appropriate dashboards.
+- Authentication alone is not authorization; every protected operation must apply server-side scope checks.
+
+### 10.3 Platform administration
+
+- Platform Admin can view organization tenants.
+- Platform Admin can search and inspect permitted tenant information.
+- Platform Admin can activate, deactivate, or restore tenants where authorized.
+- Platform Admin cannot access normal organization task operations unless explicitly supported by a separate administrative function.
+
+### 10.4 Organization administration
+
+Company Admin can:
+
+- view and update organization information;
+- manage departments;
+- invite, add, import, activate, and deactivate organization members;
+- assign roles and departments;
+- manage certification definitions;
+- configure allocation and workforce rules;
+- view subscription tier, limits, and usage;
+- view organization notifications and audit records.
+
+### 10.5 Subscription enforcement
+
+- Plan limits must be enforced on the server.
+- Active memberships and valid pending invitations count toward member limits.
+- Invitation acceptance must recheck the limit to prevent race conditions.
+- Plan usage must not be derived only from client state.
+- Stripe remains in test mode.
+
+### 10.6 Task management
+
+Manager can:
+
+- create a task within an authorized department;
+- define title, description, department, date, start time, end time, location, priority, required headcount, required certifications, and instructions;
+- view, search, and filter department tasks;
+- update a task;
+- cancel a task;
+- create recurring tasks where implemented;
+- view unallocated, partially filled, active, overdue, and completed tasks where supported.
+
+### 10.7 Eligibility checking
+
+The system must evaluate eligibility before ranking and again immediately before final assignment creation.
+
+Required checks:
+
+1. Candidate belongs to the same organization.
+2. Candidate has an active membership.
+3. Candidate is an assignable Staff Member, not a Company Admin or Manager account acting only in an administrative role.
+4. Candidate belongs to the task department.
+5. Candidate is available where availability applies.
+6. Candidate has no blocked schedule overlap.
+7. Candidate will not exceed applicable working-hour limits.
+8. Candidate holds all required verified and unexpired certifications.
+9. Candidate satisfies configured organization work rules.
+10. Candidate has no duplicate active assignment for the task.
+
+Each result must be explicit:
+
+- `eligible`;
+- `warning`;
+- `blocked`.
+
+Blocked conditions cannot be overridden through the normal workflow. Warning conditions may be overridden only by an authorized user and must record a reason.
+
+### 10.8 Candidate ranking
+
+- Rank only candidates who are eligible or have permitted warning-level results.
+- Use configured ranking priorities when configuration is exposed in the product.
+- Display ranking score or recommendation level where supported.
+- Display human-readable recommendation reasons.
+- Display ineligible Staff Members and reasons separately for transparency.
+- AI may assist ranking and explanation generation.
+- AI output must never change a blocked candidate to eligible.
+- If AI providers fail or return invalid output, use a deterministic fallback algorithm.
+
+### 10.9 Automatic allocation
+
+- Automatic allocation is the default organization mode.
+- Select highest-ranked eligible Staff Members.
+- Attempt to fill required headcount.
+- Never exceed required headcount through the normal workflow.
+- Leave the task partially filled or unallocated if candidates are insufficient.
+- Revalidate all final candidates immediately before creation.
+- Create all selected assignments atomically.
+- Assignments become `assigned` immediately.
+- Generate notifications and audit records after successful commit.
+
+### 10.10 Manual assignment
+
+- Manager can open ranked suggestions.
+- Manager can select one or more eligible Staff Members.
+- The same final eligibility revalidation applies.
+- Strict blocks cannot be bypassed.
+- Warning overrides require permission and a reason.
+- Selected assignments are created atomically and become active immediately.
+
+### 10.11 Reassignment and removal
+
+- Manager can remove or reassign Staff Members where authorized.
+- The system recalculates coverage after removal or reassignment.
+- Reassignment applies the same eligibility checks as initial allocation.
+- Affected Staff Members receive relevant notifications.
+- Important actions are audited.
+
+### 10.12 Withdrawal requests
+
+- A Staff Member can request withdrawal before clock-in or during execution.
+- A reason is mandatory.
+- The request does not immediately remove the Staff Member.
+- A Manager can approve or deny the request.
+- Approved withdrawal marks the assignment `withdrawn` and recalculates coverage.
+- Denied withdrawal keeps or restores the assignment as active.
+- Partial worked time is preserved if the request is submitted after clock-in.
+- The Staff Member is notified of the decision.
+- The decision is audited.
+
+### 10.13 Replacement allocation
+
+- Approved withdrawal creates a replacement need when coverage falls below headcount.
+- Automatic replacement is the default option.
+- Automatic replacement uses the same eligibility and ranking process.
+- The withdrawn Staff Member must not be immediately selected again for the same task.
+- Manager can manually select a replacement.
+- If no eligible replacement exists, the task remains partially filled and the Manager is alerted.
+
+### 10.14 Time recording and completion
+
+- Staff Member can clock in only to an active personal assignment.
+- Staff Member can clock out only when an active work session exists.
+- Invalid sequences are blocked.
+- Worked time is calculated from work sessions.
+- Staff Member completes only their own assignment.
+- One Staff Member's completion does not complete other assignments.
+- Task completion is derived according to task rules and assignment coverage, not from one Staff Member button alone.
+
+### 10.15 Availability
+
+Temporary or Part-Time Staff can:
+
+- view weekly availability;
+- add or update weekly availability;
+- maintain date-specific overrides where implemented.
+
+Eligibility uses availability records only according to the Staff Member type and organization rule.
+
+### 10.16 Certifications
+
+Company Admin can manage certification definitions. Staff Members can submit and update personal certification evidence. Authorized Managers can verify or reject submissions within department scope.
+
+Certification rejection requires a reason visible to the Staff Member.
+
+Only verified and unexpired certifications satisfy task requirements.
+
+### 10.17 Notifications
+
+Core notification events:
+
+- new active assignment;
+- task update;
+- task cancellation;
+- reassignment or removal;
+- withdrawal request requiring review;
+- withdrawal approval or denial;
+- replacement allocation;
+- certification decision;
+- working-hour alert where implemented.
+
+Remove assignment-accepted, assignment-rejected, and unresponded-assignment event types.
+
+### 10.18 Audit logging
+
+Audit important actions such as:
+
+- organization and settings changes;
+- member role, department, activation, and deactivation changes;
+- task creation, update, and cancellation;
+- assignment, reassignment, and removal;
+- warning override and reason;
+- withdrawal request decision;
+- replacement allocation;
+- certification verification and rejection.
+
+Each audit record should include acting user, organization, action, affected entity, timestamp, and relevant metadata.
+
+---
+
+## 11. Authorization Requirements
+
+Every service and API route must enforce the relevant combination of:
+
+1. authenticated user;
+2. active organization membership;
+3. organization ownership of the requested record;
+4. actor role or enforced custom permission;
+5. authorized department scope;
+6. personal record ownership where applicable.
+
+UI visibility is not a security control.
+
+Custom roles are not complete merely because they can be created in the database. Assigned permissions must be enforced in routes and services.
+
+---
+
+## 12. Data Integrity Requirements
+
+- Use database transactions for multi-assignment creation and other multi-record state changes.
+- Prevent duplicate active assignments through database constraints or transaction-safe checks.
+- Prevent headcount over-allocation under concurrent requests.
+- Recalculate task coverage from authoritative assignment data.
+- Do not trust client-supplied eligibility, rank, headcount, or confirmation data.
+- Preserve partial work sessions on withdrawal or cancellation.
+- Write notifications only after the main transaction succeeds, or use an outbox/retry strategy.
+- Store all timestamps consistently.
+
+---
+
+## 13. Non-Functional Requirements
+
+### Security
+
+- Server-side authentication and authorization.
+- Strict tenant isolation.
+- Strict Manager department scope.
+- Staff personal-record ownership enforcement.
+- Input validation using shared schemas.
+- No secrets or sensitive error details exposed to clients.
+
+### Reliability
+
+- Eligibility works without an external AI provider.
+- AI provider failures use deterministic fallback.
+- Email, Stripe sandbox, or AI failure does not corrupt core data.
+- Important operations are idempotent where retries are possible.
+
+### Performance
+
+- Common listing and assignment operations respond acceptably under FYP-scale data.
+- Use pagination, filtering, and suitable indexes for members, tasks, notifications, and audit logs.
+
+### Maintainability
+
+- Keep Boundary, Control, Entity, and database responsibilities separated.
+- Centralize eligibility, authorization, assignment, and notification logic.
+- Use canonical status constants or enums rather than repeated string literals.
+- Keep README, PRD, diagrams, seed data, and tests synchronized with the final workflow.
+
+### Testability
+
+- Core services have repeatable tests.
+- Tests cover positive, negative, authorization, tenant, concurrency, and external-failure cases.
+- Test data uses the same actor and status terminology as production code.
+
+---
+
+## 14. Required Test Scenarios
+
+### Allocation
+
+- automatic allocation fills available headcount;
+- insufficient eligible candidates results in partial fill;
+- blocked candidate is never assigned;
+- Manager manual selection uses the same checks;
+- concurrent assignment requests cannot exceed headcount;
+- multi-staff assignment rolls back completely on failure;
+- Company Admin and Manager administrative memberships are not accidentally assigned as Staff Members.
+
+### Eligibility
+
+- inactive membership blocked;
+- wrong organization blocked;
+- wrong department blocked;
+- unavailable candidate handled according to rule;
+- schedule conflict blocked or warned according to configuration;
+- hour-limit condition blocked or warned according to configuration;
+- missing, rejected, or expired certification blocked;
+- final revalidation catches data changed after suggestions were loaded.
+
+### Withdrawal
+
+- request before clock-in;
+- request after clock-in;
+- reason required;
+- active work session closes and partial time is preserved;
+- pending request does not remove assignment;
+- approval withdraws assignment and recalculates coverage;
+- denial restores an active assignment path;
+- replacement auto-allocation succeeds;
+- replacement manual selection succeeds;
+- no replacement leaves task partially filled;
+- withdrawn Staff Member is not immediately reselected.
+
+### Security
+
+- cross-tenant record identifiers rejected;
+- cross-department Manager access rejected;
+- Staff Member cannot read another Staff Member's private records;
+- custom permission is enforced server-side;
+- client-forged eligibility or confirmation values ignored.
+
+### Subscription
+
+- active members count toward limit;
+- pending invitations count toward limit;
+- concurrent invitation or acceptance cannot exceed limit;
+- plan checks are server-side.
+
+---
+
+## 15. Definition of Done
+
+A feature is done only when:
+
+- its requirement is implemented;
+- server-side authorization is applied;
+- input validation is applied;
+- organization and department scope are applied;
+- positive and negative tests exist;
+- notification and audit behavior is implemented where required;
+- README or relevant technical documentation is updated;
+- obsolete acceptance/rejection terminology is removed;
+- `npm run lint`, `npm test`, and `npm run build` pass;
+- Prisma schema and migrations are valid;
+- the feature can be demonstrated using documented demo accounts.
+
+---
+
+## 16. Repository Documentation Required
+
+The repository should contain and maintain:
+
+- `PRD.md` - this product source of truth;
+- `list.md` - implementation alignment checklist;
+- `README.md` - setup, architecture, current verified features, and demo instructions;
+- `docs/ARCHITECTURE.md` - system boundaries and BCE flow;
+- `docs/DATA_MODEL.md` - entities, statuses, and relationships;
+- `docs/ALLOCATION_FLOW.md` - eligibility, ranking, automatic allocation, manual assignment, withdrawal, and replacement;
+- `docs/AUTHORIZATION.md` - organization, role, department, permission, and ownership rules;
+- `docs/NOTIFICATIONS_AND_AUDIT.md` - events and recorded actions;
+- `docs/TEST_MATRIX.md` - requirement-to-test mapping and current results;
+- `docs/KNOWN_LIMITATIONS.md` - incomplete, partial, or deferred functions;
+- `.env.example` - required variables without secrets.
+
+---
+
+## 17. Migration Notes from the Old Workflow
+
+The implementation team must search and revise all code, schema, tests, UI, and documentation containing:
+
+```text
+taskAcceptanceMode
+auto_accept
+pending acceptance
+accept assignment
+reject assignment
+assignment accepted
+assignment rejected
+unresponded assignment
+ASSIGNMENT_ACCEPTED
+ASSIGNMENT_REJECTED
+taskRejection
+```
+
+Migration target:
+
+- default allocation mode becomes automatic;
+- assignments are immediately `assigned`;
+- acceptance and rejection actions are removed;
+- withdrawal is supported from `assigned` and `in_progress`;
+- work sessions preserve partial time;
+- notifications and audit events reflect assignment, withdrawal, and replacement rather than acceptance or rejection.
+

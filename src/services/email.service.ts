@@ -178,7 +178,7 @@ export class EmailService {
         <strong>${inviterName}</strong> has invited you to join <strong>${organizationName}</strong> on ${appName}.
       </p>
       ${actionButton("Accept invitation", inviteUrl)}
-      ${infoBox("This invitation expires in <strong>7 days</strong>. Once accepted, you'll be able to view your schedule, accept tasks, and clock in/out.")}
+      ${infoBox("This invitation expires in <strong>7 days</strong>. Once accepted, you'll be able to view your schedule and clock in/out.")}
       <p style="color: #a1a1aa; font-size: 12px; line-height: 1.5; margin: 16px 0 0;">
         Button not working? Copy and paste this URL into your browser:<br>
         <a href="${inviteUrl}" style="color: #2563eb; word-break: break-all;">${inviteUrl}</a>

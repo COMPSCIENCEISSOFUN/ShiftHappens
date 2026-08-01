@@ -41,3 +41,7 @@ yarn-error.log*
 next-env.d.ts
 
 /src/generated/prisma
+
+# list
+list(1).md
+MANUAL_TEST_PHASE1.md

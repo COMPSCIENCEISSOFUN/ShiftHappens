@@ -77,16 +77,7 @@ export class AllocationService {
       organizationId
     );
 
-    // Filter out staff who already rejected this task
-    const rejectedMembershipIds = new Set(
-      task.assignments
-        .filter((a) => a.status === "rejected")
-        .map((a) => a.membershipId)
-    );
-
-    const eligibleStaff = eligibility
-      .filter((e) => e.eligible)
-      .filter((e) => !rejectedMembershipIds.has(e.membershipId));
+    const eligibleStaff = eligibility.filter((e) => e.eligible);
 
     if (eligibleStaff.length === 0) {
       return [];
@@ -206,7 +197,7 @@ export class AllocationService {
         where: {
           membershipId,
           task: { departmentId },
-          status: { in: ["accepted", "clocked_out", "completed"] },
+          status: { in: ["assigned", "in_progress", "clocked_out", "completed"] },
         },
       });
     }

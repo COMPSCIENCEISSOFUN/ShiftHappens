@@ -38,7 +38,7 @@ beforeEach(async () => {
   });
 
   await prisma.companySettings.create({
-    data: { organizationId: orgId, taskAcceptanceMode: "require_acceptance" },
+    data: { organizationId: orgId, allocationMode: "auto" },
   });
 
   const dept = await prisma.department.create({
@@ -136,7 +136,7 @@ describe("AutoScheduleService", () => {
 
       // Already assigned
       await prisma.taskAssignment.create({
-        data: { taskId: task.id, membershipId: staffMembershipIds[0], assignedById: adminUserId, status: "accepted" },
+        data: { taskId: task.id, membershipId: staffMembershipIds[0], assignedById: adminUserId, status: "assigned" },
       });
 
       const draft = await service.generateSchedule(orgId, weekStart);

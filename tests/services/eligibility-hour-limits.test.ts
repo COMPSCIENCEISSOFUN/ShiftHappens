@@ -3,7 +3,7 @@
  *
  * Hour limits (max_hours_daily / max_hours_weekly) must count not just hours
  * already CLOCKED, but also hours a member is already COMMITTED to via
- * pending/accepted/withdrawal_requested assignments on scheduled tasks.
+ * assigned/in_progress/withdrawal_requested assignments on scheduled tasks.
  * Otherwise a manager could stack many future shifts on one person without
  * ever tripping the cap. Rejected/withdrawn assignments must NOT count, and
  * the task being evaluated must not be counted against itself.
@@ -148,10 +148,10 @@ async function newTask(startHour: number, endHour: number, dayOffset = 0) {
 }
 
 describe("EligibilityService — committed hours count toward caps", () => {
-  it("blocks when an ACCEPTED future shift plus the new task exceed the daily cap", async () => {
+  it("blocks when an assigned future shift plus the new task exceed the daily cap", async () => {
     await dailyRule(8);
-    // Already committed 8h that day (accepted, not clocked).
-    await scheduledAssignment(8, 16, "accepted");
+    // Already committed 8h that day (assigned, not clocked).
+    await scheduledAssignment(8, 16, "assigned");
     // New 3h task same day → 8 + 3 = 11 > 8.
     const task = await newTask(18, 21);
 
@@ -160,9 +160,9 @@ describe("EligibilityService — committed hours count toward caps", () => {
     expect(staff.eligible).toBe(false);
   });
 
-  it("blocks when a PENDING future shift plus the new task exceed the daily cap", async () => {
+  it("blocks when an in-progress future shift plus the new task exceed the daily cap", async () => {
     await dailyRule(8);
-    await scheduledAssignment(8, 16, "pending");
+    await scheduledAssignment(8, 16, "in_progress");
     const task = await newTask(18, 21);
 
     const staff = staffResult(await eligibilityService.checkEligibilityForTask(task.id, orgId));
@@ -171,16 +171,16 @@ describe("EligibilityService — committed hours count toward caps", () => {
 
   it("allows when committed hours plus the new task stay within the daily cap", async () => {
     await dailyRule(12);
-    await scheduledAssignment(8, 16, "accepted"); // 8h
+    await scheduledAssignment(8, 16, "assigned"); // 8h
     const task = await newTask(18, 21); // +3h = 11 <= 12
 
     const staff = staffResult(await eligibilityService.checkEligibilityForTask(task.id, orgId));
     expect(staff.checks.workRules.eligible).toBe(true);
   });
 
-  it("does not count a REJECTED assignment toward the cap", async () => {
+  it("does not count a cancelled assignment toward the cap", async () => {
     await dailyRule(8);
-    await scheduledAssignment(8, 16, "rejected"); // declined — should not count
+    await scheduledAssignment(8, 16, "cancelled"); // should not count
     const task = await newTask(18, 21); // 0 + 3 = 3 <= 8
 
     const staff = staffResult(await eligibilityService.checkEligibilityForTask(task.id, orgId));
@@ -190,7 +190,7 @@ describe("EligibilityService — committed hours count toward caps", () => {
   it("does not double-count the task being evaluated against itself", async () => {
     await dailyRule(8);
     // Staff is ALREADY assigned to the 8h task we then re-check (e.g. reschedule).
-    const task = await scheduledAssignment(8, 16, "accepted"); // exactly 8h
+    const task = await scheduledAssignment(8, 16, "assigned"); // exactly 8h
 
     const staff = staffResult(await eligibilityService.checkEligibilityForTask(task.id, orgId));
     // Only this task's 8h counts (via +taskDuration), not 8h committed + 8h again.
@@ -199,8 +199,8 @@ describe("EligibilityService — committed hours count toward caps", () => {
 
   it("blocks when committed shifts across the week plus the new task exceed the weekly cap", async () => {
     await weeklyRule(20);
-    await scheduledAssignment(8, 18, "accepted", 0); // Mon 10h
-    await scheduledAssignment(8, 18, "accepted", 1); // Tue 10h  → 20h committed
+    await scheduledAssignment(8, 18, "assigned", 0); // Mon 10h
+    await scheduledAssignment(8, 18, "assigned", 1); // Tue 10h  → 20h committed
     const task = await newTask(9, 12, 2); // Wed +3h = 23 > 20
 
     const staff = staffResult(await eligibilityService.checkEligibilityForTask(task.id, orgId));

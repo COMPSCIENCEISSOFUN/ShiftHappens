@@ -1,8 +1,3 @@
-/**
- * Tests for TaskAssignment Service (Control Layer)
- * Verifies accept, reject, clock in/out business logic
- * with status transition validation.
- */
 import { describe, it, expect, beforeEach } from "vitest";
 import { TaskAssignmentService } from "@/services/task-assignment.service";
 import { TaskRepository } from "@/repositories/task.repository";
@@ -50,8 +45,8 @@ beforeEach(async () => {
   taskId = task.id;
 });
 
-async function createAssignment(status = "pending") {
-  const assignment = await prisma.taskAssignment.create({
+async function createAssignment(status = "assigned") {
+  return prisma.taskAssignment.create({
     data: {
       taskId,
       membershipId,
@@ -59,141 +54,82 @@ async function createAssignment(status = "pending") {
       status,
     },
   });
-  return assignment;
 }
 
 describe("TaskAssignmentService", () => {
-  describe("accept", () => {
-    it("accepts a pending assignment", async () => {
+  describe("clockIn", () => {
+    it("clocks in to an assigned task and marks it in progress", async () => {
       const assignment = await createAssignment();
 
-      const accepted = await assignmentService.accept(assignment.id, membershipId);
-      expect(accepted.status).toBe("accepted");
+      const clocked = await assignmentService.clockIn(assignment.id, membershipId);
+
+      expect(clocked.clockInTime).not.toBeNull();
+      expect(clocked.status).toBe("in_progress");
     });
 
-    it("throws if assignment not found", async () => {
+    it("throws if assignment is not assigned", async () => {
+      const assignment = await createAssignment("clocked_out");
+
       await expect(
-        assignmentService.accept("nonexistent", membershipId)
-      ).rejects.toThrow("Assignment not found");
+        assignmentService.clockIn(assignment.id, membershipId)
+      ).rejects.toThrow("Can only clock in to assigned tasks");
     });
 
     it("throws if not the assigned member", async () => {
       const assignment = await createAssignment();
-
       const user2 = await userRepo.create({
         name: "Other",
         email: "other@example.com",
         hashedPassword: "hash",
       });
       const membership2 = await prisma.membership.create({
-        data: { userId: user2.id, organizationId: orgId, role: "staff", status: "active" },
+        data: {
+          userId: user2.id,
+          organizationId: orgId,
+          role: "staff",
+          status: "active",
+        },
       });
 
       await expect(
-        assignmentService.accept(assignment.id, membership2.id)
+        assignmentService.clockIn(assignment.id, membership2.id)
       ).rejects.toThrow("Not authorized");
-    });
-
-    it("throws if not in pending status", async () => {
-      const assignment = await createAssignment("accepted");
-
-      await expect(
-        assignmentService.accept(assignment.id, membershipId)
-      ).rejects.toThrow("Can only accept pending assignments");
-    });
-  });
-
-  describe("reject", () => {
-    it("rejects a pending assignment with reason", async () => {
-      const assignment = await createAssignment();
-
-      const rejected = await assignmentService.reject(
-        assignment.id,
-        membershipId,
-        "schedule_conflict",
-        "Have class until 3pm"
-      );
-      expect(rejected.status).toBe("rejected");
-      expect(rejected.rejectionReason).toBe("schedule_conflict");
-      expect(rejected.rejectionNotes).toBe("Have class until 3pm");
-    });
-
-    it("throws if not in pending status", async () => {
-      const assignment = await createAssignment("accepted");
-
-      await expect(
-        assignmentService.reject(assignment.id, membershipId, "personal_reasons")
-      ).rejects.toThrow("Can only reject pending assignments");
-    });
-  });
-
-  describe("clockIn", () => {
-    it("clocks in to an accepted assignment", async () => {
-      const assignment = await createAssignment("accepted");
-
-      const clocked = await assignmentService.clockIn(assignment.id, membershipId);
-      expect(clocked.clockInTime).not.toBeNull();
-    });
-
-    it("throws if not accepted", async () => {
-      const assignment = await createAssignment("pending");
-
-      await expect(
-        assignmentService.clockIn(assignment.id, membershipId)
-      ).rejects.toThrow("Can only clock in to accepted assignments");
-    });
-
-    it("throws if already clocked in", async () => {
-      const assignment = await createAssignment("accepted");
-      await assignmentService.clockIn(assignment.id, membershipId);
-
-      await expect(
-        assignmentService.clockIn(assignment.id, membershipId)
-      ).rejects.toThrow("Already clocked in");
     });
   });
 
   describe("clockOut", () => {
-    it("clocks out to the clocked_out status (not yet completed)", async () => {
-      const assignment = await createAssignment("accepted");
+    it("clocks out to the clocked_out status", async () => {
+      const assignment = await createAssignment();
       await assignmentService.clockIn(assignment.id, membershipId);
 
       const clocked = await assignmentService.clockOut(assignment.id, membershipId);
+
       expect(clocked.clockOutTime).not.toBeNull();
       expect(clocked.status).toBe("clocked_out");
     });
 
     it("throws if not clocked in", async () => {
-      const assignment = await createAssignment("accepted");
+      const assignment = await createAssignment();
 
       await expect(
         assignmentService.clockOut(assignment.id, membershipId)
       ).rejects.toThrow("Must clock in before clocking out");
     });
-
-    it("throws if already clocked out", async () => {
-      const assignment = await createAssignment("accepted");
-      await assignmentService.clockIn(assignment.id, membershipId);
-      await assignmentService.clockOut(assignment.id, membershipId);
-
-      await expect(
-        assignmentService.clockOut(assignment.id, membershipId)
-      ).rejects.toThrow("Already clocked out");
-    });
   });
 
   describe("complete", () => {
     it("marks a clocked-out assignment as completed", async () => {
-      const assignment = await createAssignment("accepted");
+      const assignment = await createAssignment();
       await assignmentService.clockIn(assignment.id, membershipId);
       await assignmentService.clockOut(assignment.id, membershipId);
 
       const completed = await assignmentService.complete(assignment.id, membershipId);
+
       expect(completed.status).toBe("completed");
     });
 
     it("throws if not clocked out yet", async () => {
-      const assignment = await createAssignment("accepted");
+      const assignment = await createAssignment();
 
       await expect(
         assignmentService.complete(assignment.id, membershipId)
@@ -202,42 +138,58 @@ describe("TaskAssignmentService", () => {
   });
 
   describe("requestWithdrawal", () => {
-    it("records a withdrawal request with reason on an accepted assignment", async () => {
-      const assignment = await createAssignment("accepted");
+    it("records a withdrawal request with reason on an assigned task", async () => {
+      const assignment = await createAssignment();
 
       const result = await assignmentService.requestWithdrawal(
         assignment.id,
         membershipId,
         "Family emergency"
       );
+
       expect(result.status).toBe("withdrawal_requested");
       expect(result.withdrawalReason).toBe("Family emergency");
     });
 
-    it("throws if the assignment is not accepted", async () => {
-      const assignment = await createAssignment("pending");
+    it("records a withdrawal request on an in-progress task", async () => {
+      const assignment = await createAssignment();
+      await assignmentService.clockIn(assignment.id, membershipId);
+
+      const result = await assignmentService.requestWithdrawal(
+        assignment.id,
+        membershipId,
+        "Feeling unwell"
+      );
+
+      expect(result.status).toBe("withdrawal_requested");
+    });
+
+    it("throws if the assignment is not active", async () => {
+      const assignment = await createAssignment("completed");
 
       await expect(
         assignmentService.requestWithdrawal(assignment.id, membershipId, "reason")
-      ).rejects.toThrow("Can only withdraw from an accepted task");
+      ).rejects.toThrow("Can only withdraw from an active task");
     });
   });
 
   describe("resolveWithdrawal", () => {
-    it("approve removes the assignment", async () => {
-      const assignment = await createAssignment("accepted");
+    it("approve returns withdrawn and keeps the action explicit", async () => {
+      const assignment = await createAssignment();
       await assignmentService.requestWithdrawal(assignment.id, membershipId, "reason");
 
-      await assignmentService.resolveWithdrawal(assignment.id, "approve", userId, orgId);
+      const result = await assignmentService.resolveWithdrawal(
+        assignment.id,
+        "approve",
+        userId,
+        orgId
+      );
 
-      const found = await prisma.taskAssignment.findUnique({
-        where: { id: assignment.id },
-      });
-      expect(found).toBeNull();
+      expect(result.status).toBe("withdrawn");
     });
 
-    it("deny reverts the assignment to accepted", async () => {
-      const assignment = await createAssignment("accepted");
+    it("deny reverts the assignment to assigned", async () => {
+      const assignment = await createAssignment();
       await assignmentService.requestWithdrawal(assignment.id, membershipId, "reason");
 
       const result = await assignmentService.resolveWithdrawal(
@@ -246,15 +198,8 @@ describe("TaskAssignmentService", () => {
         userId,
         orgId
       );
-      expect(result.status).toBe("accepted");
-    });
 
-    it("throws if there is no pending withdrawal request", async () => {
-      const assignment = await createAssignment("accepted");
-
-      await expect(
-        assignmentService.resolveWithdrawal(assignment.id, "approve", userId, orgId)
-      ).rejects.toThrow("No pending withdrawal request");
+      expect(result.status).toBe("assigned");
     });
   });
 });

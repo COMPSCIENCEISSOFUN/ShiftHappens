@@ -2,23 +2,21 @@
  * TaskAssignment Service (Control Layer)
  *
  * Business logic for task assignment lifecycle:
- * - Accept/reject assignments (staff actions)
  * - Clock in/out (time tracking)
- * - Notification triggers on accept/reject
  *
  * Enforces status transition rules:
- * - pending → accepted (accept)
- * - pending → rejected (reject, requires reason)
- * - accepted → clocked in (clockIn)
- * - clocked in → completed (clockOut)
+ * - assigned -> in_progress (clockIn)
+ * - in_progress -> clocked_out (clockOut)
+ * - clocked_out -> completed (complete)
  *
  * Authorization: Only the assigned member can perform
- * accept, reject, clockIn, and clockOut actions.
+ * clockIn, clockOut, complete, and withdrawal actions.
  */
 import { TaskAssignmentRepository } from "@/repositories/task-assignment.repository";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 import { NotificationService, NOTIFICATION_TYPES } from "@/services/notification.service";
 import { HourAlertService } from "@/services/hour-alert.service";
+import { ASSIGNMENT_STATUSES } from "@/lib/assignment-status";
 
 export class TaskAssignmentService {
   private assignmentRepo = new TaskAssignmentRepository();
@@ -27,92 +25,8 @@ export class TaskAssignmentService {
   private hourAlertService = new HourAlertService();
 
   /**
-   * Accepts a pending task assignment.
-   * Notifies the admin/manager who assigned the task.
-   */
-  async accept(assignmentId: string, membershipId: string) {
-    const assignment = await this.assignmentRepo.findById(assignmentId);
-    if (!assignment) throw new Error("Assignment not found");
-
-    if (assignment.membershipId !== membershipId) {
-      throw new Error("Not authorized to manage this assignment");
-    }
-
-    if (assignment.status !== "pending") {
-      throw new Error("Can only accept pending assignments");
-    }
-
-    const result = await this.assignmentRepo.updateStatus(assignmentId, "accepted");
-
-    await this.auditService.log({
-      organizationId: assignment.task.organizationId,
-      userId: assignment.membership.userId,
-      action: ACTIONS.ASSIGNMENT_ACCEPTED,
-      entityType: "assignment",
-      entityId: assignmentId,
-      details: { taskTitle: assignment.task.title },
-    });
-
-    // Notify the admin/manager who assigned the task
-    const staffName = assignment.membership.user?.name || "A staff member";
-    void this.notificationService.notify(
-      assignment.task.organizationId,
-      assignment.assignedById,
-      NOTIFICATION_TYPES.ASSIGNMENT_ACCEPTED,
-      "Assignment accepted",
-      `${staffName} accepted "${assignment.task.title}"`,
-      "task",
-      assignment.task.id
-    );
-
-    return result;
-  }
-
-  /**
-   * Rejects a pending task assignment with a required reason.
-   * Notifies the admin/manager who assigned the task.
-   */
-  async reject(assignmentId: string, membershipId: string, reason: string, notes?: string) {
-    const assignment = await this.assignmentRepo.findById(assignmentId);
-    if (!assignment) throw new Error("Assignment not found");
-
-    if (assignment.membershipId !== membershipId) {
-      throw new Error("Not authorized to manage this assignment");
-    }
-
-    if (assignment.status !== "pending") {
-      throw new Error("Can only reject pending assignments");
-    }
-
-    const result = await this.assignmentRepo.reject(assignmentId, reason, notes);
-
-    await this.auditService.log({
-      organizationId: assignment.task.organizationId,
-      userId: assignment.membership.userId,
-      action: ACTIONS.ASSIGNMENT_REJECTED,
-      entityType: "assignment",
-      entityId: assignmentId,
-      details: { reason, notes, taskTitle: assignment.task.title },
-    });
-
-    // Notify the admin/manager who assigned the task
-    const staffName = assignment.membership.user?.name || "A staff member";
-    void this.notificationService.notify(
-      assignment.task.organizationId,
-      assignment.assignedById,
-      NOTIFICATION_TYPES.ASSIGNMENT_REJECTED,
-      "Assignment rejected",
-      `${staffName} rejected "${assignment.task.title}" — ${reason.replace(/_/g, " ")}`,
-      "task",
-      assignment.task.id
-    );
-
-    return result;
-  }
-
-  /**
-   * Records clock-in for an accepted assignment.
-   * Must be accepted and not already clocked in.
+   * Records clock-in for an assigned task.
+   * Must be assigned and not already clocked in.
    */
   async clockIn(assignmentId: string, membershipId: string) {
     const assignment = await this.assignmentRepo.findById(assignmentId);
@@ -122,8 +36,8 @@ export class TaskAssignmentService {
       throw new Error("Not authorized to manage this assignment");
     }
 
-    if (assignment.status !== "accepted") {
-      throw new Error("Can only clock in to accepted assignments");
+    if (assignment.status !== ASSIGNMENT_STATUSES.ASSIGNED) {
+      throw new Error("Can only clock in to assigned tasks");
     }
 
     if (assignment.clockInTime) {
@@ -198,7 +112,7 @@ export class TaskAssignmentService {
       throw new Error("Not authorized to manage this assignment");
     }
 
-    if (assignment.status !== "clocked_out") {
+    if (assignment.status !== ASSIGNMENT_STATUSES.CLOCKED_OUT) {
       throw new Error("Can only complete a task after clocking out");
     }
 
@@ -228,7 +142,7 @@ export class TaskAssignmentService {
   }
 
   /**
-   * Staff requests to withdraw/abort an accepted assignment with a reason (US-76).
+   * Staff requests to withdraw/abort an active assignment with a reason (US-76).
    * The slot stays reserved (status "withdrawal_requested") until a manager
    * approves or denies. Notifies the assigning manager.
    */
@@ -240,8 +154,12 @@ export class TaskAssignmentService {
       throw new Error("Not authorized to manage this assignment");
     }
 
-    if (assignment.status !== "accepted") {
-      throw new Error("Can only withdraw from an accepted task");
+    const withdrawableStatuses: string[] = [
+      ASSIGNMENT_STATUSES.ASSIGNED,
+      ASSIGNMENT_STATUSES.IN_PROGRESS,
+    ];
+    if (!withdrawableStatuses.includes(assignment.status)) {
+      throw new Error("Can only withdraw from an active task");
     }
 
     const result = await this.assignmentRepo.requestWithdrawal(assignmentId, reason);
@@ -272,7 +190,7 @@ export class TaskAssignmentService {
   /**
    * Manager approves or denies a pending withdrawal request.
    * Approve removes the staff member from the task (frees the slot);
-   * deny reverts the assignment to accepted. Notifies the staff member.
+   * deny reverts the assignment to assigned. Notifies the staff member.
    * Authorization (manager/admin) is enforced at the route layer.
    */
   async resolveWithdrawal(
@@ -287,7 +205,7 @@ export class TaskAssignmentService {
       throw new Error("Assignment not found");
     }
 
-    if (assignment.status !== "withdrawal_requested") {
+    if (assignment.status !== ASSIGNMENT_STATUSES.WITHDRAWAL_REQUESTED) {
       throw new Error("No pending withdrawal request for this assignment");
     }
 
@@ -320,7 +238,7 @@ export class TaskAssignmentService {
       return { id: assignmentId, status: "withdrawn" };
     }
 
-    // Deny — revert to accepted.
+    // Deny — keep the task active for the staff member.
     const result = await this.assignmentRepo.denyWithdrawal(assignmentId);
 
     await this.auditService.log({

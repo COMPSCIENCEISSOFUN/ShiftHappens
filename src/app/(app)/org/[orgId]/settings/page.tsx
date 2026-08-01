@@ -4,7 +4,7 @@
  * Redesigned settings page with:
  * - Hero banner (settings icon, org name badge, plan badge)
  * - Two-column card layout grouped by domain
- * - Radio cards for allocation/acceptance modes
+ * - Radio cards for allocation modes
  * - Toggle switches for notification preferences
  * - Independent save per section
  * - Full-width subscription card at the bottom
@@ -59,7 +59,6 @@ interface OrgDetails {
 
 interface Settings {
   allocationMode: string;
-  taskAcceptanceMode: string;
   notificationPreferences: string | null;
 }
 
@@ -184,8 +183,7 @@ export default function SettingsPage() {
   const [subscription, setSubscription] = useState<SubscriptionData | null>(
     null
   );
-  const [allocationMode, setAllocationMode] = useState("manual");
-  const [taskAcceptanceMode, setTaskAcceptanceMode] = useState("auto_accept");
+  const [allocationMode, setAllocationMode] = useState("auto");
   const [taskMessage, setTaskMessage] = useState<{
     type: "success" | "error";
     text: string;
@@ -196,7 +194,6 @@ export default function SettingsPage() {
   const [notifPrefs, setNotifPrefs] = useState({
     emailNotifications: true,
     taskAssignment: true,
-    taskRejection: true,
     hourLimitWarning: true,
     certificationExpiry: true,
   });
@@ -302,8 +299,7 @@ export default function SettingsPage() {
       const res = await fetch(`/api/organizations/${orgId}/settings`);
       const data = await res.json();
       setSettings(data);
-      setAllocationMode(data.allocationMode);
-      setTaskAcceptanceMode(data.taskAcceptanceMode);
+      setAllocationMode(data.allocationMode ?? "auto");
       if (data.notificationPreferences) {
         setNotifPrefs((prev) => ({
           ...prev,
@@ -419,7 +415,7 @@ export default function SettingsPage() {
   function onSaveTaskConfig(e: React.FormEvent) {
     e.preventDefault();
     saveSettings(
-      { allocationMode, taskAcceptanceMode },
+      { allocationMode },
       setTaskMessage,
       setTaskLoading,
       "Task configuration updated"
@@ -708,22 +704,6 @@ export default function SettingsPage() {
                     />
                   </div>
 
-                  {/* Task rejection */}
-                  <div className="flex items-center justify-between py-3.5 first:pt-0 last:pb-0">
-                    <div className="pr-4">
-                      <p className="text-sm font-medium">Task rejection</p>
-                      <p className="text-xs text-muted-foreground">
-                        When staff reject an assigned task
-                      </p>
-                    </div>
-                    <Switch
-                      checked={notifPrefs.taskRejection}
-                      onCheckedChange={(v) =>
-                        setNotifPrefs({ ...notifPrefs, taskRejection: v })
-                      }
-                    />
-                  </div>
-
                   {/* Hour limit warnings */}
                   <div className="flex items-center justify-between py-3.5 first:pt-0 last:pb-0">
                     <div className="pr-4">
@@ -795,7 +775,7 @@ export default function SettingsPage() {
                   <div>
                     <CardTitle>Task Configuration</CardTitle>
                     <CardDescription>
-                      How tasks are allocated and accepted
+                      How tasks are allocated
                     </CardDescription>
                   </div>
                 </div>
@@ -820,15 +800,7 @@ export default function SettingsPage() {
                       selected={allocationMode === "manual"}
                       onSelect={setAllocationMode}
                       title="Manual"
-                      description="Admin assigns staff directly to each task"
-                    />
-                    <RadioCard
-                      name="allocationMode"
-                      value="suggested"
-                      selected={allocationMode === "suggested"}
-                      onSelect={setAllocationMode}
-                      title="Suggested"
-                      description="AI recommends staff, admin confirms assignment"
+                      description="Manager assigns staff using eligibility and ranking"
                     />
                     <RadioCard
                       name="allocationMode"
@@ -836,32 +808,7 @@ export default function SettingsPage() {
                       selected={allocationMode === "auto"}
                       onSelect={setAllocationMode}
                       title="Auto"
-                      description="AI assigns staff automatically based on rules"
-                    />
-                  </div>
-                </div>
-
-                <Separator />
-
-                {/* Task Acceptance */}
-                <div className="space-y-2">
-                  <Label>Task Acceptance</Label>
-                  <div className="space-y-2">
-                    <RadioCard
-                      name="taskAcceptanceMode"
-                      value="auto_accept"
-                      selected={taskAcceptanceMode === "auto_accept"}
-                      onSelect={setTaskAcceptanceMode}
-                      title="Auto Accept"
-                      description="Staff are automatically assigned without needing to confirm"
-                    />
-                    <RadioCard
-                      name="taskAcceptanceMode"
-                      value="require_acceptance"
-                      selected={taskAcceptanceMode === "require_acceptance"}
-                      onSelect={setTaskAcceptanceMode}
-                      title="Require Acceptance"
-                      description="Staff must accept or reject each assigned task"
+                      description="AI assigns eligible staff automatically by default"
                     />
                   </div>
                 </div>

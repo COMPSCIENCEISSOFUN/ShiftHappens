@@ -243,8 +243,8 @@ tests/
 
 ### Phase 4 — Task Management
 - Task CRUD with scheduling, priority, and headcount
-- Staff assignment with conflict detection
-- Accept/reject assignments with reasons
+- AI-assisted staff assignment with conflict detection
+- Automatic assignment lifecycle with manager-reviewed withdrawal exceptions
 - Clock in/out time tracking
 - Task lifecycle (open → in_progress → completed → cancelled)
 
@@ -254,7 +254,7 @@ tests/
 - Certification management (submit, verify, reject)
 - AI-powered staff ranking via Groq with Gemini failover
 - Weighted algorithmic fallback when AI is unavailable
-- Three allocation modes: manual, suggested, auto
+- Two allocation modes: auto (default) and manual, with AI staff ranking available in both
 
 ---
 

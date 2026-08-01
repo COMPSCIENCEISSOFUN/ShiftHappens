@@ -35,8 +35,6 @@ const ACTION_LABELS: Record<string, string> = {
   "task.deleted": "Task deleted",
   "task.assigned": "Staff assigned",
   "task.unassigned": "Staff unassigned",
-  "assignment.accepted": "Assignment accepted",
-  "assignment.rejected": "Assignment rejected",
   "assignment.clocked_in": "Clocked in",
   "assignment.clocked_out": "Clocked out",
   "assignment.completed": "Task completed",
@@ -224,8 +222,6 @@ function formatDetails(entry: AuditEntry): string {
   if (entry.action === "task.created" && d.title) return `"${d.title}"`;
   if (entry.action === "task.assigned" && d.membershipIds)
     return `${(d.membershipIds as string[]).length} staff member(s)`;
-  if (entry.action === "assignment.rejected" && d.reason)
-    return `${String(d.reason).replace(/_/g, " ")}${d.notes ? ` — ${d.notes}` : ""}`;
   if (entry.action === "task.updated") {
     const keys = Object.keys(d);
     return `updated ${keys.join(", ")}`;

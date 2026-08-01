@@ -173,8 +173,8 @@ export default function TasksPage() {
   const [loadingEligibility, setLoadingEligibility] = useState(false);
   const [naturalInput, setNaturalInput] = useState("");
   const [parsing, setParsing] = useState(false);
-  // "manual" | "suggested" | "auto" — auto-assign is only offered in "auto" mode
-  const [allocationMode, setAllocationMode] = useState<string>("manual");
+  // "auto" | "manual" - smart suggestions are available in both modes.
+  const [allocationMode, setAllocationMode] = useState<string>("auto");
   const [autoAssigningId, setAutoAssigningId] = useState<string | null>(null);
 
   // ── Data fetching ────────────────────────────────
@@ -211,7 +211,7 @@ export default function TasksPage() {
       const res = await fetch(`/api/organizations/${orgId}/settings`);
       if (!res.ok) return;
       const data = await res.json();
-      setAllocationMode(data.allocationMode ?? "manual");
+      setAllocationMode(data.allocationMode ?? "auto");
     } catch {}
   }
 
@@ -1151,10 +1151,6 @@ export default function TasksPage() {
                             setShowSuggestions(false);
                             if (newId) {
                               await fetchEligibility(newId);
-                              // In "suggested" mode, auto-fetch AI suggestions
-                              if (allocationMode === "suggested") {
-                                fetchSuggestions(newId, true);
-                              }
                             }
                           }}
                           className={`flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-[12px] font-medium transition-colors ${

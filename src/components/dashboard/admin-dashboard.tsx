@@ -36,9 +36,9 @@ import { EmptyState } from "@/components/ui/empty-state";
 interface KeyMetrics {
   assignmentPipeline: {
     total: number;
-    accepted: number;
-    pending: number;
-    rejected: number;
+    assigned: number;
+    in_progress: number;
+    clocked_out: number;
     completed: number;
   };
   completionRate: {
@@ -87,13 +87,6 @@ interface DepartmentWorkloadItem {
   isImbalanced: boolean;
 }
 
-interface RejectionTrendItem {
-  staffName: string;
-  membershipId: string;
-  rejectionCount: number;
-  reasons: { reason: string; count: number }[];
-}
-
 /** Tasks by TASK status — distinct from the assignment pipeline above. */
 interface TaskSummary {
   total: number;
@@ -128,7 +121,6 @@ interface DashboardData {
   completionChart: CompletionDay[] | null;
   staffUtilization: StaffUtilizationItem[] | null;
   departmentWorkload: DepartmentWorkloadItem[] | null;
-  rejectionTrends: RejectionTrendItem[] | null;
   taskSummary: TaskSummary | null;
   certificationSummary: CertificationSummary | null;
   coverageSummary: CoverageSummary | null;
@@ -538,9 +530,9 @@ function MetricsTiles({
 
   // Pipeline proportions
   const pipeTotal = Math.max(pipeline.total, 1);
-  const acceptedPct = (pipeline.accepted / pipeTotal) * 100;
-  const pendingPct = (pipeline.pending / pipeTotal) * 100;
-  const rejectedPct = (pipeline.rejected / pipeTotal) * 100;
+  const assignedPct = (pipeline.assigned / pipeTotal) * 100;
+  const inProgressPct = (pipeline.in_progress / pipeTotal) * 100;
+  const clockedOutPct = (pipeline.clocked_out / pipeTotal) * 100;
 
   // Capacity utilization
   const capacityPct =
@@ -631,29 +623,29 @@ function MetricsTiles({
         </p>
         {/* Stacked bar */}
         <div className="mt-2.5 flex h-2.5 overflow-hidden rounded-full">
-          {acceptedPct > 0 && (
+          {assignedPct > 0 && (
             <div
               style={{
-                width: `${acceptedPct}%`,
+                width: `${assignedPct}%`,
                 backgroundColor: "#1baf7a",
                 marginRight: 2,
               }}
               className="rounded-l-full"
             />
           )}
-          {pendingPct > 0 && (
+          {inProgressPct > 0 && (
             <div
               style={{
-                width: `${pendingPct}%`,
+                width: `${inProgressPct}%`,
                 backgroundColor: "#eb6834",
                 marginRight: 2,
               }}
             />
           )}
-          {rejectedPct > 0 && (
+          {clockedOutPct > 0 && (
             <div
               style={{
-                width: `${rejectedPct}%`,
+                width: `${clockedOutPct}%`,
                 backgroundColor: "#e34948",
               }}
               className="rounded-r-full"
@@ -667,24 +659,24 @@ function MetricsTiles({
               className="inline-block h-2 w-2 rounded-full"
               style={{ backgroundColor: "#1baf7a" }}
             />
-            <span className="font-bold text-foreground">{pipeline.accepted}</span>{" "}
-            accepted
+            <span className="font-bold text-foreground">{pipeline.assigned}</span>{" "}
+            assigned
           </span>
           <span className="flex items-center gap-1.5 text-muted-foreground">
             <span
               className="inline-block h-2 w-2 rounded-full"
               style={{ backgroundColor: "#eb6834" }}
             />
-            <span className="font-bold text-foreground">{pipeline.pending}</span>{" "}
-            pending
+            <span className="font-bold text-foreground">{pipeline.in_progress}</span>{" "}
+            in progress
           </span>
           <span className="flex items-center gap-1.5 text-muted-foreground">
             <span
               className="inline-block h-2 w-2 rounded-full"
               style={{ backgroundColor: "#e34948" }}
             />
-            <span className="font-bold text-foreground">{pipeline.rejected}</span>{" "}
-            rejected
+            <span className="font-bold text-foreground">{pipeline.clocked_out}</span>{" "}
+            clocked out
           </span>
         </div>
       </div>

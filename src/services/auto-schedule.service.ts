@@ -16,11 +16,11 @@ import { AvailabilityRepository } from "@/repositories/availability.repository";
 import { CertificationRepository } from "@/repositories/certification.repository";
 import { WorkRuleRepository } from "@/repositories/work-rule.repository";
 import { TaskAssignmentRepository } from "@/repositories/task-assignment.repository";
-import { SettingsRepository } from "@/repositories/settings.repository";
 import { MembershipRepository } from "@/repositories/membership.repository";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 import { NotificationService, NOTIFICATION_TYPES } from "@/services/notification.service";
 import { prisma } from "@/lib/prisma";
+import { ASSIGNMENT_STATUSES } from "@/lib/assignment-status";
 import {
   DEFAULT_TIMEZONE,
   dayOfWeekInTimeZone,
@@ -92,7 +92,6 @@ export class AutoScheduleService {
   private certRepo = new CertificationRepository();
   private workRuleRepo = new WorkRuleRepository();
   private assignmentRepo = new TaskAssignmentRepository();
-  private settingsRepo = new SettingsRepository();
   private membershipRepo = new MembershipRepository();
   private auditService = new AuditLogService();
   private notificationService = new NotificationService();
@@ -142,7 +141,7 @@ export class AutoScheduleService {
       const assignments = await prisma.taskAssignment.findMany({
         where: {
           membershipId: member.id,
-          status: { in: ["accepted", "clocked_out", "completed"] },
+          status: { in: ["assigned", "in_progress", "clocked_out", "completed"] },
           clockInTime: { not: null },
           task: { scheduledStart: { gte: weekStart }, scheduledEnd: { lte: weekEnd } },
         },
@@ -484,15 +483,12 @@ Use the exact task numbers (1, 2, 3...) and staff letters (A, B, C...) from abov
   }
 
   async confirmSchedule(organizationId: string, assignments: DraftAssignment[], confirmedById: string) {
-    const settings = await this.settingsRepo.getOrCreate(organizationId);
-    const assignmentStatus = settings.taskAcceptanceMode === "auto_accept" ? "accepted" : "pending";
-
     const created = [];
     for (const draft of assignments) {
       try {
         const assignment = await this.assignmentRepo.create({
           taskId: draft.taskId, membershipId: draft.membershipId,
-          assignedById: confirmedById, status: assignmentStatus,
+          assignedById: confirmedById, status: ASSIGNMENT_STATUSES.ASSIGNED,
         });
         created.push(assignment);
 
@@ -512,7 +508,7 @@ Use the exact task numbers (1, 2, 3...) and staff letters (A, B, C...) from abov
     await this.auditService.log({
       organizationId, userId: confirmedById,
       action: ACTIONS.TASK_ASSIGNED, entityType: "auto-schedule",
-      details: { assignmentsCreated: created.length, totalPlanned: assignments.length, status: assignmentStatus },
+      details: { assignmentsCreated: created.length, totalPlanned: assignments.length, status: ASSIGNMENT_STATUSES.ASSIGNED },
     });
 
     return { created: created.length, failed: assignments.length - created.length };

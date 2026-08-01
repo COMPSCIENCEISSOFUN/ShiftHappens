@@ -3,7 +3,7 @@
  * 
  * Data access layer for company settings.
  * Each organization has one CompanySettings record that controls
- * configurable behaviors: allocation mode, acceptance mode,
+ * configurable behaviors: allocation mode,
  * break rules, and notification preferences.
  * 
  * Uses getOrCreate pattern — settings are lazily initialized
@@ -41,7 +41,6 @@ export class SettingsRepository {
     organizationId: string,
     data: {
       allocationMode?: string;
-      taskAcceptanceMode?: string;
       breakRuleHoursWorked?: number;
       breakRuleBreakHours?: number;
       smartAllocationWeights?: string;

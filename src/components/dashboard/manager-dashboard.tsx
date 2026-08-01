@@ -33,9 +33,9 @@ import { StatusBadge } from "@/components/ui/status-badge";
 interface KeyMetrics {
   assignmentPipeline: {
     total: number;
-    accepted: number;
-    pending: number;
-    rejected: number;
+    assigned: number;
+    in_progress: number;
+    clocked_out: number;
     completed: number;
   };
   completionRate: {
@@ -64,9 +64,9 @@ interface TomorrowTask {
 interface TeamMemberItem {
   membershipId: string;
   name: string;
-  status: "on_shift" | "has_pending" | "available" | "off_today";
+  status: "on_shift" | "assigned_today" | "available" | "off_today";
   statusLabel: string;
-  pendingCount: number;
+  assignedCount: number;
 }
 
 interface ManagerDashboardData {
@@ -238,7 +238,7 @@ export default function ManagerDashboard({
   const totalStaff = teamRoster.length;
 
   const openTasks = pipeline
-    ? pipeline.pending + pipeline.accepted
+    ? pipeline.assigned + pipeline.in_progress + pipeline.clocked_out
     : 0;
   const totalTasks = pipeline?.total ?? 0;
 
@@ -354,8 +354,8 @@ export default function ManagerDashboard({
               </span>
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
-              {pipeline?.pending ?? 0} pending, {pipeline?.accepted ?? 0}{" "}
-              accepted
+              {pipeline?.assigned ?? 0} assigned, {pipeline?.in_progress ?? 0}{" "}
+              in progress
             </p>
           </CardContent>
         </Card>

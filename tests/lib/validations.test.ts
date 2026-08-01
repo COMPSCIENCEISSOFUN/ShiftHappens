@@ -24,7 +24,6 @@ import {
   createTaskSchema,
   updateTaskSchema,
   assignTaskSchema,
-  rejectTaskSchema,
   setAvailabilitySchema,
   setWeeklyAvailabilitySchema,
   createAvailabilityOverrideSchema,
@@ -324,7 +323,7 @@ describe("updateRoleSchema", () => {
 describe("updateCompanySettingsSchema", () => {
   it("accepts valid settings", () => {
     const result = updateCompanySettingsSchema.safeParse({
-      allocationMode: "suggested", taskAcceptanceMode: "require_acceptance",
+      allocationMode: "auto",
       breakRuleHoursWorked: 6, breakRuleBreakHours: 10,
     });
     expect(result.success).toBe(true);
@@ -463,18 +462,6 @@ describe("assignTaskSchema", () => {
 
   it("rejects empty assignment", () => {
     const result = assignTaskSchema.safeParse({ membershipIds: [] });
-    expect(result.success).toBe(false);
-  });
-});
-
-describe("rejectTaskSchema", () => {
-  it("accepts valid rejection", () => {
-    const result = rejectTaskSchema.safeParse({ rejectionReason: "schedule_conflict" });
-    expect(result.success).toBe(true);
-  });
-
-  it("rejects empty reason", () => {
-    const result = rejectTaskSchema.safeParse({ rejectionReason: "" });
     expect(result.success).toBe(false);
   });
 });
