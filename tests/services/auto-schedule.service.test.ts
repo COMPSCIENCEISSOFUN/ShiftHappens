@@ -6,7 +6,7 @@
  * since it requires external API keys — the algorithmic fallback
  * is the safety net and must be rock-solid.
  */
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { AutoScheduleService } from "@/services/auto-schedule.service";
 import { prisma } from "@/lib/prisma";
 import { cleanDatabase } from "../helpers/cleanup";
@@ -292,42 +292,231 @@ describe("AutoScheduleService", () => {
       });
 
       const result = await service.confirmSchedule(orgId, [
-        { taskId: task.id, taskTitle: task.title, membershipId: staffMembershipIds[0], staffName: "Staff A", reasoning: "test" },
-        { taskId: task.id, taskTitle: task.title, membershipId: staffMembershipIds[1], staffName: "Staff B", reasoning: "test" },
+        { taskId: task.id, membershipId: staffMembershipIds[0] },
+        { taskId: task.id, membershipId: staffMembershipIds[1] },
       ], adminUserId);
 
       expect(result.created).toBe(2);
       expect(result.failed).toBe(0);
+      expect(
+        await prisma.notification.count({
+          where: {
+            organizationId: orgId,
+            type: "task_assigned",
+            message: { contains: task.title },
+          },
+        })
+      ).toBe(2);
     });
 
-    /**
-     * A draft referencing a task that does not exist must be counted as failed
-     * rather than aborting the whole confirmation — one bad row should not cost
-     * the user the other nineteen.
-     *
-     * The console.error spy asserts the second half of that contract: the
-     * failure is reported, not silently absorbed into a count. It also keeps the
-     * deliberate Prisma error out of the suite's stderr.
-     */
-    it("handles failures gracefully", async () => {
+    /** Any stale or tampered reference rejects the complete confirmation. */
+    it("rejects an unknown task without creating anything", async () => {
       const service = new AutoScheduleService();
-      const logged = vi.spyOn(console, "error").mockImplementation(() => {});
 
-      try {
-        const result = await service.confirmSchedule(orgId, [
-          { taskId: "nonexistent", taskTitle: "Bad", membershipId: staffMembershipIds[0], staffName: "Staff A", reasoning: "test" },
-        ], adminUserId);
+      await expect(
+        service.confirmSchedule(
+          orgId,
+          [{ taskId: "nonexistent", membershipId: staffMembershipIds[0] }],
+          adminUserId
+        )
+      ).rejects.toThrow("Task not found");
 
-        expect(result.created).toBe(0);
-        expect(result.failed).toBe(1);
+      expect(await prisma.taskAssignment.count()).toBe(0);
+    });
 
-        expect(logged).toHaveBeenCalledWith(
-          expect.stringContaining("[Auto-Schedule] Failed"),
-          expect.anything()
-        );
-      } finally {
-        logged.mockRestore();
-      }
+    it("rolls back every task when one schedule reference is invalid", async () => {
+      const service = new AutoScheduleService();
+      const firstDate = new Date(getNextMonday());
+      firstDate.setDate(firstDate.getDate() + 1);
+      const secondDate = new Date(getNextMonday());
+      secondDate.setDate(secondDate.getDate() + 2);
+      const firstTask = await prisma.task.create({
+        data: {
+          title: "Valid schedule task",
+          organizationId: orgId,
+          departmentId: deptId,
+          requiredHeadcount: 1,
+          scheduledStart: setHour(firstDate, 9),
+          scheduledEnd: setHour(firstDate, 12),
+          createdById: adminUserId,
+        },
+      });
+      const secondTask = await prisma.task.create({
+        data: {
+          title: "Tampered schedule task",
+          organizationId: orgId,
+          departmentId: deptId,
+          requiredHeadcount: 1,
+          scheduledStart: setHour(secondDate, 9),
+          scheduledEnd: setHour(secondDate, 12),
+          createdById: adminUserId,
+        },
+      });
+
+      await expect(
+        service.confirmSchedule(
+          orgId,
+          [
+            { taskId: firstTask.id, membershipId: staffMembershipIds[0] },
+            { taskId: secondTask.id, membershipId: "tampered-membership-id" },
+          ],
+          adminUserId
+        )
+      ).rejects.toThrow();
+
+      expect(await prisma.taskAssignment.count()).toBe(0);
+      expect(await prisma.notification.count()).toBe(0);
+    });
+
+    it("rejects a task ID belonging to another organization", async () => {
+      const service = new AutoScheduleService();
+      const otherOrganization = await prisma.organization.create({
+        data: { name: "Other Organization", slug: "other-schedule-org" },
+      });
+      const taskDate = new Date(getNextMonday());
+      taskDate.setDate(taskDate.getDate() + 1);
+      const otherTask = await prisma.task.create({
+        data: {
+          title: "Other tenant task",
+          organizationId: otherOrganization.id,
+          requiredHeadcount: 1,
+          scheduledStart: setHour(taskDate, 9),
+          scheduledEnd: setHour(taskDate, 12),
+          createdById: adminUserId,
+        },
+      });
+
+      await expect(
+        service.confirmSchedule(
+          orgId,
+          [{ taskId: otherTask.id, membershipId: staffMembershipIds[0] }],
+          adminUserId
+        )
+      ).rejects.toThrow("Task not found");
+
+      expect(await prisma.taskAssignment.count()).toBe(0);
+      expect(await prisma.notification.count()).toBe(0);
+    });
+
+    it("rejects tasks outside the caller's department scope", async () => {
+      const service = new AutoScheduleService();
+      const otherDepartment = await prisma.department.create({
+        data: { name: "Front Desk", organizationId: orgId },
+      });
+      await prisma.departmentMembership.create({
+        data: {
+          membershipId: staffMembershipIds[0],
+          departmentId: otherDepartment.id,
+        },
+      });
+      const taskDate = new Date(getNextMonday());
+      taskDate.setDate(taskDate.getDate() + 1);
+      const task = await prisma.task.create({
+        data: {
+          title: "Out of scope",
+          organizationId: orgId,
+          departmentId: otherDepartment.id,
+          requiredHeadcount: 1,
+          scheduledStart: setHour(taskDate, 9),
+          scheduledEnd: setHour(taskDate, 12),
+          createdById: adminUserId,
+        },
+      });
+
+      await expect(
+        service.confirmSchedule(
+          orgId,
+          [{ taskId: task.id, membershipId: staffMembershipIds[0] }],
+          adminUserId,
+          [deptId]
+        )
+      ).rejects.toThrow("Task not found");
+
+      expect(await prisma.taskAssignment.count()).toBe(0);
+    });
+
+    it("rejects overlapping tasks for the same staff as one atomic schedule", async () => {
+      const service = new AutoScheduleService();
+      const taskDate = new Date(getNextMonday());
+      taskDate.setDate(taskDate.getDate() + 1);
+      const firstTask = await prisma.task.create({
+        data: {
+          title: "Overlap one",
+          organizationId: orgId,
+          departmentId: deptId,
+          requiredHeadcount: 1,
+          scheduledStart: setHour(taskDate, 9),
+          scheduledEnd: setHour(taskDate, 12),
+          createdById: adminUserId,
+        },
+      });
+      const secondTask = await prisma.task.create({
+        data: {
+          title: "Overlap two",
+          organizationId: orgId,
+          departmentId: deptId,
+          requiredHeadcount: 1,
+          scheduledStart: setHour(taskDate, 10),
+          scheduledEnd: setHour(taskDate, 13),
+          createdById: adminUserId,
+        },
+      });
+
+      await expect(
+        service.confirmSchedule(
+          orgId,
+          [
+            { taskId: firstTask.id, membershipId: staffMembershipIds[0] },
+            { taskId: secondTask.id, membershipId: staffMembershipIds[0] },
+          ],
+          adminUserId
+        )
+      ).rejects.toThrow("overlapping tasks");
+
+      expect(await prisma.taskAssignment.count()).toBe(0);
+    });
+
+    it("allows only one concurrent confirmation for overlapping tasks", async () => {
+      const taskDate = new Date(getNextMonday());
+      taskDate.setDate(taskDate.getDate() + 1);
+      const firstTask = await prisma.task.create({
+        data: {
+          title: "Concurrent overlap one",
+          organizationId: orgId,
+          departmentId: deptId,
+          requiredHeadcount: 1,
+          scheduledStart: setHour(taskDate, 9),
+          scheduledEnd: setHour(taskDate, 12),
+          createdById: adminUserId,
+        },
+      });
+      const secondTask = await prisma.task.create({
+        data: {
+          title: "Concurrent overlap two",
+          organizationId: orgId,
+          departmentId: deptId,
+          requiredHeadcount: 1,
+          scheduledStart: setHour(taskDate, 10),
+          scheduledEnd: setHour(taskDate, 13),
+          createdById: adminUserId,
+        },
+      });
+
+      const results = await Promise.allSettled([
+        new AutoScheduleService().confirmSchedule(
+          orgId,
+          [{ taskId: firstTask.id, membershipId: staffMembershipIds[0] }],
+          adminUserId
+        ),
+        new AutoScheduleService().confirmSchedule(
+          orgId,
+          [{ taskId: secondTask.id, membershipId: staffMembershipIds[0] }],
+          adminUserId
+        ),
+      ]);
+
+      expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+      expect(await prisma.taskAssignment.count()).toBe(1);
     });
   });
 });

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { EligibilityService } from "@/services/eligibility.service";
 import { TaskService } from "@/services/task.service";
@@ -259,23 +259,13 @@ describe("Phase 4 final assignment integrity", () => {
     const manager = await createMembership("Schedule Manager", { role: "manager" });
     const task = await createTask();
 
-    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
-    const result = await autoScheduleService.confirmSchedule(
-      organizationId,
-      [
-        {
-          taskId: task.id,
-          taskTitle: "Client supplied title",
-          membershipId: manager.membership.id,
-          staffName: "Client supplied manager",
-          reasoning: "Stale AI output",
-        },
-      ],
-      adminUserId
-    );
-    logged.mockRestore();
-
-    expect(result).toEqual({ created: 0, failed: 1 });
+    await expect(
+      autoScheduleService.confirmSchedule(
+        organizationId,
+        [{ taskId: task.id, membershipId: manager.membership.id }],
+        adminUserId
+      )
+    ).rejects.toThrow();
     expect(
       await prisma.taskAssignment.count({ where: { taskId: task.id } })
     ).toBe(0);
@@ -285,31 +275,16 @@ describe("Phase 4 final assignment integrity", () => {
     const staff = await createMembership("Valid Draft");
     const manager = await createMembership("Invalid Draft", { role: "manager" });
     const task = await createTask({ requiredHeadcount: 2 });
-    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
-
-    const result = await autoScheduleService.confirmSchedule(
-      organizationId,
-      [
-        {
-          taskId: task.id,
-          taskTitle: task.title,
-          membershipId: staff.membership.id,
-          staffName: staff.user.name ?? "Staff",
-          reasoning: "Valid draft",
-        },
-        {
-          taskId: task.id,
-          taskTitle: task.title,
-          membershipId: manager.membership.id,
-          staffName: manager.user.name ?? "Manager",
-          reasoning: "Invalid draft",
-        },
-      ],
-      adminUserId
-    );
-    logged.mockRestore();
-
-    expect(result).toEqual({ created: 0, failed: 2 });
+    await expect(
+      autoScheduleService.confirmSchedule(
+        organizationId,
+        [
+          { taskId: task.id, membershipId: staff.membership.id },
+          { taskId: task.id, membershipId: manager.membership.id },
+        ],
+        adminUserId
+      )
+    ).rejects.toThrow();
     expect(
       await prisma.taskAssignment.count({ where: { taskId: task.id } })
     ).toBe(0);
@@ -324,23 +299,13 @@ describe("Phase 4 final assignment integrity", () => {
     });
     const task = await createTask();
 
-    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
-    const result = await autoScheduleService.confirmSchedule(
-      organizationId,
-      [
-        {
-          taskId: task.id,
-          taskTitle: task.title,
-          membershipId: outsider.membership.id,
-          staffName: outsider.user.name ?? "Outsider",
-          reasoning: "Tampered membership ID",
-        },
-      ],
-      adminUserId
-    );
-    logged.mockRestore();
-
-    expect(result).toEqual({ created: 0, failed: 1 });
+    await expect(
+      autoScheduleService.confirmSchedule(
+        organizationId,
+        [{ taskId: task.id, membershipId: outsider.membership.id }],
+        adminUserId
+      )
+    ).rejects.toThrow("invalid staff member");
     expect(
       await prisma.taskAssignment.count({ where: { taskId: task.id } })
     ).toBe(0);

@@ -123,7 +123,11 @@ export default function AutoSchedulePage() {
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ assignments: draft.assignments }),
+          body: JSON.stringify({
+            assignments: draft.assignments.map(
+              ({ taskId, membershipId }) => ({ taskId, membershipId })
+            ),
+          }),
         }
       );
 

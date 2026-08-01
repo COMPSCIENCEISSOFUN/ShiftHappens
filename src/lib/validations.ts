@@ -240,6 +240,41 @@ export const assignTaskSchema = z.object({
   membershipIds: z.array(z.string()).min(1, "Select at least one staff member"),
 });
 
+const autoScheduleAssignmentReferenceSchema = z
+  .object({
+    taskId: z.string().min(1).max(100),
+    membershipId: z.string().min(1).max(100),
+  })
+  .strict();
+
+/** Only identifiers cross the confirmation boundary; display and AI data are untrusted. */
+export const confirmAutoScheduleSchema = z
+  .object({
+    assignments: z
+      .array(autoScheduleAssignmentReferenceSchema)
+      .min(1, "At least one assignment is required")
+      .max(500, "A schedule cannot contain more than 500 assignments"),
+  })
+  .strict()
+  .superRefine(({ assignments }, ctx) => {
+    const pairs = new Set<string>();
+    assignments.forEach((assignment, index) => {
+      const key = `${assignment.taskId}:${assignment.membershipId}`;
+      if (pairs.has(key)) {
+        ctx.addIssue({
+          code: "custom",
+          message: "Duplicate task and staff assignment",
+          path: ["assignments", index],
+        });
+      }
+      pairs.add(key);
+    });
+  });
+
+export type AutoScheduleAssignmentReference = z.infer<
+  typeof autoScheduleAssignmentReferenceSchema
+>;
+
 /** Validates a staff withdrawal/abort request on an active assignment */
 export const withdrawTaskSchema = z.object({
   reason: z.string().min(3, "Please give a brief reason").max(500),

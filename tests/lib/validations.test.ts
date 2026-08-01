@@ -24,6 +24,7 @@ import {
   createTaskSchema,
   updateTaskSchema,
   assignTaskSchema,
+  confirmAutoScheduleSchema,
   setAvailabilitySchema,
   setWeeklyAvailabilitySchema,
   createAvailabilityOverrideSchema,
@@ -713,5 +714,44 @@ describe("withdrawalDecisionSchema", () => {
   it("rejects any other decision", () => {
     const result = withdrawalDecisionSchema.safeParse({ decision: "maybe" });
     expect(result.success).toBe(false);
+  });
+});
+
+describe("confirmAutoScheduleSchema", () => {
+  it("accepts identifier-only assignment references", () => {
+    const result = confirmAutoScheduleSchema.safeParse({
+      assignments: [{ taskId: "task-1", membershipId: "member-1" }],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects client-supplied display and ranking fields", () => {
+    const result = confirmAutoScheduleSchema.safeParse({
+      assignments: [
+        {
+          taskId: "task-1",
+          membershipId: "member-1",
+          taskTitle: "Tampered title",
+          staffName: "Tampered staff",
+          reasoning: "Tampered reasoning",
+          score: 999,
+        },
+      ],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects empty and duplicate assignment references", () => {
+    expect(
+      confirmAutoScheduleSchema.safeParse({ assignments: [] }).success
+    ).toBe(false);
+    expect(
+      confirmAutoScheduleSchema.safeParse({
+        assignments: [
+          { taskId: "task-1", membershipId: "member-1" },
+          { taskId: "task-1", membershipId: "member-1" },
+        ],
+      }).success
+    ).toBe(false);
   });
 });

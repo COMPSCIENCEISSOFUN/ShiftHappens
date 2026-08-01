@@ -17,10 +17,13 @@ import { CertificationRepository } from "@/repositories/certification.repository
 import { WorkRuleRepository } from "@/repositories/work-rule.repository";
 import { TaskAssignmentRepository } from "@/repositories/task-assignment.repository";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
-import { TaskService } from "@/services/task.service";
+import { EligibilityService } from "@/services/eligibility.service";
+import { NotificationService, NOTIFICATION_TYPES } from "@/services/notification.service";
 import { prisma } from "@/lib/prisma";
 import { ASSIGNMENT_STATUSES } from "@/lib/assignment-status";
 import { ASSIGNABLE_SYSTEM_ROLES } from "@/lib/role-config";
+import type { AutoScheduleAssignmentReference } from "@/lib/validations";
+import { isDepartmentInScope } from "@/lib/department-scope";
 import {
   DEFAULT_TIMEZONE,
   dayOfWeekInTimeZone,
@@ -93,7 +96,8 @@ export class AutoScheduleService {
   private workRuleRepo = new WorkRuleRepository();
   private assignmentRepo = new TaskAssignmentRepository();
   private auditService = new AuditLogService();
-  private taskService = new TaskService();
+  private eligibilityService = new EligibilityService();
+  private notificationService = new NotificationService();
 
   async collectWeekData(organizationId: string, weekStart: Date): Promise<ScheduleContext> {
     const weekEnd = new Date(weekStart);
@@ -486,37 +490,141 @@ Use the exact task numbers (1, 2, 3...) and staff letters (A, B, C...) from abov
     return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
   }
 
-  async confirmSchedule(organizationId: string, assignments: DraftAssignment[], confirmedById: string) {
-    let createdCount = 0;
-    let failedCount = 0;
-    const draftsByTask = new Map<string, DraftAssignment[]>();
-    for (const draft of assignments) {
-      const taskDrafts = draftsByTask.get(draft.taskId) ?? [];
-      taskDrafts.push(draft);
-      draftsByTask.set(draft.taskId, taskDrafts);
+  async confirmSchedule(
+    organizationId: string,
+    assignments: AutoScheduleAssignmentReference[],
+    confirmedById: string,
+    authorizedDepartmentIds: string[] | null = null
+  ) {
+    if (assignments.length === 0) throw new Error("At least one assignment is required");
+
+    const taskIds = [...new Set(assignments.map((assignment) => assignment.taskId))];
+    const membershipIds = [
+      ...new Set(assignments.map((assignment) => assignment.membershipId)),
+    ];
+    const pairs = new Set<string>();
+    for (const assignment of assignments) {
+      const pair = `${assignment.taskId}:${assignment.membershipId}`;
+      if (pairs.has(pair)) throw new Error("Duplicate task and staff assignment");
+      pairs.add(pair);
     }
 
-    for (const [taskId, drafts] of draftsByTask) {
-      try {
-        const created = await this.taskService.assignStaff(
-          taskId,
-          organizationId,
-          drafts.map((draft) => draft.membershipId),
-          confirmedById
-        );
-        createdCount += created.length;
-      } catch (error) {
-        failedCount += drafts.length;
-        console.error(`[Auto-Schedule] Failed task ${taskId}:`, error);
-      }
+    const [tasks, memberships] = await Promise.all([
+      prisma.task.findMany({
+        where: { id: { in: taskIds }, organizationId, status: "open" },
+        select: {
+          id: true,
+          title: true,
+          departmentId: true,
+          scheduledStart: true,
+          scheduledEnd: true,
+        },
+      }),
+      prisma.membership.findMany({
+        where: { id: { in: membershipIds }, organizationId },
+        select: {
+          id: true,
+          userId: true,
+          role: true,
+          status: true,
+          user: { select: { isPlatformAdmin: true } },
+          departmentMemberships: { select: { departmentId: true } },
+        },
+      }),
+    ]);
+    if (tasks.length !== taskIds.length) throw new Error("Task not found");
+    if (memberships.length !== membershipIds.length) {
+      throw new Error("Schedule contains an invalid staff member");
     }
+
+    const tasksById = new Map(tasks.map((task) => [task.id, task]));
+    const membershipsById = new Map(
+      memberships.map((membership) => [membership.id, membership])
+    );
+    const slotsByMember = new Map<
+      string,
+      { taskId: string; start: number; end: number }[]
+    >();
+    const assignmentsByTask = new Map<string, string[]>();
+
+    for (const assignment of assignments) {
+      const task = tasksById.get(assignment.taskId)!;
+      const membership = membershipsById.get(assignment.membershipId)!;
+      if (!isDepartmentInScope(task.departmentId, authorizedDepartmentIds)) {
+        throw new Error("Task not found");
+      }
+      if (
+        membership.status !== "active" ||
+        membership.role !== "staff" ||
+        membership.user.isPlatformAdmin
+      ) {
+        throw new Error("Schedule contains an invalid staff member");
+      }
+      if (
+        task.departmentId &&
+        !membership.departmentMemberships.some(
+          (department) => department.departmentId === task.departmentId
+        )
+      ) {
+        throw new Error("Schedule contains a staff member outside the task department");
+      }
+      if (!task.scheduledStart || !task.scheduledEnd) {
+        throw new Error("Schedule contains an unscheduled task");
+      }
+
+      const slots = slotsByMember.get(membership.id) ?? [];
+      const start = task.scheduledStart.getTime();
+      const end = task.scheduledEnd.getTime();
+      if (slots.some((slot) => start < slot.end && end > slot.start)) {
+        throw new Error("Staff member cannot be assigned to overlapping tasks");
+      }
+      slots.push({ taskId: task.id, start, end });
+      slotsByMember.set(membership.id, slots);
+
+      const taskMembers = assignmentsByTask.get(task.id) ?? [];
+      taskMembers.push(membership.id);
+      assignmentsByTask.set(task.id, taskMembers);
+    }
+
+    for (const [taskId, selectedMembershipIds] of assignmentsByTask) {
+      await this.eligibilityService.assertEligibleForAssignment(
+        taskId,
+        organizationId,
+        selectedMembershipIds
+      );
+    }
+
+    const created = await this.assignmentRepo.createScheduleAtomic({
+      organizationId,
+      assignments,
+      assignedById: confirmedById,
+    });
 
     await this.auditService.log({
       organizationId, userId: confirmedById,
       action: ACTIONS.TASK_ASSIGNED, entityType: "auto-schedule",
-      details: { assignmentsCreated: createdCount, totalPlanned: assignments.length, status: ASSIGNMENT_STATUSES.ASSIGNED },
+      details: {
+        assignmentsCreated: created.length,
+        taskIds,
+        membershipIds,
+        status: ASSIGNMENT_STATUSES.ASSIGNED,
+      },
     });
 
-    return { created: createdCount, failed: failedCount };
+    for (const assignment of assignments) {
+      const task = tasksById.get(assignment.taskId)!;
+      const membership = membershipsById.get(assignment.membershipId)!;
+      await this.notificationService.notifyIfEnabled(
+        organizationId,
+        membership.userId,
+        NOTIFICATION_TYPES.TASK_ASSIGNED,
+        "New task assignment",
+        `You've been assigned to "${task.title}"`,
+        "assignment",
+        task.id
+      );
+    }
+
+    return { created: created.length, failed: 0 };
   }
 }

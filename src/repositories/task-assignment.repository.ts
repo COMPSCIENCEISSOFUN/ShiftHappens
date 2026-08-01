@@ -216,6 +216,157 @@ export class TaskAssignmentRepository {
     throw new Error("Assignment transaction failed");
   }
 
+  /** Creates every task/member pair in a confirmed schedule as one transaction. */
+  async createScheduleAtomic(data: {
+    organizationId: string;
+    assignments: { taskId: string; membershipId: string }[];
+    assignedById: string;
+  }) {
+    const maxAttempts = 3;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        return await prisma.$transaction(
+          async (tx) => {
+            const taskIds = [...new Set(data.assignments.map((item) => item.taskId))];
+            const membershipIds = [
+              ...new Set(data.assignments.map((item) => item.membershipId)),
+            ];
+            const tasks = await tx.task.findMany({
+              where: {
+                id: { in: taskIds },
+                organizationId: data.organizationId,
+                status: "open",
+              },
+              select: {
+                id: true,
+                departmentId: true,
+                requiredHeadcount: true,
+                scheduledStart: true,
+                scheduledEnd: true,
+              },
+            });
+            if (tasks.length !== taskIds.length) throw new Error("Task not found");
+
+            const members = await tx.membership.findMany({
+              where: {
+                id: { in: membershipIds },
+                organizationId: data.organizationId,
+                status: "active",
+                role: "staff",
+                user: { isPlatformAdmin: false },
+              },
+              select: {
+                id: true,
+                departmentMemberships: { select: { departmentId: true } },
+              },
+            });
+            if (members.length !== membershipIds.length) {
+              throw new Error("Schedule contains an invalid staff member");
+            }
+
+            const tasksById = new Map(tasks.map((task) => [task.id, task]));
+            const membersById = new Map(members.map((member) => [member.id, member]));
+            const additionsByTask = new Map<string, number>();
+            for (const assignment of data.assignments) {
+              const task = tasksById.get(assignment.taskId)!;
+              const member = membersById.get(assignment.membershipId)!;
+              if (
+                task.departmentId &&
+                !member.departmentMemberships.some(
+                  (department) => department.departmentId === task.departmentId
+                )
+              ) {
+                throw new Error("Schedule contains a staff member outside the task department");
+              }
+              additionsByTask.set(
+                task.id,
+                (additionsByTask.get(task.id) ?? 0) + 1
+              );
+            }
+
+            for (const task of tasks) {
+              const activeCount = await tx.taskAssignment.count({
+                where: {
+                  taskId: task.id,
+                  status: { in: SLOT_OCCUPYING_ASSIGNMENT_STATUSES },
+                },
+              });
+              if (
+                activeCount + (additionsByTask.get(task.id) ?? 0) >
+                task.requiredHeadcount
+              ) {
+                throw new Error(
+                  `Assignment exceeds required headcount of ${task.requiredHeadcount}`
+                );
+              }
+            }
+
+            for (const assignment of data.assignments) {
+              const task = tasksById.get(assignment.taskId)!;
+              if (!task.scheduledStart || !task.scheduledEnd) {
+                throw new Error("Schedule contains an unscheduled task");
+              }
+              const conflictCount = await tx.taskAssignment.count({
+                where: {
+                  membershipId: assignment.membershipId,
+                  status: { in: SLOT_OCCUPYING_ASSIGNMENT_STATUSES },
+                  task: {
+                    scheduledStart: { lt: task.scheduledEnd },
+                    scheduledEnd: { gt: task.scheduledStart },
+                  },
+                },
+              });
+              if (conflictCount > 0) {
+                throw new Error(
+                  "Staff member cannot be assigned to overlapping tasks"
+                );
+              }
+            }
+
+            const existingCount = await tx.taskAssignment.count({
+              where: {
+                OR: data.assignments.map((assignment) => ({
+                  taskId: assignment.taskId,
+                  membershipId: assignment.membershipId,
+                })),
+              },
+            });
+            if (existingCount > 0) {
+              throw new Error("Staff member already has an assignment for this task");
+            }
+
+            const created = [];
+            for (const assignment of data.assignments) {
+              created.push(
+                await tx.taskAssignment.create({
+                  data: {
+                    ...assignment,
+                    assignedById: data.assignedById,
+                    status: ASSIGNMENT_STATUSES.ASSIGNED,
+                  },
+                })
+              );
+            }
+            return created;
+          },
+          {
+            isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+            maxWait: 5_000,
+            timeout: 20_000,
+          }
+        );
+      } catch (error) {
+        const isWriteConflict =
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === "P2034";
+        if (!isWriteConflict || attempt === maxAttempts) throw error;
+      }
+    }
+
+    throw new Error("Schedule confirmation transaction failed");
+  }
+
   /**
    * Records clock-out time and moves the assignment to "clocked_out".
    * The shift is worked but not yet confirmed done — the staff member
