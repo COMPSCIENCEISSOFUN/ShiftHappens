@@ -101,6 +101,39 @@ function avatarColor(id: string): string {
 // Interfaces
 // ============================================================
 
+/**
+ * The eligibility engine's per-member verdict, as returned by
+ * `GET /tasks/[taskId]/eligibility`.
+ *
+ * Mirrors `StaffEligibility` in `@/services/eligibility.service`. It is
+ * restated rather than imported because that module pulls in every repository
+ * it uses, and importing it here would drag the server's Prisma client into the
+ * client bundle. `checks` is deliberately a `Record` rather than the service's
+ * fixed five keys, so a new dimension added server-side renders here without a
+ * build failure — this page only ever iterates it.
+ */
+interface EligibilityCheck {
+  eligible: boolean;
+  reason?: string;
+}
+
+interface EligibilityResult {
+  membershipId: string;
+  memberName: string;
+  employmentType?: string;
+  eligible: boolean;
+  checks: Record<string, EligibilityCheck>;
+  overrides: string[];
+}
+
+/** One AI-ranked candidate from `GET /tasks/[taskId]/suggest`. */
+interface AISuggestion {
+  membershipId: string;
+  rank: number;
+  score: number;
+  explanation: string;
+}
+
 interface Task {
   id: string;
   title: string;
@@ -170,8 +203,8 @@ export default function TasksPage() {
   const [success, setSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
-  const [eligibility, setEligibility] = useState<Record<string, any>>({});
-  const [suggestions, setSuggestions] = useState<any[]>([]);
+  const [eligibility, setEligibility] = useState<Record<string, EligibilityResult>>({});
+  const [suggestions, setSuggestions] = useState<AISuggestion[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [loadingEligibility, setLoadingEligibility] = useState(false);
@@ -204,11 +237,33 @@ export default function TasksPage() {
     fetchOperatingHours();
   }, [orgId]);
 
+  /**
+   * Loads the task list.
+   *
+   * The `res.ok` and `Array.isArray` guards are the whole point. A 403 or a 500
+   * returns `{ error }` — an OBJECT — and the previous version handed that
+   * straight to `setTasks`. Every `tasks.filter(...)` below then threw
+   * "tasks.filter is not a function" and the page died with a blank screen and
+   * a console stack trace, telling the user nothing about what had gone wrong.
+   *
+   * The server's own message is surfaced rather than a generic one, because
+   * when this fails in a deployed environment that message is the only clue
+   * anyone gets.
+   */
   async function fetchTasks() {
     try {
       const res = await fetch(`/api/organizations/${orgId}/tasks`);
       const data = await res.json();
+
+      if (!res.ok || !Array.isArray(data)) {
+        setError(
+          typeof data?.error === "string" ? data.error : "Failed to load tasks"
+        );
+        return;
+      }
+
       setTasks(data);
+      setError(null);
     } catch {
       setError("Failed to load tasks");
     } finally {
@@ -253,6 +308,10 @@ export default function TasksPage() {
     try {
       const res = await fetch(`/api/organizations/${orgId}/members`);
       const data = await res.json();
+      // Same shape trap as fetchTasks. Here the `.filter` threw INSIDE the try,
+      // so the empty catch swallowed it and the assign panel simply showed no
+      // staff — a failure that looked like an empty organisation.
+      if (!res.ok || !Array.isArray(data)) return;
       setMembers(
         data.filter(
           (m: Member) => m.status === "active" && m.role !== "company_admin"
@@ -268,7 +327,10 @@ export default function TasksPage() {
         `/api/organizations/${orgId}/tasks/${taskId}/eligibility`
       );
       const data = await res.json();
-      const map: Record<string, any> = {};
+      // An error body is not iterable; the for..of threw into the empty catch
+      // and every member silently showed as "eligibility unknown".
+      if (!res.ok || !Array.isArray(data)) return;
+      const map: Record<string, EligibilityResult> = {};
       for (const item of data) {
         map[item.membershipId] = item;
       }
@@ -296,7 +358,7 @@ export default function TasksPage() {
         setSuggestions(data);
         const topIds = data
           .slice(0, tasks.find((t) => t.id === taskId)?.requiredHeadcount || 1)
-          .map((s: any) => s.membershipId);
+          .map((s: AISuggestion) => s.membershipId);
         setSelectedMembers(topIds);
       }
     } catch {
@@ -1542,11 +1604,11 @@ export default function TasksPage() {
                                 AI Picks — top {task.requiredHeadcount} auto-selected
                               </p>
                               <div className="space-y-2">
-                                {suggestions.map((s: any) => {
+                                {suggestions.map((s) => {
                                   const member = members.find((m) => m.id === s.membershipId);
                                   const eligEntry = Object.values(eligibility).find(
-                                    (e: any) => e.membershipId === s.membershipId
-                                  ) as any;
+                                    (e) => e.membershipId === s.membershipId
+                                  );
                                   const name = member?.user.name || member?.user.email || eligEntry?.memberName || "Unknown";
                                   return (
                                     <div
@@ -1585,7 +1647,7 @@ export default function TasksPage() {
                                   <div className="max-h-[280px] overflow-y-auto">
                                     <div className="grid gap-1.5 sm:grid-cols-2">
                                       {eligibleMembers.map((m) => {
-                                        const suggestion = suggestions.find((s: any) => s.membershipId === m.id);
+                                        const suggestion = suggestions.find((s) => s.membershipId === m.id);
                                         const selected = selectedMembers.includes(m.id);
                                         const atLimit = !selected && selectedMembers.length >= task.requiredHeadcount;
 
@@ -1647,7 +1709,7 @@ export default function TasksPage() {
                                         const selected = selectedMembers.includes(m.id);
                                         const atLimit = !selected && selectedMembers.length >= task.requiredHeadcount;
                                         const canSelect = hasOverride;
-                                        const suggestion = suggestions.find((s: any) => s.membershipId === m.id);
+                                        const suggestion = suggestions.find((s) => s.membershipId === m.id);
 
                                         const warnings: string[] =
                                           (["availability", "scheduling", "workRules", "hoursLimit", "certifications"] as const)

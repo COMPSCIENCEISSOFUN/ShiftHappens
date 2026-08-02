@@ -340,6 +340,12 @@ export default function DepartmentsPage() {
         `/api/organizations/${orgId}/departments/${dept.id}?impact=true`
       );
       const data = await res.json();
+      // An error body would render as a dialog full of "undefined" counts, and
+      // the admin would be asked to confirm an archive on the strength of it.
+      if (!res.ok || typeof data?.memberCount !== "number") {
+        setImpactSummary({ memberCount: 0, activeTaskCount: 0, workRuleCount: 0 });
+        return;
+      }
       setImpactSummary(data);
     } catch {
       setImpactSummary({ memberCount: 0, activeTaskCount: 0, workRuleCount: 0 });
