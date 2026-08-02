@@ -1,27 +1,47 @@
 /**
  * Roles Management Page (Boundary Layer)
- * 
- * Company Admin can create, edit, and delete custom roles
- * with granular permission assignments. System roles are
- * displayed but cannot be modified.
+ *
+ * Company admins define custom roles and the permissions attached to them.
+ * System roles are shown but cannot be edited or deleted.
+ *
+ * ## On the visual language
+ *
+ * This page predates the Phase 12 overhaul: shadcn `Card` primitives where
+ * every other page uses the house panel, a bare `h2` with no subtitle, no stat
+ * tiles, no icons, and two hard-coded light-mode colours. It now matches
+ * Departments, Members and Calendar.
+ *
+ * ## Two behaviour bugs fixed here
+ *
+ * 1. The create form and the edit form shared ONE `selectedPermissions` array,
+ *    and neither closed the other. With the create form open, clicking Edit
+ *    rendered both, reading and writing the same selection — ticking a box in
+ *    one moved it in the other, and whichever you saved won. Opening either
+ *    form now closes the other, which is the only way one shared selection can
+ *    be correct.
+ *
+ * 2. Unticking every permission and saving was silently ignored: the update
+ *    sent `permissionIds: undefined`, Prisma skipped the field, and the role
+ *    kept its old permissions while the UI reported success. Creating already
+ *    refused an empty selection; editing now refuses it too, for the same
+ *    reason and with the same message.
  */
 "use client";
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { Button } from "@/components/ui/button";
+import { KeyRound, Lock, Pencil, Plus, ShieldCheck, Trash2, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { PageLoading } from "@/components/ui/page-loading";
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { StatTile, STAT_ACCENT } from "@/components/ui/stat-tile";
+
+/* ------------------------------------------------------------------ */
+/*  Types                                                              */
+/* ------------------------------------------------------------------ */
 
 interface Permission {
   id: string;
@@ -43,9 +63,111 @@ interface Role {
   rolePermissions: RolePermission[];
 }
 
+/* ------------------------------------------------------------------ */
+/*  Shared page furniture                                              */
+/* ------------------------------------------------------------------ */
+
+const PRIMARY_BUTTON =
+  "inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-indigo-600 to-indigo-500 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:from-indigo-700 hover:to-indigo-600 disabled:cursor-not-allowed disabled:opacity-60";
+
+const SECONDARY_BUTTON =
+  "inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-indigo-400 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60";
+
+const DANGER_BUTTON =
+  "inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-red-400 hover:text-red-600 dark:hover:text-red-400";
+
+/** The house panel — a card with a headed section. */
+function Panel({
+  title,
+  icon: Icon,
+  children,
+}: {
+  title: string;
+  icon: typeof KeyRound;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="overflow-hidden rounded-xl border border-border bg-card">
+      <div className="flex items-center gap-2 border-b border-border px-4 py-3">
+        <Icon className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+        <h3 className="text-[13px] font-semibold">{title}</h3>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+/**
+ * The permission picker, grouped by category.
+ *
+ * One component for both forms. It was duplicated before — 25 lines of
+ * checkbox markup written out twice — which is how the two forms came to share
+ * one selection array without anybody noticing.
+ */
+function PermissionPicker({
+  grouped,
+  selected,
+  onToggle,
+}: {
+  grouped: Record<string, Permission[]>;
+  selected: string[];
+  onToggle: (id: string) => void;
+}) {
+  const categories = Object.keys(grouped).sort();
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <Label className="text-xs">Permissions</Label>
+        <span className="text-[11px] text-muted-foreground">
+          {selected.length} selected
+        </span>
+      </div>
+
+      {categories.length === 0 ? (
+        <p className="rounded-lg border border-border p-3 text-[12px] text-muted-foreground">
+          No permissions available. This usually means the permission list
+          failed to load — reload the page.
+        </p>
+      ) : (
+        <div className="grid gap-2 sm:grid-cols-2">
+          {categories.map((category) => (
+            <div key={category} className="rounded-lg border border-border p-3">
+              <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                {category}
+              </p>
+              <div className="space-y-1">
+                {grouped[category].map((perm) => (
+                  <label
+                    key={perm.id}
+                    className="flex cursor-pointer items-start gap-2 text-[12px]"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selected.includes(perm.id)}
+                      onChange={() => onToggle(perm.id)}
+                      className="mt-0.5 accent-indigo-600"
+                    />
+                    <span>{perm.description}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Main Page                                                          */
+/* ------------------------------------------------------------------ */
+
 export default function RolesPage() {
   const params = useParams();
   const orgId = params.orgId as string;
+
   const [roles, setRoles] = useState<Role[]>([]);
   const [permissions, setPermissions] = useState<Permission[]>([]);
   const [showCreate, setShowCreate] = useState(false);
@@ -53,11 +175,8 @@ export default function RolesPage() {
   const [selectedPermissions, setSelectedPermissions] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetchRoles();
-    fetchPermissions();
-  }, [orgId]);
+  const [deleteTarget, setDeleteTarget] = useState<Role | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   async function fetchRoles() {
     try {
@@ -94,6 +213,12 @@ export default function RolesPage() {
     }
   }
 
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronising with an external system, which is what effects are for: loads roles and the permission catalogue from the server on mount
+    fetchRoles();
+    fetchPermissions();
+  }, [orgId]);
+
   function togglePermission(permId: string) {
     setSelectedPermissions((prev) =>
       prev.includes(permId)
@@ -102,7 +227,7 @@ export default function RolesPage() {
     );
   }
 
-  // Group permissions by category for display
+  /** Permissions grouped by category, for the picker. */
   function groupedPermissions() {
     const groups: Record<string, Permission[]> = {};
     for (const perm of permissions) {
@@ -142,8 +267,7 @@ export default function RolesPage() {
         return;
       }
 
-      setShowCreate(false);
-      setSelectedPermissions([]);
+      closeForms();
       (event.target as HTMLFormElement).reset();
       fetchRoles();
     } catch {
@@ -160,22 +284,24 @@ export default function RolesPage() {
 
     const formData = new FormData(event.currentTarget);
 
+    // An empty selection used to be sent as `undefined`, which Prisma skips —
+    // the role kept its permissions and the page reported success. Refusing it
+    // matches what creating already does, and says so rather than pretending.
+    if (selectedPermissions.length === 0) {
+      setError("Select at least one permission");
+      return;
+    }
+
     try {
-      const res = await fetch(
-        `/api/organizations/${orgId}/roles/${roleId}`,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            displayLabel: formData.get("displayLabel"),
-            description: formData.get("description"),
-            permissionIds:
-              selectedPermissions.length > 0
-                ? selectedPermissions
-                : undefined,
-          }),
-        }
-      );
+      const res = await fetch(`/api/organizations/${orgId}/roles/${roleId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          displayLabel: formData.get("displayLabel"),
+          description: formData.get("description"),
+          permissionIds: selectedPermissions,
+        }),
+      });
 
       const result = await res.json();
 
@@ -184,21 +310,21 @@ export default function RolesPage() {
         return;
       }
 
-      setEditingId(null);
-      setSelectedPermissions([]);
+      closeForms();
       fetchRoles();
     } catch {
       setError("Something went wrong");
     }
   }
 
-  async function onDeleteRole(roleId: string) {
-    if (!confirm("Are you sure you want to delete this role?")) return;
+  async function onConfirmDelete() {
+    if (!deleteTarget) return;
+    setDeleting(true);
     setError(null);
 
     try {
       const res = await fetch(
-        `/api/organizations/${orgId}/roles/${roleId}`,
+        `/api/organizations/${orgId}/roles/${deleteTarget.id}`,
         { method: "DELETE" }
       );
 
@@ -209,20 +335,35 @@ export default function RolesPage() {
         return;
       }
 
+      setDeleteTarget(null);
       fetchRoles();
     } catch {
       setError("Something went wrong");
+    } finally {
+      setDeleting(false);
     }
   }
 
+  /**
+   * Only one form is ever open, because both read the same
+   * `selectedPermissions`. Opening either closes the other.
+   */
+  function closeForms() {
+    setShowCreate(false);
+    setEditingId(null);
+    setSelectedPermissions([]);
+  }
+
   function startEditing(role: Role) {
+    setShowCreate(false);
+    setError(null);
     setEditingId(role.id);
-    setSelectedPermissions(
-      role.rolePermissions.map((rp) => rp.permission.id)
-    );
+    setSelectedPermissions(role.rolePermissions.map((rp) => rp.permission.id));
   }
 
   function startCreating() {
+    setEditingId(null);
+    setError(null);
     setShowCreate(true);
     setSelectedPermissions([]);
   }
@@ -230,219 +371,294 @@ export default function RolesPage() {
   if (loading) return <PageLoading />;
 
   const grouped = groupedPermissions();
+  const customRoles = roles.filter((r) => !r.isSystemRole);
+  const systemRoles = roles.filter((r) => r.isSystemRole);
+  const formOpen = showCreate || editingId !== null;
 
   return (
-    <div className="max-w-4xl">
-      <div className="mb-6 flex items-center justify-between">
-        <h2 className="text-2xl font-bold">Roles</h2>
-        <Button onClick={() => (showCreate ? setShowCreate(false) : startCreating())}>
-          {showCreate ? "Cancel" : "Create Role"}
-        </Button>
+    <div className="w-full">
+      {/* ── Header ── */}
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-xl font-bold tracking-tight sm:text-2xl">Roles</h2>
+          <p className="mt-0.5 text-[13px] text-muted-foreground">
+            Define what each kind of team member is allowed to do
+          </p>
+        </div>
+        <button
+          onClick={() => (formOpen ? closeForms() : startCreating())}
+          className={formOpen ? SECONDARY_BUTTON : PRIMARY_BUTTON}
+        >
+          {formOpen ? (
+            <>
+              <X className="h-3.5 w-3.5" aria-hidden="true" />
+              Cancel
+            </>
+          ) : (
+            <>
+              <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+              New Role
+            </>
+          )}
+        </button>
+      </div>
+
+      {/* ── Stat tiles ── */}
+      <div className="mb-4 grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">
+        <StatTile
+          label="Custom"
+          value={customRoles.length}
+          detail="roles you defined"
+          accentColour={STAT_ACCENT.indigo}
+        />
+        <StatTile
+          label="System"
+          value={systemRoles.length}
+          detail="built in, not editable"
+          accentColour={STAT_ACCENT.slate}
+          valueColour="text-muted-foreground"
+        />
+        <StatTile
+          label="Permissions"
+          value={permissions.length}
+          detail="available to assign"
+          accentColour={STAT_ACCENT.blue}
+        />
+        <StatTile
+          label="Categories"
+          value={Object.keys(grouped).length}
+          detail="permission groups"
+          accentColour={STAT_ACCENT.green}
+        />
       </div>
 
       {error && <AlertBanner message={error} variant="error" />}
 
-      {/* Create role form */}
-      {showCreate && (
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle>New Custom Role</CardTitle>
-            <CardDescription>
-              Define a role with specific permissions
-            </CardDescription>
-          </CardHeader>
-          <form onSubmit={onCreateRole}>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="create-name">Internal Name</Label>
-                <Input
-                  id="create-name"
-                  name="name"
-                  placeholder="e.g. shift_lead"
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="create-label">Display Label</Label>
-                <Input
-                  id="create-label"
-                  name="displayLabel"
-                  placeholder="e.g. Shift Lead"
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="create-desc">Description</Label>
-                <Input
-                  id="create-desc"
-                  name="description"
-                  placeholder="What this role is for"
-                />
-              </div>
-
-              {/* Permission toggles grouped by category */}
-              <div className="space-y-4">
-                <Label>Permissions</Label>
-                {Object.entries(grouped).map(([category, perms]) => (
-                  <div key={category} className="rounded-md border p-3">
-                    <p className="mb-2 text-sm font-medium capitalize">
-                      {category}
-                    </p>
-                    <div className="space-y-1">
-                      {perms.map((perm) => (
-                        <label
-                          key={perm.id}
-                          className="flex items-center gap-2 text-sm"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={selectedPermissions.includes(perm.id)}
-                            onChange={() => togglePermission(perm.id)}
-                          />
-                          <span>{perm.description}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                ))}
+      <div className="space-y-4">
+        {/* ── Create form ── */}
+        {showCreate && (
+          <Panel title="New custom role" icon={Plus}>
+            <form onSubmit={onCreateRole} className="space-y-4 p-4">
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="create-name" className="text-xs">
+                    Internal name
+                  </Label>
+                  <Input
+                    id="create-name"
+                    name="name"
+                    placeholder="e.g. shift_lead"
+                    required
+                    className="h-9 text-sm"
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    Used in code. Lowercase, no spaces.
+                  </p>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="create-label" className="text-xs">
+                    Display label
+                  </Label>
+                  <Input
+                    id="create-label"
+                    name="displayLabel"
+                    placeholder="e.g. Shift Lead"
+                    required
+                    className="h-9 text-sm"
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    What your team sees.
+                  </p>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="create-desc" className="text-xs">
+                    Description
+                  </Label>
+                  <Input
+                    id="create-desc"
+                    name="description"
+                    placeholder="What this role is for"
+                    className="h-9 text-sm"
+                  />
+                </div>
               </div>
 
-              <Button type="submit">Create Role</Button>
-            </CardContent>
-          </form>
-        </Card>
-      )}
+              <PermissionPicker
+                grouped={grouped}
+                selected={selectedPermissions}
+                onToggle={togglePermission}
+              />
 
-      {/* Roles list */}
-      {roles.length === 0 ? (
-        // A failed load leaves the list empty too — the banner above already
-        // explains that, so don't also claim there are no roles.
-        error ? null : (
-        <EmptyState title="No custom roles yet" description="Create your first role to define granular permissions." />
-        )
-      ) : (
-        <div className="space-y-4">
-          {roles.map((role) => (
-            <Card key={role.id}>
-              {editingId === role.id ? (
-                <form onSubmit={(e) => onUpdateRole(e, role.id)}>
-                  <CardContent className="space-y-4 pt-6">
-                    <div className="space-y-2">
-                      <Label>Display Label</Label>
-                      <Input
-                        name="displayLabel"
-                        defaultValue={role.displayLabel}
-                        required
-                      />
+              <div className="flex flex-wrap gap-2">
+                <button type="submit" className={PRIMARY_BUTTON}>
+                  Create role
+                </button>
+                <button
+                  type="button"
+                  onClick={closeForms}
+                  className={SECONDARY_BUTTON}
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </Panel>
+        )}
+
+        {/* ── Roles list ── */}
+        {roles.length === 0 ? (
+          // A failed load leaves the list empty too — the banner above already
+          // explains that, so don't also claim there are no roles.
+          error ? null : (
+            <EmptyState
+              title="No roles yet"
+              description="Create a role to define what a group of people can do."
+              icon={KeyRound}
+              action={
+                <button onClick={startCreating} className={PRIMARY_BUTTON}>
+                  <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                  New Role
+                </button>
+              }
+            />
+          )
+        ) : (
+          <div className="space-y-3">
+            {roles.map((role) =>
+              editingId === role.id ? (
+                <Panel key={role.id} title={`Editing ${role.displayLabel}`} icon={Pencil}>
+                  <form
+                    onSubmit={(e) => onUpdateRole(e, role.id)}
+                    className="space-y-4 p-4"
+                  >
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Display label</Label>
+                        <Input
+                          name="displayLabel"
+                          defaultValue={role.displayLabel}
+                          required
+                          className="h-9 text-sm"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Description</Label>
+                        <Input
+                          name="description"
+                          defaultValue={role.description || ""}
+                          className="h-9 text-sm"
+                        />
+                      </div>
                     </div>
-                    <div className="space-y-2">
-                      <Label>Description</Label>
-                      <Input
-                        name="description"
-                        defaultValue={role.description || ""}
-                      />
-                    </div>
-                    <div className="space-y-4">
-                      <Label>Permissions</Label>
-                      {Object.entries(grouped).map(([category, perms]) => (
-                        <div key={category} className="rounded-md border p-3">
-                          <p className="mb-2 text-sm font-medium capitalize">
-                            {category}
-                          </p>
-                          <div className="space-y-1">
-                            {perms.map((perm) => (
-                              <label
-                                key={perm.id}
-                                className="flex items-center gap-2 text-sm"
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={selectedPermissions.includes(perm.id)}
-                                  onChange={() => togglePermission(perm.id)}
-                                />
-                                <span>{perm.description}</span>
-                              </label>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="flex gap-2">
-                      <Button type="submit" size="sm">Save</Button>
-                      <Button
+
+                    <PermissionPicker
+                      grouped={grouped}
+                      selected={selectedPermissions}
+                      onToggle={togglePermission}
+                    />
+
+                    <div className="flex flex-wrap gap-2">
+                      <button type="submit" className={PRIMARY_BUTTON}>
+                        Save changes
+                      </button>
+                      <button
                         type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          setEditingId(null);
-                          setSelectedPermissions([]);
-                        }}
+                        onClick={closeForms}
+                        className={SECONDARY_BUTTON}
                       >
                         Cancel
-                      </Button>
+                      </button>
                     </div>
-                  </CardContent>
-                </form>
+                  </form>
+                </Panel>
               ) : (
-                <>
-                  <CardHeader>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <CardTitle className="flex items-center gap-2">
+                <div
+                  key={role.id}
+                  className="overflow-hidden rounded-xl border border-border bg-card"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border px-4 py-3">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="text-[14px] font-semibold">
                           {role.displayLabel}
-                          {role.isSystemRole && (
-                            <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs text-blue-700">
-                              System
-                            </span>
-                          )}
-                        </CardTitle>
-                        <CardDescription>
-                          {role.name}
-                          {role.description && ` — ${role.description}`}
-                        </CardDescription>
+                        </h3>
+                        {role.isSystemRole && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-medium text-blue-700 dark:bg-blue-900 dark:text-blue-300">
+                            <Lock className="h-3 w-3" aria-hidden="true" />
+                            System
+                          </span>
+                        )}
                       </div>
-                      {!role.isSystemRole && (
-                        <div className="flex gap-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => startEditing(role)}
-                          >
-                            Edit
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => onDeleteRole(role.id)}
-                          >
-                            Delete
-                          </Button>
-                        </div>
-                      )}
+                      <p className="mt-0.5 text-[12px] text-muted-foreground">
+                        <code className="rounded bg-muted px-1 py-0.5">
+                          {role.name}
+                        </code>
+                        {role.description && ` — ${role.description}`}
+                      </p>
                     </div>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="mb-2 text-sm font-medium">
+
+                    {!role.isSystemRole && (
+                      <div className="flex shrink-0 gap-1.5">
+                        <button
+                          onClick={() => startEditing(role)}
+                          className={SECONDARY_BUTTON}
+                        >
+                          <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => setDeleteTarget(role)}
+                          className={DANGER_BUTTON}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                          Delete
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="p-4">
+                    <p className="mb-2 flex items-center gap-1.5 text-[12px] font-medium text-muted-foreground">
+                      <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
                       {role.rolePermissions.length} permission
                       {role.rolePermissions.length !== 1 ? "s" : ""}
                     </p>
-                    <div className="flex flex-wrap gap-1">
-                      {role.rolePermissions.map((rp) => (
-                        <span
-                          key={rp.permission.id}
-                          className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600"
-                        >
-                          {rp.permission.name}
-                        </span>
-                      ))}
-                    </div>
-                  </CardContent>
-                </>
-              )}
-            </Card>
-          ))}
-        </div>
-      )}
+                    {role.rolePermissions.length === 0 ? (
+                      <p className="text-[12px] text-muted-foreground">
+                        This role grants nothing. Anyone holding it can sign in
+                        and see nothing else.
+                      </p>
+                    ) : (
+                      <div className="flex flex-wrap gap-1">
+                        {role.rolePermissions.map((rp) => (
+                          <span
+                            key={rp.permission.id}
+                            title={rp.permission.description}
+                            className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground"
+                          >
+                            {rp.permission.name}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )
+            )}
+          </div>
+        )}
+      </div>
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title={`Delete "${deleteTarget?.displayLabel}"?`}
+        description="Anyone currently holding this role loses the permissions it grants. This cannot be undone."
+        confirmLabel="Delete role"
+        variant="destructive"
+        loading={deleting}
+        onConfirm={onConfirmDelete}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </div>
   );
 }
