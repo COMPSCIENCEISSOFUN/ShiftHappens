@@ -16,7 +16,7 @@ import { TaskRepository } from "@/repositories/task.repository";
 import { NOTIFICATION_TYPES } from "@/services/notification.service";
 import { prisma } from "@/lib/prisma";
 import { cleanDatabase } from "../helpers/cleanup";
-import { startOfTodaySgt } from "../helpers/time";
+import { hourInTimeZone } from "@/lib/timezone";
 
 const hourAlertService = new HourAlertService();
 const orgRepo = new OrganizationRepository();
@@ -79,10 +79,25 @@ beforeEach(async () => {
 });
 
 /**
- * Records `hours` of worked time for the staff member.
- * Clock-in is clamped to today at midnight so the shift never crosses
- * into yesterday — this keeps both the rolling-24h and calendar-day
- * hour checks stable regardless of what time the test suite runs.
+ * Records `hours` of worked time for the staff member, ENDING NOW.
+ *
+ * ## Why not clamped to midnight
+ *
+ * This used to clamp clock-in to the organisation's midnight so a shift "never
+ * crossed into yesterday", keeping the clock-in inside the calendar day. It
+ * clamped the START while keeping the DURATION, which pushed the END into the
+ * future: run at 01:00 with `hours` of 7, it produced a shift from 00:00 to
+ * 07:00 — six of those hours had not happened yet.
+ *
+ * That passed only because the rolling 24-hour sum used to add an interval's
+ * whole duration once its start fell inside the window. Now that hour totals
+ * count the OVERLAP with the window, work in the future correctly contributes
+ * nothing, and the fixture was left describing hours nobody had worked. The
+ * suite went red at 01:15 in the morning and would have been green again by
+ * breakfast, which is the worst kind of test failure.
+ *
+ * A shift ending now and starting `hours` ago is both what the tests mean and
+ * what actually happens on a roster.
  */
 async function seedWorkedHours(hours: number) {
   const task = await taskRepo.create({
@@ -91,15 +106,8 @@ async function seedWorkedHours(hours: number) {
     createdById: adminUserId,
   });
 
-  const now = new Date();
-  // The organisation's midnight, not the runner's. getHoursOnDate() sums the
-  // Singapore day, so clamping to a local midnight put the shift in the
-  // previous org-day whenever the two disagreed.
-  const todayStart = startOfTodaySgt(now);
-
-  const rawClockIn = new Date(now.getTime() - hours * 60 * 60 * 1000);
-  const clockIn = rawClockIn < todayStart ? todayStart : rawClockIn;
-  const clockOut = new Date(clockIn.getTime() + hours * 60 * 60 * 1000);
+  const clockOut = new Date();
+  const clockIn = new Date(clockOut.getTime() - hours * 60 * 60 * 1000);
 
   await prisma.taskAssignment.create({
     data: {
@@ -110,6 +118,24 @@ async function seedWorkedHours(hours: number) {
       clockInTime: clockIn,
       clockOutTime: clockOut,
     },
+  });
+
+  return { clockIn, clockOut };
+}
+
+/**
+ * Moves the organisation's day boundary to the hour a shift began.
+ *
+ * `operatingHoursStart` doubles as the business-day boundary, so a daily cap is
+ * judged over `[boundary, boundary + 24h)`. Pinning it to the shift's own start
+ * hour guarantees the whole shift lands in one business day, whatever time of
+ * day the suite happens to run — the alternative is a test that passes in the
+ * afternoon and fails at breakfast.
+ */
+async function alignBusinessDayToShiftStart(clockIn: Date) {
+  await prisma.companySettings.update({
+    where: { organizationId: orgId },
+    data: { operatingHoursStart: hourInTimeZone(clockIn) },
   });
 }
 
@@ -161,7 +187,13 @@ describe("HourAlertService", () => {
           isActive: true,
         },
       });
-      await seedWorkedHours(5); // under the 8h break rule, but over the 4h/day rule
+      const { clockIn } = await seedWorkedHours(5); // under the 8h break rule, over the 4h/day rule
+      // A daily cap is judged against the BUSINESS day, which begins at the
+      // organisation's operating-hours start. Aligning the boundary to the
+      // moment the shift began puts all five hours in one day no matter what
+      // time of day the suite runs — otherwise a run just after 06:00 would
+      // split the shift across two days and see only part of it.
+      await alignBusinessDayToShiftStart(clockIn);
 
       const status = await hourAlertService.getMemberStatus(
         staffMembershipId,
