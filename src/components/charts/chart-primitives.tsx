@@ -38,6 +38,22 @@ export interface Slice {
  * `sr-only` rather than a toggle: a visible table beside every chart would
  * double the page length, and this is the requirement's substance — the numbers
  * exist in text somewhere reachable.
+ *
+ * ## The wrapper div is load-bearing — do not put `sr-only` on the table
+ *
+ * `sr-only` works by making the element 1×1, absolutely positioned, with
+ * `overflow: hidden`. That is fine on a `<div>`. It is NOT fine on a `<table>`:
+ * CSS `height` on a table is a *minimum*, not a size, and `overflow` on a
+ * table box is not reliably honoured. So `<table class="sr-only">` lays out at
+ * its full natural height — and although it is absolutely positioned, and
+ * therefore does not push anything down, it still contributes to the page's
+ * scrollable area.
+ *
+ * The symptom is a page you can scroll a long way past its content into
+ * nothing. Measured in Chromium: an 800px page with a hidden 97-row table
+ * became 2935px with `sr-only` on the table, and stayed 800px with the table
+ * wrapped in an `sr-only` div. The coverage heatmap's table is 97 rows on a
+ * populated week, which is exactly how this was found.
  */
 function DataTable({
   caption,
@@ -49,23 +65,25 @@ function DataTable({
   valueHeading?: string;
 }) {
   return (
-    <table className="sr-only">
-      <caption>{caption}</caption>
-      <thead>
-        <tr>
-          <th scope="col">Category</th>
-          <th scope="col">{valueHeading}</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((r) => (
-          <tr key={r.label}>
-            <th scope="row">{r.label}</th>
-            <td>{r.value}</td>
+    <div className="sr-only">
+      <table>
+        <caption>{caption}</caption>
+        <thead>
+          <tr>
+            <th scope="col">Category</th>
+            <th scope="col">{valueHeading}</th>
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.label}>
+              <th scope="row">{r.label}</th>
+              <td>{r.value}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 

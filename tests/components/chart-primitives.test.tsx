@@ -92,6 +92,24 @@ describe("Donut", () => {
     expect(within(table).getByRole("rowheader", { name: "Free", hidden: true })).toBeInTheDocument();
   });
 
+  it("hides that table via a wrapper div, never on the table itself", () => {
+    // Not cosmetic. `sr-only` makes an element 1x1 with overflow hidden, which
+    // a <div> honours and a <table> does not — CSS height on a table is a
+    // minimum, so the table lays out at full height. Absolutely positioned, it
+    // pushes nothing down but still extends the page's scrollable area, and
+    // the user gets a page they can scroll a long way past its content into
+    // blank space. Measured in Chromium with the real coverage panel: 3480px
+    // of page with `sr-only` on the table, 1327px with the wrapper.
+    //
+    // jsdom does no layout, so this asserts the structure that produces the
+    // right layout rather than the layout itself. Stated plainly because a
+    // proxy assertion that looks like the real thing is worse than none.
+    const { container } = render(<Donut slices={slices} />);
+
+    expect(container.querySelector("table.sr-only")).toBeNull();
+    expect(container.querySelector("div.sr-only > table")).not.toBeNull();
+  });
+
   it("names each arc for a pointer, with its share", () => {
     const { container } = render(<Donut slices={slices} />);
     expect(arcs(container)[0].querySelector("title")?.textContent).toBe("Free: 3 (75%)");
@@ -246,5 +264,46 @@ describe("CoverageHeatmap", () => {
       />
     );
     expect(screen.getByText("No availability recorded")).toBeInTheDocument();
+  });
+});
+
+/* ------------------------------------------------------------------ */
+
+describe("every chart hides its data table the same way", () => {
+  /**
+   * The Donut test above covers today's code, because all four charts share
+   * one private `DataTable`. This covers tomorrow's: the moment somebody adds
+   * a chart with its own inline table, or stops using the shared one, the
+   * per-component check stops proving anything.
+   *
+   * Keyed by chart so a failure names which one regressed.
+   */
+  const CHARTS: Record<string, React.ReactElement> = {
+    Donut: <Donut slices={slices} />,
+    StackedBar: <StackedBar slices={slices} />,
+    BarList: <BarList rows={[{ key: "a", label: "Hour limits", value: 2 }]} />,
+    CoverageHeatmap: (
+      <CoverageHeatmap cells={[{ dayOfWeek: 1, hour: 9, count: 4 }]} />
+    ),
+  };
+
+  for (const [name, element] of Object.entries(CHARTS)) {
+    it(`${name} puts sr-only on a wrapper, not on a table`, () => {
+      const { container } = render(element);
+      expect(container.querySelector("table.sr-only")).toBeNull();
+    });
+  }
+
+  it("and every one of them actually ships a table", () => {
+    // Otherwise the assertion above passes for the wrong reason: a chart with
+    // no text equivalent at all trivially has no table wearing sr-only.
+    for (const [name, element] of Object.entries(CHARTS)) {
+      const { container, unmount } = render(element);
+      expect(
+        container.querySelector("div.sr-only > table"),
+        `${name} has no screen-reader table`
+      ).not.toBeNull();
+      unmount();
+    }
   });
 });
