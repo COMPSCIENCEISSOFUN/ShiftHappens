@@ -162,6 +162,7 @@ export const ROUTES: RouteSpec[] = [
   org("hour-alerts", "GET", MANAGER),
   org("hour-alerts", "POST", MANAGER, { suspension: true }),
   org("reports", "GET", MANAGER),
+  org("reports/engine", "GET", MANAGER),
   org("reports/export", "GET", MANAGER, { suspension: true }),
 
   // ── Assignment actions ──────────────────────────────────────────────

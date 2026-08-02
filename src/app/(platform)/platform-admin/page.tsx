@@ -36,6 +36,8 @@ import { PageLoading } from "@/components/ui/page-loading";
 import { Panel } from "@/components/ui/panel";
 import { StatTile, STAT_ACCENT } from "@/components/ui/stat-tile";
 import { SECONDARY_BUTTON } from "@/components/ui/button-styles";
+import { Donut } from "@/components/charts/chart-primitives";
+import { ORDINAL, NEUTRAL } from "@/components/charts/palette";
 
 interface PlatformStats {
   totalOrganizations: number;
@@ -51,18 +53,7 @@ const TIER_LABELS: Record<string, string> = {
   enterprise: "Enterprise",
 };
 
-/** Bar segment colours. Anything not listed falls back to slate. */
-const TIER_BAR: Record<string, string> = {
-  free: "bg-slate-400 dark:bg-slate-500",
-  pro: "bg-blue-500",
-  enterprise: "bg-purple-500",
-};
 
-const TIER_DOT: Record<string, string> = {
-  free: "bg-slate-400 dark:bg-slate-500",
-  pro: "bg-blue-500",
-  enterprise: "bg-purple-500",
-};
 
 /** The known tiers first, in plan order, then anything unexpected. */
 function orderedTiers(counts: Record<string, number>): string[] {
@@ -134,10 +125,6 @@ export default function PlatformAdminDashboard() {
   const totalOrgs = stats.totalOrganizations;
   const suspended = stats.totalOrganizations - stats.activeOrganizations;
 
-  /** 0 organisations means no percentages, not a divide-by-zero fudge. */
-  const percent = (count: number) =>
-    totalOrgs > 0 ? Math.round((count / totalOrgs) * 100) : 0;
-
   return (
     <div className="w-full">
       {/* ── Header ── */}
@@ -184,61 +171,27 @@ export default function PlatformAdminDashboard() {
       {/* ── Subscription distribution ── */}
       <Panel title="Subscription distribution" icon={PieChart}>
         <div className="p-4">
-          {totalOrgs === 0 ? (
-            <p className="text-[13px] text-muted-foreground">
-              No organisations yet. The tier split appears once the first tenant
-              signs up.
-            </p>
-          ) : (
-            <>
-              <div className="flex flex-wrap gap-x-6 gap-y-3">
-                {tiers.map((tier) => {
-                  const count = stats.tierCounts[tier] ?? 0;
-                  return (
-                    <div key={tier} className="flex items-center gap-2.5">
-                      <span
-                        aria-hidden="true"
-                        className={`h-2.5 w-2.5 shrink-0 rounded-full ${
-                          TIER_DOT[tier] ?? "bg-slate-400 dark:bg-slate-500"
-                        }`}
-                      />
-                      <div>
-                        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                          {tierLabel(tier)}
-                        </p>
-                        <p className="text-lg font-bold leading-tight tracking-tight">
-                          {count}
-                          <span className="ml-1.5 text-[11px] font-medium text-muted-foreground">
-                            {percent(count)}%
-                          </span>
-                        </p>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+          {/*
+            A donut, and an ORDINAL ramp rather than three unrelated hues.
+            Free → Pro → Enterprise is a ladder: reordering it would change the
+            meaning, so the colour carries the order (one hue, light to dark)
+            and the reader gets the ranking without consulting the legend.
+            Three arbitrary colours would throw that information away.
 
-              <div
-                role="img"
-                aria-label={tiers
-                  .map((t) => `${tierLabel(t)}: ${stats.tierCounts[t] ?? 0}`)
-                  .join(", ")}
-                className="mt-4 flex h-2 overflow-hidden rounded-full bg-muted"
-              >
-                {tiers.map((tier) => {
-                  const count = stats.tierCounts[tier] ?? 0;
-                  if (count === 0) return null;
-                  return (
-                    <div
-                      key={tier}
-                      className={TIER_BAR[tier] ?? "bg-slate-400 dark:bg-slate-500"}
-                      style={{ width: `${(count / totalOrgs) * 100}%` }}
-                    />
-                  );
-                })}
-              </div>
-            </>
-          )}
+            An unrecognised tier falls off the end of the ramp and takes the
+            neutral, which is honest — it has no position in a ladder the UI
+            does not know about.
+          */}
+          <Donut
+            slices={tiers.map((tier, i) => ({
+              key: tier,
+              label: tierLabel(tier),
+              value: stats.tierCounts[tier] ?? 0,
+              colour: i < ORDINAL.length ? ORDINAL[i] : NEUTRAL,
+            }))}
+            centreLabel="organisations"
+            emptyMessage="No organisations yet. The tier split appears once the first tenant signs up."
+          />
         </div>
       </Panel>
 

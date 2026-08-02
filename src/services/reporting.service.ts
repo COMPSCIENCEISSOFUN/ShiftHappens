@@ -219,6 +219,29 @@ export interface ReportingData {
 // Service
 // ============================================================
 
+/** Shape behind the AI allocation panel. See getAllocationEngineStats. */
+export interface AllocationEngineStats {
+  windowDays: number;
+  totalAssignments: number;
+  /** Assignments with no recorded provenance — pre-dating the feature. */
+  unrecorded: number;
+  sourceCounts: Record<string, number>;
+  providerCounts: Record<string, number>;
+  engineAssignments: number;
+  averageScore: number | null;
+  topPick: { total: number; retained: number; percentage: number | null };
+  otherPicks: { total: number; retained: number; percentage: number | null };
+}
+
+/** Shape behind the eligibility engine panel. */
+export interface EligibilityEngineStats {
+  windowDays: number;
+  totalOverrides: number;
+  totalAssignments: number;
+  ruleCounts: Record<string, number>;
+  overrideRate: number | null;
+}
+
 export class ReportingService {
   private reportingRepo = new ReportingRepository();
   private settingsRepo = new SettingsRepository();
@@ -633,9 +656,20 @@ export class ReportingService {
    * or when the task-to-staff ratio exceeds 5:1.
    */
   async getDepartmentWorkload(
-    organizationId: string
+    organizationId: string,
+    /**
+     * Added 2026-08-02. The repository has always accepted a scope; this method
+     * silently dropped it, so a department-scoped manager saw the task and
+     * staff counts of every department in the organisation. The dashboard
+     * route happened to be safe because it never called this one — the PDF
+     * export did.
+     */
+    departmentIds?: string[]
   ): Promise<DepartmentWorkloadItem[]> {
-    const metrics = await this.reportingRepo.getDepartmentMetrics(organizationId);
+    const metrics = await this.reportingRepo.getDepartmentMetrics(
+      organizationId,
+      departmentIds
+    );
 
     return metrics.map((d) => ({
       id: d.id,
@@ -1149,6 +1183,145 @@ export class ReportingService {
         requiredSlots === 0
           ? 100
           : Math.round((filledSlots / requiredSlots) * 100),
+    };
+  }
+
+  // ============================================================
+  // Smart-engine panels
+  // ============================================================
+
+  /**
+   * Evidence that the allocation engine is doing work, and what kind.
+   *
+   * The honest framing matters here. `unrecorded` counts assignments made
+   * before provenance existed, or by a path nobody has instrumented — it is
+   * neither a success nor a failure of the engine, and it is reported rather
+   * than hidden so the percentages below cannot quietly be computed against a
+   * flattering denominator.
+   *
+   * `topPickRetained` is the closest thing to an accuracy measure the system
+   * can honestly produce: of the assignments where the engine ranked someone
+   * first, how many were still standing rather than rejected or withdrawn.
+   * It is not "the AI was right" — a shift can fall through for reasons no
+   * ranking could anticipate — but it is a real signal and it moves when the
+   * engine gets better or worse.
+   */
+  async getAllocationEngineStats(
+    organizationId: string,
+    windowDays = 30,
+    departmentIds?: string[] | null
+  ): Promise<AllocationEngineStats> {
+    const since = new Date(
+      startOfDayInTimeZone(new Date()).getTime() - windowDays * DAY_MS
+    );
+
+    const [bySource, byProvider, engineRows, totalAssignments] = await Promise.all([
+      this.reportingRepo.countAssignmentsBySource(organizationId, since, departmentIds),
+      this.reportingRepo.countAssignmentsByProvider(organizationId, since, departmentIds),
+      this.reportingRepo.getEngineAssignments(organizationId, since, departmentIds),
+      this.reportingRepo.countAssignmentsSince(organizationId, since, departmentIds),
+    ]);
+
+    const sourceCounts: Record<string, number> = {};
+    let unrecorded = 0;
+    for (const row of bySource) {
+      if (row.source === null) unrecorded += row.count;
+      else sourceCounts[row.source] = (sourceCounts[row.source] ?? 0) + row.count;
+    }
+
+    const providerCounts: Record<string, number> = {};
+    for (const row of byProvider) {
+      // A provider of null on an engine-made row means the strategy was not
+      // captured — possible on auto-schedule rows whose client did not echo
+      // it back. Kept separate from "algorithmic", which is a real strategy.
+      const key = row.provider ?? "unrecorded";
+      providerCounts[key] = (providerCounts[key] ?? 0) + row.count;
+    }
+
+    const FELL_THROUGH = ["rejected", "withdrawn"];
+    const topPicks = engineRows.filter((r) => r.rank === 1);
+    const topPicksRetained = topPicks.filter(
+      (r) => !FELL_THROUGH.includes(r.status)
+    ).length;
+    const otherPicks = engineRows.filter((r) => r.rank !== null && r.rank > 1);
+    const otherRetained = otherPicks.filter(
+      (r) => !FELL_THROUGH.includes(r.status)
+    ).length;
+
+    const scored = engineRows.filter(
+      (r): r is typeof r & { score: number } => typeof r.score === "number"
+    );
+    const averageScore =
+      scored.length > 0
+        ? Math.round(
+            (scored.reduce((sum, r) => sum + r.score, 0) / scored.length) * 10
+          ) / 10
+        : null;
+
+    return {
+      windowDays,
+      totalAssignments,
+      unrecorded,
+      sourceCounts,
+      providerCounts,
+      engineAssignments: engineRows.length,
+      averageScore,
+      topPick: {
+        total: topPicks.length,
+        retained: topPicksRetained,
+        percentage:
+          topPicks.length > 0
+            ? Math.round((topPicksRetained / topPicks.length) * 100)
+            : null,
+      },
+      otherPicks: {
+        total: otherPicks.length,
+        retained: otherRetained,
+        percentage:
+          otherPicks.length > 0
+            ? Math.round((otherRetained / otherPicks.length) * 100)
+            : null,
+      },
+    };
+  }
+
+  /**
+   * Evidence that the constraint engine is real and being used.
+   *
+   * An override is a manager telling the system it was wrong — so a high
+   * override rate is not necessarily a bug, but a rate of zero across a busy
+   * month usually means nobody is hitting the rules at all, which is worth
+   * knowing before claiming the engine constrains anything.
+   */
+  async getEligibilityEngineStats(
+    organizationId: string,
+    windowDays = 30,
+    departmentIds?: string[] | null
+  ): Promise<EligibilityEngineStats> {
+    const since = new Date(
+      startOfDayInTimeZone(new Date()).getTime() - windowDays * DAY_MS
+    );
+
+    const [byRule, totalOverrides, totalAssignments] = await Promise.all([
+      this.reportingRepo.countOverridesByRule(organizationId, since, departmentIds),
+      this.reportingRepo.countOverrides(organizationId, since, departmentIds),
+      this.reportingRepo.countAssignmentsSince(organizationId, since, departmentIds),
+    ]);
+
+    const ruleCounts: Record<string, number> = {};
+    for (const row of byRule) {
+      ruleCounts[row.rule] = (ruleCounts[row.rule] ?? 0) + row.count;
+    }
+
+    return {
+      windowDays,
+      totalOverrides,
+      totalAssignments,
+      ruleCounts,
+      overrideRate:
+        totalAssignments > 0
+          ? Math.round((totalOverrides / totalAssignments) * 100)
+          : null,
     };
   }
 }

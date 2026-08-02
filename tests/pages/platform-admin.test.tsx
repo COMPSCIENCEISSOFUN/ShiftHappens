@@ -94,8 +94,10 @@ describe("Platform dashboard", () => {
     render(<Dashboard />);
 
     await screen.findByText("Subscription distribution");
-    expect(screen.getByText("Free")).toBeInTheDocument();
-    expect(screen.getByText("Enterprise")).toBeInTheDocument();
+    // Each label appears twice — once in the donut's legend and once in the
+    // screen-reader table beside it. Both are deliberate.
+    expect(screen.getAllByText("Free").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Enterprise").length).toBeGreaterThan(0);
   });
 
   it("makes one request, not one per resource", async () => {
@@ -115,7 +117,7 @@ describe("Platform dashboard", () => {
     });
     render(<Dashboard />);
 
-    expect(await screen.findByText("trial")).toBeInTheDocument();
+    expect((await screen.findAllByText("trial")).length).toBeGreaterThan(0);
   });
 
   it("shows the server's own error message", async () => {

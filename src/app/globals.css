@@ -230,6 +230,72 @@
   color: rgba(255, 255, 255, 0.8);
 }
 
+/* ---- Chart palette ------------------------------------------------------
+ *
+ * Validated, not eyeballed. Every value below is a documented step, and each
+ * group was run through the palette validator in both light and dark before
+ * being written down. The results are recorded in
+ * src/components/charts/palette.ts so nobody has to take this on trust.
+ *
+ * The split matters: identity, order and magnitude are three different jobs
+ * and each takes a different kind of ramp. Using one set of "nice colours" for
+ * all three is what makes a dashboard unreadable.
+ *
+ * Defined as custom properties rather than inline hex because the charts are
+ * hand-rolled with inline styles, and an inline style cannot respond to the
+ * .dark class. Dark is a selected set of steps for the dark surface, not an
+ * automatic flip of the light ones.
+ */
+:root {
+  /* Categorical — identity. Fixed order, assigned in sequence, never cycled. */
+  --chart-cat-1: #2a78d6;
+  --chart-cat-2: #eb6834;
+  --chart-cat-3: #1baf7a;
+  /* Absence of data. Deliberately not a categorical hue — "unrecorded" is not
+     a series and must not compete with one. */
+  --chart-neutral: #b6b3ad;
+
+  /* Ordinal — position in a sequence (subscription tiers). One hue, three
+     steps, light to dark, so the order is visible in the colour itself. */
+  --chart-ord-1: #86b6ef;
+  --chart-ord-2: #2a78d6;
+  --chart-ord-3: #184f95;
+
+  /* Sequential — magnitude (coverage heatmap). The lightest step is allowed to
+     recede toward the surface: on this ramp "nearly nothing" should look like
+     nearly nothing. */
+  --chart-seq-0: #f0efec;
+  --chart-seq-1: #cde2fb;
+  --chart-seq-2: #9ec5f4;
+  --chart-seq-3: #5598e7;
+  --chart-seq-4: #2a78d6;
+  --chart-seq-5: #184f95;
+
+  /* Recessive furniture. */
+  --chart-track: #eceae6;
+}
+
+/* Dark steps — selected against the dark surface (#1a1a19), then validated. */
+.dark {
+  --chart-cat-1: #3987e5;
+  --chart-cat-2: #d95926;
+  --chart-cat-3: #199e70;
+  --chart-neutral: #6b6862;
+
+  --chart-ord-1: #184f95;
+  --chart-ord-2: #2a78d6;
+  --chart-ord-3: #86b6ef;
+
+  --chart-seq-0: #262624;
+  --chart-seq-1: #0d366b;
+  --chart-seq-2: #184f95;
+  --chart-seq-3: #2a78d6;
+  --chart-seq-4: #5598e7;
+  --chart-seq-5: #9ec5f4;
+
+  --chart-track: #2e2d2a;
+}
+
 /* ---- Sidebar mobile: overlay drawer ---- */
 @media (max-width: 767px) {
   .app-sidebar {

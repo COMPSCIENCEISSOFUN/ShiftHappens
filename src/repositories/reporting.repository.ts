@@ -1093,4 +1093,174 @@ export class ReportingRepository {
       assignedCount: t._count.assignments,
     }));
   }
+
+  // ============================================================
+  // Smart-engine evidence
+  //
+  // These read the allocation provenance recorded on TaskAssignment and the
+  // EligibilityOverride table. Both are org-scoped through the parent Task /
+  // Membership rather than directly, because neither carries an
+  // organizationId of its own.
+  // ============================================================
+
+  /**
+   * Assignments grouped by how they were created, within a window.
+   *
+   * `allocationSource: null` is included deliberately and reported as its own
+   * bucket. Every assignment written before provenance existed has NULL there,
+   * and folding those into "manual" would invent a human decision for each one
+   * — which is exactly the overstatement these charts are meant to avoid.
+   */
+  async countAssignmentsBySource(
+    organizationId: string,
+    since: Date,
+    departmentIds?: string[] | null
+  ): Promise<{ source: string | null; count: number }[]> {
+    const groups = await prisma.taskAssignment.groupBy({
+      by: ["allocationSource"],
+      where: {
+        task: {
+          organizationId,
+          ...(departmentIds != null ? { departmentId: { in: departmentIds } } : {}),
+        },
+        createdAt: { gte: since },
+      },
+      _count: { _all: true },
+    });
+
+    return groups.map((g) => ({
+      source: g.allocationSource,
+      count: g._count._all,
+    }));
+  }
+
+  /** Assignments grouped by the strategy that ranked them. */
+  async countAssignmentsByProvider(
+    organizationId: string,
+    since: Date,
+    departmentIds?: string[] | null
+  ): Promise<{ provider: string | null; count: number }[]> {
+    const groups = await prisma.taskAssignment.groupBy({
+      by: ["allocationProvider"],
+      where: {
+        task: {
+          organizationId,
+          ...(departmentIds != null ? { departmentId: { in: departmentIds } } : {}),
+        },
+        createdAt: { gte: since },
+        // Only engine-made assignments have a provider; a manual pick has no
+        // strategy and would otherwise dominate the split as a null bucket.
+        allocationSource: { in: ["ai_suggested", "auto_scheduled"] },
+      },
+      _count: { _all: true },
+    });
+
+    return groups.map((g) => ({
+      provider: g.allocationProvider,
+      count: g._count._all,
+    }));
+  }
+
+  /**
+   * Engine-made assignments with their rank, score and eventual status.
+   *
+   * Returned as rows rather than pre-aggregated because the interesting
+   * questions cut across two dimensions at once — "was the top-ranked pick
+   * rejected more often than the rest?" — and Prisma cannot express that in a
+   * single groupBy. The row count is bounded by the window, and only
+   * engine-made assignments qualify.
+   */
+  async getEngineAssignments(
+    organizationId: string,
+    since: Date,
+    departmentIds?: string[] | null
+  ): Promise<
+    { rank: number | null; score: number | null; status: string; source: string | null }[]
+  > {
+    const rows = await prisma.taskAssignment.findMany({
+      where: {
+        task: {
+          organizationId,
+          ...(departmentIds != null ? { departmentId: { in: departmentIds } } : {}),
+        },
+        createdAt: { gte: since },
+        allocationSource: { in: ["ai_suggested", "auto_scheduled"] },
+      },
+      select: {
+        allocationRank: true,
+        allocationScore: true,
+        status: true,
+        allocationSource: true,
+      },
+    });
+
+    return rows.map((r) => ({
+      rank: r.allocationRank,
+      score: r.allocationScore,
+      status: r.status,
+      source: r.allocationSource,
+    }));
+  }
+
+  /**
+   * Eligibility overrides grouped by which rule was bypassed.
+   *
+   * EligibilityOverride has no organizationId, so this scopes through the
+   * task. The repository for that model only ever queries by task or
+   * membership id, which is why this lives here rather than there — an
+   * org-wide view is a reporting question.
+   */
+  async countOverridesByRule(
+    organizationId: string,
+    since: Date,
+    departmentIds?: string[] | null
+  ): Promise<{ rule: string; count: number }[]> {
+    const groups = await prisma.eligibilityOverride.groupBy({
+      by: ["ruleOverridden"],
+      where: {
+        createdAt: { gte: since },
+        task: {
+          organizationId,
+          ...(departmentIds != null ? { departmentId: { in: departmentIds } } : {}),
+        },
+      },
+      _count: { _all: true },
+    });
+
+    return groups.map((g) => ({ rule: g.ruleOverridden, count: g._count._all }));
+  }
+
+  /** Total overrides in the window, for "N of M assignments needed one". */
+  async countOverrides(
+    organizationId: string,
+    since: Date,
+    departmentIds?: string[] | null
+  ): Promise<number> {
+    return prisma.eligibilityOverride.count({
+      where: {
+        createdAt: { gte: since },
+        task: {
+          organizationId,
+          ...(departmentIds != null ? { departmentId: { in: departmentIds } } : {}),
+        },
+      },
+    });
+  }
+
+  /** Assignments created in the window, as the denominator for the above. */
+  async countAssignmentsSince(
+    organizationId: string,
+    since: Date,
+    departmentIds?: string[] | null
+  ): Promise<number> {
+    return prisma.taskAssignment.count({
+      where: {
+        task: {
+          organizationId,
+          ...(departmentIds != null ? { departmentId: { in: departmentIds } } : {}),
+        },
+        createdAt: { gte: since },
+      },
+    });
+  }
 }
