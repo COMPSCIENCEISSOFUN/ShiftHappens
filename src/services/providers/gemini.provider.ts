@@ -25,6 +25,8 @@ interface UntrustedRanking {
 }
 
 export class GeminiProvider implements AIProvider {
+  readonly name = "gemini" as const;
+
   private apiKey: string;
 
   constructor() {

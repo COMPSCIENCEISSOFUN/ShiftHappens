@@ -27,6 +27,8 @@ interface UntrustedRanking {
 }
 
 export class GroqProvider implements AIProvider {
+  readonly name = "groq" as const;
+
   private apiKey: string;
   private model: string;
 

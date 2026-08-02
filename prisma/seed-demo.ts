@@ -32,6 +32,55 @@ import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
 
+/**
+ * Deterministic allocation provenance for a seeded assignment.
+ *
+ * Keyed off an integer derived from the loop counters rather than random, so
+ * `npx tsx prisma/seed-demo.ts` twice produces byte-identical data. A demo you
+ * cannot reproduce is a demo you cannot screenshot.
+ *
+ * The distribution is chosen to make the Engine Insights page readable rather
+ * than flattering:
+ *   - ~40% manual, because most real assignments still are
+ *   - ~35% AI-suggested, with rank and score, mostly rank 1 but not always
+ *   - ~15% auto-scheduled from a confirmed week draft
+ *   - ~10% left entirely unrecorded, so the "we do not know" case is on screen
+ *
+ * Providers are split across groq and gemini with a slice on the algorithmic
+ * fallback — that last one matters, because seeing the fallback in the chart is
+ * the point of recording the provider at all.
+ */
+function allocationProvenanceFor(seed: number): {
+  allocationSource?: string;
+  allocationProvider?: string;
+  allocationRank?: number;
+  allocationScore?: number;
+} {
+  const bucket = seed % 20;
+
+  if (bucket < 2) return {}; // unrecorded
+
+  if (bucket < 10) return { allocationSource: "manual" };
+
+  if (bucket < 17) {
+    const rank = (seed % 3) + 1;
+    return {
+      allocationSource: "ai_suggested",
+      allocationProvider: bucket % 3 === 0 ? "gemini" : "groq",
+      allocationRank: rank,
+      allocationScore: 92 - rank * 9 - (seed % 5),
+    };
+  }
+
+  return {
+    allocationSource: "auto_scheduled",
+    allocationProvider: bucket === 19 ? "algorithmic" : "groq",
+    allocationRank: (seed % 2) + 1,
+    allocationScore: 80 - (seed % 7),
+  };
+}
+
+
 type Tx = Prisma.TransactionClient;
 
 async function seedAll(tx: Tx) {
@@ -808,6 +857,18 @@ async function seedAll(tx: Tx) {
         const clockOut = new Date(endTime);
         clockOut.setMinutes(clockOut.getMinutes() - 10 + a * 3);
 
+        // Allocation provenance. Without this the Engine Insights page opens
+        // on an empty set for a fresh demo database — the columns are nullable
+        // and every seeded row would read as "unrecorded", which is accurate
+        // but useless to demonstrate against.
+        //
+        // The mix is deterministic, not random: seeds must produce the same
+        // database twice or a screenshot stops matching the data behind it.
+        // Roughly half the rows are engine-made, split between the two engine
+        // paths, with a minority left unrecorded on purpose so the page's
+        // handling of that case is visible rather than theoretical.
+        const provenance = allocationProvenanceFor(daysAgo * 10 + t * 3 + a);
+
         await tx.taskAssignment.create({
           data: {
             taskId: task.id,
@@ -816,6 +877,7 @@ async function seedAll(tx: Tx) {
             status: "completed",
             clockInTime: clockIn,
             clockOutTime: clockOut,
+            ...provenance,
           },
         });
       }
@@ -835,11 +897,11 @@ async function seedAll(tx: Tx) {
   });
 
   const rejectionData = [
-    { staffIndex: 0, taskIndex: 0, reason: "schedule_conflict", notes: "Have class until 3pm" },
-    { staffIndex: 0, taskIndex: 1, reason: "exceeds_preferred_hours", notes: "Already worked 35hrs this week" },
-    { staffIndex: 0, taskIndex: 2, reason: "schedule_conflict", notes: "Exam preparation" },
-    { staffIndex: 1, taskIndex: 0, reason: "feeling_unwell" },
-    { staffIndex: 1, taskIndex: 1, reason: "transport_issues", notes: "Bus route cancelled" },
+    { staffIndex: 0, taskIndex: 0, reason: "schedule_conflict", notes: "Have class until 3pm", rank: 1, score: 88 },
+    { staffIndex: 0, taskIndex: 1, reason: "exceeds_preferred_hours", notes: "Already worked 35hrs this week", rank: 2, score: 71 },
+    { staffIndex: 0, taskIndex: 2, reason: "schedule_conflict", notes: "Exam preparation", rank: 3, score: 64 },
+    { staffIndex: 1, taskIndex: 0, reason: "feeling_unwell", rank: 2, score: 69 },
+    { staffIndex: 1, taskIndex: 1, reason: "transport_issues", notes: "Bus route cancelled", rank: 4, score: 52 },
   ];
 
   for (const rej of rejectionData) {
@@ -853,6 +915,9 @@ async function seedAll(tx: Tx) {
     });
     if (existingAssignment) continue;
 
+    // Some rejections come from engine picks, so "did the top pick hold up?"
+    // has something to measure. A retention figure of a flat 100% would be
+    // indistinguishable from the metric being broken.
     await tx.taskAssignment.create({
       data: {
         taskId,
@@ -861,11 +926,61 @@ async function seedAll(tx: Tx) {
         status: "rejected",
         rejectionReason: rej.reason,
         rejectionNotes: rej.notes,
+        allocationSource: "ai_suggested",
+        allocationProvider: "groq",
+        allocationRank: rej.rank,
+        allocationScore: rej.score,
       },
     });
   }
 
   console.log("Created 5 rejected assignments (Alex: 3, Jamie: 2)");
+
+  // ============================================================
+  // Eligibility overrides (for the Engine Insights page)
+  //
+  // An override is the persisted trace of a manager disagreeing with the
+  // constraint engine. Without a few of these the eligibility panel renders an
+  // empty bar list, which reads as "the engine does nothing" rather than "this
+  // database is new".
+  //
+  // Spread across rule types on purpose: a single rule would make the chart a
+  // one-bar chart, which proves nothing about the breakdown working.
+  // ============================================================
+  console.log("Creating eligibility overrides...");
+
+  const overrideFixtures = [
+    { staffIndex: 0, taskIndex: 0, rule: "hours_limit", reason: "Short-staffed for the dinner rush; agreed the extra hour with Alex directly." },
+    { staffIndex: 1, taskIndex: 1, rule: "availability", reason: "Jamie offered to cover outside their usual window." },
+    { staffIndex: 2, taskIndex: 2, rule: "certification", reason: "Food Safety renewal is submitted and pending verification." },
+    { staffIndex: 0, taskIndex: 3, rule: "hours_limit", reason: "Public holiday cover — approved by the duty manager." },
+    { staffIndex: 1, taskIndex: 4, rule: "work_rules", reason: "Break taken earlier in the shift than the rule assumes." },
+  ];
+
+  for (const fixture of overrideFixtures) {
+    if (fixture.taskIndex >= recentTasks.length) continue;
+    if (fixture.staffIndex >= staffMembershipIds.length) continue;
+
+    const membershipId = staffMembershipIds[fixture.staffIndex];
+    const taskId = recentTasks[fixture.taskIndex].id;
+
+    const existing = await tx.eligibilityOverride.findFirst({
+      where: { taskId, membershipId, ruleOverridden: fixture.rule },
+    });
+    if (existing) continue;
+
+    await tx.eligibilityOverride.create({
+      data: {
+        taskId,
+        membershipId,
+        overriddenById: adminUser.id,
+        ruleOverridden: fixture.rule,
+        reason: fixture.reason,
+      },
+    });
+  }
+
+  console.log("Created eligibility overrides across 4 rule types");
 
   // ============================================================
   // Unaffiliated user (for onboarding demo)

@@ -12,7 +12,12 @@
  * them to the AI provider for intelligent ranking.
  */
 import { FallbackRanker } from "./fallback-ranker";
-import type { AIProvider, StaffCandidate, RankedStaff } from "./ai-provider";
+import type {
+  AIProvider,
+  StaffCandidate,
+  RankedStaff,
+  RankingResult,
+} from "./ai-provider";
 import { GroqProvider } from "./providers/groq.provider";
 import { GeminiProvider } from "./providers/gemini.provider";
 import { EligibilityService } from "./eligibility.service";
@@ -46,32 +51,50 @@ export class AllocationService {
   /**
    * Tries each AI provider in order. If one fails, falls back to the next.
    * If all fail, uses the algorithmic fallback ranker.
+   *
+   * Returns which strategy won as well as the ranking. That is the whole
+   * change: the failover was previously write-only — a `console.error` on a
+   * serverless host nobody reads — so a revoked API key would degrade the
+   * product to the algorithmic ranker permanently and silently. The caller can
+   * now record it against the assignment.
    */
   private async rankWithFailover(
     task: Parameters<AIProvider["rankStaff"]>[0],
     candidates: Parameters<AIProvider["rankStaff"]>[1]
-  ): Promise<RankedStaff[]> {
+  ): Promise<RankingResult> {
     for (const provider of this.providers) {
       try {
-        const result = await provider.rankStaff(task, candidates);
-        return result;
+        const rankings = await provider.rankStaff(task, candidates);
+        return { rankings, provider: provider.name };
       } catch (error) {
         console.error("[AI Failover] Provider failed, trying next:", error);
       }
     }
 
     console.error("[AI Failover] All providers failed, using algorithmic ranking");
-    return FallbackRanker.rank(candidates);
+    return { rankings: FallbackRanker.rank(candidates), provider: "algorithmic" };
   }
 
   /**
    * Gets AI-ranked suggestions for a task.
-   * Gathers staff attributes and sends to AI for ranking.
+   *
+   * Kept returning a bare `RankedStaff[]` because that is what the suggest
+   * route and its UI consume. `getRankedSuggestions` is the same work with the
+   * provider attached, for callers that go on to persist the decision.
    */
   async getSuggestions(
     taskId: string,
     organizationId: string
   ): Promise<RankedStaff[]> {
+    const { rankings } = await this.getRankedSuggestions(taskId, organizationId);
+    return rankings;
+  }
+
+  /** As `getSuggestions`, but reports which strategy produced the ranking. */
+  async getRankedSuggestions(
+    taskId: string,
+    organizationId: string
+  ): Promise<RankingResult> {
     const task = await this.taskRepo.findById(taskId);
     if (!task || task.organizationId !== organizationId) throw new Error("Task not found");
 
@@ -92,7 +115,9 @@ export class AllocationService {
       .filter((e) => !rejectedMembershipIds.has(e.membershipId));
 
     if (eligibleStaff.length === 0) {
-      return [];
+      // No candidates means no strategy ran. Reporting a provider here would
+      // put a phantom row in the AI-vs-fallback split for work never done.
+      return { rankings: [], provider: "algorithmic" };
     }
 
     const settings = await this.settingsRepo.getOrCreate(organizationId);
@@ -108,7 +133,7 @@ export class AllocationService {
       candidates.push(candidate);
     }
 
-    const rankings = await this.rankWithFailover(
+    return this.rankWithFailover(
       {
         title: task.title,
         department: task.department?.name || null,
@@ -119,8 +144,6 @@ export class AllocationService {
       },
       candidates
     );
-
-    return rankings;
   }
 
   /**
@@ -140,7 +163,10 @@ export class AllocationService {
       throw new Error("Auto allocation is not enabled");
     }
 
-    const rankings = await this.getSuggestions(taskId, organizationId);
+    const { rankings, provider } = await this.getRankedSuggestions(
+      taskId,
+      organizationId
+    );
 
     // Take top N based on required headcount
     const topN = rankings.slice(0, task.requiredHeadcount);
@@ -149,13 +175,21 @@ export class AllocationService {
       throw new Error("No eligible staff found for auto allocation");
     }
 
-    // Assign the top-ranked staff
-    const membershipIds = topN.map((r) => r.membershipId);
+    // Assign the top-ranked staff, recording what the engine thought of each
+    // one. Without this the rank and score are computed and thrown away, and
+    // "did the engine's first choice work out?" becomes unanswerable.
     return this.taskService.assignStaff(
       taskId,
       organizationId,
-      membershipIds,
-      assignedById
+      topN.map((r) => r.membershipId),
+      assignedById,
+      {
+        source: "ai_suggested",
+        provider,
+        byMembership: Object.fromEntries(
+          topN.map((r) => [r.membershipId, { rank: r.rank, score: r.score }])
+        ),
+      }
     );
   }
 

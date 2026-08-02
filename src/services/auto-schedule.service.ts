@@ -12,6 +12,7 @@
  * database IDs to prevent hallucinated CUIDs.
  */
 import { TaskRepository } from "@/repositories/task.repository";
+import { AI_PROVIDERS, type AIProviderName } from "./ai-provider";
 import { AvailabilityRepository } from "@/repositories/availability.repository";
 import { CertificationRepository } from "@/repositories/certification.repository";
 import { WorkRuleRepository } from "@/repositories/work-rule.repository";
@@ -63,6 +64,12 @@ export interface DraftAssignment {
 }
 
 export interface DraftSchedule {
+  /**
+   * Which strategy produced this draft. Server-computed and returned to the
+   * client so the confirm request can echo it back — see the note on
+   * `confirmSchedule` about how far that is trusted.
+   */
+  provider: AIProviderName;
   assignments: DraftAssignment[];
   unfilledTasks: { taskId: string; taskTitle: string; reason: string }[];
   summary: {
@@ -178,7 +185,7 @@ export class AutoScheduleService {
     const context = await this.collectWeekData(organizationId, weekStart);
 
     if (context.tasks.length === 0) {
-      return { assignments: [], unfilledTasks: [], summary: { totalTasks: 0, totalAssignments: 0, totalUnfilled: 0, hoursDistribution: [] } };
+      return { provider: "algorithmic", assignments: [], unfilledTasks: [], summary: { totalTasks: 0, totalAssignments: 0, totalUnfilled: 0, hoursDistribution: [] } };
     }
 
     try {
@@ -189,6 +196,9 @@ export class AutoScheduleService {
       console.log("[Auto-Schedule] AI failed, using algorithmic fallback:", error);
     }
 
+    // An AI draft with zero assignments counts as a failure, not as an AI
+    // result — otherwise a model that returns nothing useful still shows up in
+    // the charts as the engine having worked.
     return this.generateAlgorithmic(context);
   }
 
@@ -269,18 +279,21 @@ export class AutoScheduleService {
     const { prompt, taskMap, staffMap } = this.buildAIPrompt(context);
 
     let aiResponse: string | null = null;
+    let provider: AIProviderName = "groq";
     try {
       aiResponse = await this.callGroq(prompt);
     } catch {
       try {
         aiResponse = await this.callGemini(prompt);
+        provider = "gemini";
       } catch {
         throw new Error("Both AI providers failed");
       }
     }
 
     if (!aiResponse) throw new Error("Empty AI response");
-    return this.parseAIResponse(aiResponse, context, taskMap, staffMap);
+    const draft = this.parseAIResponse(aiResponse, context, taskMap, staffMap);
+    return { ...draft, provider };
   }
 
   /**
@@ -434,6 +447,10 @@ Use the exact task numbers (1, 2, 3...) and staff letters (A, B, C...) from abov
     }
 
     return {
+      // Overridden by generateWithAI when a model produced the draft. The
+      // default is correct for the algorithmic path, which is the only other
+      // caller.
+      provider: "algorithmic",
       assignments,
       unfilledTasks,
       summary: {
@@ -472,7 +489,27 @@ Use the exact task numbers (1, 2, 3...) and staff letters (A, B, C...) from abov
     return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
   }
 
-  async confirmSchedule(organizationId: string, assignments: DraftAssignment[], confirmedById: string) {
+  /**
+   * Writes a confirmed draft.
+   *
+   * `draftProvider` is echoed back by the client, so it is a claim rather than
+   * a fact — it is validated against the known provider names and otherwise
+   * dropped. Worth being explicit about: `allocationSource` here IS
+   * trustworthy, because reaching this method at all means the auto-schedule
+   * confirm endpoint ran. Only the model attribution is caller-asserted, and
+   * the worst a caller can do is mislabel its own organisation's chart.
+   */
+  async confirmSchedule(
+    organizationId: string,
+    assignments: DraftAssignment[],
+    confirmedById: string,
+    draftProvider?: string
+  ) {
+    const provider =
+      draftProvider && (AI_PROVIDERS as readonly string[]).includes(draftProvider)
+        ? draftProvider
+        : undefined;
+
     const settings = await this.settingsRepo.getOrCreate(organizationId);
     const assignmentStatus = settings.taskAcceptanceMode === "auto_accept" ? "accepted" : "pending";
 
@@ -505,6 +542,8 @@ Use the exact task numbers (1, 2, 3...) and staff letters (A, B, C...) from abov
         const assignment = await this.assignmentRepo.create({
           taskId: draft.taskId, membershipId: draft.membershipId,
           assignedById: confirmedById, status: assignmentStatus,
+          allocationSource: "auto_scheduled",
+          allocationProvider: provider,
         });
         created.push(assignment);
 
@@ -524,7 +563,7 @@ Use the exact task numbers (1, 2, 3...) and staff letters (A, B, C...) from abov
     await this.auditService.log({
       organizationId, userId: confirmedById,
       action: ACTIONS.TASK_ASSIGNED, entityType: "auto-schedule",
-      details: { assignmentsCreated: created.length, totalPlanned: assignments.length, status: assignmentStatus, rejectedCrossTenant: rejected.length },
+      details: { assignmentsCreated: created.length, totalPlanned: assignments.length, status: assignmentStatus, rejectedCrossTenant: rejected.length, allocationProvider: provider ?? null },
     });
 
     return {

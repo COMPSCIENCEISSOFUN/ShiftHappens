@@ -292,6 +292,29 @@ model TaskAssignment {
   clockInTime     DateTime?
   clockOutTime    DateTime?
   assignedById    String
+
+  // --- Allocation provenance -------------------------------------------
+  // How this assignment came to exist. All nullable: rows created before
+  // this existed have no answer, and "unknown" must stay distinguishable
+  // from "manual" or every historical row would be miscounted as a human
+  // decision the engine never touched.
+  //
+  // allocationSource: "manual" | "ai_suggested" | "auto_scheduled"
+  //   manual         — picked from the eligibility list by a person
+  //   ai_suggested   — single-task auto-allocate took the engine's top N
+  //   auto_scheduled — came from a confirmed week-long draft schedule
+  // allocationProvider: "groq" | "gemini" | "algorithmic"
+  //   Which strategy actually produced the ranking. Previously this only
+  //   reached a console.error, so a silent permanent failover to the
+  //   algorithmic ranker was invisible in production.
+  // allocationScore / allocationRank: the engine's own numbers at the moment
+  //   of assignment, kept so "did the manager take the top pick?" and
+  //   "do high-scoring assignments get rejected less?" are answerable.
+  allocationSource   String?
+  allocationProvider String?
+  allocationScore    Float?
+  allocationRank     Int?
+
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
@@ -303,6 +326,9 @@ model TaskAssignment {
   @@index([taskId])
   @@index([membershipId])
   @@index([status])
+  // The AI panel groups by source within an org and a date window. Without
+  // this it is a full scan of every assignment on the platform.
+  @@index([allocationSource, createdAt])
 }
 
 model Availability {

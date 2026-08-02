@@ -15,6 +15,7 @@ import { MembershipRepository } from "@/repositories/membership.repository";
 import { EligibilityService } from "@/services/eligibility.service";
 import type { CreateTaskInput, UpdateTaskInput } from "@/lib/validations";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
+import type { AllocationProvenance } from "@/lib/allocation-provenance";
 import { NotificationService, NOTIFICATION_TYPES } from "@/services/notification.service";
 import { SubscriptionService } from "@/services/subscription.service";
 import { EligibilityOverrideRepository } from "@/repositories/eligibility-override.repository";
@@ -363,7 +364,14 @@ export class TaskService {
     taskId: string,
     organizationId: string,
     membershipIds: string[],
-    assignedById: string
+    assignedById: string,
+    /**
+     * How the choice was made. Optional, and its absence is meaningful: a
+     * caller that does not pass it leaves the columns NULL rather than
+     * claiming a human decided, which would inflate the manual count with
+     * every assignment made by a path nobody has instrumented yet.
+     */
+    provenance?: AllocationProvenance
   ) {
     const task = await this.taskRepo.findById(taskId);
     if (!task || task.organizationId !== organizationId) throw new Error("Task not found");
@@ -424,11 +432,16 @@ export class TaskService {
 
     const assignments = [];
     for (const membId of membershipIds) {
+      const engine = provenance?.byMembership?.[membId];
       const assignment = await this.assignmentRepo.create({
         taskId,
         membershipId: membId,
         assignedById,
         status: assignmentStatus,
+        allocationSource: provenance?.source,
+        allocationProvider: provenance?.provider,
+        allocationScore: engine?.score,
+        allocationRank: engine?.rank,
       });
       assignments.push(assignment);
     }
@@ -439,7 +452,12 @@ export class TaskService {
       action: ACTIONS.TASK_ASSIGNED,
       entityType: "task",
       entityId: taskId,
-      details: { membershipIds, status: assignmentStatus },
+      details: {
+        membershipIds,
+        status: assignmentStatus,
+        allocationSource: provenance?.source ?? null,
+        allocationProvider: provenance?.provider ?? null,
+      },
     });
 
     for (const membId of membershipIds) {

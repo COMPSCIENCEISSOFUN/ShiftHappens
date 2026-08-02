@@ -61,6 +61,7 @@ interface UnfilledTask {
 }
 
 interface DraftSchedule {
+  provider?: string;
   assignments: DraftAssignment[];
   unfilledTasks: UnfilledTask[];
   summary: {
@@ -161,7 +162,11 @@ export default function AutoSchedulePage() {
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ assignments: draft.assignments }),
+          body: JSON.stringify({
+            assignments: draft.assignments,
+            // Echoed so the confirmed rows record which strategy produced them.
+            provider: draft.provider,
+          }),
         }
       );
 

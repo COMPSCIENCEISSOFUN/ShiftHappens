@@ -24,7 +24,31 @@ export interface RankedStaff {
   explanation: string;
 }
 
+/**
+ * Which strategy actually produced a ranking.
+ *
+ * This exists because failover was previously invisible. `rankWithFailover`
+ * caught a provider error, wrote it to `console.error`, and moved on — so an
+ * expired API key meant the product silently ran on the algorithmic ranker
+ * indefinitely, and nothing in the database, the response or the audit log
+ * said so. On a serverless host nobody reads those logs.
+ *
+ * "algorithmic" is not a failure state on its own: FallbackRanker is a real,
+ * deliberate strategy. What matters is being able to tell which one ran.
+ */
+export const AI_PROVIDERS = ["groq", "gemini", "algorithmic"] as const;
+export type AIProviderName = (typeof AI_PROVIDERS)[number];
+
+/** A ranking together with the strategy that produced it. */
+export interface RankingResult {
+  rankings: RankedStaff[];
+  provider: AIProviderName;
+}
+
 export interface AIProvider {
+  /** Identifies this strategy in provenance records. */
+  readonly name: AIProviderName;
+
   /**
    * Ranks eligible staff for a task based on multiple factors.
    * Returns a sorted array with scores and explanations.

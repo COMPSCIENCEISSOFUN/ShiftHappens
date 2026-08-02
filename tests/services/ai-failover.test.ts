@@ -145,17 +145,23 @@ describe("The failover chain reaches the algorithmic ranker", () => {
       // in effect for the providers the service constructs.
       const { AllocationService } = await import("@/services/allocation.service");
       const service = new AllocationService();
-      const ranked = await (
+      const result = await (
         service as unknown as {
-          rankWithFailover: (t: typeof task, c: StaffCandidate[]) => Promise<unknown[]>;
+          rankWithFailover: (
+            t: typeof task,
+            c: StaffCandidate[]
+          ) => Promise<{ rankings: unknown[]; provider: string }>;
         }
       ).rankWithFailover(task, candidates);
 
       // The distinguishing assertion: FallbackRanker weighs four factors, so its
       // scores are NOT the naive descending-by-hours sequence the providers'
       // private ranker produced. Compare against the real thing.
-      expect(ranked).toEqual(FallbackRanker.rank(candidates));
-      // And both provider failures were reported rather than swallowed.
+      expect(result.rankings).toEqual(FallbackRanker.rank(candidates));
+      // And the degradation is now reported in the return value, not only to a
+      // console nobody reads in production. This is what lets an assignment
+      // record that no model was involved.
+      expect(result.provider).toBe("algorithmic");
       expect(errorSpy).toHaveBeenCalled();
     } finally {
       errorSpy.mockRestore();

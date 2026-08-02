@@ -15,6 +15,9 @@
 import type { StaffCandidate, RankedStaff } from "./ai-provider";
 
 export class FallbackRanker {
+  /** Matches the `name` on the AI providers, so provenance reads the same way. */
+  static readonly name_ = "algorithmic" as const;
+
   /**
    * Ranks candidates using a weighted multi-factor scoring algorithm.
    * Each factor produces a 0-100 score, then weighted and combined.

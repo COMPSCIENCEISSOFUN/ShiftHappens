@@ -29,6 +29,11 @@ export class TaskAssignmentRepository {
     membershipId: string;
     assignedById: string;
     status?: string;
+    /** See src/lib/allocation-provenance.ts. Omitted means "not recorded". */
+    allocationSource?: string;
+    allocationProvider?: string;
+    allocationScore?: number;
+    allocationRank?: number;
   }) {
     return prisma.taskAssignment.create({
       data: {
@@ -36,6 +41,13 @@ export class TaskAssignmentRepository {
         membershipId: data.membershipId,
         assignedById: data.assignedById,
         status: data.status ?? "pending",
+        // Prisma treats undefined as "leave alone", which on a create means
+        // the column stays NULL — exactly the "not recorded" state wanted for
+        // any caller that does not know how the choice was made.
+        allocationSource: data.allocationSource,
+        allocationProvider: data.allocationProvider,
+        allocationScore: data.allocationScore,
+        allocationRank: data.allocationRank,
       },
     });
   }

@@ -42,7 +42,10 @@ export async function POST(
     const result = await autoScheduleService.confirmSchedule(
       orgId,
       body.assignments,
-      user.id
+      user.id,
+      // Echoed from the draft the client was given. The service validates it
+      // against the known provider names and drops anything else.
+      typeof body.provider === "string" ? body.provider : undefined
     );
 
     return NextResponse.json(result);
