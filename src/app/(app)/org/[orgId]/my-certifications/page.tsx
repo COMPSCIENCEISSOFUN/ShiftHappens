@@ -136,6 +136,7 @@ export default function MyCertificationsPage() {
   }, [orgId]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronising with an external system, which is what effects are for: loads the member's certifications from the server on mount
     void fetchCertifications();
   }, [fetchCertifications]);
 

@@ -63,26 +63,6 @@ export function CalendarAssignModal({
 
   const remaining = requiredHeadcount - currentCount;
 
-  useEffect(() => {
-    fetchEligibility();
-    fetchSuggestions();
-  }, [taskId]);
-
-  async function fetchEligibility() {
-    setLoadingEligibility(true);
-    try {
-      const res = await fetch(
-        `/api/organizations/${orgId}/tasks/${taskId}/eligibility`
-      );
-      if (res.ok) setEligibility(await res.json());
-      else setError("Failed to load eligible staff");
-    } catch {
-      setError("Failed to load eligible staff");
-    } finally {
-      setLoadingEligibility(false);
-    }
-  }
-
   async function fetchSuggestions() {
     setLoadingSuggestions(true);
     try {
@@ -99,6 +79,28 @@ export function CalendarAssignModal({
       setLoadingSuggestions(false);
     }
   }
+
+  async function fetchEligibility() {
+    setLoadingEligibility(true);
+    try {
+      const res = await fetch(
+        `/api/organizations/${orgId}/tasks/${taskId}/eligibility`
+      );
+      if (res.ok) setEligibility(await res.json());
+      else setError("Failed to load eligible staff");
+    } catch {
+      setError("Failed to load eligible staff");
+    } finally {
+      setLoadingEligibility(false);
+    }
+  }
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronising with an external system, which is what effects are for: loads eligibility and AI suggestions for the task being assigned
+    fetchEligibility();
+    fetchSuggestions();
+  }, [taskId]);
+
 
   async function handleAssign() {
     if (selected.length === 0) return;

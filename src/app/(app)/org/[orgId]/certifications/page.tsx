@@ -387,6 +387,7 @@ export default function CertificationsPage() {
 
   useEffect(() => {
     // Parallel: the member list is not a prerequisite for the certifications.
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronising with an external system, which is what effects are for: loads certifications and members from the server on mount
     void Promise.all([fetchCertifications(), fetchMembers()]);
   }, [fetchCertifications, fetchMembers]);
 

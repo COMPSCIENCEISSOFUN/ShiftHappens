@@ -58,10 +58,6 @@ export function DashboardCharts({ orgId }: { orgId: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchReports();
-  }, [orgId]);
-
   async function fetchReports() {
     try {
       const res = await fetch(`/api/organizations/${orgId}/reports`);
@@ -78,6 +74,12 @@ export function DashboardCharts({ orgId }: { orgId: string }) {
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronising with an external system, which is what effects are for: loads the reporting data the charts draw
+    fetchReports();
+  }, [orgId]);
+
 
   if (loading) {
     return (

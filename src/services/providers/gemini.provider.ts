@@ -7,6 +7,23 @@
  */
 import type { AIProvider, StaffCandidate, RankedStaff } from "../ai-provider";
 
+/**
+ * One entry of whatever the model returned, before it is trusted.
+ *
+ * `unknown`-valued fields rather than `any`: this is parsed JSON from a language
+ * model, so every field is a claim, not a fact. Typing them as `unknown` forces
+ * the coercions below to stay — `item.rank || index + 1` and the score clamp are
+ * the only things standing between a hallucinated payload and the ranking the
+ * scheduler acts on. With `any` those guards could be deleted and nothing would
+ * complain.
+ */
+interface UntrustedRanking {
+  membershipId?: unknown;
+  rank?: unknown;
+  score?: unknown;
+  explanation?: unknown;
+}
+
 export class GeminiProvider implements AIProvider {
   private apiKey: string;
 
@@ -111,11 +128,20 @@ export class GeminiProvider implements AIProvider {
       const parsed = JSON.parse(cleaned);
 
       if (Array.isArray(parsed)) {
-        return parsed.map((item: any, index: number) => ({
-          membershipId: item.membershipId || candidates[index]?.membershipId || "",
-          rank: item.rank || index + 1,
-          score: Math.min(100, Math.max(0, item.score || 0)),
-          explanation: item.explanation || "No explanation provided",
+        return parsed.map((item: UntrustedRanking, index: number) => ({
+          membershipId:
+            typeof item.membershipId === "string" && item.membershipId
+              ? item.membershipId
+              : candidates[index]?.membershipId || "",
+          rank: typeof item.rank === "number" ? item.rank : index + 1,
+          score:
+            typeof item.score === "number"
+              ? Math.min(100, Math.max(0, item.score))
+              : 0,
+          explanation:
+            typeof item.explanation === "string" && item.explanation
+              ? item.explanation
+              : "No explanation provided",
         }));
       }
     } catch (error) {

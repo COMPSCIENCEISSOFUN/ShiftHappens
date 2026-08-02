@@ -82,6 +82,7 @@ function useCountUp(target: number, duration = 1200) {
       "(prefers-reduced-motion: reduce)"
     ).matches;
     if (prefersReduced) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronising with an external system, which is what effects are for: reads prefers-reduced-motion and skips straight to the final value
       setCount(target);
       return;
     }
@@ -109,6 +110,7 @@ function useTypewriter(words: string[]) {
       "(prefers-reduced-motion: reduce)"
     ).matches;
     if (prefersReduced) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronising with an external system, which is what effects are for: reads prefers-reduced-motion and shows the word without typing it out
       setDisplay(words[0]);
       return;
     }

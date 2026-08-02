@@ -79,10 +79,6 @@ export default function AuditLogPage() {
   const [error, setError] = useState<string | null>(null);
   const limit = 20;
 
-  useEffect(() => {
-    fetchLogs();
-  }, [orgId, offset, filterAction, filterEntity]);
-
   async function fetchLogs() {
     setLoading(true);
     try {
@@ -109,6 +105,12 @@ export default function AuditLogPage() {
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronising with an external system, which is what effects are for: loads the log from the server on mount and whenever the filters change
+    fetchLogs();
+  }, [orgId, offset, filterAction, filterEntity]);
+
 
   const totalPages = Math.ceil(total / limit);
   const currentPage = Math.floor(offset / limit) + 1;

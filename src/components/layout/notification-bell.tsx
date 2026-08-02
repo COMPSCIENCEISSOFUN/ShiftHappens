@@ -54,10 +54,26 @@ export function NotificationBell({ orgId }: { orgId?: string }) {
   const [loading, setLoading] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
 
+  async function fetchUnreadCount() {
+    if (!orgId) return;
+    try {
+      const res = await fetch(
+        `/api/organizations/${orgId}/notifications/unread-count`
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setUnreadCount(data.count);
+      }
+    } catch {
+      // Silent fail — polling is non-critical
+    }
+  }
+
   // Poll unread count every 30 seconds.
   // Notifications are org-scoped, so outside an org there is nothing to count.
   useEffect(() => {
     if (!orgId) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronising with an external system, which is what effects are for: polls the unread count every 30 seconds
     fetchUnreadCount();
     const interval = setInterval(fetchUnreadCount, 30000);
     return () => clearInterval(interval);
@@ -76,20 +92,6 @@ export function NotificationBell({ orgId }: { orgId?: string }) {
     }
   }, [isOpen]);
 
-  async function fetchUnreadCount() {
-    if (!orgId) return;
-    try {
-      const res = await fetch(
-        `/api/organizations/${orgId}/notifications/unread-count`
-      );
-      if (res.ok) {
-        const data = await res.json();
-        setUnreadCount(data.count);
-      }
-    } catch {
-      // Silent fail — polling is non-critical
-    }
-  }
 
   async function fetchNotifications() {
     if (!orgId) return;

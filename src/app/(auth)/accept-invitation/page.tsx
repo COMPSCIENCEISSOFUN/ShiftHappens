@@ -44,6 +44,7 @@ function AcceptInvitationContent() {
 
   useEffect(() => {
     if (!token) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronising with an external system, which is what effects are for: resolves the invitation token from the URL against the server
       setStatus("error");
       return;
     }

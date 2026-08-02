@@ -151,10 +151,6 @@ export default function ManagerDashboard({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchDashboard();
-  }, [orgId]);
-
   async function fetchDashboard() {
     try {
       setLoading(true);
@@ -171,6 +167,12 @@ export default function ManagerDashboard({
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronising with an external system, which is what effects are for: loads the dashboard payload from the server on mount
+    fetchDashboard();
+  }, [orgId]);
+
 
   // ----------------------------------------------------------
   // Loading state

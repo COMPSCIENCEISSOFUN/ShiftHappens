@@ -292,12 +292,29 @@ export function AppSidebar({
   const [unreadCount, setUnreadCount] = useState(0);
   const [mobileOpen, setMobileOpen] = useState(false);
 
+  async function fetchUnreadCount() {
+    if (!orgId) return;
+    try {
+      const res = await fetch(
+        `/api/organizations/${orgId}/notifications/unread-count`
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setUnreadCount(data.count);
+      }
+    } catch {
+      // Non-critical — polling
+    }
+  }
+
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronising with an external system, which is what effects are for: marks the client as mounted so theme-dependent markup matches the server render
     setMounted(true);
   }, []);
 
   // Close sidebar on route change (mobile navigation)
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronising with an external system, which is what effects are for: closes the mobile drawer when the route changes
     setMobileOpen(false);
   }, [pathname]);
 
@@ -318,6 +335,7 @@ export function AppSidebar({
   // Notifications are org-scoped, so there is nothing to poll outside an org.
   useEffect(() => {
     if (!orgId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronising with an external system, which is what effects are for: polls the unread count, and resets it on leaving an organisation
       setUnreadCount(0);
       return;
     }
@@ -326,20 +344,6 @@ export function AppSidebar({
     return () => clearInterval(interval);
   }, [orgId]);
 
-  async function fetchUnreadCount() {
-    if (!orgId) return;
-    try {
-      const res = await fetch(
-        `/api/organizations/${orgId}/notifications/unread-count`
-      );
-      if (res.ok) {
-        const data = await res.json();
-        setUnreadCount(data.count);
-      }
-    } catch {
-      // Non-critical — polling
-    }
-  }
 
   // Build navigation sections based on role
   const sections: NavSection[] = [];

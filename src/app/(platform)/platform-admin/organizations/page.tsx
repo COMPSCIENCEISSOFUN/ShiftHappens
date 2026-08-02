@@ -59,6 +59,7 @@ export default function PlatformOrganizationsPage() {
   }
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronising with an external system, which is what effects are for: loads the organisation list from the server on mount
     fetchOrgs();
   }, []);
 

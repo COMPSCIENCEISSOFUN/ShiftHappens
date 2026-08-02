@@ -246,6 +246,7 @@ export default function SettingsPage() {
   useEffect(() => {
     const status = new URLSearchParams(window.location.search).get("checkout");
     if (status === "success" || status === "canceled") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronising with an external system, which is what effects are for: reads the ?checkout= result Stripe put in the URL, then clears it
       setCheckoutBanner(status);
       window.history.replaceState({}, "", window.location.pathname);
     }

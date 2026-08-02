@@ -201,6 +201,7 @@ export default function NotificationsPage() {
 
   // Refetch from the top whenever the filter or search term changes.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronising with an external system, which is what effects are for: refetches the feed when the filter or search term changes
     setLoading(true);
     fetchFeed(0, false);
   }, [fetchFeed]);

@@ -104,37 +104,6 @@ export default function MemberImportPage() {
   /** False until departments, member emails and the plan limit have all landed. */
   const [referenceReady, setReferenceReady] = useState(false);
 
-  // ─── Data fetching ──────────────────────────────────────────
-  useEffect(() => {
-    loadReferenceData();
-  }, [orgId]);
-
-  /**
-   * Loads everything the parser classifies against as one unit.
-   *
-   * These were three independent fetches while the drop zone was already live,
-   * so a file dropped in that window was validated against empty reference
-   * data: every department came back "not found", and every email that already
-   * belonged to a member sailed through as new. Nothing on screen said the
-   * check had been skipped — the preview simply lied. Resolving them together
-   * behind `referenceReady` removes the window rather than narrowing it.
-   */
-  async function loadReferenceData() {
-    setReferenceReady(false);
-
-    const [depts, subscription, emails] = await Promise.all([
-      fetchDepartments(),
-      fetchSubscription(),
-      fetchExistingMembers(),
-    ]);
-
-    setDepartments(depts);
-    setExistingEmails(emails);
-    setMemberLimit(subscription.limit);
-    setCurrentMemberCount(subscription.current);
-    setReferenceReady(true);
-  }
-
   async function fetchDepartments(): Promise<Department[]> {
     try {
       const res = await fetch(`/api/organizations/${orgId}/departments`);
@@ -176,6 +145,40 @@ export default function MemberImportPage() {
       return new Set(); // Non-critical
     }
   }
+
+  async function loadReferenceData() {
+    setReferenceReady(false);
+
+    const [depts, subscription, emails] = await Promise.all([
+      fetchDepartments(),
+      fetchSubscription(),
+      fetchExistingMembers(),
+    ]);
+
+    setDepartments(depts);
+    setExistingEmails(emails);
+    setMemberLimit(subscription.limit);
+    setCurrentMemberCount(subscription.current);
+    setReferenceReady(true);
+  }
+
+  // ─── Data fetching ──────────────────────────────────────────
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronising with an external system, which is what effects are for: loads departments, existing emails and the plan limit before the parser can classify anything
+    loadReferenceData();
+  }, [orgId]);
+
+  /**
+   * Loads everything the parser classifies against as one unit.
+   *
+   * These were three independent fetches while the drop zone was already live,
+   * so a file dropped in that window was validated against empty reference
+   * data: every department came back "not found", and every email that already
+   * belonged to a member sailed through as new. Nothing on screen said the
+   * check had been skipped — the preview simply lied. Resolving them together
+   * behind `referenceReady` removes the window rather than narrowing it.
+   */
+
 
   // ─── Column mapping (algorithmic fallback) ──────────────────
 
@@ -273,7 +276,7 @@ export default function MemberImportPage() {
       const rawEmpType = (raw[targetMap.get("employmentType") || ""] || "").trim();
 
       // ── Name validation ──
-      let name = rawName;
+      const name = rawName;
       if (!name) {
         errors.name = "Name is required";
       } else if (name.length < 2) {
@@ -281,7 +284,7 @@ export default function MemberImportPage() {
       }
 
       // ── Email validation ──
-      let email = rawEmail.toLowerCase();
+      const email = rawEmail.toLowerCase();
       if (!email) {
         errors.email = "Email is required";
       } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {

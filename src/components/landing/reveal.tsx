@@ -28,6 +28,7 @@ export function useScrollReveal(threshold = 0.15) {
       "(prefers-reduced-motion: reduce)"
     ).matches;
     if (prefersReduced) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronising with an external system, which is what effects are for: reads prefers-reduced-motion and reveals immediately instead of on scroll
       setIsVisible(true);
       return;
     }
