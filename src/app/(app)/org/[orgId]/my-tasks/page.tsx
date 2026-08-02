@@ -46,6 +46,13 @@ import {
   REASON_LABEL,
   reasonLabel,
 } from "@/lib/decline-reasons";
+import { Panel } from "@/components/ui/panel";
+import {
+  PRIMARY_BUTTON,
+  SECONDARY_BUTTON,
+  BUTTON_STRETCH_MOBILE,
+} from "@/components/ui/button-styles";
+import { cn } from "@/lib/utils";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -142,37 +149,8 @@ function historyTime(a: Assignment): number {
   return stamp ? new Date(stamp).getTime() : Number.NEGATIVE_INFINITY;
 }
 
-const PRIMARY_BUTTON =
-  "inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-gradient-to-r from-indigo-600 to-indigo-500 px-3.5 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:from-indigo-700 hover:to-indigo-600 disabled:cursor-not-allowed disabled:opacity-60 sm:flex-initial";
 
-const SECONDARY_BUTTON =
-  "inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-border bg-card px-3.5 py-2 text-xs font-medium text-muted-foreground transition-colors hover:border-indigo-400 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60 sm:flex-initial";
 
-/** The house panel — a card with a headed section, as used across the app. */
-function Panel({
-  title,
-  count,
-  icon: Icon,
-  children,
-}: {
-  title: string;
-  count: number;
-  icon: typeof Clock;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="overflow-hidden rounded-xl border border-border bg-card">
-      <div className="flex items-center gap-2 border-b border-border px-4 py-3">
-        <Icon className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-        <h3 className="text-[13px] font-semibold">{title}</h3>
-        <span className="rounded-full bg-muted px-1.5 text-[11px] font-medium text-muted-foreground">
-          {count}
-        </span>
-      </div>
-      <div className="divide-y divide-border">{children}</div>
-    </section>
-  );
-}
 
 /** Title, status and scheduled window — the top of every assignment row. */
 function AssignmentHeader({ a }: { a: Assignment }) {
@@ -458,7 +436,12 @@ export default function MyTasksPage() {
       <div className="space-y-4">
         {/* ── Needs a response ── */}
         {pending.length > 0 && (
-          <Panel title="Waiting on you" count={pending.length} icon={Inbox}>
+          <Panel
+            title="Waiting on you"
+            count={pending.length}
+            icon={Inbox}
+            bodyClassName="divide-y divide-border"
+          >
             {pending.map((a) => {
               const busy = busyIds.includes(a.id);
               return (
@@ -475,7 +458,7 @@ export default function MyTasksPage() {
                     <button
                       disabled={busy}
                       onClick={() => onAccept(a.id)}
-                      className={PRIMARY_BUTTON}
+                      className={cn(PRIMARY_BUTTON, BUTTON_STRETCH_MOBILE)}
                     >
                       <CircleCheck className="h-3.5 w-3.5" aria-hidden="true" />
                       {busy ? "Working…" : "Accept"}
@@ -483,7 +466,7 @@ export default function MyTasksPage() {
                     <button
                       disabled={busy}
                       onClick={() => setRejectingId(rejectingId === a.id ? null : a.id)}
-                      className={SECONDARY_BUTTON}
+                      className={cn(SECONDARY_BUTTON, BUTTON_STRETCH_MOBILE)}
                     >
                       <CircleX className="h-3.5 w-3.5" aria-hidden="true" />
                       Decline
@@ -510,13 +493,13 @@ export default function MyTasksPage() {
                         className="h-9 text-sm"
                       />
                       <div className="flex flex-wrap gap-2">
-                        <button type="submit" disabled={busy} className={PRIMARY_BUTTON}>
+                        <button type="submit" disabled={busy} className={cn(PRIMARY_BUTTON, BUTTON_STRETCH_MOBILE)}>
                           {busy ? "Declining…" : "Confirm decline"}
                         </button>
                         <button
                           type="button"
                           onClick={() => setRejectingId(null)}
-                          className={SECONDARY_BUTTON}
+                          className={cn(SECONDARY_BUTTON, BUTTON_STRETCH_MOBILE)}
                         >
                           Cancel
                         </button>
@@ -531,7 +514,12 @@ export default function MyTasksPage() {
 
         {/* ── Accepted / in progress ── */}
         {active.length > 0 && (
-          <Panel title="Your shifts" count={active.length} icon={CalendarClock}>
+          <Panel
+            title="Your shifts"
+            count={active.length}
+            icon={CalendarClock}
+            bodyClassName="divide-y divide-border"
+          >
             {active.map((a) => {
               const busy = busyIds.includes(a.id);
               const clocked = clockedWhen(a.clockInTime, a.clockOutTime);
@@ -560,7 +548,7 @@ export default function MyTasksPage() {
                           <button
                             disabled={busy}
                             onClick={() => onClockIn(a.id)}
-                            className={PRIMARY_BUTTON}
+                            className={cn(PRIMARY_BUTTON, BUTTON_STRETCH_MOBILE)}
                           >
                             <LogIn className="h-3.5 w-3.5" aria-hidden="true" />
                             {busy ? "Working…" : "Clock in"}
@@ -570,7 +558,7 @@ export default function MyTasksPage() {
                           <button
                             disabled={busy}
                             onClick={() => onClockOut(a.id)}
-                            className={PRIMARY_BUTTON}
+                            className={cn(PRIMARY_BUTTON, BUTTON_STRETCH_MOBILE)}
                           >
                             <LogOut className="h-3.5 w-3.5" aria-hidden="true" />
                             {busy ? "Working…" : "Clock out"}
@@ -582,7 +570,7 @@ export default function MyTasksPage() {
                             onClick={() =>
                               setWithdrawingId(withdrawingId === a.id ? null : a.id)
                             }
-                            className={SECONDARY_BUTTON}
+                            className={cn(SECONDARY_BUTTON, BUTTON_STRETCH_MOBILE)}
                           >
                             <Undo2 className="h-3.5 w-3.5" aria-hidden="true" />
                             Can&apos;t make it
@@ -617,14 +605,14 @@ export default function MyTasksPage() {
                             <button
                               type="submit"
                               disabled={busy}
-                              className={PRIMARY_BUTTON}
+                              className={cn(PRIMARY_BUTTON, BUTTON_STRETCH_MOBILE)}
                             >
                               {busy ? "Submitting…" : "Request withdrawal"}
                             </button>
                             <button
                               type="button"
                               onClick={() => setWithdrawingId(null)}
-                              className={SECONDARY_BUTTON}
+                              className={cn(SECONDARY_BUTTON, BUTTON_STRETCH_MOBILE)}
                             >
                               Cancel
                             </button>
@@ -645,6 +633,7 @@ export default function MyTasksPage() {
             title="Finish off"
             count={awaitingCompletion.length}
             icon={Hourglass}
+            bodyClassName="divide-y divide-border"
           >
             {awaitingCompletion.map((a) => {
               const busy = busyIds.includes(a.id);
@@ -659,7 +648,7 @@ export default function MyTasksPage() {
                     <button
                       disabled={busy}
                       onClick={() => onComplete(a.id)}
-                      className={PRIMARY_BUTTON}
+                      className={cn(PRIMARY_BUTTON, BUTTON_STRETCH_MOBILE)}
                     >
                       <CircleCheck className="h-3.5 w-3.5" aria-hidden="true" />
                       {busy ? "Working…" : "Mark as complete"}
@@ -673,7 +662,12 @@ export default function MyTasksPage() {
 
         {/* ── History ── */}
         {history.length > 0 && (
-          <Panel title="Finished" count={history.length} icon={CircleCheck}>
+          <Panel
+            title="Finished"
+            count={history.length}
+            icon={CircleCheck}
+            bodyClassName="divide-y divide-border"
+          >
             {shownHistory.map((a) => {
               const clocked = clockedWhen(a.clockInTime, a.clockOutTime);
               return (

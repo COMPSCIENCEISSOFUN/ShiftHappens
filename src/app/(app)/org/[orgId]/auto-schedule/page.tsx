@@ -39,6 +39,8 @@ import {
   thisMondayInOrgTime,
   weekRangeLabel,
 } from "@/lib/schedule-week";
+import { Panel } from "@/components/ui/panel";
+import { PRIMARY_BUTTON, SECONDARY_BUTTON } from "@/components/ui/button-styles";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -73,54 +75,8 @@ interface DraftSchedule {
 /*  Shared page furniture                                              */
 /* ------------------------------------------------------------------ */
 
-/** The house panel: a card with a headed section, as used across the app. */
-function Panel({
-  title,
-  icon: Icon,
-  tone = "default",
-  action,
-  children,
-}: {
-  title: string;
-  icon: typeof Clock;
-  tone?: "default" | "warning";
-  action?: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  const warning = tone === "warning";
-  return (
-    <div
-      className={`overflow-hidden rounded-xl border bg-card ${
-        warning ? "border-amber-300 dark:border-amber-800" : "border-border"
-      }`}
-    >
-      <div
-        className={`flex items-center justify-between gap-3 border-b px-4 py-3 ${
-          warning
-            ? "border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/40"
-            : "border-border"
-        }`}
-      >
-        <h3
-          className={`flex items-center gap-2 text-[13px] font-semibold ${
-            warning ? "text-amber-800 dark:text-amber-300" : ""
-          }`}
-        >
-          <Icon className="h-4 w-4" aria-hidden="true" />
-          {title}
-        </h3>
-        {action}
-      </div>
-      {children}
-    </div>
-  );
-}
 
-const PRIMARY_BUTTON =
-  "inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-indigo-600 to-indigo-500 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:from-indigo-700 hover:to-indigo-600 disabled:cursor-not-allowed disabled:opacity-60";
 
-const SECONDARY_BUTTON =
-  "inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-indigo-400 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60";
 
 /* ------------------------------------------------------------------ */
 /*  Main Page                                                          */

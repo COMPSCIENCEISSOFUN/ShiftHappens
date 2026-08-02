@@ -51,6 +51,12 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { StatTile, STAT_ACCENT } from "@/components/ui/stat-tile";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Panel } from "@/components/ui/panel";
+import {
+  PRIMARY_BUTTON,
+  SECONDARY_BUTTON,
+  DANGER_GHOST_BUTTON,
+} from "@/components/ui/button-styles";
 
 /* ------------------------------------------------------------------ */
 /*  Types and constants                                                */
@@ -111,38 +117,12 @@ const TYPE_COLORS: Record<string, string> = {
   max_hours_weekly: "bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300",
 };
 
-const PRIMARY_BUTTON =
-  "inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-indigo-600 to-indigo-500 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:from-indigo-700 hover:to-indigo-600 disabled:cursor-not-allowed disabled:opacity-60";
 
-const SECONDARY_BUTTON =
-  "inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-indigo-400 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60";
 
-const DANGER_BUTTON =
-  "inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-red-400 hover:text-red-600 dark:hover:text-red-400";
 
 const SELECT_CLASS =
   "h-9 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground";
 
-/** The house panel — a card with a headed section. */
-function Panel({
-  title,
-  icon: Icon,
-  children,
-}: {
-  title: string;
-  icon: typeof Clock;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="overflow-hidden rounded-xl border border-border bg-card">
-      <div className="flex items-center gap-2 border-b border-border px-4 py-3">
-        <Icon className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-        <h3 className="text-[13px] font-semibold">{title}</h3>
-      </div>
-      {children}
-    </div>
-  );
-}
 
 /* ------------------------------------------------------------------ */
 /*  Main Page                                                          */
@@ -706,7 +686,7 @@ export default function WorkRulesPage() {
                       </button>
                       <button
                         onClick={() => setDeleteTarget(rule)}
-                        className={DANGER_BUTTON}
+                        className={DANGER_GHOST_BUTTON}
                       >
                         <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
                         Delete
