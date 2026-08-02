@@ -12,19 +12,6 @@
  *
  * Photos go in `public/team/`, named to match the `photo` path — a square crop,
  * at least 400×400 so it stays sharp on high-density screens.
- *
- * ## Two deliberate choices
- *
- * **Dark background.** The surrounding sections alternate white and slate-50,
- * and with only two shades any new section between them merges into one
- * neighbour or the other. Going dark makes the break intentional rather than
- * accidental, and photographs sit better on it.
- *
- * **Plain `<img>`, not `next/image`.** A missing file under `next/image` throws
- * a runtime error; a plain tag lets `onError` swap in initials instead. While
- * the array below still holds placeholders that matters, because the page stays
- * presentable instead of showing broken images. The trade is no automatic
- * resizing, so crop and compress the photos before adding them.
  */
 "use client";
 
@@ -71,7 +58,7 @@ export interface TeamMember {
 }
 
 // ---------------------------------------------------------------------------
-// EDIT BELOW — replace every TODO. Order here is the order shown on the page.
+// EDIT HERE — replace every TODO. Order here is the order shown on the page.
 // ---------------------------------------------------------------------------
 
 const TEAM: TeamMember[] = [
