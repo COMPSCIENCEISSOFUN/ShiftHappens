@@ -6,6 +6,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { PlatformRepository } from "@/repositories/platform.repository";
 import { OrganizationRepository } from "@/repositories/organization.repository";
 import { UserRepository } from "@/repositories/user.repository";
+import { prisma } from "@/lib/prisma";
 import { cleanDatabase } from "../helpers/cleanup";
 
 const platformRepo = new PlatformRepository();
@@ -109,6 +110,68 @@ describe("PlatformRepository", () => {
       expect(stats.activeOrganizations).toBe(2);
       expect(stats.totalUsers).toBeGreaterThanOrEqual(1);
       expect(stats.totalTasks).toBeGreaterThanOrEqual(0);
+    });
+  });
+
+  describe("getStats — tier counts", () => {
+    /** orgRepo.create() has no tier argument, so it is set after the fact. */
+    async function orgOnTier(slug: string, tier: string) {
+      const org = await orgRepo.create({ name: slug, slug }, userId);
+      await prisma.organization.update({
+        where: { id: org.id },
+        data: { subscriptionTier: tier },
+      });
+      return org;
+    }
+
+    it("groups organisations by tier", async () => {
+      await orgOnTier("a", "free");
+      await orgOnTier("b", "pro");
+      await orgOnTier("c", "pro");
+
+      const { tierCounts } = await platformRepo.getStats();
+      expect(tierCounts).toEqual({ free: 1, pro: 2 });
+    });
+
+    it("omits a tier nobody is on", async () => {
+      // The dashboard reads `tierCounts[tier] ?? 0`, so absent and zero mean
+      // the same thing there. Pinned so a rewrite to `tierCounts[tier]` alone
+      // does not start printing undefined.
+      await orgOnTier("a", "free");
+
+      const { tierCounts } = await platformRepo.getStats();
+      expect(tierCounts.enterprise).toBeUndefined();
+    });
+
+    it("reports a tier the UI does not know about", async () => {
+      // The old dashboard iterated a hardcoded list of three and dropped
+      // anything else, so the bar silently failed to add up to 100%.
+      await orgOnTier("a", "trial");
+
+      const { tierCounts } = await platformRepo.getStats();
+      expect(tierCounts.trial).toBe(1);
+    });
+
+    it("counts suspended organisations too", async () => {
+      // A suspended tenant is still a customer on a plan. If it were excluded,
+      // the tier counts would not sum to totalOrganizations and the percentages
+      // would be wrong.
+      const org = await orgOnTier("a", "pro");
+      await prisma.organization.update({
+        where: { id: org.id },
+        data: { status: "suspended" },
+      });
+
+      const stats = await platformRepo.getStats();
+      expect(stats.tierCounts.pro).toBe(1);
+      expect(
+        Object.values(stats.tierCounts).reduce((a, b) => a + b, 0)
+      ).toBe(stats.totalOrganizations);
+    });
+
+    it("is an empty map when there are no organisations", async () => {
+      const { tierCounts } = await platformRepo.getStats();
+      expect(tierCounts).toEqual({});
     });
   });
 });

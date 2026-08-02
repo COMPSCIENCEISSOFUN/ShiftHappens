@@ -55,20 +55,43 @@ export class PlatformRepository {
     });
   }
 
-  /** Gets platform-wide statistics */
+  /**
+   * Gets platform-wide statistics.
+   *
+   * `tierCounts` is grouped in the database rather than counted in the browser.
+   * The dashboard used to fetch the entire organisation list purely to derive
+   * three numbers from it, which meant the page got slower with every customer
+   * signed — and only ever showed the first page of organisations, so the
+   * numbers would have quietly gone wrong past fifty of them.
+   *
+   * Returned as a plain map with no assumed keys. A tier the UI does not know
+   * about still appears here, which is what lets the dashboard notice it rather
+   * than drop it from a hardcoded list of three.
+   */
   async getStats() {
-    const [orgCount, userCount, taskCount, activeOrgCount] = await Promise.all([
-      prisma.organization.count(),
-      prisma.user.count(),
-      prisma.task.count(),
-      prisma.organization.count({ where: { status: "active" } }),
-    ]);
+    const [orgCount, userCount, taskCount, activeOrgCount, tierGroups] =
+      await Promise.all([
+        prisma.organization.count(),
+        prisma.user.count(),
+        prisma.task.count(),
+        prisma.organization.count({ where: { status: "active" } }),
+        prisma.organization.groupBy({
+          by: ["subscriptionTier"],
+          _count: { _all: true },
+        }),
+      ]);
+
+    const tierCounts: Record<string, number> = {};
+    for (const group of tierGroups) {
+      tierCounts[group.subscriptionTier] = group._count._all;
+    }
 
     return {
       totalOrganizations: orgCount,
       activeOrganizations: activeOrgCount,
       totalUsers: userCount,
       totalTasks: taskCount,
+      tierCounts,
     };
   }
 }
