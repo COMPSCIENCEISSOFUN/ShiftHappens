@@ -140,10 +140,19 @@
 }
 
 /* ---- App sidebar — branded gradient nav ---- */
+/*
+ * The sidebar shell. Structure only — the colour comes from
+ * --sidebar-gradient so a second sidebar can differ in hue without forking
+ * the width, padding, sticky behaviour and mobile drawer below.
+ *
+ * Platform admin is the reason: it needs to look unmistakably not-your-org
+ * while still being the same piece of furniture.
+ */
 .app-sidebar {
+  --sidebar-gradient: linear-gradient(180deg, #4338ca 0%, #5b21b6 100%);
   width: 260px;
   flex-shrink: 0;
-  background: linear-gradient(180deg, #4338ca 0%, #5b21b6 100%);
+  background: var(--sidebar-gradient);
   color: #fff;
   padding: 28px 16px 20px;
   display: flex;
@@ -154,6 +163,14 @@
   overflow-y: auto;
   overflow-x: hidden;
   z-index: 30;
+}
+
+/*
+ * Platform admin. Slate rather than indigo: the section spans every tenant, so
+ * it should not wear any organisation's colour. Same everything else.
+ */
+.app-sidebar-platform {
+  --sidebar-gradient: linear-gradient(180deg, #0f172a 0%, #1e293b 100%);
 }
 
 .app-sidebar-dots {

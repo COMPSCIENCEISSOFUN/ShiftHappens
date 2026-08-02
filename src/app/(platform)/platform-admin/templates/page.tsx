@@ -429,7 +429,7 @@ export default function TemplatesPage() {
 
   if (viewMode === "create" || viewMode === "edit") {
     return (
-      <div className="w-full max-w-4xl">
+      <div className="w-full">
         <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-xl font-bold tracking-tight sm:text-2xl">
@@ -746,7 +746,7 @@ export default function TemplatesPage() {
   /* ---------------------------------------------------------------- */
 
   return (
-    <div className="w-full max-w-4xl">
+    <div className="w-full">
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-xl font-bold tracking-tight sm:text-2xl">

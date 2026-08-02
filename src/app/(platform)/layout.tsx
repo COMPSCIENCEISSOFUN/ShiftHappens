@@ -28,7 +28,16 @@ export default async function PlatformLayout({
   return (
     <div className="flex min-h-screen">
       <PlatformSidebar user={session.user} />
-      <main className="flex-1 p-6">{children}</main>
+      {/*
+        Identical to the org-level layout's <main>. `pt-18` clears the fixed
+        hamburger button on small screens; `overflow-x-hidden` stops a wide
+        table from pushing the whole page sideways instead of scrolling itself.
+        Both were missing here, which is why platform admin behaved differently
+        on a phone.
+      */}
+      <main className="flex-1 overflow-x-hidden px-4 pt-18 pb-6 md:p-6">
+        {children}
+      </main>
     </div>
   );
 }
