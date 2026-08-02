@@ -21,6 +21,7 @@ import {
   CircleHelp,
   ClipboardList,
   Clock,
+  Cpu,
   Sparkles,
   TriangleAlert,
   type LucideIcon,
@@ -35,6 +36,22 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import type { NeedsAttentionItem } from "@/components/dashboard/needs-attention";
+import { CollapsibleSection } from "@/components/ui/collapsible-section";
+import {
+  AllocationEnginePanel,
+  CoveragePanel,
+  EligibilityEnginePanel,
+  type AllocationEngineStats,
+  type EligibilityEngineStats,
+} from "@/components/dashboard/engine-panels";
+import type { CoverageCell } from "@/components/charts/chart-primitives";
+
+/** Payload of GET /api/organizations/[orgId]/reports/engine. */
+interface EngineReport {
+  allocation: AllocationEngineStats;
+  eligibility: EligibilityEngineStats;
+  coverage: CoverageCell[];
+}
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { EmptyState } from "@/components/ui/empty-state";
 
@@ -311,11 +328,14 @@ export default function AdminDashboard({ orgId, orgName, userName }: AdminDashbo
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [aiRecs, setAiRecs] = useState<AIRecommendationsData | null>(null);
+  const [engine, setEngine] = useState<EngineReport | null>(null);
+  const [engineLoading, setEngineLoading] = useState(true);
   const [aiLoading, setAiLoading] = useState(true);
 
   useEffect(() => {
     fetchDashboard();
     fetchAIRecommendations();
+    fetchEngineReport();
   }, [orgId]);
 
   async function fetchDashboard() {
@@ -333,6 +353,31 @@ export default function AdminDashboard({ orgId, orgName, userName }: AdminDashbo
       setError("Failed to load dashboard");
     } finally {
       setLoading(false);
+    }
+  }
+
+  /**
+   * The engine report backs the collapsed "Smart engine" section.
+   *
+   * Fetched alongside the dashboard rather than on expand: it is one request,
+   * the panels are the slowest thing on the page to read, and fetching on
+   * expand would mean a spinner every time somebody opens it. Failure is
+   * silent for the same reason the AI recommendations are — a dashboard that
+   * refuses to render because an optional panel is unavailable is worse than
+   * one missing a panel.
+   */
+  async function fetchEngineReport() {
+    try {
+      setEngineLoading(true);
+      const res = await fetch(
+        `/api/organizations/${orgId}/reports/engine?days=30`
+      );
+      const body = await res.json().catch(() => null);
+      if (res.ok && body?.allocation) setEngine(body);
+    } catch {
+      // Non-critical.
+    } finally {
+      setEngineLoading(false);
     }
   }
 
@@ -376,6 +421,7 @@ export default function AdminDashboard({ orgId, orgName, userName }: AdminDashbo
   if (!data) return null;
 
   const status = getStatusPill(data.needsAttention);
+  const attentionCount = data.needsAttention?.length ?? 0;
   const hasActionItems =
     (data.needsAttention && data.needsAttention.length > 0) ||
     (aiRecs && aiRecs.recommendations.length > 0);
@@ -410,11 +456,12 @@ export default function AdminDashboard({ orgId, orgName, userName }: AdminDashbo
       {/* 2. Action Items + Inline AI Suggestions             */}
       {/* ════════════════════════════════════════════════════ */}
       {hasActionItems && (
-        <div className="mb-8">
-          <p className="mb-3 text-[11px] font-bold uppercase tracking-[0.06em] text-muted-foreground">
-            Needs your action
-          </p>
-
+        <CollapsibleSection
+          title="Needs your action"
+          storageKey="dashboard-needs-action"
+          count={attentionCount}
+          defaultOpen
+        >
           {/* Urgent / warning / info items */}
           {data.needsAttention?.map((item, i) => {
             const { Icon, tint, tone } = severityIcon(item.severity);
@@ -451,19 +498,22 @@ export default function AdminDashboard({ orgId, orgName, userName }: AdminDashbo
             );
           })}
 
-          {/* AI suggestions divider + cards */}
-          {aiRecs && aiRecs.recommendations.length > 0 && (
-            <>
-              <div className="my-3 flex items-center gap-2.5">
-                <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
-                  {/* The AI motif — see the badge below and `needs-attention.tsx`. */}
-                  <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
-                  AI suggestions
-                </span>
-                <div className="h-px flex-1 bg-border" />
-              </div>
+        </CollapsibleSection>
+      )}
 
-              {aiRecs.recommendations.map((rec) => (
+      {/* AI suggestions — its own section, so it can be folded away
+          independently of the alerts it used to be nested inside. */}
+      {aiRecs && aiRecs.recommendations.length > 0 && (
+        <CollapsibleSection
+          title="AI suggestions"
+          storageKey="dashboard-ai-suggestions"
+          count={aiRecs.recommendations.length}
+          icon={
+            <Sparkles className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
+          }
+          defaultOpen
+        >
+          {aiRecs.recommendations.map((rec) => (
                 <div
                   key={rec.priority}
                   className="mb-2 flex items-center gap-3.5 rounded-xl border border-indigo-200 bg-indigo-50/30 p-3.5 transition-shadow hover:shadow-sm dark:border-indigo-800 dark:bg-indigo-950/30"
@@ -499,16 +549,14 @@ export default function AdminDashboard({ orgId, orgName, userName }: AdminDashbo
                   </Link>
                 </div>
               ))}
-            </>
-          )}
+        </CollapsibleSection>
+      )}
 
-          {aiLoading && !aiRecs && (
-            <div className="mt-3 space-y-2">
-              {[1, 2].map((i) => (
-                <div key={i} className="h-14 rounded-xl bg-muted/50 animate-pulse" />
-              ))}
-            </div>
-          )}
+      {aiLoading && !aiRecs && (
+        <div className="mb-6 space-y-2">
+          {[1, 2].map((i) => (
+            <div key={i} className="h-14 rounded-xl bg-muted/50 animate-pulse" />
+          ))}
         </div>
       )}
 
@@ -591,6 +639,36 @@ export default function AdminDashboard({ orgId, orgName, userName }: AdminDashbo
           </CardContent>
         </Card>
       </div>
+
+      {/* ════════════════════════════════════════════════════ */}
+      {/* 6. Smart engine                                     */}
+      {/*                                                     */}
+      {/* Collapsed by default, and last on the page. It is   */}
+      {/* evidence rather than a to-do list: the question it  */}
+      {/* answers — "is the engine any good?" — is asked on a */}
+      {/* different cadence from "what needs me today", and   */}
+      {/* three charts unfurled above the daily work would    */}
+      {/* bury the thing the dashboard is for.                */}
+      {/* ════════════════════════════════════════════════════ */}
+      {engine && (
+        <CollapsibleSection
+          title="Smart engine"
+          storageKey="dashboard-engine"
+          description="How the allocation and eligibility engines behaved over the last 30 days, from records written at the moment each assignment was made."
+          icon={<Cpu className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />}
+          defaultOpen={false}
+        >
+          <div className="space-y-4">
+            <AllocationEnginePanel stats={engine.allocation} />
+            <EligibilityEnginePanel stats={engine.eligibility} />
+            <CoveragePanel cells={engine.coverage} />
+          </div>
+        </CollapsibleSection>
+      )}
+
+      {engineLoading && !engine && (
+        <div className="mb-6 h-10 rounded-xl bg-muted/40 animate-pulse" />
+      )}
     </div>
   );
 }
