@@ -10,6 +10,7 @@ import { AllocationService } from "@/services/allocation.service";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
 import { MembershipRepository } from "@/repositories/membership.repository";
 import { isTaskInScope } from "@/lib/department-scope";
+import { hasPermission, PERMISSIONS } from "@/lib/permission-guard";
 
 const allocationService = new AllocationService();
 const membershipRepo = new MembershipRepository();
@@ -25,7 +26,7 @@ export async function GET(
     const { orgId, taskId } = await params;
 
     const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
-    if (!membership || !["company_admin", "manager"].includes(membership.role)) {
+    if (!membership || !hasPermission(membership, PERMISSIONS.ALLOCATION_USE_SUGGESTIONS)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 

@@ -83,6 +83,13 @@ export class MembershipRepository {
             },
           },
         },
+        customRole: {
+          include: {
+            rolePermissions: {
+              include: { permission: true },
+            },
+          },
+        },
       },
     });
   }

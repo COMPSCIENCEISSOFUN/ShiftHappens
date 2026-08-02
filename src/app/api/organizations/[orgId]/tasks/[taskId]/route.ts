@@ -12,6 +12,7 @@ import { updateTaskSchema } from "@/lib/validations";
 import { getAuthenticatedUser, unauthorizedResponse, checkOrgSuspended } from "@/lib/auth-guard";
 import { MembershipRepository } from "@/repositories/membership.repository";
 import { isTaskInScope } from "@/lib/department-scope";
+import { hasPermission, PERMISSIONS } from "@/lib/permission-guard";
 
 const taskService = new TaskService();
 const membershipRepo = new MembershipRepository();
@@ -27,7 +28,7 @@ export async function GET(
     const { orgId, taskId } = await params;
 
     const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
-    if (!membership) {
+    if (!membership || !hasPermission(membership, PERMISSIONS.TASKS_READ)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -60,7 +61,7 @@ export async function PATCH(
     if (suspended) return suspended;
 
     const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
-    if (!membership || !["company_admin", "manager"].includes(membership.role)) {
+    if (!membership || !hasPermission(membership, PERMISSIONS.TASKS_UPDATE)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -106,7 +107,7 @@ export async function DELETE(
     if (suspended) return suspended;
 
     const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
-    if (!membership || !["company_admin", "manager"].includes(membership.role)) {
+    if (!membership || !hasPermission(membership, PERMISSIONS.TASKS_DELETE)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 

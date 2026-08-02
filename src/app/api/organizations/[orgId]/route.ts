@@ -12,6 +12,7 @@ import { MembershipRepository } from "@/repositories/membership.repository";
 import { OrganizationService } from "@/services/organization.service";
 import { updateOrganizationSchema } from "@/lib/validations";
 import { checkOrgActive } from "@/lib/org-guard";
+import { hasPermission, PERMISSIONS } from "@/lib/permission-guard";
 
 const membershipRepo = new MembershipRepository();
 const orgService = new OrganizationService();
@@ -28,7 +29,7 @@ export async function GET(
 
     // Verify active membership
     const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
-    if (!membership || membership.status !== "active") {
+    if (!membership || !hasPermission(membership, PERMISSIONS.ORGANIZATION_READ)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -59,7 +60,7 @@ export async function PATCH(
     if (
       !membership ||
       membership.status !== "active" ||
-      membership.role !== "company_admin"
+      !hasPermission(membership, PERMISSIONS.ORGANIZATION_UPDATE)
     ) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }

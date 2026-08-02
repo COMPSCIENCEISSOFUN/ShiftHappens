@@ -22,6 +22,7 @@ import { PdfReportService } from "@/services/pdf-report.service";
 import { SubscriptionService } from "@/services/subscription.service";
 import { OrganizationService } from "@/services/organization.service";
 import { FeatureNotAvailableError } from "@/lib/subscription-tiers";
+import { hasPermission, PERMISSIONS } from "@/lib/permission-guard";
 
 const membershipRepo = new MembershipRepository();
 
@@ -43,7 +44,7 @@ export async function GET(
     // --- Membership + role check ---
     const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
 
-    if (!membership || !["company_admin", "manager"].includes(membership.role)) {
+    if (!membership || !hasPermission(membership, PERMISSIONS.REPORTS_EXPORT)) {
       return NextResponse.json(
         { error: "Only admins and managers can export reports" },
         { status: 403 }

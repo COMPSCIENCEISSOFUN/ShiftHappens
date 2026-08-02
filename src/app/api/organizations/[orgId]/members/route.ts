@@ -11,6 +11,7 @@ import { UserManagementService } from "@/services/user-management.service";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
 import { MembershipRepository } from "@/repositories/membership.repository";
 import { departmentScopeFor } from "@/lib/department-scope";
+import { hasPermission, PERMISSIONS } from "@/lib/permission-guard";
 
 const userMgmtService = new UserManagementService();
 const membershipRepo = new MembershipRepository();
@@ -26,7 +27,7 @@ export async function GET(
     const { orgId } = await params;
 
     const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
-    if (!membership) {
+    if (!membership || !hasPermission(membership, PERMISSIONS.MEMBERS_READ)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 

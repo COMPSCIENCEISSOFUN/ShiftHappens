@@ -10,6 +10,7 @@ import { TaskService } from "@/services/task.service";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
 import { MembershipRepository } from "@/repositories/membership.repository";
 import { isAssignmentTaskInScope } from "@/lib/department-scope";
+import { hasPermission, PERMISSIONS } from "@/lib/permission-guard";
 
 const taskService = new TaskService();
 const membershipRepo = new MembershipRepository();
@@ -25,7 +26,7 @@ export async function DELETE(
     const { orgId, assignmentId } = await params;
 
     const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
-    if (!membership || !["company_admin", "manager"].includes(membership.role)) {
+    if (!membership || !hasPermission(membership, PERMISSIONS.TASKS_ASSIGN)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 

@@ -22,6 +22,7 @@ import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import { useTheme } from "next-themes";
 import { getSystemRoleLabel } from "@/lib/role-config";
+import type { PermissionName } from "@/lib/permission-guard";
 
 // ============================================================
 // SVG icon components
@@ -251,6 +252,7 @@ interface AppSidebarProps {
   role?: string;
   employmentType?: string;
   customRoleLabel?: string;
+  permissions?: string[];
 }
 
 // ============================================================
@@ -283,6 +285,7 @@ export function AppSidebar({
   role,
   employmentType,
   customRoleLabel,
+  permissions = [],
 }: AppSidebarProps) {
   const pathname = usePathname();
   const { resolvedTheme, setTheme } = useTheme();
@@ -291,6 +294,7 @@ export function AppSidebar({
   const [tier, setTier] = useState<{ name: string; displayName: string } | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const can = (permission: PermissionName) => permissions.includes(permission);
 
   useEffect(() => {
     setMounted(true);
@@ -350,8 +354,10 @@ export function AppSidebar({
   ];
 
   if (orgId && role) {
-    if (role === "company_admin" || role === "manager") {
+    if (can("tasks:read")) {
       overviewItems.push({ href: `/org/${orgId}/tasks`, label: "Tasks", icon: TasksIcon });
+    }
+    if (can("calendar:view")) {
       overviewItems.push({ href: `/org/${orgId}/calendar`, label: "Calendar", icon: CalendarIcon });
     }
     if (role === "staff") {
@@ -368,25 +374,33 @@ export function AppSidebar({
   sections.push({ title: "Overview", items: overviewItems });
 
   // --- Organization section (admin + manager) ---
-  if (orgId && role && (role === "company_admin" || role === "manager")) {
+  if (orgId && role) {
     const orgItems: NavItem[] = [];
 
-    if (role === "company_admin") {
+    if (can("members:read")) {
       orgItems.push({ href: `/org/${orgId}/members`, label: "Members", icon: MembersIcon });
     }
-    orgItems.push({ href: `/org/${orgId}/departments`, label: "Departments", icon: DepartmentsIcon });
-    orgItems.push({ href: `/org/${orgId}/certifications`, label: "Certifications", icon: CertificationsIcon });
+    if (can("departments:read")) {
+      orgItems.push({ href: `/org/${orgId}/departments`, label: "Departments", icon: DepartmentsIcon });
+    }
+    if (can("certifications:read")) {
+      orgItems.push({ href: `/org/${orgId}/certifications`, label: "Certifications", icon: CertificationsIcon });
+    }
 
-    if (role === "company_admin") {
+    if (can("roles:read")) {
       // Roles: only show if custom_roles feature is available (Pro+)
       if (features === null || features.custom_roles !== false) {
         orgItems.push({ href: `/org/${orgId}/roles`, label: "Roles", icon: RolesIcon });
       }
+    }
+    if (can("work_rules:read")) {
       orgItems.push({ href: `/org/${orgId}/work-rules`, label: "Work Rules", icon: WorkRulesIcon });
+    }
+    if (can("schedule:generate")) {
       orgItems.push({ href: `/org/${orgId}/auto-schedule`, label: "Auto-Schedule", icon: AutoScheduleIcon });
     }
 
-    sections.push({ title: "Organization", items: orgItems });
+    if (orgItems.length > 0) sections.push({ title: "Organization", items: orgItems });
   }
 
   // --- System section ---
@@ -401,11 +415,13 @@ export function AppSidebar({
     });
   }
 
-  if (orgId && role === "company_admin") {
+  if (orgId && can("audit:view")) {
     // Audit Log: only show if audit_log feature is available (Enterprise)
     if (features === null || features.audit_log !== false) {
       systemItems.push({ href: `/org/${orgId}/audit-log`, label: "Audit Log", icon: AuditLogIcon });
     }
+  }
+  if (orgId && can("settings:read")) {
     systemItems.push({ href: `/org/${orgId}/settings`, label: "Settings", icon: SettingsIcon });
   }
 

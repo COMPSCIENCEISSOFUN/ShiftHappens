@@ -19,12 +19,13 @@ import { DepartmentService } from "@/services/department.service";
 import { updateDepartmentSchema } from "@/lib/validations";
 import { getAuthenticatedUser, unauthorizedResponse, checkOrgSuspended } from "@/lib/auth-guard";
 import { MembershipRepository } from "@/repositories/membership.repository";
+import { hasPermission, PERMISSIONS, type PermissionName } from "@/lib/permission-guard";
 
 const deptService = new DepartmentService();
 const membershipRepo = new MembershipRepository();
 
 /** Shared auth + admin guard for all handlers */
-async function authorizeAdmin(orgId: string) {
+async function authorizeAdmin(orgId: string, permission: PermissionName) {
   const user = await getAuthenticatedUser();
   if (!user) return { error: unauthorizedResponse() };
 
@@ -32,7 +33,7 @@ async function authorizeAdmin(orgId: string) {
   if (suspended) return { error: suspended };
 
   const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
-  if (!membership || membership.role !== "company_admin") {
+  if (!membership || !hasPermission(membership, permission)) {
     return { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) };
   }
 
@@ -50,7 +51,7 @@ export async function GET(
     const { orgId, deptId } = await params;
 
     const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
-    if (!membership || membership.role !== "company_admin") {
+    if (!membership || !hasPermission(membership, PERMISSIONS.DEPARTMENTS_READ)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -77,7 +78,7 @@ export async function PATCH(
 ) {
   try {
     const { orgId, deptId } = await params;
-    const auth = await authorizeAdmin(orgId);
+    const auth = await authorizeAdmin(orgId, PERMISSIONS.DEPARTMENTS_UPDATE);
     if (auth.error) return auth.error;
 
     const body = await request.json();
@@ -129,7 +130,7 @@ export async function DELETE(
 ) {
   try {
     const { orgId, deptId } = await params;
-    const auth = await authorizeAdmin(orgId);
+    const auth = await authorizeAdmin(orgId, PERMISSIONS.DEPARTMENTS_DELETE);
     if (auth.error) return auth.error;
 
     await deptService.delete(deptId, orgId, auth.user!.id);

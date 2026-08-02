@@ -12,6 +12,7 @@ import { RoleService } from "@/services/role.service";
 import { updateRoleSchema } from "@/lib/validations";
 import { getAuthenticatedUser, unauthorizedResponse, checkOrgSuspended } from "@/lib/auth-guard";
 import { MembershipRepository } from "@/repositories/membership.repository";
+import { hasPermission, PERMISSIONS } from "@/lib/permission-guard";
 
 const roleService = new RoleService();
 const membershipRepo = new MembershipRepository();
@@ -27,7 +28,7 @@ export async function GET(
     const { orgId, roleId } = await params;
 
     const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
-    if (!membership) {
+    if (!membership || !hasPermission(membership, PERMISSIONS.ROLES_READ)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -55,7 +56,7 @@ export async function PATCH(
     if (suspended) return suspended;
 
     const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
-    if (!membership || membership.role !== "company_admin") {
+    if (!membership || !hasPermission(membership, PERMISSIONS.ROLES_UPDATE)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -97,7 +98,7 @@ export async function DELETE(
     if (suspended) return suspended;
 
     const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
-    if (!membership || membership.role !== "company_admin") {
+    if (!membership || !hasPermission(membership, PERMISSIONS.ROLES_DELETE)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 

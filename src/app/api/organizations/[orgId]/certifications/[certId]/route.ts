@@ -19,6 +19,7 @@ import { validationErrorResponse } from "@/lib/api-utils";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
 import { MembershipRepository } from "@/repositories/membership.repository";
 import { departmentScopeFor } from "@/lib/department-scope";
+import { hasPermission, PERMISSIONS } from "@/lib/permission-guard";
 
 const certService = new CertificationService();
 const membershipRepo = new MembershipRepository();
@@ -42,7 +43,7 @@ export async function GET(
     if (!cert) {
       return NextResponse.json({ error: "Certification not found" }, { status: 404 });
     }
-    const canReview = ["company_admin", "manager"].includes(membership.role);
+    const canReview = hasPermission(membership, PERMISSIONS.CERTIFICATIONS_READ);
     const scope = departmentScopeFor(membership);
     const inScope =
       scope === null ||
@@ -73,7 +74,7 @@ export async function PATCH(
     const { orgId, certId } = await params;
 
     const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
-    if (!membership || !["company_admin", "manager"].includes(membership.role)) {
+    if (!membership || !hasPermission(membership, PERMISSIONS.CERTIFICATIONS_REVIEW)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -126,7 +127,7 @@ export async function POST(
     const { orgId, certId } = await params;
 
     const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
-    if (!membership || !["company_admin", "manager"].includes(membership.role)) {
+    if (!membership || !hasPermission(membership, PERMISSIONS.CERTIFICATIONS_REVIEW)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 

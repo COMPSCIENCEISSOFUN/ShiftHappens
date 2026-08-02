@@ -4,6 +4,7 @@ import { validationErrorResponse } from "@/lib/api-utils";
 import { createCertificationDefinitionSchema } from "@/lib/validations";
 import { MembershipRepository } from "@/repositories/membership.repository";
 import { CertificationDefinitionService } from "@/services/certification-definition.service";
+import { hasPermission, PERMISSIONS } from "@/lib/permission-guard";
 
 const membershipRepository = new MembershipRepository();
 const service = new CertificationDefinitionService();
@@ -21,7 +22,7 @@ export async function GET(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const canManage = membership.role === "company_admin";
+    const canManage = hasPermission(membership, PERMISSIONS.CERTIFICATIONS_MANAGE_DEFINITIONS);
     const includeInactive =
       canManage && request.nextUrl.searchParams.get("includeInactive") === "true";
     const definitions = await service.getByOrganization(orgId, includeInactive);
@@ -43,7 +44,7 @@ export async function POST(
     if (suspended) return suspended;
 
     const membership = await membershipRepository.findByUserAndOrg(user.id, orgId);
-    if (!membership || membership.role !== "company_admin") {
+    if (!membership || !hasPermission(membership, PERMISSIONS.CERTIFICATIONS_MANAGE_DEFINITIONS)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 

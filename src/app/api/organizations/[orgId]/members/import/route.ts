@@ -12,6 +12,7 @@ import { UserManagementService } from "@/services/user-management.service";
 import { SubscriptionService } from "@/services/subscription.service";
 import { batchImportSchema } from "@/lib/validations";
 import { checkOrgActive } from "@/lib/org-guard";
+import { hasPermission, PERMISSIONS } from "@/lib/permission-guard";
 
 const membershipRepo = new MembershipRepository();
 const userManagementService = new UserManagementService();
@@ -32,7 +33,7 @@ export async function POST(
     if (
       !membership ||
       membership.status !== "active" ||
-      membership.role !== "company_admin"
+      !hasPermission(membership, PERMISSIONS.MEMBERS_INVITE)
     ) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }

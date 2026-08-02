@@ -96,6 +96,36 @@ describe("MembershipRepository", () => {
       expect(membership).toBeNull();
     });
 
+    it("hydrates permissions for an assigned custom role", async () => {
+      const permission = await prisma.permission.upsert({
+        where: { name: "tasks:create" },
+        update: {},
+        create: {
+          name: "tasks:create",
+          description: "Create tasks",
+          category: "tasks",
+        },
+      });
+      const customRole = await prisma.role.create({
+        data: {
+          organizationId: orgId,
+          name: "dispatcher",
+          displayLabel: "Dispatcher",
+          rolePermissions: { create: { permissionId: permission.id } },
+        },
+      });
+      await prisma.membership.updateMany({
+        where: { organizationId: orgId, userId: adminUserId },
+        data: { role: "manager", customRoleId: customRole.id },
+      });
+
+      const membership = await membershipRepo.findByUserAndOrg(adminUserId, orgId);
+
+      expect(
+        membership?.customRole?.rolePermissions.map((entry) => entry.permission.name)
+      ).toEqual(["tasks:create"]);
+    });
+
     /**
      * The security property this method exists to provide.
      *

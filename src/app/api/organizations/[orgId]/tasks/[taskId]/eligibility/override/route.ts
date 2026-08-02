@@ -11,6 +11,7 @@ import { createEligibilityOverrideSchema } from "@/lib/validations";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
 import { MembershipRepository } from "@/repositories/membership.repository";
 import { isTaskInScope } from "@/lib/department-scope";
+import { hasPermission, PERMISSIONS } from "@/lib/permission-guard";
 
 const eligibilityService = new EligibilityService();
 const membershipRepo = new MembershipRepository();
@@ -26,7 +27,7 @@ export async function POST(
     const { orgId, taskId } = await params;
 
     const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
-    if (!membership || !["company_admin", "manager"].includes(membership.role)) {
+    if (!membership || !hasPermission(membership, PERMISSIONS.ELIGIBILITY_OVERRIDE)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 

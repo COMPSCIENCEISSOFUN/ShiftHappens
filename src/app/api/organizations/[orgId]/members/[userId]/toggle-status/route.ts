@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { UserManagementService } from "@/services/user-management.service";
 import { getAuthenticatedUser, unauthorizedResponse, checkOrgSuspended } from "@/lib/auth-guard";
 import { MembershipRepository } from "@/repositories/membership.repository";
+import { hasPermission, PERMISSIONS } from "@/lib/permission-guard";
 
 const userMgmtService = new UserManagementService();
 const membershipRepo = new MembershipRepository();
@@ -26,7 +27,7 @@ export async function POST(
     if (suspended) return suspended;
 
     const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
-    if (!membership || membership.role !== "company_admin") {
+    if (!membership || !hasPermission(membership, PERMISSIONS.MEMBERS_DEACTIVATE)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 

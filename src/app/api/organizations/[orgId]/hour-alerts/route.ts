@@ -17,6 +17,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { HourAlertService } from "@/services/hour-alert.service";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
 import { MembershipRepository } from "@/repositories/membership.repository";
+import { hasPermission, PERMISSIONS } from "@/lib/permission-guard";
 
 const hourAlertService = new HourAlertService();
 const membershipRepo = new MembershipRepository();
@@ -24,7 +25,7 @@ const membershipRepo = new MembershipRepository();
 /** Verifies the caller is an admin/manager of the org. */
 async function requireManager(userId: string, orgId: string) {
   const membership = await membershipRepo.findByUserAndOrg(userId, orgId);
-  if (!membership || !["company_admin", "manager"].includes(membership.role)) {
+  if (!membership || !hasPermission(membership, PERMISSIONS.REPORTS_VIEW)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
   return null;

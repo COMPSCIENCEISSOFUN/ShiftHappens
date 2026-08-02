@@ -4,6 +4,7 @@ import { validationErrorResponse } from "@/lib/api-utils";
 import { updateCertificationDefinitionSchema } from "@/lib/validations";
 import { MembershipRepository } from "@/repositories/membership.repository";
 import { CertificationDefinitionService } from "@/services/certification-definition.service";
+import { hasPermission, PERMISSIONS } from "@/lib/permission-guard";
 
 const membershipRepository = new MembershipRepository();
 const service = new CertificationDefinitionService();
@@ -27,7 +28,7 @@ export async function GET(
     const definition = await service.getById(definitionId, orgId);
     if (
       !definition ||
-      (!definition.isActive && membership.role !== "company_admin")
+      (!definition.isActive && !hasPermission(membership, PERMISSIONS.CERTIFICATIONS_MANAGE_DEFINITIONS))
     ) {
       return NextResponse.json(
         { error: "Certification definition not found" },
@@ -46,7 +47,7 @@ async function authorizeAdmin(organizationId: string) {
   const suspended = await checkOrgSuspended(organizationId);
   if (suspended) return { error: suspended };
   const membership = await activeMembership(user.id, organizationId);
-  if (!membership || membership.role !== "company_admin") {
+  if (!membership || !hasPermission(membership, PERMISSIONS.CERTIFICATIONS_MANAGE_DEFINITIONS)) {
     return { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) };
   }
   return { user };

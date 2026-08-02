@@ -13,6 +13,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { AIDashboardService } from "@/services/ai-dashboard.service";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
 import { MembershipRepository } from "@/repositories/membership.repository";
+import { hasPermission, PERMISSIONS } from "@/lib/permission-guard";
 
 const aiService = new AIDashboardService();
 const membershipRepo = new MembershipRepository();
@@ -28,7 +29,7 @@ export async function GET(
     const { orgId } = await params;
 
     const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
-    if (!membership || !["company_admin", "manager"].includes(membership.role)) {
+    if (!membership || !hasPermission(membership, PERMISSIONS.REPORTS_VIEW)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 

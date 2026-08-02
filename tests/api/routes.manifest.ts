@@ -19,6 +19,7 @@
  *   MANAGER  — company_admin or manager
  *   MEMBER   — any active membership, no role restriction
  */
+import type { PermissionName } from "@/lib/permission-guard";
 
 export type AuthMode =
   /** getAuthenticatedUser() → 401 when anonymous */
@@ -41,6 +42,8 @@ export interface RouteSpec {
   auth: AuthMode;
   /** Allowed roles, or MEMBER (null) when any active membership may call it. */
   roles?: readonly string[] | null;
+  /** Operational permission enforced when a custom role is assigned. */
+  permission?: PermissionName;
   /** True when the handler calls checkOrgSuspended / checkOrgActive. */
   suspension?: boolean;
   /** True when the route is scoped to an org via the [orgId] path param. */
@@ -69,88 +72,90 @@ const org = (
 
 export const ROUTES: RouteSpec[] = [
   // ── Organisation root ───────────────────────────────────────────────
-  org("", "GET", MEMBER),
-  org("", "PATCH", ADMIN, { suspension: true }),
+  org("", "GET", MEMBER, { permission: "organization:read" }),
+  org("", "PATCH", ADMIN, { suspension: true, permission: "organization:update" }),
 
   // ── Admin-only administration ───────────────────────────────────────
-  org("audit-logs", "GET", ADMIN),
-  org("permissions", "GET", ADMIN),
-  org("settings", "GET", ADMIN),
-  org("settings", "PATCH", ADMIN, { suspension: true }),
+  org("audit-logs", "GET", ADMIN, { permission: "audit:view" }),
+  org("permissions", "GET", ADMIN, { permission: "roles:read" }),
+  org("settings", "GET", ADMIN, { permission: "settings:read" }),
+  org("settings", "PATCH", ADMIN, { suspension: true, permission: "settings:update" }),
   org("subscription", "GET", MEMBER),
-  org("checkout", "POST", ADMIN),
-  org("invitations", "GET", ADMIN),
-  org("invitations", "POST", ADMIN, { suspension: true }),
-  org("members", "GET", MEMBER),
-  org("members/[userId]", "PATCH", ADMIN, { suspension: true, extraParams: ["userId"] }),
-  org("members/[userId]/toggle-status", "POST", ADMIN, { suspension: true, extraParams: ["userId"] }),
-  org("members/import", "POST", ADMIN, { suspension: true }),
+  org("checkout", "POST", ADMIN, { permission: "billing:manage" }),
+  org("invitations", "GET", ADMIN, { permission: "members:invite" }),
+  org("invitations", "POST", ADMIN, { suspension: true, permission: "members:invite" }),
+  org("members", "GET", MEMBER, { permission: "members:read" }),
+  org("members/[userId]", "PATCH", ADMIN, { suspension: true, extraParams: ["userId"], permission: "members:update_role" }),
+  org("members/[userId]/toggle-status", "POST", ADMIN, { suspension: true, extraParams: ["userId"], permission: "members:deactivate" }),
+  org("members/import", "POST", ADMIN, { suspension: true, permission: "members:invite" }),
 
   // ── Departments ─────────────────────────────────────────────────────
-  org("departments", "GET", MEMBER),
-  org("departments", "POST", ADMIN, { suspension: true }),
-  org("departments/[deptId]", "GET", ADMIN, { extraParams: ["deptId"] }),
-  org("departments/[deptId]", "PATCH", ADMIN, { suspension: true, extraParams: ["deptId"] }),
-  org("departments/[deptId]", "DELETE", ADMIN, { suspension: true, extraParams: ["deptId"] }),
+  org("departments", "GET", MEMBER, { permission: "departments:read" }),
+  org("departments", "POST", ADMIN, { suspension: true, permission: "departments:create" }),
+  org("departments/[deptId]", "GET", MEMBER, { extraParams: ["deptId"], permission: "departments:read" }),
+  org("departments/[deptId]", "PATCH", ADMIN, { suspension: true, extraParams: ["deptId"], permission: "departments:update" }),
+  org("departments/[deptId]", "DELETE", ADMIN, { suspension: true, extraParams: ["deptId"], permission: "departments:delete" }),
 
   // ── Roles ───────────────────────────────────────────────────────────
-  org("roles", "GET", MEMBER),
-  org("roles", "POST", ADMIN, { suspension: true }),
-  org("roles/[roleId]", "GET", MEMBER, { extraParams: ["roleId"] }),
-  org("roles/[roleId]", "PATCH", ADMIN, { suspension: true, extraParams: ["roleId"] }),
-  org("roles/[roleId]", "DELETE", ADMIN, { suspension: true, extraParams: ["roleId"] }),
+  org("roles", "GET", MEMBER, { permission: "roles:read" }),
+  org("roles", "POST", ADMIN, { suspension: true, permission: "roles:create" }),
+  org("roles/[roleId]", "GET", MEMBER, { extraParams: ["roleId"], permission: "roles:read" }),
+  org("roles/[roleId]", "PATCH", ADMIN, { suspension: true, extraParams: ["roleId"], permission: "roles:update" }),
+  org("roles/[roleId]", "DELETE", ADMIN, { suspension: true, extraParams: ["roleId"], permission: "roles:delete" }),
 
   // ── Work rules ──────────────────────────────────────────────────────
-  org("work-rules", "GET", ADMIN),
-  org("work-rules", "POST", ADMIN, { suspension: true }),
-  org("work-rules/[ruleId]", "PATCH", ADMIN, { suspension: true, extraParams: ["ruleId"] }),
-  org("work-rules/[ruleId]", "DELETE", ADMIN, { suspension: true, extraParams: ["ruleId"] }),
+  org("work-rules", "GET", ADMIN, { permission: "work_rules:read" }),
+  org("work-rules", "POST", ADMIN, { suspension: true, permission: "work_rules:manage" }),
+  org("work-rules/[ruleId]", "PATCH", ADMIN, { suspension: true, extraParams: ["ruleId"], permission: "work_rules:manage" }),
+  org("work-rules/[ruleId]", "DELETE", ADMIN, { suspension: true, extraParams: ["ruleId"], permission: "work_rules:manage" }),
 
   // ── Tasks ───────────────────────────────────────────────────────────
-  org("tasks", "GET", MEMBER),
-  org("tasks", "POST", MANAGER, { suspension: true }),
-  org("tasks/[taskId]", "GET", MEMBER, { extraParams: ["taskId"] }),
-  org("tasks/[taskId]", "PATCH", MANAGER, { suspension: true, extraParams: ["taskId"] }),
-  org("tasks/[taskId]", "DELETE", MANAGER, { suspension: true, extraParams: ["taskId"] }),
-  org("tasks/[taskId]/assign", "POST", MANAGER, { suspension: true, extraParams: ["taskId"] }),
-  org("tasks/[taskId]/auto-allocate", "POST", MANAGER, { extraParams: ["taskId"] }),
-  org("tasks/[taskId]/eligibility", "GET", MANAGER, { extraParams: ["taskId"] }),
-  org("tasks/[taskId]/eligibility/override", "POST", MANAGER, { extraParams: ["taskId"] }),
-  org("tasks/[taskId]/suggest", "GET", MANAGER, { extraParams: ["taskId"] }),
-  org("tasks/assignments/[assignmentId]", "DELETE", MANAGER, { extraParams: ["assignmentId"] }),
-  org("tasks/parse", "POST", MANAGER),
-  org("recurring-tasks/generate", "POST", MANAGER),
+  org("tasks", "GET", MEMBER, { permission: "tasks:read" }),
+  org("tasks", "POST", MANAGER, { suspension: true, permission: "tasks:create" }),
+  org("tasks/[taskId]", "GET", MEMBER, { extraParams: ["taskId"], permission: "tasks:read" }),
+  org("tasks/[taskId]", "PATCH", MANAGER, { suspension: true, extraParams: ["taskId"], permission: "tasks:update" }),
+  org("tasks/[taskId]", "DELETE", MANAGER, { suspension: true, extraParams: ["taskId"], permission: "tasks:delete" }),
+  org("tasks/[taskId]/assign", "POST", MANAGER, { suspension: true, extraParams: ["taskId"], permission: "tasks:assign" }),
+  org("tasks/[taskId]/auto-allocate", "POST", MANAGER, { extraParams: ["taskId"], permission: "allocation:auto_allocate" }),
+  org("tasks/[taskId]/eligibility", "GET", MANAGER, { extraParams: ["taskId"], permission: "eligibility:view" }),
+  org("tasks/[taskId]/eligibility/override", "POST", MANAGER, { extraParams: ["taskId"], permission: "eligibility:override" }),
+  org("tasks/[taskId]/suggest", "GET", MANAGER, { extraParams: ["taskId"], permission: "allocation:use_suggestions" }),
+  org("tasks/assignments/[assignmentId]", "DELETE", MANAGER, { extraParams: ["assignmentId"], permission: "tasks:assign" }),
+  org("tasks/parse", "POST", MANAGER, { permission: "tasks:create" }),
+  org("recurring-tasks/generate", "POST", MANAGER, { permission: "tasks:create" }),
 
   // ── Scheduling & availability ───────────────────────────────────────
-  org("auto-schedule", "POST", ADMIN, { suspension: true }),
-  org("auto-schedule/confirm", "POST", ADMIN, { suspension: true }),
+  org("auto-schedule", "POST", ADMIN, { suspension: true, permission: "schedule:generate" }),
+  org("auto-schedule/confirm", "POST", ADMIN, { suspension: true, permission: "schedule:generate" }),
   org("availability", "GET", MEMBER),
   org("availability", "PUT", MEMBER),
   org("availability/overrides", "GET", MEMBER),
   org("availability/overrides", "POST", MEMBER),
-  org("calendar/coverage", "GET", MANAGER),
-  org("calendar/staff", "GET", MANAGER),
+  org("calendar/coverage", "GET", MANAGER, { permission: "calendar:view" }),
+  org("calendar/staff", "GET", MANAGER, { permission: "calendar:view" }),
 
   // ── Certifications ──────────────────────────────────────────────────
-  org("certifications", "GET", MANAGER),
+  org("certifications", "GET", MANAGER, { permission: "certifications:read" }),
   org("certifications", "POST", MEMBER),
   org("certifications/[certId]", "GET", MEMBER, { extraParams: ["certId"] }),
-  org("certifications/[certId]", "PATCH", MANAGER, { extraParams: ["certId"] }),
-  org("certifications/[certId]", "POST", MANAGER, { extraParams: ["certId"] }),
+  org("certifications/[certId]", "PATCH", MANAGER, { extraParams: ["certId"], permission: "certifications:review" }),
+  org("certifications/[certId]", "POST", MANAGER, { extraParams: ["certId"], permission: "certifications:review" }),
   org("certifications/[certId]", "DELETE", MEMBER, { extraParams: ["certId"] }),
   org("my-certifications", "GET", MEMBER),
   org("certification-definitions", "GET", MEMBER),
-  org("certification-definitions", "POST", ADMIN, { suspension: true }),
+  org("certification-definitions", "POST", ADMIN, { suspension: true, permission: "certifications:manage_definitions" }),
   org("certification-definitions/[definitionId]", "GET", MEMBER, {
     extraParams: ["definitionId"],
   }),
   org("certification-definitions/[definitionId]", "PATCH", ADMIN, {
     suspension: true,
     extraParams: ["definitionId"],
+    permission: "certifications:manage_definitions",
   }),
   org("certification-definitions/[definitionId]", "DELETE", ADMIN, {
     suspension: true,
     extraParams: ["definitionId"],
+    permission: "certifications:manage_definitions",
   }),
 
   // ── Personal views ──────────────────────────────────────────────────
@@ -162,12 +167,12 @@ export const ROUTES: RouteSpec[] = [
 
   // ── Reporting & insight ─────────────────────────────────────────────
   org("dashboard", "GET", MEMBER),
-  org("dashboard/ai-recommendations", "GET", MANAGER),
-  org("dashboard-insights", "GET", MANAGER),
-  org("hour-alerts", "GET", MANAGER),
-  org("hour-alerts", "POST", MANAGER),
-  org("reports", "GET", MANAGER),
-  org("reports/export", "GET", MANAGER, { suspension: true }),
+  org("dashboard/ai-recommendations", "GET", MANAGER, { permission: "reports:view" }),
+  org("dashboard-insights", "GET", MANAGER, { permission: "reports:view" }),
+  org("hour-alerts", "GET", MANAGER, { permission: "reports:view" }),
+  org("hour-alerts", "POST", MANAGER, { permission: "reports:view" }),
+  org("reports", "GET", MANAGER, { permission: "reports:view" }),
+  org("reports/export", "GET", MANAGER, { suspension: true, permission: "reports:export" }),
 
   // ── Assignment actions ──────────────────────────────────────────────
   // This group takes orgId from the QUERY STRING, not the path. Without it they
@@ -192,6 +197,7 @@ export const ROUTES: RouteSpec[] = [
     orgScoped: true,
     orgIdInQuery: true,
     extraParams: ["assignmentId"],
+    permission: "tasks:assign",
   },
 
   // ── Authenticated but not org-scoped ────────────────────────────────
@@ -250,3 +256,4 @@ export const ROLE_GATED_ROUTES = ORG_ROUTES.filter(
   (r) => Array.isArray(r.roles) && r.roles.length > 0
 );
 export const SUSPENSION_ROUTES = ORG_ROUTES.filter((r) => r.suspension);
+export const PERMISSION_ROUTES = ORG_ROUTES.filter((r) => r.permission);

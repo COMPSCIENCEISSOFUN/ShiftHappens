@@ -13,6 +13,7 @@ import { getAuthenticatedUser, unauthorizedResponse, checkOrgSuspended } from "@
 import { MembershipRepository } from "@/repositories/membership.repository";
 import { SubscriptionLimitError, FeatureNotAvailableError } from "@/lib/subscription-tiers";
 import { departmentScopeFor, isDepartmentInScope } from "@/lib/department-scope";
+import { hasPermission, PERMISSIONS } from "@/lib/permission-guard";
 
 const taskService = new TaskService();
 const membershipRepo = new MembershipRepository();
@@ -30,7 +31,7 @@ export async function POST(
     if (suspended) return suspended;
 
     const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
-    if (!membership || !["company_admin", "manager"].includes(membership.role)) {
+    if (!membership || !hasPermission(membership, PERMISSIONS.TASKS_CREATE)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -90,7 +91,7 @@ export async function GET(
     const { orgId } = await params;
 
     const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
-    if (!membership) {
+    if (!membership || !hasPermission(membership, PERMISSIONS.TASKS_READ)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 

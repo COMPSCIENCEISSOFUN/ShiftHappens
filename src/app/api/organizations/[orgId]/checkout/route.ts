@@ -22,6 +22,7 @@ import { MembershipRepository } from "@/repositories/membership.repository";
 import { createCheckoutSchema } from "@/lib/validations";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
 import { prisma } from "@/lib/prisma";
+import { hasPermission, PERMISSIONS } from "@/lib/permission-guard";
 
 export const runtime = "nodejs";
 
@@ -43,7 +44,7 @@ export async function POST(
     if (!membership) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
-    if (membership.role !== "company_admin") {
+    if (!hasPermission(membership, PERMISSIONS.BILLING_MANAGE)) {
       return NextResponse.json(
         { error: "Only a company admin can manage billing." },
         { status: 403 }

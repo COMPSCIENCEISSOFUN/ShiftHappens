@@ -21,6 +21,7 @@ import {
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
 import { MembershipRepository } from "@/repositories/membership.repository";
 import { z } from "zod";
+import { hasPermission, PERMISSIONS } from "@/lib/permission-guard";
 
 const recurringTaskService = new RecurringTaskService();
 const membershipRepo = new MembershipRepository();
@@ -40,7 +41,7 @@ export async function POST(
     const { orgId } = await params;
 
     const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
-    if (!membership || !["company_admin", "manager"].includes(membership.role)) {
+    if (!membership || !hasPermission(membership, PERMISSIONS.TASKS_CREATE)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 

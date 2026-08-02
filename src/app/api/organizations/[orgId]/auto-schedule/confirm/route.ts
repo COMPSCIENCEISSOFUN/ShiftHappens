@@ -12,6 +12,7 @@ import { getAuthenticatedUser, unauthorizedResponse, checkOrgSuspended } from "@
 import { MembershipRepository } from "@/repositories/membership.repository";
 import { confirmAutoScheduleSchema } from "@/lib/validations";
 import { departmentScopeFor } from "@/lib/department-scope";
+import { hasPermission, PERMISSIONS } from "@/lib/permission-guard";
 
 const autoScheduleService = new AutoScheduleService();
 const membershipRepo = new MembershipRepository();
@@ -29,7 +30,7 @@ export async function POST(
     if (suspended) return suspended;
 
     const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
-    if (!membership || membership.role !== "company_admin") {
+    if (!membership || !hasPermission(membership, PERMISSIONS.SCHEDULE_GENERATE)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 

@@ -12,6 +12,7 @@ import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
 import { MembershipRepository } from "@/repositories/membership.repository";
 import { CertificationDefinitionService } from "@/services/certification-definition.service";
 import { departmentScopeFor } from "@/lib/department-scope";
+import { hasPermission, PERMISSIONS } from "@/lib/permission-guard";
 
 const certService = new CertificationService();
 const membershipRepo = new MembershipRepository();
@@ -28,7 +29,7 @@ export async function GET(
     const { orgId } = await params;
 
     const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
-    if (!membership || !["company_admin", "manager"].includes(membership.role)) {
+    if (!membership || !hasPermission(membership, PERMISSIONS.CERTIFICATIONS_READ)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 

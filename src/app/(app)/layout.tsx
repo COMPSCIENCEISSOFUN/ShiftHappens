@@ -14,7 +14,7 @@ import { OrganizationService } from "@/services/organization.service";
 import { MembershipRepository } from "@/repositories/membership.repository";
 import { UserRepository } from "@/repositories/user.repository";
 import { OrgSuspendedBanner } from "@/components/layout/org-suspended-banner";
-import { prisma } from "@/lib/prisma";
+import { effectivePermissions } from "@/lib/permission-guard";
 
 const orgService = new OrganizationService();
 const membershipRepo = new MembershipRepository();
@@ -50,6 +50,7 @@ export default async function AppLayout({
   let role: string | undefined;
   let employmentType: string | undefined;
   let customRoleLabel: string | undefined;
+  let permissions: string[] = [];
   let orgSuspended = false;
 
   if (orgs.length > 0) {
@@ -65,15 +66,9 @@ export default async function AppLayout({
       );
       role = membership?.role;
       employmentType = (membership as Record<string, unknown>)?.employmentType as string | undefined;
-
-      // Fetch custom role display label if assigned
-      const customRoleId = (membership as Record<string, unknown>)?.customRoleId as string | undefined;
-      if (customRoleId) {
-        const customRole = await prisma.role.findUnique({
-          where: { id: customRoleId },
-          select: { displayLabel: true },
-        });
-        customRoleLabel = customRole?.displayLabel;
+      if (membership) {
+        customRoleLabel = membership.customRole?.displayLabel;
+        permissions = [...effectivePermissions(membership)];
       }
     }
   }
@@ -95,6 +90,7 @@ export default async function AppLayout({
         role={role}
         employmentType={employmentType}
         customRoleLabel={customRoleLabel}
+        permissions={permissions}
       />
       <main className="flex-1 overflow-x-hidden px-4 pt-18 pb-6 md:p-6">{children}</main>
     </div>

@@ -72,6 +72,15 @@ const permissions = [
 
   // Audit (Phase 7)
   { name: "audit:view", description: "View audit logs", category: "audit" },
+
+  // Operational permissions added when custom-role enforcement became active
+  { name: "work_rules:read", description: "View organization work rules", category: "work_rules" },
+  { name: "work_rules:manage", description: "Create, update, and delete work rules", category: "work_rules" },
+  { name: "certifications:read", description: "View organization certification records", category: "certifications" },
+  { name: "certifications:review", description: "Verify, reject, or revoke certification submissions", category: "certifications" },
+  { name: "certifications:manage_definitions", description: "Manage approved certification definitions", category: "certifications" },
+  { name: "schedule:generate", description: "Generate and confirm organization schedules", category: "schedule" },
+  { name: "billing:manage", description: "Manage subscription and checkout", category: "billing" },
 ];
 
 // ============================================================

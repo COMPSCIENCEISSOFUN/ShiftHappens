@@ -11,6 +11,7 @@ import { SettingsService } from "@/services/settings.service";
 import { updateCompanySettingsSchema } from "@/lib/validations";
 import { getAuthenticatedUser, unauthorizedResponse, checkOrgSuspended } from "@/lib/auth-guard";
 import { MembershipRepository } from "@/repositories/membership.repository";
+import { hasPermission, PERMISSIONS } from "@/lib/permission-guard";
 
 const settingsService = new SettingsService();
 const membershipRepo = new MembershipRepository();
@@ -26,7 +27,7 @@ export async function GET(
     const { orgId } = await params;
 
     const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
-    if (!membership || membership.role !== "company_admin") {
+    if (!membership || !hasPermission(membership, PERMISSIONS.SETTINGS_READ)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -50,7 +51,7 @@ export async function PATCH(
     if (suspended) return suspended;
 
     const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
-    if (!membership || membership.role !== "company_admin") {
+    if (!membership || !hasPermission(membership, PERMISSIONS.SETTINGS_UPDATE)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 

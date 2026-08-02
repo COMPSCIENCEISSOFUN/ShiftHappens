@@ -32,8 +32,10 @@ import { cleanDatabase } from "../helpers/cleanup";
 import { createTenant, suspendOrg, type Tenant } from "../helpers/fixtures";
 import { asUser, asAnonymous, asMalformedSession } from "../helpers/session";
 import { ctx, requestFor, bodyOf } from "../helpers/route";
+import { prisma } from "@/lib/prisma";
 import {
   ORG_ROUTES,
+  PERMISSION_ROUTES,
   ROLE_GATED_ROUTES,
   SUSPENSION_ROUTES,
   SESSION_ROUTES,
@@ -104,6 +106,7 @@ beforeAll(() => {
   expect(ORG_ROUTES.length).toBeGreaterThan(50);
   expect(ROLE_GATED_ROUTES.length).toBeGreaterThan(20);
   expect(SUSPENSION_ROUTES.length).toBeGreaterThan(10);
+  expect(PERMISSION_ROUTES.length).toBeGreaterThan(30);
 });
 
 beforeEach(async () => {
@@ -187,6 +190,66 @@ describe("members below the required role are refused", () => {
     asUser(tenant.manager.userId);
     const res = await call(spec, tenant.orgId);
     expect(res!.status).toBe(403);
+  });
+});
+
+describe("custom-role permissions", () => {
+  async function assignCustomRole(permissionNames: string[]) {
+    const permissions = await Promise.all(
+      permissionNames.map((name) =>
+        prisma.permission.upsert({
+          where: { name },
+          update: {},
+          create: {
+            name,
+            description: `Contract permission: ${name}`,
+            category: name.split(":")[0],
+          },
+        })
+      )
+    );
+    const role = await prisma.role.create({
+      data: {
+        organizationId: tenant.orgId,
+        name: `contract-role-${permissionNames.length}`,
+        displayLabel: "Contract role",
+        rolePermissions: {
+          create: permissions.map((permission) => ({
+            permissionId: permission.id,
+          })),
+        },
+      },
+    });
+    await prisma.membership.update({
+      where: { id: tenant.staff.membershipId },
+      data: { customRoleId: role.id },
+    });
+  }
+
+  it("denies every declared operational route when the custom role has no grants", async () => {
+    await assignCustomRole([]);
+    asUser(tenant.staff.userId);
+
+    const failures: string[] = [];
+    for (const spec of PERMISSION_ROUTES) {
+      const res = await call(spec, tenant.orgId);
+      if (res?.status !== 403) failures.push(`${label(spec)} returned ${res?.status}`);
+    }
+    expect(failures).toEqual([]);
+  });
+
+  it("passes the permission gate when every declared grant is assigned", async () => {
+    await assignCustomRole([
+      ...new Set(PERMISSION_ROUTES.map((spec) => spec.permission!)),
+    ]);
+    asUser(tenant.staff.userId);
+
+    const failures: string[] = [];
+    for (const spec of PERMISSION_ROUTES) {
+      const res = await call(spec, tenant.orgId);
+      if (res?.status === 403) failures.push(label(spec));
+    }
+    expect(failures).toEqual([]);
   });
 });
 

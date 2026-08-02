@@ -12,6 +12,7 @@ import { createDepartmentSchema } from "@/lib/validations";
 import { getAuthenticatedUser, unauthorizedResponse, checkOrgSuspended } from "@/lib/auth-guard";
 import { MembershipRepository } from "@/repositories/membership.repository";
 import { SubscriptionLimitError, FeatureNotAvailableError } from "@/lib/subscription-tiers";
+import { hasPermission, PERMISSIONS } from "@/lib/permission-guard";
 
 const deptService = new DepartmentService();
 const membershipRepo = new MembershipRepository();
@@ -30,7 +31,7 @@ export async function POST(
 
     // Only Company Admin can create departments
     const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
-    if (!membership || membership.role !== "company_admin") {
+    if (!membership || !hasPermission(membership, PERMISSIONS.DEPARTMENTS_CREATE)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -69,7 +70,7 @@ export async function GET(
 
     // Any org member can view departments
     const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
-    if (!membership) {
+    if (!membership || !hasPermission(membership, PERMISSIONS.DEPARTMENTS_READ)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 

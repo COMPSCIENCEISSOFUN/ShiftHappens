@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { RoleService } from "@/services/role.service";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
 import { MembershipRepository } from "@/repositories/membership.repository";
+import { hasPermission, PERMISSIONS } from "@/lib/permission-guard";
 
 const roleService = new RoleService();
 const membershipRepo = new MembershipRepository();
@@ -25,7 +26,7 @@ export async function GET(
     const { orgId } = await params;
 
     const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
-    if (!membership || membership.role !== "company_admin") {
+    if (!membership || !hasPermission(membership, PERMISSIONS.ROLES_READ)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
