@@ -9,13 +9,31 @@
 import { prisma } from "@/lib/prisma";
 
 export class PlatformRepository {
-  /** Lists all organizations with member and task counts */
+  /**
+   * Lists all organizations with member and task counts.
+   *
+   * The `select` is explicit on purpose. Without one, Prisma returns every
+   * scalar on Organization — including `stripeCustomerId`,
+   * `stripeSubscriptionId`, `subscriptionStatus`, `billingInterval` and
+   * `address` — all of which reached the browser despite nothing rendering
+   * them. No tenant's operational data was exposed (this query never traverses
+   * into Membership, Task or User; the only relation is `_count`), but sending
+   * a customer's payment-processor identifiers to a page that ignores them is
+   * needless. Add a field here when the UI actually needs it.
+   */
   async findAllOrganizations(limit = 50, offset = 0) {
     return prisma.organization.findMany({
       skip: offset,
       take: limit,
       orderBy: { createdAt: "desc" },
-      include: {
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        industry: true,
+        status: true,
+        subscriptionTier: true,
+        createdAt: true,
         _count: {
           select: {
             memberships: true,

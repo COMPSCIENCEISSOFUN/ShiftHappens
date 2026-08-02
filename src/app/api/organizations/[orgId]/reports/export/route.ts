@@ -22,6 +22,7 @@ import { PdfReportService } from "@/services/pdf-report.service";
 import { SubscriptionService } from "@/services/subscription.service";
 import { OrganizationService } from "@/services/organization.service";
 import { FeatureNotAvailableError } from "@/lib/subscription-tiers";
+import { departmentScopeFor } from "@/lib/department-scope";
 
 const accessService = new AccessService();
 
@@ -71,7 +72,14 @@ export async function GET(
 
     // --- Generate PDF ---
     const pdfReportService = new PdfReportService();
-    const pdfBuffer = await pdfReportService.generateReport(orgId, orgName);
+    // Managers see only their departments — same rule as every other report.
+    // Without this the PDF was an org-wide staff-hours dump any manager could
+    // download and keep.
+    const pdfBuffer = await pdfReportService.generateReport(
+      orgId,
+      orgName,
+      departmentScopeFor(membership)
+    );
 
     // --- Return PDF as download ---
     const now = new Date();

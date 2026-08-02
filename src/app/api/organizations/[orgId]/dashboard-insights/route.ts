@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { AIDashboardService } from "@/services/ai-dashboard.service";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
 import { AccessService } from "@/services/access.service";
+import { departmentScopeFor } from "@/lib/department-scope";
 
 const dashboardAI = new AIDashboardService();
 const accessService = new AccessService();
@@ -28,7 +29,12 @@ export async function GET(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const insights = await dashboardAI.generateInsights(orgId);
+    const insights = await dashboardAI.generateInsights(
+      orgId,
+      // Managers see only their own departments. Without this the alerts and
+      // recommendations named staff and tasks from across the organisation.
+      departmentScopeFor(membership)
+    );
     return NextResponse.json(insights);
   } catch (error) {
     console.error("[Dashboard Insights Error]", error);

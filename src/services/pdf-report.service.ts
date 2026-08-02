@@ -78,24 +78,44 @@ export class PdfReportService {
    * Generates the weekly workforce briefing PDF.
    * Returns a Buffer suitable for HTTP response.
    */
+  /**
+   * `departmentIds` is the caller's scope: null for a company admin, the
+   * manager's own departments otherwise.
+   *
+   * It was missing, and the omission mattered more here than anywhere else in
+   * the application. Every other reporting surface a manager can reach is
+   * department-scoped; this one produced a PDF — a durable, shareable,
+   * downloadable artefact — containing every staff member's name and worked
+   * hours across the whole organisation, plus per-person rejection history.
+   * A manager scoped to the kitchen could download the entire company's
+   * timesheet summary, and take it with them.
+   */
   async generateReport(
     organizationId: string,
-    orgName: string
+    orgName: string,
+    departmentIds?: string[] | null
   ): Promise<ArrayBuffer> {
-    const data = await this.gatherData(organizationId);
+    const data = await this.gatherData(organizationId, departmentIds);
     return this.renderPdf(orgName, data);
   }
 
   // ===== Data Gathering =====
 
   /** Calls existing ReportingService methods in parallel */
-  private async gatherData(organizationId: string): Promise<ReportData> {
+  private async gatherData(
+    organizationId: string,
+    departmentIds?: string[] | null
+  ): Promise<ReportData> {
+    // `?? undefined` because these methods take `string[] | undefined`, and a
+    // company admin's scope is expressed as null. Both mean unrestricted.
+    const scope = departmentIds ?? undefined;
+
     const [metrics, staffUtilization, departments, rejections] =
       await Promise.all([
-        this.reportingService.getKeyMetrics(organizationId),
-        this.reportingService.getStaffUtilization(organizationId),
-        this.reportingService.getDepartmentWorkload(organizationId),
-        this.reportingService.getRejectionTrends(organizationId),
+        this.reportingService.getKeyMetrics(organizationId, scope),
+        this.reportingService.getStaffUtilization(organizationId, scope),
+        this.reportingService.getDepartmentWorkload(organizationId, scope),
+        this.reportingService.getRejectionTrends(organizationId, scope),
       ]);
 
     return { metrics, staffUtilization, departments, rejections };

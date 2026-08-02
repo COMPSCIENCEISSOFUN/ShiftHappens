@@ -108,8 +108,12 @@ CRITICAL RULES:
    * Each recommendation includes a title, reasoning, and action type.
    * Falls back to algorithmic analysis if AI providers fail.
    */
-  async generateRecommendations(organizationId: string): Promise<AIRecommendationsResponse> {
-    const data = await this.gatherDashboardData(organizationId);
+  async generateRecommendations(
+    organizationId: string,
+    /** Manager scope. null/undefined = unrestricted (company admin). */
+    departmentIds?: string[] | null
+  ): Promise<AIRecommendationsResponse> {
+    const data = await this.gatherDashboardData(organizationId, departmentIds);
 
     if (data.totalTasks === 0 && data.activeStaff === 0) {
       return {
@@ -397,8 +401,12 @@ CRITICAL RULES:
    * Generates a comprehensive dashboard insight by gathering
    * org data and sending it to the AI for analysis.
    */
-  async generateInsights(organizationId: string): Promise<DashboardInsight> {
-    const data = await this.gatherDashboardData(organizationId);
+  async generateInsights(
+    organizationId: string,
+    /** Manager scope. null/undefined = unrestricted (company admin). */
+    departmentIds?: string[] | null
+  ): Promise<DashboardInsight> {
+    const data = await this.gatherDashboardData(organizationId, departmentIds);
 
     if (data.totalTasks === 0 && data.activeStaff === 0) {
       return {
@@ -621,14 +629,45 @@ CRITICAL RULES:
   /**
    * Gathers all data needed for dashboard analysis.
    */
-  private async gatherDashboardData(organizationId: string): Promise<DashboardData> {
+  /**
+   * Collects the raw picture the model reasons over.
+   *
+   * `departmentIds` was missing until 2026-08-02, and the consequence was not
+   * abstract: the alerts and recommendations built from this data embed staff
+   * NAMES and task TITLES. A manager scoped to one department was shown, in
+   * plain language, who elsewhere in the company was near their hour limit and
+   * which of another team's shifts were understaffed — and the same org-wide
+   * detail was sent to Groq or Gemini in the prompt.
+   *
+   * Filtering is in memory rather than at the query, because both repository
+   * calls already load everything this needs — `findByOrgId` includes each
+   * membership's departments — and pushing the scope into the queries would
+   * mean touching two repositories for no behavioural gain.
+   */
+  private async gatherDashboardData(
+    organizationId: string,
+    departmentIds?: string[] | null
+  ): Promise<DashboardData> {
+    /** null/undefined = unrestricted. An empty array means "no departments". */
+    const scope = departmentIds == null ? null : new Set(departmentIds);
+
     const settings = await this.settingsRepo.getOrCreate(organizationId);
     const members = await this.membershipRepo.findByOrgId(organizationId);
-    const activeStaff = members.filter(
-      (m) => m.status === "active" && m.role !== "company_admin"
-    );
+    const activeStaff = members
+      .filter((m) => m.status === "active" && m.role !== "company_admin")
+      .filter(
+        (m) =>
+          scope === null ||
+          m.departmentMemberships.some((dm) => scope.has(dm.department.id))
+      );
 
-    const tasks = await this.taskRepo.findByOrganizationId(organizationId);
+    const allTasks = await this.taskRepo.findByOrganizationId(organizationId);
+    // A task with no department belongs to nobody as far as scope goes — the
+    // same rule AccessService.isTaskInScope applies.
+    const tasks =
+      scope === null
+        ? allTasks
+        : allTasks.filter((t) => t.departmentId !== null && scope.has(t.departmentId));
     const openTasks = tasks.filter((t) => t.status === "open");
     const inProgressTasks = tasks.filter((t) => t.status === "in_progress");
 
@@ -674,8 +713,14 @@ CRITICAL RULES:
       oneWeekAgo
     );
 
+    // Rejections come back org-wide. `activeStaff` is already scoped, so it is
+    // the authoritative list of who this caller may be told about — a rejection
+    // by someone in another department must not surface as a "pattern".
+    const visibleMembershipIds = new Set(activeStaff.map((m) => m.id));
+
     const rejectionMap: Record<string, { staffName: string; membershipId: string; count: number; reasons: string[] }> = {};
     for (const r of rejections) {
+      if (scope !== null && !visibleMembershipIds.has(r.membershipId)) continue;
       const key = r.membershipId;
       if (!rejectionMap[key]) {
         rejectionMap[key] = {
@@ -705,9 +750,13 @@ CRITICAL RULES:
     const pendingCertifications =
       await this.certRepo.countPendingVerification(organizationId);
 
-    const departments = await this.departmentRepo.findActiveWithCounts(
+    const allDepartments = await this.departmentRepo.findActiveWithCounts(
       organizationId
     );
+    const departments =
+      scope === null
+        ? allDepartments
+        : allDepartments.filter((d) => scope.has(d.id));
 
     const deptStats = departments.map((d) => ({
       name: d.name,
