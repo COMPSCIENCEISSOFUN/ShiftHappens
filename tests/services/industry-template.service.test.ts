@@ -31,8 +31,15 @@ const validWorkRules = [
 
 const validCertifications = ["Food Safety", "First Aid"];
 
-/** Builds a valid createTemplate input with optional overrides */
-function makeInput(overrides: Record<string, unknown> = {}): any {
+/**
+ * Builds a valid createTemplate input with optional overrides.
+ *
+ * Returns the service's own parameter type, so an override that no longer
+ * matches the shape fails the build rather than reaching the assertion.
+ */
+type TemplateInput = Parameters<IndustryTemplateService["createTemplate"]>[0];
+
+function makeInput(overrides: Record<string, unknown> = {}): TemplateInput {
   return {
     name: "Hospitality",
     icon: "UtensilsCrossed",
@@ -320,7 +327,9 @@ describe("IndustryTemplateService", () => {
         templateService.createTemplate(
           makeInput({
             workRules: [
-              { name: "Bad Rule", type: "invalid_type" as any, reason: "None" },
+              // Deliberately outside the union — this is the input the
+              // validator is supposed to reject.
+              { name: "Bad Rule", type: "invalid_type" as never, reason: "None" },
             ],
           })
         )

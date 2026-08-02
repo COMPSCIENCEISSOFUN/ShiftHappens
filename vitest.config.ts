@@ -32,6 +32,24 @@ export default defineConfig({
     include: ["tests/**/*.test.ts", "tests/**/*.test.tsx"],
     fileParallelism: false,
     reporters: ['verbose'],
+    /**
+     * Vitest defaults to 5s, which suits pure unit tests. This suite is not
+     * one: every test hits a real database, several hash passwords at bcrypt
+     * cost 12, and `tests/api/manifest-completeness.test.ts` imports every
+     * route module in the app to check its exports.
+     *
+     * Measured on an idle machine, the slowest test uses ~3.6s of the 5s
+     * budget. That leaves no headroom, so the run fails on a busy laptop —
+     * building in another terminal is enough to do it — with a timeout that
+     * says nothing about the code. Raised to give a 5x margin over the
+     * slowest observed test. A genuine hang never terminates, so it still
+     * fails; it just takes longer to say so.
+     *
+     * hookTimeout covers `beforeEach(cleanDatabase)`, which is 24 sequential
+     * deletes and is subject to the same contention.
+     */
+    testTimeout: 20000,
+    hookTimeout: 20000,
   },
   resolve: {
     alias: {
