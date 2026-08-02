@@ -151,12 +151,15 @@ export class TaskAssignmentRepository {
   }
 
   /** Records a staff withdrawal request with a reason. Slot stays reserved. */
-  async requestWithdrawal(id: string, reason: string) {
+  async requestWithdrawal(id: string, reason: string, notes?: string) {
     return prisma.taskAssignment.update({
       where: { id },
       data: {
         status: "withdrawal_requested",
         withdrawalReason: reason,
+        // null, not undefined: Prisma ignores undefined, so a second request
+        // without notes would silently keep the notes from the first one.
+        withdrawalNotes: notes ?? null,
       },
     });
   }
@@ -168,6 +171,7 @@ export class TaskAssignmentRepository {
       data: {
         status: "accepted",
         withdrawalReason: null,
+        withdrawalNotes: null,
       },
     });
   }

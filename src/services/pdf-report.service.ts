@@ -12,6 +12,7 @@
  *
  * BCE compliant: Service (Control) → ReportingService (Control) → Repository (Entity).
  */
+import { REASON_PHRASE } from "@/lib/decline-reasons";
 import { jsPDF } from "jspdf";
 import { ReportingService } from "./reporting.service";
 import {
@@ -53,16 +54,16 @@ const COLOR = {
   headerLine: [26, 26, 26] as const,
 };
 
-/** Maps rejection reason enums to human-readable labels */
+/**
+ * Rejection reasons as prose, for dropping into a sentence.
+ *
+ * Derived from the shared map rather than restated, so a reason added to
+ * `DECLINE_REASONS` cannot silently be missing here. `unspecified` is local: it
+ * is not a value anyone can choose, it is what the report calls a row with no
+ * reason recorded at all.
+ */
 const REJECTION_LABELS: Record<string, string> = {
-  schedule_conflict: "schedule conflicts",
-  feeling_unwell: "feeling unwell",
-  exceeds_preferred_hours: "exceeds preferred hours",
-  transport_issues: "transport issues",
-  insufficient_notice: "insufficient notice",
-  rest_period_needed: "rest period needed",
-  personal_reasons: "personal reasons",
-  other: "other reasons",
+  ...REASON_PHRASE,
   unspecified: "unspecified reasons",
 };
 

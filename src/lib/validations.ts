@@ -8,6 +8,7 @@
  * Security: Prevents malformed input from reaching business logic.
  */
 import { z } from "zod";
+import { DECLINE_REASONS } from "@/lib/decline-reasons";
 
 /**
  * Reusable password schema enforcing strong password policy:
@@ -256,24 +257,36 @@ export const assignTaskSchema = z.object({
   membershipIds: z.array(z.string()).min(1, "Select at least one staff member"),
 });
 
-/** Validates task rejection with required reason */
+/**
+ * Validates task rejection with required reason.
+ *
+ * The eight values come from `@/lib/decline-reasons` rather than being written
+ * out here. They were previously duplicated in this enum, in the My Tasks
+ * dropdown and in the PDF report's label map, with nothing keeping the three in
+ * step — a value added here would not have appeared in the dropdown, and one
+ * removed would have left the dropdown offering something this schema rejects.
+ */
 export const rejectTaskSchema = z.object({
-  rejectionReason: z.enum([
-    "schedule_conflict",
-    "feeling_unwell",
-    "exceeds_preferred_hours",
-    "transport_issues",
-    "insufficient_notice",
-    "rest_period_needed",
-    "personal_reasons",
-    "other",
-  ]),
+  rejectionReason: z.enum(DECLINE_REASONS),
   rejectionNotes: z.string().max(500).optional(),
 });
 
-/** Validates a staff withdrawal/abort request on an accepted assignment */
+/**
+ * Validates a staff withdrawal request on an accepted assignment.
+ *
+ * The reason was free text until now. It is the same question rejection asks —
+ * "why can you not work this shift" — so it takes the same eight values, and
+ * for the same reason: free text cannot be counted. "Schedule conflict" typed
+ * six different ways is six categories, which makes the withdrawal figures on
+ * the admin dashboard meaningless.
+ *
+ * `notes` preserves what the free-text field was actually good for. A bare
+ * "personal_reasons" tells the manager approving it nothing, so the box stays —
+ * it is simply no longer the only thing recorded.
+ */
 export const withdrawTaskSchema = z.object({
-  reason: z.string().min(3, "Please give a brief reason").max(500),
+  reason: z.enum(DECLINE_REASONS),
+  notes: z.string().max(500).optional(),
 });
 
 /** Validates a manager's decision on a pending withdrawal request */

@@ -15,6 +15,7 @@
  * Authorization: Only the assigned member can perform
  * accept, reject, clockIn, and clockOut actions.
  */
+import { reasonLabel } from "@/lib/decline-reasons";
 import { TaskAssignmentRepository } from "@/repositories/task-assignment.repository";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 import { NotificationService, NOTIFICATION_TYPES } from "@/services/notification.service";
@@ -232,7 +233,12 @@ export class TaskAssignmentService {
    * The slot stays reserved (status "withdrawal_requested") until a manager
    * approves or denies. Notifies the assigning manager.
    */
-  async requestWithdrawal(assignmentId: string, membershipId: string, reason: string) {
+  async requestWithdrawal(
+    assignmentId: string,
+    membershipId: string,
+    reason: string,
+    notes?: string
+  ) {
     const assignment = await this.assignmentRepo.findById(assignmentId);
     if (!assignment) throw new Error("Assignment not found");
 
@@ -244,7 +250,7 @@ export class TaskAssignmentService {
       throw new Error("Can only withdraw from an accepted task");
     }
 
-    const result = await this.assignmentRepo.requestWithdrawal(assignmentId, reason);
+    const result = await this.assignmentRepo.requestWithdrawal(assignmentId, reason, notes);
 
     await this.auditService.log({
       organizationId: assignment.task.organizationId,
@@ -252,7 +258,7 @@ export class TaskAssignmentService {
       action: ACTIONS.ASSIGNMENT_WITHDRAWAL_REQUESTED,
       entityType: "assignment",
       entityId: assignmentId,
-      details: { reason, taskTitle: assignment.task.title },
+      details: { reason, notes, taskTitle: assignment.task.title },
     });
 
     const staffName = assignment.membership.user?.name || "A staff member";
@@ -261,7 +267,10 @@ export class TaskAssignmentService {
       assignment.assignedById,
       NOTIFICATION_TYPES.WITHDRAWAL_REQUESTED,
       "Withdrawal requested",
-      `${staffName} requested to withdraw from "${assignment.task.title}" — ${reason}`,
+      // The stored value is an enum key; a manager reading a notification should
+      // not be shown "personal_reasons". Notes are appended when given, because
+      // the reason alone rarely says enough to decide on.
+      `${staffName} requested to withdraw from "${assignment.task.title}" — ${reasonLabel(reason)}${notes ? `: ${notes}` : ""}`,
       "task",
       assignment.task.id
     );

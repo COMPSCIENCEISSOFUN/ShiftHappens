@@ -6,6 +6,7 @@
  * eligibility overrides, and company settings (including operating hours).
  */
 import { describe, it, expect } from "vitest";
+import { DECLINE_REASONS } from "@/lib/decline-reasons";
 import {
   registerSchema,
   loginSchema,
@@ -690,24 +691,68 @@ describe("createCheckoutSchema", () => {
   });
 });
 
+/**
+ * Withdrawal reasons were free text ("Family emergency") until they became one
+ * of the eight shared DECLINE_REASONS. Free text cannot be counted — "schedule
+ * conflict" typed six ways is six categories — and withdrawal reasons are meant
+ * to feed the admin dashboard's allocation-accuracy figures.
+ *
+ * The free-text box survives as `notes`, because "personal_reasons" on its own
+ * tells the manager approving the request nothing.
+ */
 describe("withdrawTaskSchema", () => {
-  it("accepts a valid withdrawal reason", () => {
-    const result = withdrawTaskSchema.safeParse({ reason: "Family emergency" });
+  it("accepts one of the shared decline reasons", () => {
+    const result = withdrawTaskSchema.safeParse({ reason: "schedule_conflict" });
     expect(result.success).toBe(true);
   });
 
-  it("rejects a reason that is too short", () => {
-    const result = withdrawTaskSchema.safeParse({ reason: "no" });
+  it("accepts a reason with optional notes", () => {
+    const result = withdrawTaskSchema.safeParse({
+      reason: "personal_reasons",
+      notes: "Sister's wedding, booked months ago",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("no longer accepts free text as the reason", () => {
+    // The behaviour change, stated directly so it reads as a decision rather
+    // than as something that quietly stopped working.
+    const result = withdrawTaskSchema.safeParse({ reason: "Family emergency" });
     expect(result.success).toBe(false);
   });
 
   it("rejects a missing reason", () => {
-    const result = withdrawTaskSchema.safeParse({});
+    expect(withdrawTaskSchema.safeParse({}).success).toBe(false);
+  });
+
+  it("rejects notes over 500 characters", () => {
+    const result = withdrawTaskSchema.safeParse({
+      reason: "other",
+      notes: "a".repeat(501),
+    });
     expect(result.success).toBe(false);
   });
 
-  it("rejects a reason over 500 characters", () => {
-    const result = withdrawTaskSchema.safeParse({ reason: "a".repeat(501) });
+  it("accepts every reason the dropdown offers", () => {
+    // Guards the actual failure mode of the old duplication: a value the UI
+    // shows that the schema refuses, leaving the staff member stuck on
+    // "Validation failed" with no way to proceed.
+    for (const reason of DECLINE_REASONS) {
+      expect(withdrawTaskSchema.safeParse({ reason }).success).toBe(true);
+    }
+  });
+});
+
+describe("rejectTaskSchema accepts every shared reason", () => {
+  it("matches the dropdown exactly", () => {
+    for (const reason of DECLINE_REASONS) {
+      const result = rejectTaskSchema.safeParse({ rejectionReason: reason });
+      expect(result.success).toBe(true);
+    }
+  });
+
+  it("still refuses a reason that is not in the list", () => {
+    const result = rejectTaskSchema.safeParse({ rejectionReason: "just_because" });
     expect(result.success).toBe(false);
   });
 });

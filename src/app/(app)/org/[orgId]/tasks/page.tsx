@@ -32,6 +32,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { toDateTimeLocalValue } from "@/lib/timezone";
 import { OperatingHoursNotice } from "@/components/tasks/operating-hours-notice";
+import { reasonLabel } from "@/lib/decline-reasons";
 
 // ============================================================
 // Constants
@@ -122,6 +123,7 @@ interface Task {
     clockInTime: string | null;
     clockOutTime: string | null;
     withdrawalReason: string | null;
+    withdrawalNotes: string | null;
     membership: { user: { id: string; name: string | null } };
   }[];
 }
@@ -1456,8 +1458,18 @@ export default function TasksPage() {
                                 <div className="ml-9 mt-1 rounded-lg border border-orange-200 bg-orange-50 p-2.5 dark:border-orange-900 dark:bg-orange-950/40">
                                   <p className="text-xs text-orange-800 dark:text-orange-300">
                                     <strong>{a.membership.user.name}</strong> requested to withdraw
-                                    {a.withdrawalReason ? `: "${a.withdrawalReason}"` : ""}
+                                    {a.withdrawalReason ? ` — ${reasonLabel(a.withdrawalReason)}` : ""}
                                   </p>
+                                  {/* Withdrawal reasons are now one of eight
+                                      values so they can be counted. The reason
+                                      alone rarely says enough to decide on, so
+                                      the staff member's own words are shown
+                                      underneath when they gave any. */}
+                                  {a.withdrawalNotes && (
+                                    <p className="mt-0.5 text-[11px] text-orange-700 dark:text-orange-400">
+                                      &ldquo;{a.withdrawalNotes}&rdquo;
+                                    </p>
+                                  )}
                                   <div className="mt-2 flex gap-2">
                                     <button
                                       type="button"

@@ -287,7 +287,8 @@ model TaskAssignment {
   status          String    @default("pending")
   rejectionReason String?
   rejectionNotes  String?
-  withdrawalReason String?  // reason a staff member gave when requesting to withdraw
+  withdrawalReason String?  // one of DECLINE_REASONS (see src/lib/decline-reasons.ts); free text on rows predating structured reasons
+  withdrawalNotes  String?  // optional free text alongside the reason — mirrors rejectionNotes
   clockInTime     DateTime?
   clockOutTime    DateTime?
   assignedById    String

@@ -60,7 +60,8 @@ export async function POST(
     const updated = await assignmentService.requestWithdrawal(
       assignmentId,
       membership.id,
-      parsed.data.reason
+      parsed.data.reason,
+      parsed.data.notes
     );
     return NextResponse.json(updated);
   } catch (error) {
