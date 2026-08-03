@@ -21,7 +21,6 @@ import {
   CircleHelp,
   ClipboardList,
   Clock,
-  Cpu,
   Sparkles,
   TriangleAlert,
   type LucideIcon,
@@ -166,16 +165,111 @@ interface AIRecommendation {
   reasoning: string;
   actionType: string;
   actionUrl: string;
+  /** The task this refers to, used to fold it into that task's alert. */
+  entityId?: string;
 }
 
 interface AIRecommendationsData {
   recommendations: AIRecommendation[];
   footer: string;
+  /** "groq" | "gemini" | "algorithmic" — see the badge note in mergeActionItems. */
+  provider?: string;
 }
 
 // ============================================================
 // Helpers
 // ============================================================
+
+/**
+ * One row of the merged action list.
+ *
+ * The dashboard used to render two lists from two sources that read the same
+ * data. `getNeedsAttention` reported understaffed tasks; the recommendation
+ * service reported the same understaffed tasks as "Assign staff to X". The
+ * page showed both, so the most common alert always appeared twice.
+ *
+ * They are one list now, and an AI recommendation about something already
+ * flagged becomes a second line ON that alert rather than a card beside it.
+ * The model's contribution is reasoning, not repetition — and where it has
+ * something the deterministic checks cannot produce, it still gets its own row.
+ */
+interface ActionItem {
+  key: string;
+  severity: "danger" | "warning" | "info";
+  message: string;
+  /** The model's reasoning, when it had something to add. */
+  insight?: string;
+  actionLabel: string;
+  actionUrl: string;
+  /** True when a language model actually produced this — not the fallback. */
+  fromModel: boolean;
+  /** True for a deterministic insight that joins facts (unfillable, no-show). */
+  isInsight: boolean;
+}
+
+/**
+ * Folds recommendations into alerts.
+ *
+ * `entityId` is the join. A recommendation carrying a task id that already has
+ * an alert contributes its reasoning; one without a match becomes its own row.
+ * Matching on the id rather than the message text matters — the two are worded
+ * differently ("Lunch Service needs 1 more staff" vs "Assign staff to Lunch
+ * Service") and string comparison would never have caught it.
+ */
+function mergeActionItems(
+  alerts: NeedsAttentionItem[] | null,
+  recs: AIRecommendationsData | null
+): ActionItem[] {
+  const fromModel = recs?.provider === "groq" || recs?.provider === "gemini";
+
+  const reasoningByEntity = new Map<string, string>();
+  for (const rec of recs?.recommendations ?? []) {
+    if (rec.entityId && rec.reasoning) {
+      reasoningByEntity.set(rec.entityId, rec.reasoning);
+    }
+  }
+
+  const items: ActionItem[] = (alerts ?? []).map((alert, i) => ({
+    key: `${alert.type}-${alert.entityId ?? i}`,
+    severity: alert.severity,
+    message: alert.message,
+    // Only attach the model's words. The algorithmic fallback restates the
+    // alert, so folding that in would print the same sentence twice on one row.
+    insight:
+      fromModel && alert.entityId
+        ? reasoningByEntity.get(alert.entityId)
+        : undefined,
+    actionLabel: alert.actionLabel,
+    actionUrl: alert.actionUrl,
+    fromModel: false,
+    isInsight: alert.isAiInsight === true,
+  }));
+
+  const flagged = new Set(
+    (alerts ?? []).map((a) => a.entityId).filter(Boolean) as string[]
+  );
+
+  for (const rec of recs?.recommendations ?? []) {
+    // Anything about an already-flagged entity has been folded in above.
+    if (rec.entityId && flagged.has(rec.entityId)) continue;
+    items.push({
+      key: `rec-${rec.priority}`,
+      severity: "info",
+      message: rec.title,
+      insight: rec.reasoning,
+      actionLabel: AI_ACTION_LABELS[rec.actionType] || "View",
+      actionUrl: rec.actionUrl,
+      fromModel,
+      isInsight: true,
+    });
+  }
+
+  // Most urgent first; the list is short enough that a stable order matters
+  // more than a clever ranking.
+  const weight = { danger: 0, warning: 1, info: 2 } as const;
+  return items.sort((a, b) => weight[a.severity] - weight[b.severity]);
+}
+
 
 function getGreeting(): string {
   const h = new Date().getHours();
@@ -421,10 +515,8 @@ export default function AdminDashboard({ orgId, orgName, userName }: AdminDashbo
   if (!data) return null;
 
   const status = getStatusPill(data.needsAttention);
-  const attentionCount = data.needsAttention?.length ?? 0;
-  const hasActionItems =
-    (data.needsAttention && data.needsAttention.length > 0) ||
-    (aiRecs && aiRecs.recommendations.length > 0);
+  // One list. See mergeActionItems for why the two used to duplicate.
+  const actionItems = mergeActionItems(data.needsAttention, aiRecs);
 
   return (
     <div>
@@ -455,34 +547,68 @@ export default function AdminDashboard({ orgId, orgName, userName }: AdminDashbo
       {/* ════════════════════════════════════════════════════ */}
       {/* 2. Action Items + Inline AI Suggestions             */}
       {/* ════════════════════════════════════════════════════ */}
-      {hasActionItems && (
+      {actionItems.length > 0 && (
         <CollapsibleSection
           title="Needs your action"
           storageKey="dashboard-needs-action"
-          count={attentionCount}
+          count={actionItems.length}
           defaultOpen
         >
-          {/* Urgent / warning / info items */}
-          {data.needsAttention?.map((item, i) => {
+          {actionItems.map((item) => {
             const { Icon, tint, tone } = severityIcon(item.severity);
 
             return (
               <div
-                key={`${item.type}-${item.entityId ?? i}`}
-                className="mb-2 flex items-center gap-3.5 rounded-xl border border-border bg-card p-3.5 transition-shadow hover:shadow-sm"
+                key={item.key}
+                className={`mb-2 flex items-start gap-3.5 rounded-xl border p-3.5 transition-shadow hover:shadow-sm ${
+                  item.isInsight
+                    ? "border-indigo-200 bg-indigo-50/30 dark:border-indigo-800 dark:bg-indigo-950/30"
+                    : "border-border bg-card"
+                }`}
               >
-                {/* Decorative: `item.message` beside it already says what this is. */}
+                {/* Decorative: the message beside it already says what this is. */}
                 <div
-                  className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] ${tint}`}
+                  className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] ${
+                    item.isInsight
+                      ? "text-white"
+                      : tint
+                  }`}
+                  style={
+                    item.isInsight
+                      ? { background: "linear-gradient(135deg, #4f46e5, #7c3aed)" }
+                      : undefined
+                  }
                   aria-hidden="true"
                 >
-                  <Icon className={`h-[18px] w-[18px] ${tone}`} />
+                  {item.isInsight ? (
+                    <Sparkles className="h-4 w-4" />
+                  ) : (
+                    <Icon className={`h-[18px] w-[18px] ${tone}`} />
+                  )}
                 </div>
-                <div className="flex-1 min-w-0">
+
+                <div className="min-w-0 flex-1">
                   <p className="text-sm font-semibold text-foreground">
                     {item.message}
+                    {/*
+                      Only claimed when a model actually answered. The badge
+                      used to appear whichever path ran, so with no API key
+                      configured the algorithmic fallback was presented as
+                      model output.
+                    */}
+                    {item.fromModel && (
+                      <span className="ml-1.5 inline-flex items-center gap-0.5 rounded-[5px] bg-indigo-50 px-[7px] py-0.5 align-middle text-[10px] font-bold text-indigo-600 dark:bg-indigo-950 dark:text-indigo-400">
+                        AI
+                      </span>
+                    )}
                   </p>
+                  {item.insight && (
+                    <p className="mt-0.5 text-[13px] text-muted-foreground">
+                      {item.insight}
+                    </p>
+                  )}
                 </div>
+
                 <Link href={item.actionUrl}>
                   <button
                     className={`shrink-0 rounded-lg border px-3.5 py-1.5 text-xs font-semibold transition-all ${
@@ -497,58 +623,6 @@ export default function AdminDashboard({ orgId, orgName, userName }: AdminDashbo
               </div>
             );
           })}
-
-        </CollapsibleSection>
-      )}
-
-      {/* AI suggestions — its own section, so it can be folded away
-          independently of the alerts it used to be nested inside. */}
-      {aiRecs && aiRecs.recommendations.length > 0 && (
-        <CollapsibleSection
-          title="AI suggestions"
-          storageKey="dashboard-ai-suggestions"
-          count={aiRecs.recommendations.length}
-          icon={
-            <Sparkles className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
-          }
-          defaultOpen
-        >
-          {aiRecs.recommendations.map((rec) => (
-                <div
-                  key={rec.priority}
-                  className="mb-2 flex items-center gap-3.5 rounded-xl border border-indigo-200 bg-indigo-50/30 p-3.5 transition-shadow hover:shadow-sm dark:border-indigo-800 dark:bg-indigo-950/30"
-                >
-                  {/* Decorative: the "AI" pill on the title below names it. */}
-                  <div
-                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] text-white"
-                    style={{
-                      background:
-                        "linear-gradient(135deg, #4f46e5, #7c3aed)",
-                    }}
-                    aria-hidden="true"
-                  >
-                    <Sparkles className="h-4 w-4" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-foreground">
-                      {rec.title}
-                      <span className="ml-1.5 inline-flex items-center gap-0.5 rounded-[5px] bg-indigo-50 px-[7px] py-0.5 text-[10px] font-bold text-indigo-600 align-middle dark:bg-indigo-950 dark:text-indigo-400">
-                        AI
-                      </span>
-                    </p>
-                    <p className="mt-0.5 text-[13px] text-muted-foreground">
-                      {rec.reasoning}
-                    </p>
-                  </div>
-                  <Link href={rec.actionUrl}>
-                    <button
-                      className="shrink-0 rounded-lg border border-indigo-500 bg-indigo-600 px-3.5 py-1.5 text-xs font-semibold text-white transition-all hover:opacity-90"
-                    >
-                      {AI_ACTION_LABELS[rec.actionType] || "View"}
-                    </button>
-                  </Link>
-                </div>
-              ))}
         </CollapsibleSection>
       )}
 
@@ -641,29 +715,23 @@ export default function AdminDashboard({ orgId, orgName, userName }: AdminDashbo
       </div>
 
       {/* ════════════════════════════════════════════════════ */}
-      {/* 6. Smart engine                                     */}
+      {/* 6. Engine charts                                    */}
       {/*                                                     */}
-      {/* Collapsed by default, and last on the page. It is   */}
-      {/* evidence rather than a to-do list: the question it  */}
-      {/* answers — "is the engine any good?" — is asked on a */}
-      {/* different cadence from "what needs me today", and   */}
-      {/* three charts unfurled above the daily work would    */}
-      {/* bury the thing the dashboard is for.                */}
+      {/* Sitting with the other charts rather than behind a  */}
+      {/* separate "Smart engine" heading. Grouping them by   */}
+      {/* what produced them made the reader hunt for them;   */}
+      {/* they answer the same kind of question as the charts */}
+      {/* above and belong in the same place. Which engine    */}
+      {/* produced each one is on the panel itself.           */}
       {/* ════════════════════════════════════════════════════ */}
       {engine && (
-        <CollapsibleSection
-          title="Smart engine"
-          storageKey="dashboard-engine"
-          description="How the allocation and eligibility engines behaved over the last 30 days, from records written at the moment each assignment was made."
-          icon={<Cpu className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />}
-          defaultOpen={false}
-        >
-          <div className="space-y-4">
+        <div className="mb-8 space-y-4">
+          <div className="grid gap-4 lg:grid-cols-2">
             <AllocationEnginePanel stats={engine.allocation} />
             <EligibilityEnginePanel stats={engine.eligibility} />
-            <CoveragePanel cells={engine.coverage} />
           </div>
-        </CollapsibleSection>
+          <CoveragePanel cells={engine.coverage} />
+        </div>
       )}
 
       {engineLoading && !engine && (

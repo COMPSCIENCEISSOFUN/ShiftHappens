@@ -18,6 +18,7 @@ import { SettingsRepository } from "@/repositories/settings.repository";
 import { TaskAssignmentRepository } from "@/repositories/task-assignment.repository";
 import { CertificationRepository } from "@/repositories/certification.repository";
 import { DepartmentRepository } from "@/repositories/department.repository";
+import type { AIProviderName } from "@/services/ai-provider";
 
 interface DashboardInsight {
   summary: string;
@@ -48,12 +49,30 @@ export interface AIRecommendation {
   reasoning: string;
   actionType: "quick_assign" | "edit_availability" | "review_certs" | "view_tasks";
   actionUrl: string;
+  /**
+   * The task this refers to, when it refers to one.
+   *
+   * Added so the dashboard can attach a recommendation's reasoning to the
+   * alert about the same shift instead of printing a second card that says
+   * the same thing. The duplication was structural: the alert list and the
+   * recommendation list both read understaffed tasks from the same source.
+   */
+  entityId?: string;
 }
 
 /** Response from generateRecommendations */
 export interface AIRecommendationsResponse {
   recommendations: AIRecommendation[];
   footer: string;
+  /**
+   * Which strategy produced these.
+   *
+   * The list was badged "AI" whichever path ran, so with no API key configured
+   * the algorithmic fallback was presented as model output. Reported now so the
+   * badge can tell the truth — the same reason the allocation engine records
+   * its provider.
+   */
+  provider: AIProviderName;
 }
 
 export class AIDashboardService {
@@ -125,6 +144,9 @@ CRITICAL RULES:
           actionUrl: `/org/${organizationId}/departments`,
         }],
         footer: "No data to analyze yet",
+        // Nothing was analysed, so nothing produced this. Reporting a model
+        // here would badge a hardcoded welcome message as AI output.
+        provider: "algorithmic",
       };
     }
 
@@ -207,7 +229,7 @@ CRITICAL RULES:
         if (response.ok) {
           const result = await response.json();
           const content = result.choices[0]?.message?.content || "";
-          return this.parseRecommendationResponse(content, data, organizationId);
+          return this.parseRecommendationResponse(content, data, organizationId, "groq");
         }
       } catch (error) {
         console.error("[AI Recommendations] Groq failed:", error);
@@ -234,7 +256,7 @@ CRITICAL RULES:
         if (response.ok) {
           const result = await response.json();
           const content = result.candidates?.[0]?.content?.parts?.[0]?.text || "";
-          return this.parseRecommendationResponse(content, data, organizationId);
+          return this.parseRecommendationResponse(content, data, organizationId, "gemini");
         }
       } catch (error) {
         console.error("[AI Recommendations] Gemini failed:", error);
@@ -249,7 +271,9 @@ CRITICAL RULES:
   private parseRecommendationResponse(
     content: string,
     data: DashboardData,
-    organizationId: string
+    organizationId: string,
+    /** Which model answered, so the response can say so honestly. */
+    usedProvider: AIProviderName
   ): AIRecommendationsResponse {
     try {
       const cleaned = content.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
@@ -278,6 +302,7 @@ CRITICAL RULES:
       return {
         recommendations,
         footer: `Based on analysis of ${data.totalTasks} tasks, ${data.activeStaff} staff schedules, and 7 days of assignment history`,
+        provider: usedProvider,
       };
     } catch {
       console.error("[AI Recommendations] Parse failed, using algorithmic fallback");
@@ -304,6 +329,9 @@ CRITICAL RULES:
         reasoning: `${task.department} — needs ${task.needed} more staff (${task.assigned}/${task.required} assigned)`,
         actionType: "view_tasks",
         actionUrl: `/org/${organizationId}/tasks`,
+        // Carries the task id so the dashboard folds this into the alert about
+        // the same shift rather than repeating it beside it.
+        entityId: task.taskId,
       });
     }
 
@@ -372,6 +400,7 @@ CRITICAL RULES:
     return {
       recommendations: recommendations.slice(0, 5),
       footer: `Based on analysis of ${data.totalTasks} tasks, ${data.activeStaff} staff schedules, and 7 days of assignment history`,
+      provider: "algorithmic",
     };
   }
 

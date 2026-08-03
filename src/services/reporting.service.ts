@@ -45,7 +45,12 @@ export interface NeedsAttentionItem {
     | "understaffed"
     | "pending_acceptance"
     | "expiring_cert"
-    | "pending_verification";
+    | "pending_verification"
+    // Insight types. Each joins two facts to say something neither carries
+    // alone, and each sets `isAiInsight` so the dashboard can mark it.
+    | "expiring_cert_impact"
+    | "unfillable"
+    | "no_show";
   severity: "danger" | "warning" | "info";
   message: string;
   actionLabel: string;
@@ -361,15 +366,84 @@ export class ReportingService {
     organizationId: string,
     departmentIds?: string[]
   ): Promise<NeedsAttentionItem[]> {
-    const [understaffed, pendingAssignments, expiringCerts, pendingVerifications] =
-      await Promise.all([
-        this.reportingRepo.getUnderstaffedTasks(organizationId, departmentIds),
-        this.reportingRepo.getPendingAssignments(organizationId, departmentIds),
-        this.reportingRepo.getExpiringCertifications(organizationId, 30),
-        this.reportingRepo.getPendingCertVerifications(organizationId),
-      ]);
+    const [
+      understaffed,
+      pendingAssignments,
+      expiringCerts,
+      pendingVerifications,
+      certImpact,
+      noShows,
+      unfillable,
+    ] = await Promise.all([
+      this.reportingRepo.getUnderstaffedTasks(organizationId, departmentIds),
+      this.reportingRepo.getPendingAssignments(organizationId, departmentIds),
+      this.reportingRepo.getExpiringCertifications(organizationId, 30),
+      this.reportingRepo.getPendingCertVerifications(organizationId),
+      this.reportingRepo.getExpiringCertificationImpact(
+        organizationId,
+        30,
+        departmentIds
+      ),
+      this.getNoShowSummary(organizationId, departmentIds),
+      this.getUnfillableShifts(organizationId, departmentIds),
+    ]);
 
     const items: NeedsAttentionItem[] = [];
+
+    /*
+     * Insight items come first, because they are the ones that say something
+     * a threshold check could not.
+     *
+     * `getExpiringCertifications` below still reports every upcoming expiry.
+     * The ids covered here are removed from it, so a certificate with real
+     * consequences is described once — with the consequences — rather than
+     * twice at two different strengths.
+     */
+    const explainedCertIds = new Set<string>();
+
+    for (const impact of certImpact) {
+      explainedCertIds.add(impact.certificationId);
+      const count = impact.affectedTasks.length;
+      const days = Math.ceil(
+        (impact.expiryDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24)
+      );
+      items.push({
+        type: "expiring_cert_impact",
+        severity: "danger",
+        message: `${impact.staffName}'s ${impact.certName} expires in ${days} day${days !== 1 ? "s" : ""} — they are booked on ${count} later shift${count !== 1 ? "s" : ""} that require${count === 1 ? "s" : ""} it`,
+        actionLabel: "Review",
+        actionUrl: `/org/${organizationId}/certifications`,
+        entityId: impact.certificationId,
+        isAiInsight: true,
+      });
+    }
+
+    for (const shift of unfillable) {
+      items.push({
+        type: "unfillable",
+        severity: "danger",
+        message: `${shift.title} has nobody eligible${shift.reasonSummary ? ` — ${shift.reasonSummary}` : ""}`,
+        actionLabel: "View",
+        actionUrl: `/org/${organizationId}/tasks`,
+        entityId: shift.taskId,
+        isAiInsight: true,
+      });
+    }
+
+    if (noShows.length > 0) {
+      const worst = noShows[0];
+      const others = noShows.length - 1;
+      items.push({
+        type: "no_show",
+        severity: "warning",
+        message:
+          `${worst.staffName} accepted ${worst.count} shift${worst.count !== 1 ? "s" : ""} in the last 30 days without clocking in` +
+          (others > 0 ? `, and ${others} other${others !== 1 ? "s" : ""} did the same` : ""),
+        actionLabel: "View",
+        actionUrl: `/org/${organizationId}/tasks`,
+        isAiInsight: true,
+      });
+    }
 
     // Red: understaffed tasks
     for (const task of understaffed) {
@@ -402,8 +476,11 @@ export class ReportingService {
       });
     }
 
-    // Amber: expiring certifications
-    for (const cert of expiringCerts) {
+    // Amber: expiring certifications. Anything already reported above with its
+    // consequences is skipped — the stronger message supersedes this one.
+    for (const cert of expiringCerts.filter(
+      (c) => !explainedCertIds.has(c.id)
+    )) {
       const daysUntil = Math.ceil(
         (cert.expiryDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24)
       );
@@ -1323,5 +1400,137 @@ export class ReportingService {
           ? Math.round((totalOverrides / totalAssignments) * 100)
           : null,
     };
+  }
+
+  // ===== Insights =====
+
+  /**
+   * Upcoming shifts that literally nobody can work.
+   *
+   * This is the engine looking FORWARD rather than reporting the present. An
+   * understaffed alert says a shift is short; this says filling it is currently
+   * impossible, and why — which is a different problem with a different fix
+   * (change the time, lift a limit, get someone certified).
+   *
+   * Bounded twice on purpose. `HORIZON_DAYS` keeps the window to work that can
+   * still be changed, and `MAX_EVALUATIONS` caps how many per-task eligibility
+   * passes a single dashboard load can trigger — each one evaluates every
+   * member of the organisation, so an unbounded version would be the slowest
+   * query in the product. Shifts are examined soonest-first, so the cap drops
+   * the least urgent.
+   */
+  async getUnfillableShifts(
+    organizationId: string,
+    departmentIds?: string[] | null
+  ): Promise<{ taskId: string; title: string; reasonSummary: string }[]> {
+    const HORIZON_DAYS = 14;
+    const MAX_EVALUATIONS = 10;
+
+    const now = new Date();
+    const candidates = await this.reportingRepo.getUpcomingUnfilledTasks(
+      organizationId,
+      now,
+      new Date(now.getTime() + HORIZON_DAYS * DAY_MS),
+      departmentIds
+    );
+    if (candidates.length === 0) return [];
+
+    // Imported lazily: EligibilityService reaches back into reporting-adjacent
+    // repositories, and a field here would make the construction order matter.
+    const { EligibilityService } = await import("@/services/eligibility.service");
+    const eligibilityService = new EligibilityService();
+
+    const unfillable: { taskId: string; title: string; reasonSummary: string }[] = [];
+
+    for (const task of candidates.slice(0, MAX_EVALUATIONS)) {
+      let staff;
+      try {
+        staff = await eligibilityService.checkEligibilityForTask(
+          task.id,
+          organizationId
+        );
+      } catch {
+        // One unreadable task must not cost the whole dashboard its alerts.
+        continue;
+      }
+
+      // Nobody to consider is not the same as nobody eligible. An empty
+      // candidate list means the department has no staff at all, which the
+      // understaffed alert already covers — reporting it here as "nobody
+      // eligible" would double up and imply a constraint problem that is
+      // really a headcount problem.
+      if (staff.length === 0) continue;
+      if (staff.some((s) => s.eligible)) continue;
+
+      unfillable.push({
+        taskId: task.id,
+        title: task.title,
+        reasonSummary: this.summariseBlockers(staff),
+      });
+    }
+
+    return unfillable;
+  }
+
+  /**
+   * "3 over hours, 2 unavailable" — why nobody can take the shift.
+   *
+   * Counts the FIRST failing check per person rather than every failure. A
+   * member who is both over hours and unavailable is one person with one
+   * headline problem; counting them twice would make the numbers exceed the
+   * team size and read as nonsense.
+   */
+  private summariseBlockers(
+    staff: { checks: Record<string, { eligible: boolean }> }[]
+  ): string {
+    const LABELS: Record<string, string> = {
+      hoursLimit: "over hours",
+      availability: "unavailable",
+      scheduling: "already booked",
+      workRules: "blocked by a work rule",
+      certifications: "missing a certification",
+    };
+    const ORDER = ["hoursLimit", "availability", "scheduling", "workRules", "certifications"];
+
+    const counts: Record<string, number> = {};
+    for (const member of staff) {
+      const first = ORDER.find((key) => member.checks[key]?.eligible === false);
+      if (first) counts[first] = (counts[first] ?? 0) + 1;
+    }
+
+    return ORDER.filter((key) => counts[key] > 0)
+      .map((key) => `${counts[key]} ${LABELS[key]}`)
+      .join(", ");
+  }
+
+  /**
+   * People who accepted a shift, let it finish, and never clocked in.
+   *
+   * Needed no new column. The absence of a clock-in on a finished shift was
+   * always the signal — nobody had asked the question. Grouped by person and
+   * ordered worst-first, because one missed shift is a story and four is a
+   * pattern.
+   */
+  async getNoShowSummary(
+    organizationId: string,
+    departmentIds?: string[] | null,
+    windowDays = 30
+  ): Promise<{ membershipId: string; staffName: string; count: number }[]> {
+    const rows = await this.reportingRepo.getNoShows(
+      organizationId,
+      new Date(Date.now() - windowDays * DAY_MS),
+      departmentIds
+    );
+
+    const byMember = new Map<string, { staffName: string; count: number }>();
+    for (const row of rows) {
+      const existing = byMember.get(row.membershipId);
+      if (existing) existing.count += 1;
+      else byMember.set(row.membershipId, { staffName: row.staffName, count: 1 });
+    }
+
+    return [...byMember.entries()]
+      .map(([membershipId, v]) => ({ membershipId, ...v }))
+      .sort((a, b) => b.count - a.count);
   }
 }

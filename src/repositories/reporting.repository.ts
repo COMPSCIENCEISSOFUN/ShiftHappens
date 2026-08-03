@@ -1263,4 +1263,211 @@ export class ReportingRepository {
       },
     });
   }
+
+  // ============================================================
+  // Insight queries
+  //
+  // These differ from everything above in that each one JOINS two facts to
+  // produce something neither carries alone. "A certificate expires on the
+  // 20th" is a date; "a certificate expires on the 20th and its holder is on
+  // four shifts after that which require it" is a problem. The data was always
+  // there — nobody had asked the second question.
+  // ============================================================
+
+  /**
+   * Shifts in the near future that are not yet fully staffed.
+   *
+   * Deliberately narrower than `getUnderstaffedTasks`, which reports the
+   * current state of everything: this is bounded to a forward window and to
+   * tasks that still have time to be fixed, because it feeds an expensive
+   * per-task eligibility evaluation.
+   */
+  async getUpcomingUnfilledTasks(
+    organizationId: string,
+    from: Date,
+    to: Date,
+    departmentIds?: string[] | null
+  ): Promise<
+    { id: string; title: string; requiredHeadcount: number; assignedCount: number; scheduledStart: Date | null }[]
+  > {
+    const tasks = await prisma.task.findMany({
+      where: {
+        organizationId,
+        status: { notIn: ["completed", "cancelled"] },
+        scheduledStart: { gte: from, lte: to },
+        ...(departmentIds != null ? { departmentId: { in: departmentIds } } : {}),
+      },
+      select: {
+        id: true,
+        title: true,
+        requiredHeadcount: true,
+        scheduledStart: true,
+        _count: {
+          select: {
+            assignments: {
+              where: {
+                status: { in: ["pending", "accepted", "withdrawal_requested"] },
+              },
+            },
+          },
+        },
+      },
+      orderBy: { scheduledStart: "asc" },
+    });
+
+    // Prisma cannot compare two columns in a `where`, so the shortfall filter
+    // happens here — the same approach `getUnderstaffedTasks` takes.
+    return tasks
+      .filter((t) => t._count.assignments < t.requiredHeadcount)
+      .map((t) => ({
+        id: t.id,
+        title: t.title,
+        requiredHeadcount: t.requiredHeadcount,
+        assignedCount: t._count.assignments,
+        scheduledStart: t.scheduledStart,
+      }));
+  }
+
+  /**
+   * Certifications expiring soon, together with the shifts their holder is
+   * booked on AFTER the expiry date that actually require them.
+   *
+   * The join is the point. An expiry date on its own is a diary note; an
+   * expiry date with four shifts behind it is somebody working uncertified.
+   *
+   * `requiredCertifications` is a string array matched case-insensitively,
+   * mirroring how the eligibility engine compares them — a task asking for
+   * "food safety" and a certificate named "Food Safety" are the same
+   * requirement.
+   */
+  async getExpiringCertificationImpact(
+    organizationId: string,
+    withinDays: number,
+    departmentIds?: string[] | null
+  ): Promise<
+    {
+      certificationId: string;
+      certName: string;
+      staffName: string;
+      membershipId: string;
+      expiryDate: Date;
+      affectedTasks: { id: string; title: string; scheduledStart: Date | null }[];
+    }[]
+  > {
+    const horizon = new Date(Date.now() + withinDays * 24 * 60 * 60 * 1000);
+
+    const certs = await prisma.certification.findMany({
+      where: {
+        status: "verified",
+        expiryDate: { gt: new Date(), lte: horizon },
+        membership: { organizationId, status: "active" },
+      },
+      select: {
+        id: true,
+        name: true,
+        expiryDate: true,
+        membershipId: true,
+        membership: {
+          select: { user: { select: { name: true, email: true } } },
+        },
+      },
+    });
+
+    if (certs.length === 0) return [];
+
+    const assignments = await prisma.taskAssignment.findMany({
+      where: {
+        membershipId: { in: certs.map((c) => c.membershipId) },
+        status: { in: ["pending", "accepted", "withdrawal_requested"] },
+        task: {
+          organizationId,
+          status: { notIn: ["completed", "cancelled"] },
+          ...(departmentIds != null ? { departmentId: { in: departmentIds } } : {}),
+        },
+      },
+      select: {
+        membershipId: true,
+        task: {
+          select: {
+            id: true,
+            title: true,
+            scheduledStart: true,
+            requiredCertifications: true,
+          },
+        },
+      },
+    });
+
+    return certs
+      .map((cert) => {
+        const certName = cert.name.toLowerCase();
+        const affectedTasks = assignments
+          .filter((a) => a.membershipId === cert.membershipId)
+          .filter((a) => a.task.scheduledStart !== null)
+          .filter((a) => a.task.scheduledStart! > cert.expiryDate!)
+          .filter((a) =>
+            a.task.requiredCertifications.some(
+              (required) => required.toLowerCase() === certName
+            )
+          )
+          .map((a) => ({
+            id: a.task.id,
+            title: a.task.title,
+            scheduledStart: a.task.scheduledStart,
+          }));
+
+        return {
+          certificationId: cert.id,
+          certName: cert.name,
+          staffName: cert.membership.user.name ?? cert.membership.user.email,
+          membershipId: cert.membershipId,
+          expiryDate: cert.expiryDate!,
+          affectedTasks,
+        };
+      })
+      .filter((c) => c.affectedTasks.length > 0);
+  }
+
+  /**
+   * Shifts somebody accepted, that have finished, where they never clocked in.
+   *
+   * No new column was needed for this — the absence of `clockInTime` on a
+   * finished shift IS the signal. It went unasked rather than unrecorded.
+   *
+   * `clocked_out` and `completed` are excluded because reaching either means
+   * they did turn up. What remains is accepted-and-silent.
+   */
+  async getNoShows(
+    organizationId: string,
+    since: Date,
+    departmentIds?: string[] | null
+  ): Promise<{ membershipId: string; staffName: string; taskTitle: string; scheduledEnd: Date }[]> {
+    const rows = await prisma.taskAssignment.findMany({
+      where: {
+        status: "accepted",
+        clockInTime: null,
+        task: {
+          organizationId,
+          status: { not: "cancelled" },
+          scheduledEnd: { gte: since, lt: new Date() },
+          ...(departmentIds != null ? { departmentId: { in: departmentIds } } : {}),
+        },
+      },
+      select: {
+        membershipId: true,
+        membership: { select: { user: { select: { name: true, email: true } } } },
+        task: { select: { title: true, scheduledEnd: true } },
+      },
+      orderBy: { task: { scheduledEnd: "desc" } },
+    });
+
+    return rows
+      .filter((r) => r.task.scheduledEnd !== null)
+      .map((r) => ({
+        membershipId: r.membershipId,
+        staffName: r.membership.user.name ?? r.membership.user.email,
+        taskTitle: r.task.title,
+        scheduledEnd: r.task.scheduledEnd!,
+      }));
+  }
 }

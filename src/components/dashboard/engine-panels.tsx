@@ -33,7 +33,7 @@
  */
 "use client";
 
-import { Boxes, Cpu, ShieldCheck } from "lucide-react";
+import { Boxes, Cpu, ShieldCheck, Sparkles } from "lucide-react";
 import { Panel } from "@/components/ui/panel";
 import {
   BarList,
@@ -82,6 +82,44 @@ const RULE_LABELS: Record<string, string> = {
   all: "All checks (bulk)",
 };
 
+/**
+ * Marks a panel as engine-derived, and says which engine.
+ *
+ * Only one of these three panels involves a language model. Allocation is
+ * ranked by Groq or Gemini — or by the algorithmic fallback, which is why the
+ * label is computed rather than fixed. Eligibility is a deterministic rules
+ * engine: real, but not AI. Coverage is availability data with no engine
+ * behind it at all and carries no mark.
+ *
+ * Badging all three "AI" would read better on a demo and would be untrue, and
+ * "which part is the AI?" is the first question a marker asks.
+ */
+function EngineMark({ label }: { label: string }) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-600 dark:bg-indigo-950 dark:text-indigo-300">
+      <Sparkles className="h-3 w-3" aria-hidden="true" />
+      {label}
+    </span>
+  );
+}
+
+/**
+ * What actually produced the rankings behind the allocation panel.
+ *
+ * Reads the recorded providers rather than assuming. An organisation whose
+ * API key has lapsed has been running on the algorithmic ranker, and the panel
+ * should say so — that is the whole reason the provider is recorded.
+ */
+function allocationMarkLabel(providerCounts: Record<string, number>): string {
+  const modelRuns =
+    (providerCounts.groq ?? 0) + (providerCounts.gemini ?? 0);
+  const algorithmicRuns = providerCounts.algorithmic ?? 0;
+
+  if (modelRuns === 0 && algorithmicRuns === 0) return "Smart engine";
+  if (modelRuns === 0) return "Algorithmic";
+  return "AI ranked";
+}
+
 /* ------------------------------------------------------------------ */
 
 export function AllocationEnginePanel({ stats }: { stats: AllocationEngineStats }) {
@@ -110,7 +148,11 @@ export function AllocationEnginePanel({ stats }: { stats: AllocationEngineStats 
   }));
 
   return (
-    <Panel title="Allocation engine" icon={Cpu}>
+    <Panel
+      title="Allocation engine"
+      icon={Cpu}
+      action={<EngineMark label={allocationMarkLabel(stats.providerCounts)} />}
+    >
       <div className="space-y-5 p-4">
         <p className="text-[12px] text-muted-foreground">
           How the last {stats.windowDays} days of assignments were made.
@@ -202,7 +244,11 @@ export function EligibilityEnginePanel({ stats }: { stats: EligibilityEngineStat
   }));
 
   return (
-    <Panel title="Eligibility engine" icon={ShieldCheck}>
+    <Panel
+      title="Eligibility engine"
+      icon={ShieldCheck}
+      action={<EngineMark label="Rules engine" />}
+    >
       <div className="space-y-4 p-4">
         <p className="text-[12px] text-muted-foreground">
           Every assignment is checked against hour limits, availability,
