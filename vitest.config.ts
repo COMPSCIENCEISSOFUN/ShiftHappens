@@ -26,7 +26,16 @@ if (!process.env.DATABASE_URL?.includes("_test")) {
 export default defineConfig({
   plugins: [react()],
   test: {
-    environment: "jsdom",
+    /**
+     * Node by default; the handful of files that render React opt in with a
+     * `// @vitest-environment jsdom` docblock.
+     *
+     * jsdom was the global default, so all ~99 files paid to have a DOM
+     * constructed whether they touched one or not. Measured at ~65s of a ~255s
+     * run — a quarter of the suite spent building browsers for tests that only
+     * talk to Postgres.
+     */
+    environment: "node",
     globals: true,
     setupFiles: ["./tests/setup.ts"],
     include: ["tests/**/*.test.ts", "tests/**/*.test.tsx"],

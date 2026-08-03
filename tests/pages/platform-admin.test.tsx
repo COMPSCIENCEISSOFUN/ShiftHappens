@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * Platform admin pages — the first rendered-component tests in the suite.
  *
