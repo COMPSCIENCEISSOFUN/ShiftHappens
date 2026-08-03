@@ -16,6 +16,7 @@ import { EligibilityService } from "@/services/eligibility.service";
 import type { CreateTaskInput, UpdateTaskInput } from "@/lib/validations";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 import type { AllocationProvenance } from "@/lib/allocation-provenance";
+import { taskWatcherUserIds } from "@/services/task-watchers";
 import { NotificationService, NOTIFICATION_TYPES } from "@/services/notification.service";
 import { SubscriptionService } from "@/services/subscription.service";
 import { EligibilityOverrideRepository } from "@/repositories/eligibility-override.repository";
@@ -196,6 +197,30 @@ export class TaskService {
       input.status === "cancelled" && task.status !== "cancelled";
     const affectedUserIds = this.stillAssignedUserIds(task);
 
+    /*
+     * Which edits can invalidate an existing assignment.
+     *
+     * The re-check used to hang off `scheduleChanged` alone, which covered only
+     * one of the three. Moving a task to another department applies that
+     * department's work rules instead — and changing the required
+     * certifications can strand someone who does not hold the new ones. Both
+     * left the roster silently wrong.
+     *
+     * The staff-facing "rescheduled" notice stays tied to the schedule, which
+     * is the only one of the three staff need to act on. This is the manager's
+     * check, and it needs the wider trigger.
+     */
+    const departmentChanged =
+      "departmentId" in input &&
+      (input.departmentId || null) !== task.departmentId;
+    const certificationsChanged =
+      input.requiredCertifications !== undefined &&
+      // Order is not meaningful — a reordered list is the same requirement.
+      [...input.requiredCertifications].sort().join("|") !==
+        [...task.requiredCertifications].sort().join("|");
+    const eligibilityMayHaveChanged =
+      scheduleChanged || departmentChanged || certificationsChanged;
+
     const updated = await this.taskRepo.update(taskId, {
       title: input.title,
       description: input.description,
@@ -248,8 +273,15 @@ export class TaskService {
         taskId
       );
 
-      // The new time may have made assigned staff ineligible (conflict, hour
-      // limit, unavailable) — let managers know. Fire-and-forget.
+    }
+
+    // Any edit that can invalidate an assignment — a new time, a new
+    // department, new certification requirements — gets the managers' check.
+    // Deliberately outside the reschedule branch: a department change sends no
+    // staff notification but is exactly as capable of stranding someone.
+    // Fire-and-forget, and skipped for a cancellation, where the assignments
+    // are moot anyway.
+    if (!nowCancelled && eligibilityMayHaveChanged) {
       void this.notifyManagersOfIneligibleAssignees(taskId, orgId, updated.title);
     }
 
@@ -289,17 +321,17 @@ export class TaskService {
       );
       if (nowIneligible.length === 0) return;
 
-      const managers = (await this.membershipRepo.findByOrgId(orgId)).filter(
-        (m) =>
-          m.status === "active" &&
-          ["company_admin", "manager"].includes(m.role)
-      );
-      if (managers.length === 0) return;
+      // Company admins, plus managers of THIS task's department. This used to
+      // be every admin and manager in the organisation, which meant a manager
+      // who cannot read another department's roster was still told, by name,
+      // who on it had just become ineligible.
+      const watchers = await taskWatcherUserIds(orgId, task.departmentId);
+      if (watchers.length === 0) return;
 
       const names = nowIneligible.map((e) => e.memberName).join(", ");
       await this.notificationService.notifyManyIfEnabled(
         orgId,
-        managers.map((m) => m.userId),
+        watchers,
         NOTIFICATION_TYPES.STAFF_INELIGIBLE,
         "Assigned staff no longer eligible",
         `After the change to "${taskTitle}", these assigned staff are no longer eligible: ${names}.`,

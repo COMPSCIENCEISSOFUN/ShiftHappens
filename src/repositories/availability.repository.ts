@@ -11,6 +11,26 @@
 import { prisma } from "@/lib/prisma";
 import { dayOfWeekInTimeZone, localDateInTimeZone } from "@/lib/timezone";
 
+/**
+ * The storage key for a date override.
+ *
+ * An override is about a CALENDAR DAY, not an instant, so it is stored at UTC
+ * midnight of the day it refers to in the organisation's timezone.
+ *
+ * This has to be shared, because the write and the read were deriving it
+ * differently. `createOverride` stored whatever `Date` it was handed;
+ * `isAvailableAt` looked up `localDateInTimeZone(date)` at UTC midnight. They
+ * agreed only when the caller happened to pass UTC midnight already — which
+ * the availability form does, by accident of `<input type="date">` parsing as
+ * UTC. Any other caller (an API client, a mobile app, a test) would write an
+ * override that was silently never found, and the unique constraint on
+ * [membershipId, date] would let them accumulate one row per attempt for the
+ * same day.
+ */
+export function overrideDateKey(date: Date): Date {
+  return new Date(`${localDateInTimeZone(date)}T00:00:00.000Z`);
+}
+
 export class AvailabilityRepository {
   /** Sets availability for a specific day of the week (upserts) */
   async setDayAvailability(data: {
@@ -51,18 +71,18 @@ export class AvailabilityRepository {
     isAvailable: boolean;
     reason?: string;
   }) {
+    // Normalised, so the key written here is the key `isAvailableAt` reads.
+    const date = overrideDateKey(data.date);
+
     return prisma.availabilityOverride.upsert({
       where: {
-        membershipId_date: {
-          membershipId: data.membershipId,
-          date: data.date,
-        },
+        membershipId_date: { membershipId: data.membershipId, date },
       },
       update: {
         isAvailable: data.isAvailable,
         reason: data.reason,
       },
-      create: data,
+      create: { ...data, date },
     });
   }
 
@@ -92,6 +112,20 @@ export class AvailabilityRepository {
   }
 
   /** Deletes a specific override */
+  /** The member's display name, for a notification body. */
+  async getMemberName(membershipId: string): Promise<string | null> {
+    const membership = await prisma.membership.findUnique({
+      where: { id: membershipId },
+      select: { user: { select: { name: true, email: true } } },
+    });
+    return membership ? membership.user.name ?? membership.user.email : null;
+  }
+
+  /** One override by id, to find whose it is before deleting it. */
+  async getOverrideById(id: string) {
+    return prisma.availabilityOverride.findUnique({ where: { id } });
+  }
+
   async deleteOverride(id: string) {
     return prisma.availabilityOverride.delete({ where: { id } });
   }
@@ -111,8 +145,10 @@ export class AvailabilityRepository {
     // Deriving the date from toISOString() would use the UTC calendar day, so
     // any shift between midnight and 08:00 Singapore time would look up the
     // previous day's override — or miss one entirely.
-    const dateOnly = new Date(`${localDateInTimeZone(date)}T00:00:00.000Z`);
-    const override = await this.getOverrideForDate(membershipId, dateOnly);
+    const override = await this.getOverrideForDate(
+      membershipId,
+      overrideDateKey(date)
+    );
 
     if (override) {
       return {

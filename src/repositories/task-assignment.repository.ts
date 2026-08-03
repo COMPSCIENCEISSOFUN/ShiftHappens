@@ -272,6 +272,40 @@ export class TaskAssignmentRepository {
   }
 
   /**
+   * A member's live assignments to shifts that have not started yet.
+   *
+   * "Live" means still standing: pending, accepted, or awaiting a withdrawal
+   * decision. A rejected or withdrawn assignment is not at risk because nobody
+   * is expecting that person to turn up.
+   *
+   * Deliberately future-only. When someone changes their availability, alerting
+   * a manager about a shift that has already been worked is noise about
+   * something nobody can act on.
+   */
+  async findUpcomingCommitments(membershipId: string, from: Date) {
+    return prisma.taskAssignment.findMany({
+      where: {
+        membershipId,
+        status: { in: ["pending", "accepted", "withdrawal_requested"] },
+        task: { scheduledStart: { gte: from } },
+      },
+      select: {
+        id: true,
+        task: {
+          select: {
+            id: true,
+            title: true,
+            organizationId: true,
+            departmentId: true,
+            scheduledStart: true,
+          },
+        },
+      },
+      orderBy: { task: { scheduledStart: "asc" } },
+    });
+  }
+
+  /**
    * Recent rejections across an organisation, with the rejecting member.
    * Scoped through the task's org because an assignment has no organizationId
    * of its own — joining on the member instead would let a person who moved
