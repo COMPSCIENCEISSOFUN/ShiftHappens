@@ -1,10 +1,9 @@
 /**
  * Allocation Service (Control Layer)
  * 
- * Orchestrates the three allocation modes:
- * 1. Manual — admin picks from eligibility list (handled by existing UI)
- * 2. Suggested — AI ranks eligible staff, admin confirms
- * 3. Auto — AI ranks and assigns top N automatically
+ * Orchestrates the two allocation modes:
+ * 1. Manual: a manager picks from the ranked eligible list.
+ * 2. Auto: ranking selects and assigns the top eligible staff automatically.
  * 
  * Uses the Strategy pattern to swap AI providers.
  * Gathers staff attributes from multiple sources (hours worked,
@@ -21,6 +20,7 @@ import { SettingsRepository } from "@/repositories/settings.repository";
 import { TaskRepository } from "@/repositories/task.repository";
 import { TaskService } from "./task.service";
 import { prisma } from "@/lib/prisma";
+import { parseAllocationWeights, type AllocationWeights } from "@/lib/allocation-weights";
 
 export class AllocationService {
   private providers: AIProvider[];
@@ -46,11 +46,12 @@ export class AllocationService {
    */
   private async rankWithFailover(
     task: Parameters<AIProvider["rankStaff"]>[0],
-    candidates: Parameters<AIProvider["rankStaff"]>[1]
+    candidates: Parameters<AIProvider["rankStaff"]>[1],
+    weights: AllocationWeights
   ): Promise<RankedStaff[]> {
     for (const provider of this.providers) {
       try {
-        const result = await provider.rankStaff(task, candidates);
+        const result = await provider.rankStaff(task, candidates, weights);
         return result;
       } catch (error) {
         console.error("[AI Failover] Provider failed, trying next:", error);
@@ -58,7 +59,7 @@ export class AllocationService {
     }
 
     console.error("[AI Failover] All providers failed, using algorithmic ranking");
-    return FallbackRanker.rank(candidates);
+    return FallbackRanker.rank(candidates, weights);
   }
 
   /**
@@ -88,6 +89,7 @@ export class AllocationService {
     }
 
     const settings = await this.settingsRepo.getOrCreate(organizationId);
+    const weights = parseAllocationWeights(settings.smartAllocationWeights);
     const candidates: StaffCandidate[] = [];
 
     for (const staff of eligibleStaff) {
@@ -109,20 +111,30 @@ export class AllocationService {
         scheduledEnd: task.scheduledEnd?.toISOString() || null,
         requiredHeadcount: task.requiredHeadcount,
       },
-      candidates
+      candidates,
+      weights
     );
 
     // AI output is advisory. Only server-verified candidates may survive, and
     // a provider cannot duplicate or invent membership IDs.
     const eligibleIds = new Set(candidates.map((candidate) => candidate.membershipId));
     const seen = new Set<string>();
+    const factorExplanations = new Map(
+      FallbackRanker.rank(candidates, weights).map((ranking) => [
+        ranking.membershipId,
+        ranking.explanation,
+      ])
+    );
     return rankings.filter((ranking) => {
       if (!eligibleIds.has(ranking.membershipId) || seen.has(ranking.membershipId)) {
         return false;
       }
       seen.add(ranking.membershipId);
       return true;
-    });
+    }).map((ranking) => ({
+      ...ranking,
+      explanation: factorExplanations.get(ranking.membershipId) ?? ranking.explanation,
+    }));
   }
 
   /**

@@ -122,6 +122,7 @@ export const ROUTES: RouteSpec[] = [
   org("tasks/[taskId]/suggest", "GET", MANAGER, { extraParams: ["taskId"], permission: "allocation:use_suggestions" }),
   org("tasks/assignments/[assignmentId]", "DELETE", MANAGER, { extraParams: ["assignmentId"], permission: "tasks:assign" }),
   org("tasks/parse", "POST", MANAGER, { permission: "tasks:create" }),
+  org("tasks/execute", "POST", MANAGER, { suspension: true, permission: "tasks:create" }),
   org("recurring-tasks/generate", "POST", MANAGER, { permission: "tasks:create" }),
 
   // ── Scheduling & availability ───────────────────────────────────────

@@ -378,27 +378,35 @@ export default function TasksPage() {
     if (!naturalInput.trim()) return;
     setParsing(true);
     setError(null);
+    setSuccess(null);
 
     try {
-      const res = await fetch(`/api/organizations/${orgId}/tasks/parse`, {
+      const res = await fetch(`/api/organizations/${orgId}/tasks/execute`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: naturalInput }),
       });
 
+      const result = await res.json().catch(() => null);
       if (!res.ok) {
-        setError("Failed to parse task description");
+        setError(result?.error || "I could not complete that request");
         return;
       }
 
-      const parsed = await res.json();
-
-      setShowCreate(true);
       setNaturalInput("");
+      if (result.status === "completed") {
+        const names = result.assignedStaff?.join(", ") || "qualified staff";
+        setSuccess(`${result.message} Assigned: ${names}`);
+      } else {
+        setError(result.message || "This request needs your review.");
+      }
+      await fetchTasks();
 
-      setTimeout(() => {
-        const form = document.querySelector("form") as HTMLFormElement;
-        if (!form) return;
+      /*
+       * The manual form remains available below as a fallback. Conversational
+       * requests execute here and do not silently open a second form.
+       */
+      if (false) { /* legacy form-prefill path retained in the manual form below */ /*
 
         const titleInput = form.querySelector('[name="title"]') as HTMLInputElement;
         const descInput = form.querySelector('[name="description"]') as HTMLTextAreaElement;
@@ -426,8 +434,8 @@ export default function TasksPage() {
         }
         if (endInput && parsed.scheduledEnd) {
           endInput.value = toDateTimeLocalValue(new Date(parsed.scheduledEnd));
-        }
-      }, 100);
+        } */
+      }
     } catch {
       setError("Something went wrong");
     } finally {
@@ -867,7 +875,7 @@ export default function TasksPage() {
           <path d="M12 2L14.4 8.4L21 10L14.4 12.4L12 19L9.6 12.4L3 10L9.6 8.4L12 2Z" fill="currentColor" opacity="0.8" />
         </svg>
         <Input
-          placeholder='Try: "I need 2 kitchen staff tomorrow morning for prep"'
+          placeholder='Tell me what needs to happen, e.g. "I need 2 kitchen staff tomorrow morning for prep"'
           value={naturalInput}
           onChange={(e) => setNaturalInput(e.target.value)}
           onKeyDown={(e) => {
@@ -881,7 +889,7 @@ export default function TasksPage() {
           disabled={parsing || !naturalInput.trim()}
           className="shrink-0 gap-1 bg-gradient-to-r from-indigo-600 to-violet-700 text-white hover:opacity-90"
         >
-          {parsing ? "Parsing..." : "AI Create"}
+          {parsing ? "Working..." : "Do it"}
         </Button>
       </div>
 

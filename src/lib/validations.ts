@@ -197,6 +197,15 @@ export const updateCompanySettingsSchema = z.object({
   breakRuleBreakHours: z.number().int().min(1).max(24).optional(),
   operatingHoursStart: z.number().int().min(0).max(23).optional(),
   operatingHoursEnd: z.number().int().min(1).max(24).optional(),
+  allocationWeights: z.object({
+    workloadBalance: z.number().int().min(0).max(100),
+    availabilityFit: z.number().int().min(0).max(100),
+    certificationBreadth: z.number().int().min(0).max(100),
+    departmentExperience: z.number().int().min(0).max(100),
+  }).refine(
+    (weights) => Object.values(weights).some((weight) => weight > 0),
+    "At least one ranking priority must be greater than zero"
+  ).optional(),
   notificationPreferences: z.object({
     emailNotifications: z.boolean().optional(),
     taskAssignment: z.boolean().optional(),

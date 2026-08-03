@@ -100,7 +100,48 @@ describe("FallbackRanker", () => {
 
     expect(ranked[0].explanation).toContain("Test Staff");
     expect(ranked[0].explanation).toContain("Score breakdown");
-    expect(ranked[0].explanation).toContain("hours");
-    expect(ranked[0].explanation).toContain("certs");
+    expect(ranked[0].explanation).toContain("workload balance");
+    expect(ranked[0].explanation).toContain("certification breadth");
+  });
+
+  it("changes ranking order when organization priorities change", () => {
+    const candidates: StaffCandidate[] = [
+      {
+        membershipId: "fresh",
+        name: "Fresh Starter",
+        hoursWorkedToday: 0,
+        maxHours: 8,
+        certifications: [],
+        availableHours: "Not set",
+        departmentHistory: 0,
+      },
+      {
+        membershipId: "experienced",
+        name: "Experienced Worker",
+        hoursWorkedToday: 8,
+        maxHours: 8,
+        certifications: [],
+        availableHours: "Not set",
+        departmentHistory: 20,
+      },
+    ];
+
+    const workloadFirst = FallbackRanker.rank(candidates, {
+      workloadBalance: 100,
+      availabilityFit: 0,
+      certificationBreadth: 0,
+      departmentExperience: 0,
+    });
+    const experienceFirst = FallbackRanker.rank(candidates, {
+      workloadBalance: 0,
+      availabilityFit: 0,
+      certificationBreadth: 0,
+      departmentExperience: 100,
+    });
+
+    expect(workloadFirst[0].membershipId).toBe("fresh");
+    expect(experienceFirst[0].membershipId).toBe("experienced");
+    expect(experienceFirst[0].explanation).toContain("department experience 100% x 100");
+    expect(experienceFirst[0].explanation).not.toContain("workload balance");
   });
 });

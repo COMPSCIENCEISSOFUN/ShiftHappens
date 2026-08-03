@@ -6,6 +6,8 @@
  * Free tier: 15 req/min, 1M tokens/day.
  */
 import type { AIProvider, StaffCandidate, RankedStaff } from "../ai-provider";
+import { FallbackRanker } from "../fallback-ranker";
+import type { AllocationWeights } from "@/lib/allocation-weights";
 
 export class GeminiProvider implements AIProvider {
   private apiKey: string;
@@ -23,17 +25,18 @@ export class GeminiProvider implements AIProvider {
       scheduledEnd: string | null;
       requiredHeadcount: number;
     },
-    candidates: StaffCandidate[]
+    candidates: StaffCandidate[],
+    weights: AllocationWeights
   ): Promise<RankedStaff[]> {
     if (!this.apiKey) {
-      return this.fallbackRanking(candidates);
+      return FallbackRanker.rank(candidates, weights);
     }
 
     if (candidates.length === 0) {
       return [];
     }
 
-    const prompt = this.buildPrompt(task, candidates);
+    const prompt = this.buildPrompt(task, candidates, weights);
 
     try {
       const response = await fetch(
@@ -60,10 +63,10 @@ export class GeminiProvider implements AIProvider {
       const data = await response.json();
       const content = data.candidates?.[0]?.content?.parts?.[0]?.text || "[]";
 
-      return this.parseResponse(content, candidates);
+      return this.parseResponse(content, candidates, weights);
     } catch (error) {
       console.error("[Gemini Provider Error]", error);
-      return this.fallbackRanking(candidates);
+      return FallbackRanker.rank(candidates, weights);
     }
   }
 
@@ -76,7 +79,8 @@ export class GeminiProvider implements AIProvider {
       scheduledEnd: string | null;
       requiredHeadcount: number;
     },
-    candidates: StaffCandidate[]
+    candidates: StaffCandidate[],
+    weights: AllocationWeights
   ): string {
     let prompt = `You are a smart task allocation assistant. Rank staff for a task assignment.\n`;
     prompt += `Respond with ONLY a valid JSON array. No other text.\n`;
@@ -84,6 +88,8 @@ export class GeminiProvider implements AIProvider {
     prompt += `TASK: "${task.title}", Department: ${task.department || "None"}, Priority: ${task.priority}\n`;
     prompt += `Schedule: ${task.scheduledStart && task.scheduledEnd ? `${task.scheduledStart} to ${task.scheduledEnd}` : "Flexible"}\n`;
     prompt += `Needs: ${task.requiredHeadcount} staff\n\n`;
+    prompt += `RANKING PRIORITIES (normalized percentages): workload balance ${weights.workloadBalance}%, availability fit ${weights.availabilityFit}%, certification breadth ${weights.certificationBreadth}%, department experience ${weights.departmentExperience}%.\n`;
+    prompt += `Never include an ineligible person. Explain rankings using only factors with a weight above zero.\n\n`;
     prompt += `STAFF:\n`;
 
     for (const c of candidates) {
@@ -97,7 +103,11 @@ export class GeminiProvider implements AIProvider {
     return prompt;
   }
 
-  private parseResponse(content: string, candidates: StaffCandidate[]): RankedStaff[] {
+  private parseResponse(
+    content: string,
+    candidates: StaffCandidate[],
+    weights: AllocationWeights
+  ): RankedStaff[] {
     try {
       const cleaned = content.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
       const parsed = JSON.parse(cleaned);
@@ -129,17 +139,6 @@ export class GeminiProvider implements AIProvider {
       console.error("[Gemini Parse Error]", error);
     }
 
-    return this.fallbackRanking(candidates);
-  }
-
-  private fallbackRanking(candidates: StaffCandidate[]): RankedStaff[] {
-    return [...candidates]
-      .sort((a, b) => a.hoursWorkedToday - b.hoursWorkedToday)
-      .map((c, i) => ({
-        membershipId: c.membershipId,
-        rank: i + 1,
-        score: Math.max(0, 100 - c.hoursWorkedToday * 10),
-        explanation: `${c.name}: ${c.hoursWorkedToday}h worked today, ${c.certifications.length} cert(s)`,
-      }));
+    return FallbackRanker.rank(candidates, weights);
   }
 }

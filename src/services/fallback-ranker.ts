@@ -2,25 +2,35 @@
  * Fallback Staff Ranker (Control Layer)
  * 
  * Algorithmic staff ranking used when all AI providers fail.
- * Scores candidates across four weighted dimensions:
+ * Scores candidates across four organization-weighted dimensions:
  * 
- * 1. Hours utilization (30%) — fewer hours worked = higher score
- * 2. Availability fit (25%) — tighter schedule match = higher score
- * 3. Certifications (25%) — more relevant certs = higher score
- * 4. Department experience (20%) — more experience = higher score
+ * 1. Workload balance: fewer hours worked produces a higher score.
+ * 2. Availability fit: recorded availability produces a higher score.
+ * 3. Certification breadth: more verified certifications produces a higher score.
+ * 4. Department experience: more experience produces a higher score.
  * 
  * This ensures the system provides intelligent recommendations
  * even without AI, making the platform resilient and independently useful.
  */
 import type { StaffCandidate, RankedStaff } from "./ai-provider";
+import {
+  ALLOCATION_FACTORS,
+  DEFAULT_ALLOCATION_WEIGHTS,
+  normalizeAllocationWeights,
+  type AllocationWeights,
+} from "@/lib/allocation-weights";
 
 export class FallbackRanker {
   /**
    * Ranks candidates using a weighted multi-factor scoring algorithm.
    * Each factor produces a 0-100 score, then weighted and combined.
    */
-  static rank(candidates: StaffCandidate[]): RankedStaff[] {
+  static rank(
+    candidates: StaffCandidate[],
+    weights: AllocationWeights = DEFAULT_ALLOCATION_WEIGHTS
+  ): RankedStaff[] {
     if (candidates.length === 0) return [];
+    const normalizedWeights = normalizeAllocationWeights(weights);
 
     const scored = candidates.map((c) => {
       const hoursScore = this.scoreHours(c.hoursWorkedToday, c.maxHours);
@@ -29,11 +39,18 @@ export class FallbackRanker {
       const availScore = this.scoreAvailability(c.availableHours);
 
       // Weighted combination
+      const factorScores: Record<keyof AllocationWeights, number> = {
+        workloadBalance: hoursScore,
+        availabilityFit: availScore,
+        certificationBreadth: certScore,
+        departmentExperience: deptScore,
+      };
       const totalScore = Math.round(
-        hoursScore * 0.30 +
-        availScore * 0.25 +
-        certScore * 0.25 +
-        deptScore * 0.20
+        ALLOCATION_FACTORS.reduce(
+          (total, { key }) =>
+            total + factorScores[key] * (normalizedWeights[key] / 100),
+          0
+        )
       );
 
       const reasons: string[] = [];
@@ -53,7 +70,13 @@ export class FallbackRanker {
         membershipId: c.membershipId,
         name: c.name,
         score: totalScore,
-        explanation: `${c.name}: ${reasons.join(", ")}. Score breakdown: hours ${hoursScore}, availability ${availScore}, certs ${certScore}, experience ${deptScore}.`,
+        explanation: `${c.name}: ${reasons.join(", ")}. Score breakdown: ${ALLOCATION_FACTORS
+          .filter(({ key }) => normalizedWeights[key] > 0)
+          .map(
+            ({ key, label }) =>
+              `${label.toLowerCase()} ${normalizedWeights[key]}% x ${factorScores[key]}`
+          )
+          .join(", ")}.`,
       };
     });
 

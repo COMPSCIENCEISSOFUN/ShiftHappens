@@ -44,6 +44,11 @@ import {
 import { PageLoading } from "@/components/ui/page-loading";
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { StatusBadge } from "@/components/ui/status-badge";
+import {
+  ALLOCATION_FACTORS,
+  DEFAULT_ALLOCATION_WEIGHTS,
+  type AllocationWeights,
+} from "@/lib/allocation-weights";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -60,6 +65,7 @@ interface OrgDetails {
 interface Settings {
   allocationMode: string;
   notificationPreferences: string | null;
+  allocationWeights: AllocationWeights;
 }
 
 interface ResourceUsage {
@@ -184,6 +190,9 @@ export default function SettingsPage() {
     null
   );
   const [allocationMode, setAllocationMode] = useState("auto");
+  const [allocationWeights, setAllocationWeights] = useState<AllocationWeights>(
+    DEFAULT_ALLOCATION_WEIGHTS
+  );
   const [taskMessage, setTaskMessage] = useState<{
     type: "success" | "error";
     text: string;
@@ -300,6 +309,7 @@ export default function SettingsPage() {
       const data = await res.json();
       setSettings(data);
       setAllocationMode(data.allocationMode ?? "auto");
+      setAllocationWeights(data.allocationWeights ?? DEFAULT_ALLOCATION_WEIGHTS);
       if (data.notificationPreferences) {
         setNotifPrefs((prev) => ({
           ...prev,
@@ -383,7 +393,7 @@ export default function SettingsPage() {
     setMsg: (m: { type: "success" | "error"; text: string } | null) => void,
     setLoad: (l: boolean) => void,
     successText: string
-  ) {
+  ): Promise<Record<string, unknown> | null> {
     setMsg(null);
     setLoad(true);
     try {
@@ -400,26 +410,31 @@ export default function SettingsPage() {
           type: "error",
           text: result.error || "Failed to update settings",
         });
-        return;
+        return null;
       }
 
       setSettings(result);
       setMsg({ type: "success", text: successText });
+      return result;
     } catch {
       setMsg({ type: "error", text: "Something went wrong" });
+      return null;
     } finally {
       setLoad(false);
     }
   }
 
-  function onSaveTaskConfig(e: React.FormEvent) {
+  async function onSaveTaskConfig(e: React.FormEvent) {
     e.preventDefault();
-    saveSettings(
-      { allocationMode },
+    const result = await saveSettings(
+      { allocationMode, allocationWeights },
       setTaskMessage,
       setTaskLoading,
       "Task configuration updated"
     );
+    if (result?.allocationWeights) {
+      setAllocationWeights(result.allocationWeights as AllocationWeights);
+    }
   }
 
   function onSaveNotifications(e: React.FormEvent) {
@@ -812,9 +827,51 @@ export default function SettingsPage() {
                     />
                   </div>
                 </div>
+
+                <div className="space-y-3 border-t pt-5">
+                  <div className="flex items-center justify-between gap-4">
+                    <Label>Ranking Priorities</Label>
+                    <span className="text-xs tabular-nums text-muted-foreground">
+                      Total {Object.values(allocationWeights).reduce((sum, value) => sum + value, 0)}%
+                    </span>
+                  </div>
+                  {ALLOCATION_FACTORS.map((factor) => (
+                    <div key={factor.key} className="space-y-1.5">
+                      <div className="flex items-center justify-between gap-4">
+                        <Label htmlFor={`weight-${factor.key}`} className="text-sm font-normal">
+                          {factor.label}
+                        </Label>
+                        <span className="w-10 text-right text-sm tabular-nums">
+                          {allocationWeights[factor.key]}%
+                        </span>
+                      </div>
+                      <input
+                        id={`weight-${factor.key}`}
+                        type="range"
+                        min="0"
+                        max="100"
+                        step="5"
+                        value={allocationWeights[factor.key]}
+                        onChange={(event) =>
+                          setAllocationWeights((current) => ({
+                            ...current,
+                            [factor.key]: Number(event.target.value),
+                          }))
+                        }
+                        className="h-2 w-full cursor-pointer accent-primary"
+                      />
+                    </div>
+                  ))}
+                </div>
               </CardContent>
               <CardFooter>
-                <Button type="submit" disabled={taskLoading}>
+                <Button
+                  type="submit"
+                  disabled={
+                    taskLoading ||
+                    Object.values(allocationWeights).every((value) => value === 0)
+                  }
+                >
                   {taskLoading ? "Saving..." : "Save Configuration"}
                 </Button>
               </CardFooter>

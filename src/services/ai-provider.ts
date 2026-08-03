@@ -5,7 +5,8 @@
  * Defines the contract that all AI providers must implement.
  * Allows swapping between Groq, Gemini, or any future provider
  * with a single configuration change.
- */
+*/
+import type { AllocationWeights } from "@/lib/allocation-weights";
 
 export interface StaffCandidate {
   membershipId: string;
@@ -38,6 +39,7 @@ export interface AIProvider {
       scheduledEnd: string | null;
       requiredHeadcount: number;
     },
-    candidates: StaffCandidate[]
+    candidates: StaffCandidate[],
+    weights: AllocationWeights
   ): Promise<RankedStaff[]>;
 }

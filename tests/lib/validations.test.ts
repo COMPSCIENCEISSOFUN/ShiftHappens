@@ -818,6 +818,36 @@ describe("confirmAutoScheduleSchema", () => {
     expect(result.success).toBe(false);
   });
 
+  it("accepts ranking priorities when at least one supported factor is positive", () => {
+    const result = updateCompanySettingsSchema.safeParse({
+      allocationWeights: {
+        workloadBalance: 40,
+        availabilityFit: 20,
+        certificationBreadth: 10,
+        departmentExperience: 10,
+      },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects out-of-range and all-zero ranking priorities", () => {
+    const weights = {
+      availabilityFit: 0,
+      certificationBreadth: 0,
+      departmentExperience: 0,
+    };
+    expect(
+      updateCompanySettingsSchema.safeParse({
+        allocationWeights: { ...weights, workloadBalance: 101 },
+      }).success
+    ).toBe(false);
+    expect(
+      updateCompanySettingsSchema.safeParse({
+        allocationWeights: { ...weights, workloadBalance: 0 },
+      }).success
+    ).toBe(false);
+  });
+
   it("rejects empty and duplicate assignment references", () => {
     expect(
       confirmAutoScheduleSchema.safeParse({ assignments: [] }).success

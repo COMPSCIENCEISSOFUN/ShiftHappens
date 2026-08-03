@@ -14,6 +14,10 @@
 import { SettingsRepository } from "@/repositories/settings.repository";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 import type { UpdateCompanySettingsInput } from "@/lib/validations";
+import {
+  normalizeAllocationWeights,
+  parseAllocationWeights,
+} from "@/lib/allocation-weights";
 
 export class SettingsService {
   private settingsRepo = new SettingsRepository();
@@ -21,7 +25,11 @@ export class SettingsService {
 
   /** Gets settings for an org, creating defaults if none exist */
   async getSettings(organizationId: string) {
-    return this.settingsRepo.getOrCreate(organizationId);
+    const settings = await this.settingsRepo.getOrCreate(organizationId);
+    return {
+      ...settings,
+      allocationWeights: parseAllocationWeights(settings.smartAllocationWeights),
+    };
   }
 
   /**
@@ -47,6 +55,7 @@ export class SettingsService {
       operatingHoursStart?: number;
       operatingHoursEnd?: number;
       notificationPreferences?: string;
+      smartAllocationWeights?: string;
     } = {};
 
     if (input.allocationMode !== undefined) updateData.allocationMode = input.allocationMode;
@@ -56,6 +65,11 @@ export class SettingsService {
     if (input.operatingHoursEnd !== undefined) updateData.operatingHoursEnd = input.operatingHoursEnd;
     if (input.notificationPreferences !== undefined) {
       updateData.notificationPreferences = JSON.stringify(input.notificationPreferences);
+    }
+    if (input.allocationWeights !== undefined) {
+      updateData.smartAllocationWeights = JSON.stringify(
+        normalizeAllocationWeights(input.allocationWeights)
+      );
     }
 
     // Validate operating hours in merged state
@@ -76,6 +90,9 @@ export class SettingsService {
       details: updateData,
     });
 
-    return settings;
+    return {
+      ...settings,
+      allocationWeights: parseAllocationWeights(settings.smartAllocationWeights),
+    };
   }
 }

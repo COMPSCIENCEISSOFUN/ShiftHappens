@@ -8,6 +8,8 @@
  * (30 req/min, 14,400 req/day).
  */
 import type { AIProvider, StaffCandidate, RankedStaff } from "../ai-provider";
+import { FallbackRanker } from "../fallback-ranker";
+import type { AllocationWeights } from "@/lib/allocation-weights";
 
 export class GroqProvider implements AIProvider {
   private apiKey: string;
@@ -27,17 +29,18 @@ export class GroqProvider implements AIProvider {
       scheduledEnd: string | null;
       requiredHeadcount: number;
     },
-    candidates: StaffCandidate[]
+    candidates: StaffCandidate[],
+    weights: AllocationWeights
   ): Promise<RankedStaff[]> {
     if (!this.apiKey) {
-      return this.fallbackRanking(candidates);
+      return FallbackRanker.rank(candidates, weights);
     }
 
     if (candidates.length === 0) {
       return [];
     }
 
-    const prompt = this.buildPrompt(task, candidates);
+    const prompt = this.buildPrompt(task, candidates, weights);
 
     try {
       const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
@@ -55,7 +58,7 @@ export class GroqProvider implements AIProvider {
 You rank staff members for task assignments based on their fitness.
 You MUST respond with ONLY a valid JSON array, no other text.
 Each element must have: membershipId (string), rank (number starting at 1), score (number 0-100), explanation (string).
-Rank by: lowest hours worked today first, matching department experience, valid certifications, availability fit.
+Use only the organization ranking priorities supplied by the user prompt.
 Higher score = better fit.`,
             },
             {
@@ -77,11 +80,11 @@ Higher score = better fit.`,
       const data = await response.json();
       const content = data.choices[0]?.message?.content || "[]";
 
-      return this.parseResponse(content, candidates);
+      return this.parseResponse(content, candidates, weights);
     } catch (error) {
       console.error("[Groq Provider Error]", error);
       // Fallback: return candidates ranked by hours worked (lowest first)
-      return this.fallbackRanking(candidates);
+      return FallbackRanker.rank(candidates, weights);
     }
   }
 
@@ -94,7 +97,8 @@ Higher score = better fit.`,
       scheduledEnd: string | null;
       requiredHeadcount: number;
     },
-    candidates: StaffCandidate[]
+    candidates: StaffCandidate[],
+    weights: AllocationWeights
   ): string {
     const schedule = task.scheduledStart && task.scheduledEnd
       ? `${task.scheduledStart} to ${task.scheduledEnd}`
@@ -107,6 +111,12 @@ Higher score = better fit.`,
     prompt += `- Priority: ${task.priority}\n`;
     prompt += `- Schedule: ${schedule}\n`;
     prompt += `- Required headcount: ${task.requiredHeadcount}\n\n`;
+    prompt += `RANKING PRIORITIES (normalized percentages):\n`;
+    prompt += `- Workload balance: ${weights.workloadBalance}%\n`;
+    prompt += `- Availability fit: ${weights.availabilityFit}%\n`;
+    prompt += `- Certification breadth: ${weights.certificationBreadth}%\n`;
+    prompt += `- Department experience: ${weights.departmentExperience}%\n`;
+    prompt += `Never include an ineligible person. Explain rankings using only factors with a weight above zero.\n\n`;
     prompt += `ELIGIBLE STAFF:\n`;
 
     for (const c of candidates) {
@@ -123,7 +133,11 @@ Higher score = better fit.`,
     return prompt;
   }
 
-  private parseResponse(content: string, candidates: StaffCandidate[]): RankedStaff[] {
+  private parseResponse(
+    content: string,
+    candidates: StaffCandidate[],
+    weights: AllocationWeights
+  ): RankedStaff[] {
     try {
       // Clean potential markdown code blocks
       const cleaned = content.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
@@ -157,18 +171,6 @@ Higher score = better fit.`,
     }
 
     // If parsing fails, use fallback
-    return this.fallbackRanking(candidates);
-  }
-
-  /** Simple fallback ranking by hours worked (lowest first) */
-  private fallbackRanking(candidates: StaffCandidate[]): RankedStaff[] {
-    return [...candidates]
-      .sort((a, b) => a.hoursWorkedToday - b.hoursWorkedToday)
-      .map((c, i) => ({
-        membershipId: c.membershipId,
-        rank: i + 1,
-        score: Math.max(0, 100 - c.hoursWorkedToday * 10),
-        explanation: `${c.name}: ${c.hoursWorkedToday}h worked today, ${c.certifications.length} cert(s)`,
-      }));
+    return FallbackRanker.rank(candidates, weights);
   }
 }

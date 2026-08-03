@@ -67,6 +67,30 @@ describe("SettingsService", () => {
     expect(parsed.hourLimitWarning).toBe(false);
   });
 
+  it("normalizes and returns saved allocation priorities", async () => {
+    const updated = await settingsService.updateSettings(orgId, {
+      allocationWeights: {
+        workloadBalance: 1,
+        availabilityFit: 1,
+        certificationBreadth: 1,
+        departmentExperience: 1,
+      },
+    });
+
+    expect(updated.allocationWeights).toEqual({
+      workloadBalance: 25,
+      availabilityFit: 25,
+      certificationBreadth: 25,
+      departmentExperience: 25,
+    });
+    const stored = await prisma.companySettings.findUniqueOrThrow({
+      where: { organizationId: orgId },
+    });
+    expect(JSON.parse(stored.smartAllocationWeights!)).toEqual(
+      updated.allocationWeights
+    );
+  });
+
   it("validates operating hours against merged state", async () => {
     await expect(
       settingsService.updateSettings(orgId, {
