@@ -106,18 +106,45 @@ export class EligibilityService {
     // Get all active work rules for this org
     const allWorkRules = await this.workRuleRepo.findApplicableRules(organizationId);
 
-    // Get all active non-admin members. When the task belongs to a department,
-    // only staff in that department are candidates (PRD §7.4 department scope);
-    // department-less tasks consider everyone.
+    /*
+     * Who gets evaluated.
+     *
+     * This method answers two questions at once, and they need different
+     * candidate sets:
+     *
+     *   "who could I put on this shift?"     — department scope applies
+     *   "is the person already on it still
+     *    OK?"                                — department scope cannot apply
+     *
+     * The department filter alone answered only the first, which made the
+     * second unanswerable for anyone outside the task's department. That is not
+     * a hypothetical: moving a task from Kitchen to Front of House leaves every
+     * assigned Kitchen member in place and simultaneously invisible to every
+     * check. Worse, `notifyIneligibleAssignees` runs on precisely that update,
+     * finds nobody to look at, and reports all clear — a reassuring silence at
+     * the moment something is most likely to be wrong. From then on those
+     * assignments are exempt from hour limits, availability and certification
+     * checks permanently.
+     *
+     * So: department members, PLUS anyone already holding a live assignment,
+     * whatever department they are in. Purely additive — no verdict on an
+     * existing candidate changes, and the extra per-member work only appears
+     * when a cross-department assignment actually exists.
+     */
     const allMembers = await this.membershipRepo.findByOrgId(organizationId);
-    let eligibleMembers = allMembers.filter(
+    const activeMembers = allMembers.filter(
       (m) => m.status === "active" && m.role !== "company_admin"
     );
+
+    let eligibleMembers = activeMembers;
     if (task.departmentId) {
-      eligibleMembers = eligibleMembers.filter((m) =>
-        (m.departmentMemberships ?? []).some(
-          (dm: { department: { id: string } }) => dm.department.id === task.departmentId
-        )
+      const committed = await this.committedMembershipIds(taskId);
+      eligibleMembers = activeMembers.filter(
+        (m) =>
+          committed.has(m.id) ||
+          (m.departmentMemberships ?? []).some(
+            (dm: { department: { id: string } }) => dm.department.id === task.departmentId
+          )
       );
     }
 
@@ -250,6 +277,24 @@ export class EligibilityService {
   }
 
   /** Builds a map of membershipId → set of overridden rule keys for a task. */
+  /**
+   * Members holding a live assignment on this task.
+   *
+   * "Live" is the same set that occupies a headcount slot — pending, accepted,
+   * or awaiting a withdrawal decision. Someone who rejected or withdrew is not
+   * on the shift, so there is nothing about them left to validate.
+   */
+  private async committedMembershipIds(taskId: string): Promise<Set<string>> {
+    const assignments = await this.assignmentRepo.findByTaskId(taskId);
+    return new Set(
+      assignments
+        .filter((a) =>
+          ["pending", "accepted", "withdrawal_requested"].includes(a.status)
+        )
+        .map((a) => a.membershipId)
+    );
+  }
+
   private async getOverrideMap(taskId: string): Promise<Map<string, Set<string>>> {
     const overrides = await this.overrideRepo.findByTaskId(taskId);
     const map = new Map<string, Set<string>>();

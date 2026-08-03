@@ -103,16 +103,32 @@ export class AllocationService {
       organizationId
     );
 
-    // Filter out staff who already rejected this task
-    const rejectedMembershipIds = new Set(
+    /*
+     * Anyone whose answer to this shift is already settled is not a candidate.
+     *
+     * `rejected` was already excluded. `pending`, `accepted` and
+     * `withdrawal_requested` were not, so someone already on the shift could be
+     * ranked and suggested for it again — and `autoAllocate` would then fail on
+     * the unique constraint over (taskId, membershipId).
+     *
+     * This matters more now that eligibility deliberately includes people
+     * already assigned, so that they can still be VALIDATED. That widening is
+     * about checking commitments, not proposing new ones; without this filter
+     * it would leak into the suggestion path.
+     */
+    const settledMembershipIds = new Set(
       task.assignments
-        .filter((a) => a.status === "rejected")
+        .filter((a) =>
+          ["rejected", "pending", "accepted", "withdrawal_requested"].includes(
+            a.status
+          )
+        )
         .map((a) => a.membershipId)
     );
 
     const eligibleStaff = eligibility
       .filter((e) => e.eligible)
-      .filter((e) => !rejectedMembershipIds.has(e.membershipId));
+      .filter((e) => !settledMembershipIds.has(e.membershipId));
 
     if (eligibleStaff.length === 0) {
       // No candidates means no strategy ran. Reporting a provider here would
