@@ -38,6 +38,80 @@ interface Department {
   _count: { departmentMemberships: number; tasks: number };
 }
 
+/**
+ * The filter pills.
+ *
+ * Modelled on the Certifications page so the two screens behave the same way:
+ * mutually exclusive pills carrying live counts, a debounced search beside
+ * them, and an empty state that names what was being looked for.
+ *
+ * Two axes are deliberately flattened into one row of pills rather than split
+ * into two controls. Staffing and workload are independent — a department can
+ * have people and no work, or work and nobody to do it — but in practice you
+ * arrive here asking one question at a time ("who has nobody?"), and two
+ * dropdowns to express that is worse than six pills.
+ *
+ * `archived` is on the same row for the same reason. It used to be a
+ * collapsible section at the foot of the page; a pill with a count is more
+ * discoverable than a collapsed drawer, and having archived departments in
+ * exactly one place is simpler than having them in two.
+ */
+type FilterKey = "all" | "staffed" | "empty" | "with_tasks" | "no_tasks" | "archived";
+
+const FILTERS: { key: FilterKey; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "staffed", label: "Staffed" },
+  { key: "empty", label: "Empty" },
+  { key: "with_tasks", label: "With tasks" },
+  { key: "no_tasks", label: "No tasks" },
+  { key: "archived", label: "Archived" },
+];
+
+/** Lower-case nouns for the "No ___" empty state. */
+const FILTER_NOUNS: Record<FilterKey, string> = {
+  all: "departments",
+  staffed: "departments with members",
+  empty: "departments without members",
+  with_tasks: "departments with tasks",
+  no_tasks: "departments without tasks",
+  archived: "archived departments",
+};
+
+/**
+ * Whether a department belongs under a pill.
+ *
+ * Every pill except `archived` describes an ACTIVE department. An archived
+ * department with no members is not "Empty" — it is archived, and surfacing it
+ * under a staffing filter would put a card with Restore/Delete buttons in a
+ * grid of editable ones.
+ */
+function matchesFilter(dept: Department, key: FilterKey): boolean {
+  const archived = dept.archivedAt !== null;
+  if (key === "archived") return archived;
+  if (archived) return false;
+
+  switch (key) {
+    case "staffed":
+      return dept._count.departmentMemberships > 0;
+    case "empty":
+      return dept._count.departmentMemberships === 0;
+    case "with_tasks":
+      return dept._count.tasks > 0;
+    case "no_tasks":
+      return dept._count.tasks === 0;
+    default:
+      return true;
+  }
+}
+
+function matchesSearch(dept: Department, search: string): boolean {
+  if (!search) return true;
+  return (
+    dept.name.toLowerCase().includes(search) ||
+    (dept.description ?? "").toLowerCase().includes(search)
+  );
+}
+
 interface ImpactSummary {
   memberCount: number;
   activeTaskCount: number;
@@ -203,6 +277,94 @@ function DeleteDialog({
 }
 
 /* ------------------------------------------------------------------ */
+/*  Archived grid                                                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Archived departments, in their own card shape.
+ *
+ * Kept visually distinct — dashed border, muted colour bar, reduced opacity —
+ * because the actions differ. An active card edits and archives; an archived
+ * one restores and permanently deletes. Rendering both through one component
+ * would mean a card whose buttons change meaning based on a flag, which is how
+ * somebody eventually clicks "Delete Permanently" expecting "Archive".
+ *
+ * Extracted from a collapsible section at the foot of the page when the filter
+ * pills were added, so archived departments live in exactly one place.
+ */
+function ArchivedGrid({
+  departments,
+  onUnarchive,
+  onDelete,
+}: {
+  departments: Department[];
+  onUnarchive: (id: string) => void;
+  onDelete: (dept: Department) => void;
+}) {
+  return (
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      {departments.map((dept) => (
+        <div key={dept.id} className="relative overflow-hidden rounded-xl border border-dashed border-border bg-card/60 opacity-80 transition-opacity hover:opacity-100">
+          {/* Muted colour bar */}
+          <div className="h-1.5 opacity-40" style={{ backgroundColor: dept.color || "#94A3B8" }} />
+
+          <div className="p-4">
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-muted/40">
+                  <div className="h-4 w-4 rounded-full opacity-50" style={{ backgroundColor: dept.color || "#94A3B8" }} />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="truncate text-[15px] font-semibold text-muted-foreground">{dept.name}</h3>
+                  {dept.description && (
+                    <p className="mt-0.5 truncate text-[11px] text-muted-foreground/70">{dept.description}</p>
+                  )}
+                </div>
+              </div>
+              <span className="ml-2 flex-shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                Archived
+              </span>
+            </div>
+
+            {/* Counts */}
+            <div className="mt-3 flex items-center gap-2">
+              <div className="flex items-center gap-1.5 rounded-lg bg-muted/40 px-2.5 py-1">
+                <span className="text-xs font-medium text-muted-foreground/70">
+                  {dept._count.departmentMemberships} member{dept._count.departmentMemberships !== 1 ? "s" : ""}
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5 rounded-lg bg-muted/40 px-2.5 py-1">
+                <span className="text-xs font-medium text-muted-foreground/70">
+                  {dept._count.tasks} task{dept._count.tasks !== 1 ? "s" : ""}
+                </span>
+              </div>
+            </div>
+
+            {/* Archived actions */}
+            <div className="mt-3 flex gap-2 border-t border-border/30 pt-3">
+              <button
+                onClick={() => onUnarchive(dept.id)}
+                className="flex items-center gap-1 rounded-lg border border-border bg-card px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:border-green-400 hover:text-green-600 dark:hover:border-green-700 dark:hover:text-green-400"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" /><path d="M21 3v5h-5" /><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" /><path d="M8 16H3v5" /></svg>
+                Restore
+              </button>
+              <button
+                onClick={() => onDelete(dept)}
+                className="flex items-center gap-1 rounded-lg border border-border bg-card px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:border-red-300 hover:text-red-600 dark:hover:border-red-800 dark:hover:text-red-400"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg>
+                Delete Permanently
+              </button>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /*  Main Page                                                          */
 /* ------------------------------------------------------------------ */
 
@@ -214,7 +376,9 @@ export default function DepartmentsPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [showArchived, setShowArchived] = useState(false);
+  const [filter, setFilter] = useState<FilterKey>("all");
+  const [searchInput, setSearchInput] = useState("");
+  const [search, setSearch] = useState("");
 
   // In-flight guards. Every one of these actions is checked in its handler as
   // well as on its button, because a fast double click lands before React
@@ -235,6 +399,13 @@ export default function DepartmentsPage() {
   useEffect(() => {
     fetchDepartments();
   }, [orgId]);
+
+  // Debounced so typing does not re-filter the grid on every keystroke —
+  // matches the Certifications page, including the 250ms.
+  useEffect(() => {
+    const timer = setTimeout(() => setSearch(searchInput.trim().toLowerCase()), 250);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
 
   async function fetchDepartments() {
     try {
@@ -452,6 +623,43 @@ export default function DepartmentsPage() {
   const totalMembers = activeDepts.reduce((sum, d) => sum + d._count.departmentMemberships, 0);
   const emptyDepts = activeDepts.filter((d) => d._count.departmentMemberships === 0).length;
 
+  /**
+   * Pill counts ignore the search box.
+   *
+   * A count that moved as you typed would be answering a different question
+   * from the one the pill asks — "how many departments have nobody?" is a
+   * property of the organisation, not of what you happen to have typed. It
+   * also makes the pills unusable as a starting point, because they would all
+   * read 0 the moment a search matched nothing.
+   */
+  const counts = FILTERS.reduce(
+    (acc, { key }) => {
+      acc[key] = departments.filter((d) => matchesFilter(d, key)).length;
+      return acc;
+    },
+    {} as Record<FilterKey, number>
+  );
+
+  const visible = departments
+    .filter((d) => matchesFilter(d, filter))
+    .filter((d) => matchesSearch(d, search));
+
+  /**
+   * How many departments the search matches OUTSIDE the current pill.
+   *
+   * Without this, searching for something archived while looking at "All"
+   * returns nothing and the feature reads as broken. Saying "3 match under
+   * other filters" turns a dead end into a signpost.
+   */
+  const matchesElsewhere =
+    search.length > 0
+      ? departments.filter(
+          (d) => matchesSearch(d, search) && !matchesFilter(d, filter)
+        ).length
+      : 0;
+
+  const showingArchivedCards = filter === "archived";
+
   if (loading) return <PageLoading />;
 
   return (
@@ -513,12 +721,100 @@ export default function DepartmentsPage() {
         </div>
       )}
 
-      {/* ── Active department grid ── */}
-      {activeDepts.length === 0 ? (
+      {/* ── Filters ── */}
+      <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center">
+        {/* Six pills stack into three rows on a phone; scrolling them
+            horizontally keeps the grid itself above the fold. */}
+        <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto pb-1">
+          {FILTERS.map(({ key, label }) => {
+            const active = filter === key;
+            return (
+              <button
+                key={key}
+                onClick={() => setFilter(key)}
+                aria-pressed={active}
+                className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-[13px] font-medium transition-all ${
+                  active
+                    ? "border-indigo-500 bg-indigo-50 text-indigo-700 dark:border-indigo-400 dark:bg-indigo-950 dark:text-indigo-300"
+                    : "border-border bg-card text-muted-foreground hover:border-indigo-300 hover:text-indigo-600 dark:hover:border-indigo-600 dark:hover:text-indigo-400"
+                }`}
+              >
+                {label}
+                <span
+                  className={`inline-flex min-w-[18px] items-center justify-center rounded-full px-1 py-0 text-[11px] font-bold ${
+                    active
+                      ? "bg-indigo-600 text-white dark:bg-indigo-500"
+                      : "bg-muted text-muted-foreground"
+                  }`}
+                >
+                  {counts[key]}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="relative shrink-0 sm:w-60">
+          <svg
+            className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+            aria-hidden="true"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"
+            />
+          </svg>
+          <Input
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            placeholder="Search departments..."
+            aria-label="Search departments by name or description"
+            className="h-9 pl-9 text-sm"
+          />
+        </div>
+      </div>
+
+      {/* ── Department grid ── */}
+      {departments.length === 0 ? (
         <EmptyState title="No departments yet" description="Create your first department to get started." />
+      ) : visible.length === 0 ? (
+        <EmptyState
+          title={search ? `No ${FILTER_NOUNS[filter]} match "${search}"` : `No ${FILTER_NOUNS[filter]}`}
+          description={
+            matchesElsewhere > 0
+              ? `${matchesElsewhere} department${matchesElsewhere === 1 ? "" : "s"} elsewhere match${matchesElsewhere === 1 ? "es" : ""} that search — try another filter.`
+              : search
+                ? "Nothing here matches that search."
+                : undefined
+          }
+          action={
+            search || filter !== "all" ? (
+              <button
+                onClick={() => {
+                  setSearchInput("");
+                  setFilter("all");
+                }}
+                className="rounded-lg border border-border bg-card px-3.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-indigo-400 hover:text-foreground"
+              >
+                Clear filters
+              </button>
+            ) : undefined
+          }
+        />
+      ) : showingArchivedCards ? (
+        <ArchivedGrid
+          departments={visible}
+          onUnarchive={onUnarchive}
+          onDelete={setDeleteTarget}
+        />
       ) : (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {activeDepts.map((dept) => (
+          {visible.map((dept) => (
             <div key={dept.id} className="group relative overflow-hidden rounded-xl border border-border bg-card transition-shadow hover:shadow-md">
               {/* Colour bar at top */}
               <div className="h-1.5" style={{ backgroundColor: dept.color || "#94A3B8" }} />
@@ -610,96 +906,6 @@ export default function DepartmentsPage() {
               )}
             </div>
           ))}
-        </div>
-      )}
-
-      {/* ── Archived departments section ── */}
-      {archivedDepts.length > 0 && (
-        <div className="mt-6">
-          <button
-            onClick={() => setShowArchived(!showArchived)}
-            className="flex w-full items-center gap-2 rounded-xl border border-border bg-card/50 px-4 py-3 text-left transition-colors hover:bg-card"
-          >
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              className={`text-muted-foreground transition-transform ${showArchived ? "rotate-90" : ""}`}
-            >
-              <path d="M9 18l6-6-6-6" />
-            </svg>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-muted-foreground">
-              <path d="M21 8v13H3V8" /><path d="M1 3h22v5H1z" /><path d="M10 12h4" />
-            </svg>
-            <span className="text-sm font-medium text-muted-foreground">
-              Archived Departments ({archivedDepts.length})
-            </span>
-          </button>
-
-          {showArchived && (
-            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {archivedDepts.map((dept) => (
-                <div key={dept.id} className="relative overflow-hidden rounded-xl border border-dashed border-border bg-card/60 opacity-80 transition-opacity hover:opacity-100">
-                  {/* Muted colour bar */}
-                  <div className="h-1.5 opacity-40" style={{ backgroundColor: dept.color || "#94A3B8" }} />
-
-                  <div className="p-4">
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-center gap-2.5">
-                        <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-muted/40">
-                          <div className="h-4 w-4 rounded-full opacity-50" style={{ backgroundColor: dept.color || "#94A3B8" }} />
-                        </div>
-                        <div className="min-w-0">
-                          <h3 className="truncate text-[15px] font-semibold text-muted-foreground">{dept.name}</h3>
-                          {dept.description && (
-                            <p className="mt-0.5 truncate text-[11px] text-muted-foreground/70">{dept.description}</p>
-                          )}
-                        </div>
-                      </div>
-                      <span className="ml-2 flex-shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                        Archived
-                      </span>
-                    </div>
-
-                    {/* Counts */}
-                    <div className="mt-3 flex items-center gap-2">
-                      <div className="flex items-center gap-1.5 rounded-lg bg-muted/40 px-2.5 py-1">
-                        <span className="text-xs font-medium text-muted-foreground/70">
-                          {dept._count.departmentMemberships} member{dept._count.departmentMemberships !== 1 ? "s" : ""}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-1.5 rounded-lg bg-muted/40 px-2.5 py-1">
-                        <span className="text-xs font-medium text-muted-foreground/70">
-                          {dept._count.tasks} task{dept._count.tasks !== 1 ? "s" : ""}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Archived actions */}
-                    <div className="mt-3 flex gap-2 border-t border-border/30 pt-3">
-                      <button
-                        onClick={() => onUnarchive(dept.id)}
-                        className="flex items-center gap-1 rounded-lg border border-border bg-card px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:border-green-400 hover:text-green-600 dark:hover:border-green-700 dark:hover:text-green-400"
-                      >
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" /><path d="M21 3v5h-5" /><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" /><path d="M8 16H3v5" /></svg>
-                        Restore
-                      </button>
-                      <button
-                        onClick={() => setDeleteTarget(dept)}
-                        className="flex items-center gap-1 rounded-lg border border-border bg-card px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:border-red-300 hover:text-red-600 dark:hover:border-red-800 dark:hover:text-red-400"
-                      >
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg>
-                        Delete Permanently
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
       )}
 
