@@ -33,6 +33,12 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { toDateTimeLocalValue } from "@/lib/timezone";
 import { OperatingHoursNotice } from "@/components/tasks/operating-hours-notice";
 import { reasonLabel } from "@/lib/decline-reasons";
+import { CompositionRulesEditor } from "@/components/tasks/composition-rules-editor";
+import {
+  describeRule,
+  parseCompositionRules,
+  type CompositionRule,
+} from "@/lib/composition-rules";
 
 // ============================================================
 // Constants
@@ -142,6 +148,7 @@ interface Task {
   priority: string;
   requiredHeadcount: number;
   requiredCertifications: string[];
+  compositionRules: string | null;
   scheduledStart: string | null;
   scheduledEnd: string | null;
   isRecurring: boolean;
@@ -225,6 +232,10 @@ export default function TasksPage() {
   // These shadow values exist only to drive the notice, so a stale one costs a
   // warning and never a wrong submission.
   const [createSchedule, setCreateSchedule] = useState({ start: "", end: "" });
+  // Composition rules are structured objects, so they are held in state rather
+  // than as form fields — FormData would flatten them to strings.
+  const [createComposition, setCreateComposition] = useState<CompositionRule[]>([]);
+  const [editComposition, setEditComposition] = useState<CompositionRule[]>([]);
   const [editSchedule, setEditSchedule] = useState({ start: "", end: "" });
 
   // ── Data fetching ────────────────────────────────
@@ -489,6 +500,10 @@ export default function TasksPage() {
     const createCerts = parseCertList(formData.get("requiredCertifications") as string);
     if (createCerts.length > 0) taskData.requiredCertifications = createCerts;
 
+    // Composition rules live in component state rather than the form, because
+    // they are structured objects and a FormData round-trip would flatten them.
+    if (createComposition.length > 0) taskData.compositionRules = createComposition;
+
     const start = formData.get("scheduledStart") as string;
     const end = formData.get("scheduledEnd") as string;
     if (start) taskData.scheduledStart = new Date(start).toISOString();
@@ -691,6 +706,9 @@ export default function TasksPage() {
       requiredHeadcount: Number(formData.get("editHeadcount")) || 1,
       // Always send the parsed list so clearing the field removes requirements.
       requiredCertifications: parseCertList(formData.get("editRequiredCertifications") as string),
+      // Sent unconditionally for the same reason: an omitted key means "leave
+      // them alone", so removing the last rule would otherwise never save.
+      compositionRules: editComposition,
     };
 
     const start = formData.get("editStart") as string;
@@ -1028,6 +1046,12 @@ export default function TasksPage() {
                 <p className="text-[11px] text-muted-foreground">Comma-separated. Leave blank for none.</p>
               </div>
               <div className="space-y-1.5">
+                <CompositionRulesEditor
+                  rules={createComposition}
+                  onChange={setCreateComposition}
+                />
+              </div>
+              <div className="space-y-1.5">
                 <Label htmlFor="scheduledStart" className="text-xs font-semibold text-muted-foreground">Start time</Label>
                 <Input
                   id="scheduledStart"
@@ -1264,6 +1288,23 @@ export default function TasksPage() {
                             {cert}
                           </span>
                         ))}
+
+                      {/*
+                        Composition rules, shown on the card rather than only in
+                        the edit form. A manager refused an assignment needs to
+                        see the constraint where they are working, not after
+                        opening a form to find out why. Rendered with the same
+                        describeRule() the refusal message uses, so the wording
+                        matches exactly.
+                      */}
+                      {parseCompositionRules(task.compositionRules).map((rule, i) => (
+                        <span
+                          key={`comp-${i}`}
+                          className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700 dark:border-indigo-800 dark:bg-indigo-950 dark:text-indigo-300"
+                        >
+                          {describeRule(rule)}
+                        </span>
+                      ))}
                     </div>
 
                     {/* ── Description ─────────────── */}
@@ -1354,6 +1395,13 @@ export default function TasksPage() {
                                 }
                               : { start: "", end: "" }
                           );
+                          // Seeded from the stored JSON so the form opens
+                          // showing the rules the task already has; without
+                          // this, saving an unrelated edit would submit an
+                          // empty list and silently delete them.
+                          setEditComposition(
+                            opening ? parseCompositionRules(task.compositionRules) : []
+                          );
                         }}
                         className={`flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-[12px] font-medium transition-colors ${
                           editingTaskId === task.id
@@ -1438,6 +1486,12 @@ export default function TasksPage() {
                             <div className="space-y-1">
                               <Label className="text-xs font-semibold text-muted-foreground">Required certifications</Label>
                               <Input name="editRequiredCertifications" defaultValue={(task.requiredCertifications || []).join(", ")} placeholder="e.g. Food Safety, RSA" />
+                            </div>
+                            <div className="space-y-1.5">
+                              <CompositionRulesEditor
+                                rules={editComposition}
+                                onChange={setEditComposition}
+                              />
                               <p className="text-[11px] text-muted-foreground">Comma-separated. Clear the field to remove all requirements.</p>
                             </div>
                             <div className="space-y-1">

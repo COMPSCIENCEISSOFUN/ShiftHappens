@@ -23,6 +23,11 @@ import { AlertBanner } from "@/components/ui/alert-banner";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { StatTile } from "@/components/ui/stat-tile";
 import { SYSTEM_ROLE_LABELS, EMPLOYMENT_TYPE_LABELS, DEFAULT_EMPLOYMENT_TYPE } from "@/lib/role-config";
+import {
+  SENIORITY_LEVELS,
+  SENIORITY_LABEL,
+  type SeniorityAssessment,
+} from "@/lib/seniority";
 import { filterMembers, hasActiveFilters as checkActiveFilters } from "@/lib/member-filters";
 
 /* ------------------------------------------------------------------ */
@@ -102,6 +107,13 @@ export default function MembersPage() {
   const params = useParams();
   const orgId = params.orgId as string;
   const [members, setMembers] = useState<Member[]>([]);
+  /**
+   * Seniority, keyed by MEMBERSHIP id — not user id like the other maps here.
+   * It comes from its own endpoint rather than the members list because the
+   * level depends on a department scope the list has no opinion about; this
+   * page asks for the org-wide figure and says so.
+   */
+  const [seniority, setSeniority] = useState<Record<string, SeniorityAssessment>>({});
   const [departments, setDepartments] = useState<Department[]>([]);
   const [customRoles, setCustomRoles] = useState<CustomRole[]>([]);
   const [invitations, setInvitations] = useState<Invitation[]>([]);
@@ -140,6 +152,7 @@ export default function MembersPage() {
     fetchCustomRoles();
     fetchInvitations();
     fetchCurrentUser();
+    fetchSeniority();
   }, [orgId]);
 
   async function fetchCurrentUser() {
@@ -173,6 +186,37 @@ export default function MembersPage() {
       setError("Failed to load members");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function fetchSeniority() {
+    try {
+      const res = await fetch(`/api/organizations/${orgId}/members/seniority`);
+      const data = await res.json();
+      if (res.ok && data?.assessments) setSeniority(data.assessments);
+    } catch { /* non-critical — the column falls back to "—" */ }
+  }
+
+  async function onUpdateSeniority(userId: string, value: string) {
+    try {
+      const res = await fetch(
+        `/api/organizations/${orgId}/members/${userId}/seniority`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          // "" is the UI's way of saying "derive it" and has to reach the API
+          // as null — an empty string is not a level and would be rejected.
+          body: JSON.stringify({ seniorityOverride: value === "" ? null : value }),
+        }
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setError(body.error ?? "Failed to update seniority");
+        return;
+      }
+      await fetchSeniority();
+    } catch {
+      setError("Failed to update seniority");
     }
   }
 
@@ -485,6 +529,7 @@ export default function MembersPage() {
                 <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Member</th>
                 <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Role</th>
                 <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Type</th>
+                <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Seniority</th>
                 <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Department</th>
                 <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Status</th>
                 <th className="px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Actions</th>
@@ -493,7 +538,7 @@ export default function MembersPage() {
             <tbody>
               {filteredMembers.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-10 text-center">
+                  <td colSpan={7} className="px-4 py-10 text-center">
                     <p className="text-sm text-muted-foreground">
                       {hasActiveFilters ? "No members match your filters" : "No members yet"}
                     </p>
@@ -601,6 +646,51 @@ export default function MembersPage() {
                         </select>
                       ) : (
                         <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {/*
+                        Admins are not rostered, so a level for them would be a
+                        number with nothing behind it and nothing reading it.
+                      */}
+                      {member.role === "company_admin" ? (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      ) : (
+                        <div className="space-y-0.5">
+                          <select
+                            aria-label={`Seniority for ${member.user.name ?? member.user.email}`}
+                            className="rounded-lg border border-border bg-background px-2 py-1 text-xs"
+                            value={
+                              seniority[member.id]?.overridden
+                                ? seniority[member.id].level
+                                : ""
+                            }
+                            onChange={(e) => onUpdateSeniority(member.user.id, e.target.value)}
+                          >
+                            {/* The empty option is the DEFAULT, not a blank —
+                                it names what happens when nobody overrides. */}
+                            <option value="">
+                              Auto{seniority[member.id]
+                                ? ` — ${SENIORITY_LABEL[seniority[member.id].level] ?? ""}`
+                                : ""}
+                            </option>
+                            {SENIORITY_LEVELS.map((level) => (
+                              <option key={level} value={level}>
+                                Pin to {SENIORITY_LABEL[level]}
+                              </option>
+                            ))}
+                          </select>
+                          {/*
+                            The explanation is the point. A level that decides
+                            who gets rostered must never be an unexplained
+                            assertion, so the count behind it is always shown.
+                          */}
+                          {seniority[member.id] && (
+                            <p className="text-[10px] text-muted-foreground">
+                              {seniority[member.id].explanation}
+                            </p>
+                          )}
+                        </div>
                       )}
                     </td>
                     <td className="px-4 py-3">

@@ -188,4 +188,36 @@ export class CertificationRepository {
       },
     });
   }
+
+  /**
+   * Valid certificate NAMES for several members at once, keyed by membership.
+   *
+   * Composition rules are evaluated over a whole roster, so the single-member
+   * version would run once per assignee on every assignment. Only the names
+   * are selected because that is all a rule compares — the dates have already
+   * done their work in the `where`.
+   *
+   * Every requested id appears in the result, holding an empty array if the
+   * member has nothing valid. A caller that had to distinguish "no
+   * certificates" from "not in the map" would get it wrong eventually.
+   */
+  async getValidCertificationNamesFor(
+    membershipIds: string[]
+  ): Promise<Record<string, string[]>> {
+    if (membershipIds.length === 0) return {};
+
+    const rows = await prisma.certification.findMany({
+      where: {
+        membershipId: { in: membershipIds },
+        status: "verified",
+        OR: [{ expiryDate: null }, { expiryDate: { gt: new Date() } }],
+      },
+      select: { membershipId: true, name: true },
+    });
+
+    const map: Record<string, string[]> = {};
+    for (const id of membershipIds) map[id] = [];
+    for (const row of rows) map[row.membershipId].push(row.name);
+    return map;
+  }
 }

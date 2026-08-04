@@ -46,6 +46,8 @@ export class SettingsRepository {
       breakRuleBreakHours?: number;
       smartAllocationWeights?: string;
       notificationPreferences?: string;
+      experiencedShiftThreshold?: number;
+      seniorShiftThreshold?: number;
     }
   ) {
     return prisma.companySettings.update({

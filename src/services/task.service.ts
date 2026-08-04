@@ -25,6 +25,12 @@ import {
   DEFAULT_HORIZON_DAYS,
 } from "@/services/recurring-task.service";
 import { parseRecurrencePattern } from "@/lib/recurrence";
+import { CompositionService } from "@/services/composition.service";
+import {
+  infeasibilityMessage,
+  parseCompositionRules,
+  serialiseCompositionRules,
+} from "@/lib/composition-rules";
 
 export class TaskService {
   private taskRepo = new TaskRepository();
@@ -37,6 +43,7 @@ export class TaskService {
   private eligibilityService = new EligibilityService();
   private overrideRepo = new EligibilityOverrideRepository();
   private subscriptionService = new SubscriptionService();
+  private compositionService = new CompositionService();
 
   async create(input: CreateTaskInput, orgId: string, userId: string) {
     await this.subscriptionService.enforceResourceLimit(orgId, 'active_tasks');
@@ -76,6 +83,9 @@ export class TaskService {
       scheduledEnd: input.scheduledEnd ? new Date(input.scheduledEnd) : undefined,
       isRecurring: input.isRecurring,
       recurringPattern: input.recurringPattern,
+      compositionRules: input.compositionRules
+        ? serialiseCompositionRules(input.compositionRules)
+        : null,
       createdById: userId,
     });
 
@@ -234,6 +244,14 @@ export class TaskService {
       requiredCertifications: input.requiredCertifications,
       priority: input.priority,
       status: input.status,
+      // Absent key → leave the rules alone; an explicit empty array clears
+      // them. `serialiseCompositionRules([])` returns null, which is the
+      // stored form of "no constraints", so the two cases stay distinct
+      // without a second flag.
+      compositionRules:
+        input.compositionRules === undefined
+          ? undefined
+          : serialiseCompositionRules(input.compositionRules),
       // Write the RESOLVED values, not the raw input. `newStart`/`newEnd` above
       // already fall back to the task's stored schedule when the caller omitted
       // the keys, which is what a partial update means. Writing
@@ -455,6 +473,45 @@ export class TaskService {
               `Staff has a scheduling conflict with "${conflicts[0].title}"`
             );
           }
+        }
+      }
+    }
+
+    // Composition rules, checked last among the gates because it is the only
+    // one that depends on the whole batch rather than on each member — the
+    // per-member checks above must have culled anyone invalid before the
+    // resulting roster is judged.
+    //
+    // The test is FEASIBILITY, not satisfaction. A manager filling a
+    // two-person shift one at a time must not be refused on the first person
+    // for a rule the second could still meet; the refusal comes when the rule
+    // is put beyond reach — an "at least" rule with no slots left to meet it,
+    // or an "at most" rule already exceeded.
+    if (parseCompositionRules(task.compositionRules).length > 0) {
+      const evaluation = await this.compositionService.evaluateForTask(
+        taskId,
+        membershipIds
+      );
+
+      if (!evaluation.feasible) {
+        // Same escape hatch as a scheduling conflict: a manager who has
+        // documented a reason may proceed. Rules about the shape of a roster
+        // meet real exceptions — a trainee shadowing, a quiet night — and a
+        // constraint with no override is one that gets removed entirely the
+        // first time it is inconvenient.
+        const overridden = (
+          await Promise.all(
+            membershipIds.flatMap((membId) => [
+              this.overrideRepo.hasOverride(taskId, membId, "composition"),
+              this.overrideRepo.hasOverride(taskId, membId, "all"),
+            ])
+          )
+        ).some(Boolean);
+
+        if (!overridden) {
+          throw new Error(
+            infeasibilityMessage(evaluation) ?? "Assignment breaks a composition rule"
+          );
         }
       }
     }

@@ -65,6 +65,8 @@ interface OrgDetails {
 interface Settings {
   allocationMode: string;
   taskAcceptanceMode: string;
+  experiencedShiftThreshold: number;
+  seniorShiftThreshold: number;
   operatingHoursStart: number;
   operatingHoursEnd: number;
   notificationPreferences: string | null;
@@ -195,6 +197,11 @@ export default function SettingsPage() {
   );
   const [allocationMode, setAllocationMode] = useState("manual");
   const [taskAcceptanceMode, setTaskAcceptanceMode] = useState("auto_accept");
+  // Completed-shift counts at which a member is treated as experienced, then
+  // senior. Held as strings so the field can be emptied while typing without
+  // becoming NaN and blanking the input.
+  const [experiencedThreshold, setExperiencedThreshold] = useState("10");
+  const [seniorThreshold, setSeniorThreshold] = useState("40");
   // Defaults mirror the database defaults, so the controls show the truth for
   // the moment before the fetch resolves rather than an arbitrary 00:00–00:00.
   const [opStart, setOpStart] = useState(6);
@@ -340,6 +347,8 @@ export default function SettingsPage() {
       setSettings(data);
       setAllocationMode(data.allocationMode);
       setTaskAcceptanceMode(data.taskAcceptanceMode);
+      setExperiencedThreshold(String(data.experiencedShiftThreshold ?? 10));
+      setSeniorThreshold(String(data.seniorShiftThreshold ?? 40));
       // Guarded rather than assigned blindly: these are the only numeric
       // settings on the page, and a null from an older row would otherwise
       // become a NaN in the <select> and silently PATCH back as invalid.
@@ -465,7 +474,12 @@ export default function SettingsPage() {
   function onSaveTaskConfig(e: React.FormEvent) {
     e.preventDefault();
     saveSettings(
-      { allocationMode, taskAcceptanceMode },
+      {
+        allocationMode,
+        taskAcceptanceMode,
+        experiencedShiftThreshold: Number(experiencedThreshold),
+        seniorShiftThreshold: Number(seniorThreshold),
+      },
       setTaskMessage,
       setTaskLoading,
       "Task configuration updated"
@@ -949,6 +963,74 @@ export default function SettingsPage() {
                       description="Staff must accept or reject each assigned task"
                     />
                   </div>
+                </div>
+
+                <Separator />
+
+                {/*
+                  Seniority thresholds.
+
+                  Configurable rather than fixed because the honest answer is
+                  industry-specific: ten shifts is a competent barista and a
+                  novice nurse. They are here, under task configuration, because
+                  what they change is who can be assigned to a shift — a
+                  composition rule reading "at most 1 junior" means whatever
+                  these two numbers say it means.
+                */}
+                <div className="space-y-2">
+                  <Label>Seniority thresholds</Label>
+                  <p className="text-[11px] text-muted-foreground">
+                    Completed shifts in a department before a member counts as
+                    experienced, then senior. A manager can pin an individual&apos;s
+                    level on the Members page when the count is wrong — a new hire
+                    who is experienced elsewhere, for instance.
+                  </p>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <Label
+                        htmlFor="experiencedShiftThreshold"
+                        className="text-xs font-semibold text-muted-foreground"
+                      >
+                        Experienced at
+                      </Label>
+                      <Input
+                        id="experiencedShiftThreshold"
+                        type="number"
+                        min={1}
+                        max={500}
+                        value={experiencedThreshold}
+                        onChange={(e) => setExperiencedThreshold(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label
+                        htmlFor="seniorShiftThreshold"
+                        className="text-xs font-semibold text-muted-foreground"
+                      >
+                        Senior at
+                      </Label>
+                      <Input
+                        id="seniorShiftThreshold"
+                        type="number"
+                        min={1}
+                        max={500}
+                        value={seniorThreshold}
+                        onChange={(e) => setSeniorThreshold(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                  {/*
+                    Checked here as well as in the service. The server refusal is
+                    the one that counts, but an admin should not have to submit
+                    to learn that an inverted pair collapses the scale to two
+                    levels.
+                  */}
+                  {Number(seniorThreshold) <= Number(experiencedThreshold) && (
+                    <p className="text-[11px] text-red-600 dark:text-red-400">
+                      Senior must be higher than experienced, or the senior level
+                      can never be reached.
+                    </p>
+                  )}
                 </div>
               </CardContent>
               <CardFooter>

@@ -28,6 +28,8 @@ export class TaskRepository {
     isRecurring?: boolean;
     recurringPattern?: string;
     parentTaskId?: string;
+    /** Serialised JSON; null or absent both mean no constraints. */
+    compositionRules?: string | null;
     createdById: string;
   }) {
     return prisma.task.create({
@@ -44,6 +46,7 @@ export class TaskRepository {
         isRecurring: data.isRecurring ?? false,
         recurringPattern: data.recurringPattern,
         parentTaskId: data.parentTaskId,
+        compositionRules: data.compositionRules ?? null,
         createdById: data.createdById,
       },
       include: {
@@ -197,6 +200,10 @@ export class TaskRepository {
       status?: string;
       scheduledStart?: Date | null;
       scheduledEnd?: Date | null;
+      // `undefined` leaves the rules alone, `null` clears them. Prisma ignores
+      // undefined, which is exactly the distinction the API needs: omitting
+      // the key on a partial update must not wipe a task's constraints.
+      compositionRules?: string | null;
     }
   ) {
     return prisma.task.update({

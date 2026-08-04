@@ -152,6 +152,71 @@ export class MembershipRepository {
     });
   }
 
+  /**
+   * Pins a member's seniority, or clears the pin so it derives again.
+   *
+   * `null` is a real instruction here, not an absent argument — it means "stop
+   * overriding and go back to counting completed shifts". Prisma ignores
+   * `undefined`, so a caller passing that would silently leave the old pin in
+   * place and report success.
+   */
+  async updateSeniorityOverride(membershipId: string, level: string | null) {
+    return prisma.membership.update({
+      where: { id: membershipId },
+      data: { seniorityOverride: level },
+    });
+  }
+
+  /**
+   * Names and employment types for a set of memberships.
+   *
+   * Falls back to the email when a user has no name — the same rule the
+   * reporting queries use, so a person appears under one label everywhere
+   * rather than as "Unknown" in one panel and their email in another.
+   */
+  async findManyWithNames(
+    ids: string[]
+  ): Promise<{ id: string; name: string; employmentType: string | null }[]> {
+    if (ids.length === 0) return [];
+
+    const rows = await prisma.membership.findMany({
+      where: { id: { in: ids } },
+      select: {
+        id: true,
+        employmentType: true,
+        user: { select: { name: true, email: true } },
+      },
+    });
+
+    return rows.map((r) => ({
+      id: r.id,
+      name: r.user.name ?? r.user.email,
+      employmentType: r.employmentType,
+    }));
+  }
+
+  /**
+   * Seniority pins for a set of memberships, keyed by id.
+   *
+   * The eligibility and composition paths need this for every candidate at
+   * once and nothing else about them, so it stays a narrow select rather than
+   * reusing `findByOrgId` and discarding the users, departments and roles.
+   */
+  async getSeniorityOverrides(
+    membershipIds: string[]
+  ): Promise<Record<string, string | null>> {
+    if (membershipIds.length === 0) return {};
+
+    const rows = await prisma.membership.findMany({
+      where: { id: { in: membershipIds } },
+      select: { id: true, seniorityOverride: true },
+    });
+
+    const map: Record<string, string | null> = {};
+    for (const row of rows) map[row.id] = row.seniorityOverride;
+    return map;
+  }
+
   /** Updates a member's employment type (full_time / casual) */
   async updateEmploymentType(membershipId: string, employmentType: string) {
     return prisma.membership.update({

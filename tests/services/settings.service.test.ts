@@ -10,6 +10,7 @@
  * - Operating hours validation (merged-state, zero-safe, boundaries)
  * - Partial update safety (unchanged fields persist)
  * - Notification preferences serialization
+ * - Seniority thresholds, including the merged-state cross-field rule
  */
 import { describe, it, expect, beforeEach } from "vitest";
 import { SettingsService } from "@/services/settings.service";
@@ -300,6 +301,75 @@ describe("SettingsService", () => {
         expect(updated.operatingHoursStart).toBe(7);
         expect(updated.operatingHoursEnd).toBe(23);
       });
+
+  describe("seniority thresholds", () => {
+    it("starts at the schema defaults", async () => {
+      const settings = await settingsService.getSettings(orgId);
+      expect(settings.experiencedShiftThreshold).toBe(10);
+      expect(settings.seniorShiftThreshold).toBe(40);
+    });
+
+    it("saves a valid pair", async () => {
+      const updated = await settingsService.updateSettings(orgId, {
+        experiencedShiftThreshold: 5,
+        seniorShiftThreshold: 25,
+      });
+      expect(updated.experiencedShiftThreshold).toBe(5);
+      expect(updated.seniorShiftThreshold).toBe(25);
+    });
+
+    // An inverted or equal pair makes "senior" either unreachable or
+    // indistinguishable from "experienced", so the scale quietly collapses to
+    // two levels and every composition rule mentioning senior stops meaning
+    // what it says.
+    it("refuses an inverted pair", async () => {
+      await expect(
+        settingsService.updateSettings(orgId, {
+          experiencedShiftThreshold: 40,
+          seniorShiftThreshold: 10,
+        })
+      ).rejects.toThrow("Senior threshold must be higher");
+    });
+
+    it("refuses an equal pair", async () => {
+      await expect(
+        settingsService.updateSettings(orgId, {
+          experiencedShiftThreshold: 10,
+          seniorShiftThreshold: 10,
+        })
+      ).rejects.toThrow("Senior threshold must be higher");
+    });
+
+    // The likely way to get here: raise only the experienced threshold past a
+    // senior one that was never resent. Checked against the merged values, so
+    // a partial update cannot slip an invalid pair through.
+    it("checks the merged pair, not only the submitted fields", async () => {
+      await settingsService.updateSettings(orgId, {
+        experiencedShiftThreshold: 10,
+        seniorShiftThreshold: 20,
+      });
+
+      await expect(
+        settingsService.updateSettings(orgId, { experiencedShiftThreshold: 30 })
+      ).rejects.toThrow("Senior threshold must be higher");
+    });
+
+    it("leaves the stored pair untouched when a change is refused", async () => {
+      await settingsService
+        .updateSettings(orgId, { experiencedShiftThreshold: 99 })
+        .catch(() => undefined);
+
+      const settings = await settingsService.getSettings(orgId);
+      expect(settings.experiencedShiftThreshold).toBe(10);
+    });
+
+    it("does not block an unrelated update", async () => {
+      const updated = await settingsService.updateSettings(orgId, {
+        allocationMode: "auto",
+      });
+      expect(updated.allocationMode).toBe("auto");
+    });
+  });
 
       it("empty update object does not change any values", async () => {
         const before = await settingsService.getSettings(orgId);

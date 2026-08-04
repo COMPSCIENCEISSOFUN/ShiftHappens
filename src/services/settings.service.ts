@@ -67,12 +67,14 @@ export class SettingsService {
     // now purely "make sure the row exists before we update it" — the repository
     // update would otherwise fail for an organisation that has never opened its
     // settings page.
-    await this.settingsRepo.getOrCreate(organizationId);
+    const existing = await this.settingsRepo.getOrCreate(organizationId);
 
     // Build update data, serializing nested objects to JSON
     const updateData: {
       allocationMode?: string;
       taskAcceptanceMode?: string;
+      experiencedShiftThreshold?: number;
+      seniorShiftThreshold?: number;
       breakRuleHoursWorked?: number;
       breakRuleBreakHours?: number;
       operatingHoursStart?: number;
@@ -86,8 +88,31 @@ export class SettingsService {
     if (input.breakRuleBreakHours !== undefined) updateData.breakRuleBreakHours = input.breakRuleBreakHours;
     if (input.operatingHoursStart !== undefined) updateData.operatingHoursStart = input.operatingHoursStart;
     if (input.operatingHoursEnd !== undefined) updateData.operatingHoursEnd = input.operatingHoursEnd;
+    if (input.experiencedShiftThreshold !== undefined) {
+      updateData.experiencedShiftThreshold = input.experiencedShiftThreshold;
+    }
+    if (input.seniorShiftThreshold !== undefined) {
+      updateData.seniorShiftThreshold = input.seniorShiftThreshold;
+    }
     if (input.notificationPreferences !== undefined) {
       updateData.notificationPreferences = JSON.stringify(input.notificationPreferences);
+    }
+
+    // The seniority thresholds are the one pair here with a cross-field rule.
+    // Unlike operating hours — where every in-range pair names a real window —
+    // an inverted or equal pair makes "senior" either unreachable or the same
+    // thing as "experienced", so the scale silently collapses to two levels.
+    // Checked against the merged values, not just the submitted ones: raising
+    // only the experienced threshold past the senior one is the likely way to
+    // get here, and the request would otherwise pass because the second field
+    // was never touched.
+    const nextExperienced =
+      updateData.experiencedShiftThreshold ?? existing.experiencedShiftThreshold;
+    const nextSenior = updateData.seniorShiftThreshold ?? existing.seniorShiftThreshold;
+    if (nextSenior <= nextExperienced) {
+      throw new Error(
+        "Senior threshold must be higher than the experienced threshold"
+      );
     }
 
     // No cross-field check on operating hours — see the note at the top of this
