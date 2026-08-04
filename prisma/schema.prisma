@@ -71,6 +71,17 @@ model Membership {
   updatedAt         DateTime @updatedAt
   customRoleId      String?
   employmentType    String?  // "casual" | "full_time"
+  // A manager pinning this member's seniority: "junior" | "experienced" |
+  // "senior". NULL is the normal state and means "derive it from completed
+  // shifts" — see src/lib/seniority.ts.
+  //
+  // The column exists because derivation has one failure mode it cannot fix on
+  // its own: an experienced hire from another company has worked no shifts
+  // here, so every count says junior on their first day, and a composition
+  // rule would keep them off the shifts that would prove otherwise. NULL and
+  // "junior" must therefore stay distinguishable — a default of "junior" would
+  // silently convert every unreviewed member into a deliberate judgement.
+  seniorityOverride String?
 
   user                  User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   organization          Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -234,6 +245,13 @@ model CompanySettings {
   operatingHoursEnd       Int      @default(22)
   smartAllocationWeights  String?
   notificationPreferences String?
+  // Completed-shift counts at which a member is treated as experienced, then
+  // senior. Configurable because the honest answer is industry-specific: ten
+  // shifts is a competent barista and a novice nurse. Enforced senior >
+  // experienced at validation, since an inverted pair makes "senior" either
+  // unreachable or indistinguishable from "experienced".
+  experiencedShiftThreshold Int    @default(10)
+  seniorShiftThreshold      Int    @default(40)
   createdAt               DateTime @default(now())
   updatedAt               DateTime @updatedAt
 
@@ -250,6 +268,15 @@ model Task {
   // Names of certifications a staff member must hold (verified + non-expired)
   // to be eligible for this task. Empty = no certification requirement.
   requiredCertifications String[] @default([])
+  // Constraints on the SET of people assigned rather than on each candidate:
+  // "at most 1 assignee at Junior or below", "at least 1 holding First Aid".
+  // JSON, following recurringPattern — see src/lib/composition-rules.ts for
+  // the shape, the Zod schema and the feasibility rule.
+  //
+  // NULL and "[]" both mean no constraints and are not distinguished; nothing
+  // reads the difference, unlike the provenance columns where absence is
+  // itself a fact.
+  compositionRules  String?
   status            String    @default("open")
   priority          String    @default("medium")
   scheduledStart    DateTime?
@@ -314,6 +341,35 @@ model TaskAssignment {
   allocationProvider String?
   allocationScore    Float?
   allocationRank     Int?
+
+  // --- Response timing --------------------------------------------------
+  // When the staff member answered. `updatedAt` cannot serve: every later
+  // transition — clock in, clock out, completion — overwrites it, so by the
+  // time a shift is worked the record of when it was accepted is gone. That
+  // made every question of the form "are people responding faster or slower
+  // than last month?" unanswerable.
+  //
+  // acceptedAt and rejectedAt are mutually exclusive. Both NULL on a row whose
+  // status is "accepted" means nobody responded: either the organisation runs
+  // auto-accept, or the row predates these columns. Reporting shows that as
+  // its own bucket rather than folding it into the average, which would
+  // otherwise fill with zero-second responses nobody actually made.
+  acceptedAt            DateTime?
+  rejectedAt            DateTime?
+  // Notice given before dropping out of an accepted shift. Separate from the
+  // two above because it answers a different question — not "how quickly do
+  // they reply" but "how much warning do we get", which is the counterpart to
+  // the insufficient_notice decline reason staff already select.
+  withdrawalRequestedAt DateTime?
+
+  // --- Satisfaction -----------------------------------------------------
+  // The staff member's own rating of a worked shift, 1–5, with optional free
+  // text. Joins against the allocation columns above to answer the question
+  // the provenance work was really for: were the engine's high-scoring picks
+  // rated any better than the rest?
+  satisfactionRating  Int?
+  satisfactionComment String?
+  ratedAt             DateTime?
 
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt

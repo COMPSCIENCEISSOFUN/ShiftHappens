@@ -92,6 +92,11 @@ export const ROUTES: RouteSpec[] = [
   org("members", "GET", MEMBER),
   org("members/[userId]", "PATCH", ADMIN, { suspension: true, extraParams: ["userId"] }),
   org("members/[userId]/toggle-status", "POST", ADMIN, { suspension: true, extraParams: ["userId"] }),
+  // MANAGER where its siblings are ADMIN, deliberately. Seniority is a
+  // rostering judgement rather than an administrative one, and a manager
+  // blocked by a composition rule they cannot resolve will delete the rule.
+  org("members/seniority", "GET", MANAGER),
+  org("members/[userId]/seniority", "PATCH", MANAGER, { suspension: true, extraParams: ["userId"] }),
   org("members/import", "POST", ADMIN, { suspension: true }),
 
   // ── Departments ─────────────────────────────────────────────────────
@@ -169,7 +174,7 @@ export const ROUTES: RouteSpec[] = [
   // This group takes orgId from the QUERY STRING, not the path. Without it they
   // return 400 "orgId required" before the membership check — so a sweep that
   // omitted it would misread seven routes as passing.
-  ...(["accept", "clock-in", "complete", "reject", "withdraw"] as const).map(
+  ...(["accept", "clock-in", "complete", "rate", "reject", "withdraw"] as const).map(
     (action): RouteSpec => ({
       path: `assignments/[assignmentId]/${action}`,
       method: "POST",

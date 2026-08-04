@@ -9,6 +9,8 @@
  */
 import { z } from "zod";
 import { DECLINE_REASONS } from "@/lib/decline-reasons";
+import { compositionRulesSchema } from "@/lib/composition-rules";
+import { SENIORITY_LEVELS } from "@/lib/seniority";
 
 /**
  * Reusable password schema enforcing strong password policy:
@@ -209,6 +211,13 @@ export const updateCompanySettingsSchema = z.object({
   breakRuleBreakHours: z.number().int().min(1).max(24).optional(),
   operatingHoursStart: z.number().int().min(0).max(23).optional(),
   operatingHoursEnd: z.number().int().min(1).max(24).optional(),
+  // Completed-shift counts at which a member becomes experienced, then senior.
+  // Each is bounded here; the rule that senior must exceed experienced lives in
+  // the service, because it has to be checked against the MERGED values — a
+  // request raising only one of the two would otherwise pass with the other
+  // left where it was.
+  experiencedShiftThreshold: z.number().int().min(1).max(500).optional(),
+  seniorShiftThreshold: z.number().int().min(1).max(500).optional(),
   notificationPreferences: z.object({
     emailNotifications: z.boolean().optional(),
     taskAssignment: z.boolean().optional(),
@@ -234,6 +243,10 @@ export const createTaskSchema = z.object({
   scheduledEnd: z.string().datetime().optional(),
   isRecurring: z.boolean().optional(),
   recurringPattern: z.string().max(200).optional(),
+  // Constraints on the SET of assignees rather than on each of them. The
+  // schema lives in lib/composition-rules.ts beside the evaluator, so the
+  // shape the API accepts and the shape the engine reads cannot drift.
+  compositionRules: compositionRulesSchema.optional(),
 });
 
 /** Validates task updates — all fields optional for partial updates */
@@ -250,6 +263,9 @@ export const updateTaskSchema = z.object({
   status: z.enum(["open", "in_progress", "completed", "cancelled"]).optional(),
   scheduledStart: z.string().datetime().optional().or(z.literal("")),
   scheduledEnd: z.string().datetime().optional().or(z.literal("")),
+  // An empty array is meaningful and distinct from omission: it clears every
+  // rule. Omitting the key leaves them untouched.
+  compositionRules: compositionRulesSchema.optional(),
 });
 
 /** Validates staff assignment to a task */
@@ -287,6 +303,31 @@ export const rejectTaskSchema = z.object({
 export const withdrawTaskSchema = z.object({
   reason: z.enum(DECLINE_REASONS),
   notes: z.string().max(500).optional(),
+});
+
+/**
+ * Validates a staff member's rating of a shift they worked.
+ *
+ * The 1–5 bound is stated in three places — here, in the service, and as a
+ * CHECK constraint in the database. That is deliberate rather than redundant:
+ * this one produces a useful 400, the service one holds for any future caller
+ * that bypasses the route, and the database one survives both.
+ */
+export const rateShiftSchema = z.object({
+  rating: z.number().int().min(1).max(5),
+  comment: z.string().max(500).optional(),
+});
+
+/**
+ * Validates a manager pinning a member's seniority.
+ *
+ * Nullable, not merely optional. Null is the instruction "stop overriding and
+ * go back to deriving from completed shifts", which is a different request
+ * from omitting the field, and without it a pinned level could never be
+ * released.
+ */
+export const seniorityOverrideSchema = z.object({
+  seniorityOverride: z.enum(SENIORITY_LEVELS).nullable(),
 });
 
 /** Validates a manager's decision on a pending withdrawal request */
@@ -381,6 +422,11 @@ export const createEligibilityOverrideSchema = z.object({
     "scheduling",
     "work_rules",
     "certification",
+    // Not a per-candidate dimension like the five above — it waives a rule
+    // about the SHAPE of the roster. Recorded against a membership all the
+    // same, because the override is a decision to let THIS person on despite
+    // it, and "who was waved through" is the question the audit answers.
+    "composition",
     "all",
   ]),
 });
