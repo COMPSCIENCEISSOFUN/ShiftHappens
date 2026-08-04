@@ -43,7 +43,7 @@ export class TaskAssignmentService {
       throw new Error("Can only accept pending assignments");
     }
 
-    const result = await this.assignmentRepo.updateStatus(assignmentId, "accepted");
+    const result = await this.assignmentRepo.accept(assignmentId);
 
     await this.auditService.log({
       organizationId: assignment.task.organizationId,
@@ -224,6 +224,95 @@ export class TaskAssignmentService {
       "task",
       assignment.task.id
     );
+
+    return result;
+  }
+
+  /**
+   * The staff member's own rating of a shift they worked, 1–5.
+   *
+   * ## Why the staff member and not the manager
+   *
+   * The system already collects why people say no — decline and withdrawal
+   * reasons. It collects nothing about the shifts they say yes to and then
+   * work, so a department that everyone quietly dreads looks identical to one
+   * everyone likes. This is the missing half of that record.
+   *
+   * It is also the only feedback that can be joined against the allocation
+   * columns to ask whether the engine's high-scoring picks were actually
+   * better shifts for the people placed on them, rather than merely accepted.
+   *
+   * ## Which shifts can be rated
+   *
+   * Clocked out or completed — the work is done in both cases. Requiring
+   * "completed" alone would leave anyone who forgets the final confirmation
+   * unable to rate a shift they genuinely worked, and that silence would be
+   * read as indifference rather than a missed button.
+   *
+   * ## Why re-rating is allowed
+   *
+   * A rating given on a phone at the end of a shift is easy to mis-tap, and a
+   * permanent wrong score is worse for the data than a corrected one. The
+   * audit log keeps every submission, so the history is not lost.
+   */
+  async rate(
+    assignmentId: string,
+    membershipId: string,
+    rating: number,
+    comment?: string
+  ) {
+    const assignment = await this.assignmentRepo.findById(assignmentId);
+    if (!assignment) throw new Error("Assignment not found");
+
+    if (assignment.membershipId !== membershipId) {
+      throw new Error("Not authorized to manage this assignment");
+    }
+
+    if (!["clocked_out", "completed"].includes(assignment.status)) {
+      throw new Error("Can only rate a shift you have worked");
+    }
+
+    // Validated at the boundary and constrained in the database too. Repeated
+    // here because this is the layer that owns the rule, and a future caller
+    // reaching the service directly must not be able to store a 0 or a 9.
+    if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+      throw new Error("Rating must be a whole number from 1 to 5");
+    }
+
+    const trimmed = comment?.trim();
+    const result = await this.assignmentRepo.rate(
+      assignmentId,
+      rating,
+      trimmed ? trimmed : undefined
+    );
+
+    await this.auditService.log({
+      organizationId: assignment.task.organizationId,
+      userId: assignment.membership.userId,
+      action: ACTIONS.ASSIGNMENT_RATED,
+      entityType: "assignment",
+      entityId: assignmentId,
+      details: { rating, comment: trimmed, taskTitle: assignment.task.title },
+    });
+
+    // Only low scores notify. A manager who is pinged for every rating stops
+    // reading them, and a 4 needs no response — the aggregate panel is where
+    // ordinary scores belong. A 1 or a 2 is someone saying something went
+    // wrong on a shift they worked, which is worth interrupting for.
+    if (rating <= 2) {
+      const staffName = assignment.membership.user?.name || "A staff member";
+      void this.notificationService.notify(
+        assignment.task.organizationId,
+        assignment.assignedById,
+        NOTIFICATION_TYPES.SHIFT_RATED_LOW,
+        "Shift rated poorly",
+        `${staffName} rated "${assignment.task.title}" ${rating} out of 5${
+          trimmed ? ` — ${trimmed}` : ""
+        }`,
+        "task",
+        assignment.task.id
+      );
+    }
 
     return result;
   }

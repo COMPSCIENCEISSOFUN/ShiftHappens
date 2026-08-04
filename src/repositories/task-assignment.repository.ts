@@ -119,6 +119,21 @@ export class TaskAssignmentRepository {
     });
   }
 
+  /**
+   * A staff member accepting an offered assignment.
+   *
+   * Separate from `updateStatus("accepted")` because `acceptedAt` must record
+   * the staff member's answer and nothing else. `denyWithdrawal` also returns
+   * a row to "accepted", and stamping it there would rewrite the original
+   * response time every time a manager refused someone's request to drop out.
+   */
+  async accept(id: string) {
+    return prisma.taskAssignment.update({
+      where: { id },
+      data: { status: "accepted", acceptedAt: new Date() },
+    });
+  }
+
   /** Rejects an assignment with a required reason */
   async reject(id: string, reason: string, notes?: string) {
     return prisma.taskAssignment.update({
@@ -127,6 +142,7 @@ export class TaskAssignmentRepository {
         status: "rejected",
         rejectionReason: reason,
         rejectionNotes: notes,
+        rejectedAt: new Date(),
       },
     });
   }
@@ -172,6 +188,10 @@ export class TaskAssignmentRepository {
         // null, not undefined: Prisma ignores undefined, so a second request
         // without notes would silently keep the notes from the first one.
         withdrawalNotes: notes ?? null,
+        // How much warning the shift got. The counterpart to the
+        // insufficient_notice reason staff themselves select — this is the
+        // same measure taken from the other side.
+        withdrawalRequestedAt: new Date(),
       },
     });
   }
@@ -184,6 +204,28 @@ export class TaskAssignmentRepository {
         status: "accepted",
         withdrawalReason: null,
         withdrawalNotes: null,
+        // Cleared with the reason it belongs to. Leaving it set would report
+        // a withdrawal that was refused as one that happened, and the member
+        // is back on the shift.
+        withdrawalRequestedAt: null,
+      },
+    });
+  }
+
+  /**
+   * A staff member's own rating of a shift they worked.
+   *
+   * `comment ?? null` rather than `undefined` — re-rating without a comment
+   * must clear the previous one, or the new score is shown next to reasoning
+   * for the old one.
+   */
+  async rate(id: string, rating: number, comment?: string) {
+    return prisma.taskAssignment.update({
+      where: { id },
+      data: {
+        satisfactionRating: rating,
+        satisfactionComment: comment ?? null,
+        ratedAt: new Date(),
       },
     });
   }

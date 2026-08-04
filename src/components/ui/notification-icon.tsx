@@ -46,6 +46,7 @@ import {
   LogOut,
   ShieldAlert,
   ShieldCheck,
+  Star,
   TriangleAlert,
   Undo2,
   UserCheck,
@@ -102,6 +103,10 @@ const NOTIFICATION_ICON: Record<string, NotificationIcon> = {
   cert_expiring: { Icon: ShieldAlert, ...AMBER },
   hour_limit_warning: { Icon: Clock, ...AMBER },
   staff_ineligible: { Icon: TriangleAlert, ...AMBER },
+  // A star rather than a warning triangle. The event is a staff member telling
+  // a manager a shift went badly, not the system detecting a fault, and the
+  // manager's response is a conversation rather than a fix.
+  shift_rated_low: { Icon: Star, ...AMBER },
   org_suspended: { Icon: Lock, ...RED },
 };
 

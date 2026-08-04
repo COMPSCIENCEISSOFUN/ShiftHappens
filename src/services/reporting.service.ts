@@ -29,6 +29,50 @@ import {
  * boundary re-resolved rather than offset arithmetic.
  */
 const DAY_MS = 24 * 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
+
+/**
+ * Responses needed before a group's average is reported at all.
+ *
+ * Five is not a statistical threshold — it is a guard against a specific
+ * failure. A department with two ratings can top or bottom a ranked list on
+ * one bad night, and a manager acts on that list. Suppressing the group is
+ * honest; showing "2.0" beside "(2 responses)" and hoping the reader weighs it
+ * is not, because ranked lists are read by position.
+ */
+const MIN_GROUP_RESPONSES = 5;
+
+/** Comments render in a dashboard panel, not a report. */
+const MAX_RECENT_COMMENTS = 5;
+
+function mean(values: number[]): number | null {
+  if (values.length === 0) return null;
+  return values.reduce((sum, v) => sum + v, 0) / values.length;
+}
+
+/**
+ * Middle value; the average of the two middle values for an even count.
+ *
+ * Sorts a copy — the callers build these arrays for the median and then use
+ * them again for the "within four hours" count, and sorting in place would
+ * work today and break silently the first time a caller cared about order.
+ */
+function median(values: number[]): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+}
+
+function round1(value: number): number {
+  return Math.round(value * 10) / 10;
+}
+
+/** Keeps "no data" as null all the way to the UI rather than becoming a 0. */
+function roundOrNull(value: number | null): number | null {
+  return value === null ? null : round1(value);
+}
+
 import type {
   StaffAssignmentRecord,
   StaffAvailabilityRecord,
@@ -245,6 +289,63 @@ export interface EligibilityEngineStats {
   totalAssignments: number;
   ruleCounts: Record<string, number>;
   overrideRate: number | null;
+}
+
+/**
+ * Shape behind the staff response panel.
+ *
+ * The three populations are kept apart deliberately, because a single average
+ * over all of them is the wrong number in a specific and flattering direction:
+ *
+ *   - `answered` — a person accepted or declined, and the clock was running.
+ *   - `awaiting` — still pending. Their eventual response time is unknown and
+ *     is at least as long as they have already waited, so including them at
+ *     their current age would understate and excluding them silently would
+ *     hide a backlog.
+ *   - `unanswered` — nobody ever responded: the organisation runs auto-accept,
+ *     or the row predates the timestamps. Folded into the average these become
+ *     response times of zero that no human achieved.
+ */
+export interface ResponseStats {
+  windowDays: number;
+  totalOffered: number;
+  answered: number;
+  awaiting: number;
+  unanswered: number;
+  accepted: number;
+  declined: number;
+  /** Of those answered. Null when nobody answered. */
+  acceptanceRate: number | null;
+  /** Hours, to one decimal. Median resists a single week-long outlier. */
+  medianResponseHours: number | null;
+  /** Answered within four hours — the "same shift" bar. */
+  withinFourHours: number;
+  /** Withdrawal notice, in hours before the shift was due to start. */
+  withdrawals: { count: number; medianNoticeHours: number | null; underOneDay: number };
+}
+
+/** Shape behind the satisfaction panel. */
+export interface SatisfactionStats {
+  windowDays: number;
+  responses: number;
+  /** Worked shifts that could have been rated, rated or not. */
+  rateable: number;
+  average: number | null;
+  /** Rating (1–5) → count. Every key present, so a gap is visibly a gap. */
+  distribution: Record<number, number>;
+  /** Departments with at least MIN_GROUP_RESPONSES, worst average first. */
+  byDepartment: { departmentId: string | null; name: string; average: number; responses: number }[];
+  /**
+   * The question the provenance columns were recorded for. Null on either side
+   * until enough of that kind of assignment has been rated to mean anything.
+   */
+  engineComparison: {
+    topPickAverage: number | null;
+    topPickResponses: number;
+    otherAverage: number | null;
+    otherResponses: number;
+  };
+  recentComments: { rating: number; comment: string; taskTitle: string; ratedAt: Date }[];
 }
 
 export class ReportingService {
@@ -1399,6 +1500,182 @@ export class ReportingService {
         totalAssignments > 0
           ? Math.round((totalOverrides / totalAssignments) * 100)
           : null,
+    };
+  }
+
+  /**
+   * How quickly staff answer, and how much notice they give when dropping out.
+   *
+   * ## Why this could not be asked before
+   *
+   * Every status change overwrote `updatedAt`, so by the time a shift was
+   * worked there was no record of when it had been accepted. Nothing in the
+   * product could answer "are responses getting faster or slower?" — not
+   * because the query was hard, but because the fact had been overwritten.
+   *
+   * ## Why the median rather than the mean
+   *
+   * One person who accepted after a fortnight's leave moves a mean of twenty
+   * responses by most of a day. The median is what a manager actually wants:
+   * the experience of a typical assignment.
+   */
+  async getResponseStats(
+    organizationId: string,
+    windowDays = 30,
+    departmentIds?: string[] | null
+  ): Promise<ResponseStats> {
+    const since = new Date(
+      startOfDayInTimeZone(new Date()).getTime() - windowDays * DAY_MS
+    );
+
+    const [rows, withdrawals] = await Promise.all([
+      this.reportingRepo.getResponseTimings(organizationId, since, departmentIds),
+      this.reportingRepo.getWithdrawalNotice(organizationId, since, departmentIds),
+    ]);
+
+    const durations: number[] = [];
+    let accepted = 0;
+    let declined = 0;
+    let awaiting = 0;
+    let unanswered = 0;
+
+    for (const row of rows) {
+      const answeredAt = row.acceptedAt ?? row.rejectedAt;
+
+      if (!answeredAt) {
+        // Pending means the clock is still running; anything else with no
+        // timestamp was never answered by a person at all.
+        if (row.status === "pending") awaiting += 1;
+        else unanswered += 1;
+        continue;
+      }
+
+      if (row.acceptedAt) accepted += 1;
+      else declined += 1;
+
+      // Clamp at zero. A clock skew between the app server and the database
+      // can put an acceptance a few milliseconds before its own assignment,
+      // and a negative response time would drag the median below what anyone
+      // could achieve.
+      durations.push(Math.max(0, answeredAt.getTime() - row.createdAt.getTime()));
+    }
+
+    const answered = accepted + declined;
+    const noticeHours = withdrawals.map((w) =>
+      Math.max(0, (w.scheduledStart.getTime() - w.requestedAt.getTime()) / HOUR_MS)
+    );
+
+    return {
+      windowDays,
+      totalOffered: rows.length,
+      answered,
+      awaiting,
+      unanswered,
+      accepted,
+      declined,
+      acceptanceRate: answered > 0 ? Math.round((accepted / answered) * 100) : null,
+      medianResponseHours: roundOrNull(median(durations.map((ms) => ms / HOUR_MS))),
+      withinFourHours: durations.filter((ms) => ms <= 4 * HOUR_MS).length,
+      withdrawals: {
+        count: withdrawals.length,
+        medianNoticeHours: roundOrNull(median(noticeHours)),
+        underOneDay: noticeHours.filter((h) => h < 24).length,
+      },
+    };
+  }
+
+  /**
+   * What staff thought of the shifts they worked.
+   *
+   * ## Why the response count is as prominent as the average
+   *
+   * A 4.8 from three people is not a finding. Every figure here is reported
+   * beside the number behind it, and a department is only broken out once it
+   * clears `MIN_GROUP_RESPONSES` — otherwise a single bad night puts a whole
+   * department bottom of a list a manager will act on.
+   *
+   * ## The engine comparison
+   *
+   * This is the join the allocation provenance work was for. "The engine's top
+   * pick was accepted" and "the engine's top pick was a shift the person was
+   * glad to work" are different claims, and the second is the one worth
+   * making. Both sides stay null until each has enough responses, because the
+   * failure mode of this comparison is a confident conclusion from four data
+   * points.
+   */
+  async getSatisfactionStats(
+    organizationId: string,
+    windowDays = 30,
+    departmentIds?: string[] | null
+  ): Promise<SatisfactionStats> {
+    const since = new Date(
+      startOfDayInTimeZone(new Date()).getTime() - windowDays * DAY_MS
+    );
+
+    const [ratings, rateable] = await Promise.all([
+      this.reportingRepo.getShiftRatings(organizationId, since, departmentIds),
+      this.reportingRepo.countRateableShifts(organizationId, since, departmentIds),
+    ]);
+
+    const distribution: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+    for (const r of ratings) {
+      distribution[r.rating] = (distribution[r.rating] ?? 0) + 1;
+    }
+
+    const byDeptMap = new Map<string, { name: string; departmentId: string | null; values: number[] }>();
+    for (const r of ratings) {
+      const key = r.departmentId ?? "__none__";
+      const entry = byDeptMap.get(key) ?? {
+        name: r.departmentName ?? "No department",
+        departmentId: r.departmentId,
+        values: [],
+      };
+      entry.values.push(r.rating);
+      byDeptMap.set(key, entry);
+    }
+
+    const byDepartment = [...byDeptMap.values()]
+      .filter((e) => e.values.length >= MIN_GROUP_RESPONSES)
+      .map((e) => ({
+        departmentId: e.departmentId,
+        name: e.name,
+        average: round1(mean(e.values)!),
+        responses: e.values.length,
+      }))
+      .sort((a, b) => a.average - b.average);
+
+    const topPickValues = ratings.filter((r) => r.allocationRank === 1).map((r) => r.rating);
+    const otherValues = ratings
+      .filter((r) => r.allocationRank !== null && r.allocationRank > 1)
+      .map((r) => r.rating);
+
+    return {
+      windowDays,
+      responses: ratings.length,
+      rateable,
+      average: roundOrNull(mean(ratings.map((r) => r.rating))),
+      distribution,
+      byDepartment,
+      engineComparison: {
+        topPickAverage:
+          topPickValues.length >= MIN_GROUP_RESPONSES ? round1(mean(topPickValues)!) : null,
+        topPickResponses: topPickValues.length,
+        otherAverage:
+          otherValues.length >= MIN_GROUP_RESPONSES ? round1(mean(otherValues)!) : null,
+        otherResponses: otherValues.length,
+      },
+      // Comments carry staff names implicitly through the task they worked, so
+      // this stays inside the department scope the caller was given like every
+      // other query here. Bounded because it renders in a panel, not a report.
+      recentComments: ratings
+        .filter((r): r is typeof r & { comment: string } => Boolean(r.comment?.trim()))
+        .slice(0, MAX_RECENT_COMMENTS)
+        .map((r) => ({
+          rating: r.rating,
+          comment: r.comment,
+          taskTitle: r.taskTitle,
+          ratedAt: r.ratedAt,
+        })),
     };
   }
 

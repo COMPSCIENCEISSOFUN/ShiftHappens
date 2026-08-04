@@ -53,6 +53,7 @@ import {
   BUTTON_STRETCH_MOBILE,
 } from "@/components/ui/button-styles";
 import { cn } from "@/lib/utils";
+import { ShiftRating } from "@/components/tasks/shift-rating";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -67,6 +68,8 @@ interface Assignment {
   rejectionNotes: string | null;
   withdrawalReason: string | null;
   withdrawalNotes: string | null;
+  satisfactionRating: number | null;
+  satisfactionComment: string | null;
   task: {
     id: string;
     title: string;
@@ -654,6 +657,13 @@ export default function MyTasksPage() {
                       {busy ? "Working…" : "Mark as complete"}
                     </button>
                   </div>
+                  <ShiftRating
+                    assignmentId={a.id}
+                    orgId={orgId}
+                    rating={a.satisfactionRating}
+                    comment={a.satisfactionComment}
+                    onSaved={fetchAssignments}
+                  />
                 </div>
               );
             })}
@@ -681,6 +691,17 @@ export default function MyTasksPage() {
                       You declined — {reasonLabel(a.rejectionReason)}
                       {a.rejectionNotes && `: ${a.rejectionNotes}`}
                     </p>
+                  )}
+                  {/* Only worked shifts can be rated. A declined one was never
+                      experienced, and the decline reason already records why. */}
+                  {a.status === "completed" && (
+                    <ShiftRating
+                      assignmentId={a.id}
+                      orgId={orgId}
+                      rating={a.satisfactionRating}
+                      comment={a.satisfactionComment}
+                      onSaved={fetchAssignments}
+                    />
                   )}
                 </div>
               );

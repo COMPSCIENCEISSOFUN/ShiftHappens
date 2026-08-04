@@ -35,6 +35,7 @@ export const NOTIFICATION_TYPES = {
   WITHDRAWAL_REQUESTED: "withdrawal_requested",
   WITHDRAWAL_APPROVED: "withdrawal_approved",
   WITHDRAWAL_DENIED: "withdrawal_denied",
+  SHIFT_RATED_LOW: "shift_rated_low",
   CERT_VERIFIED: "cert_verified",
   CERT_REJECTED: "cert_rejected",
   CERT_EXPIRING: "cert_expiring",
@@ -69,6 +70,7 @@ export const NOTIFICATION_CATEGORIES = {
   alert: [
     NOTIFICATION_TYPES.HOUR_LIMIT_WARNING,
     NOTIFICATION_TYPES.STAFF_INELIGIBLE,
+    NOTIFICATION_TYPES.SHIFT_RATED_LOW,
     NOTIFICATION_TYPES.ORG_SUSPENDED,
   ],
 } as const;

@@ -1470,4 +1470,216 @@ export class ReportingRepository {
         scheduledEnd: r.task.scheduledEnd!,
       }));
   }
+
+  /**
+   * Every assignment offered in the window, with the timestamps that say
+   * whether and when it was answered.
+   *
+   * Rows are returned raw rather than aggregated in SQL because the service
+   * has to separate three populations that a single AVG would silently merge:
+   * answered, still waiting, and never answered by a person at all (auto-accept
+   * and rows predating these columns). Averaging across all of them would fill
+   * the figure with response times of zero that nobody achieved.
+   */
+  async getResponseTimings(
+    organizationId: string,
+    since: Date,
+    departmentIds?: string[] | null
+  ): Promise<
+    {
+      createdAt: Date;
+      acceptedAt: Date | null;
+      rejectedAt: Date | null;
+      status: string;
+      allocationSource: string | null;
+    }[]
+  > {
+    return prisma.taskAssignment.findMany({
+      where: {
+        task: {
+          organizationId,
+          ...(departmentIds != null ? { departmentId: { in: departmentIds } } : {}),
+        },
+        createdAt: { gte: since },
+      },
+      select: {
+        createdAt: true,
+        acceptedAt: true,
+        rejectedAt: true,
+        status: true,
+        allocationSource: true,
+      },
+    });
+  }
+
+  /**
+   * Notice given on withdrawals: when the member asked out, against when the
+   * shift was due to start.
+   *
+   * Only assignments whose task has a start time can answer the question, so
+   * the filter is in the query rather than discarding rows afterwards.
+   */
+  async getWithdrawalNotice(
+    organizationId: string,
+    since: Date,
+    departmentIds?: string[] | null
+  ): Promise<{ requestedAt: Date; scheduledStart: Date; reason: string | null }[]> {
+    const rows = await prisma.taskAssignment.findMany({
+      where: {
+        withdrawalRequestedAt: { gte: since },
+        task: {
+          organizationId,
+          scheduledStart: { not: null },
+          ...(departmentIds != null ? { departmentId: { in: departmentIds } } : {}),
+        },
+      },
+      select: {
+        withdrawalRequestedAt: true,
+        withdrawalReason: true,
+        task: { select: { scheduledStart: true } },
+      },
+    });
+
+    return rows
+      .filter((r) => r.withdrawalRequestedAt !== null && r.task.scheduledStart !== null)
+      .map((r) => ({
+        requestedAt: r.withdrawalRequestedAt!,
+        scheduledStart: r.task.scheduledStart!,
+        reason: r.withdrawalReason,
+      }));
+  }
+
+  /**
+   * Ratings staff gave shifts they worked, carrying the allocation columns.
+   *
+   * The join is the point of the whole provenance exercise: it is what lets
+   * "the engine's top pick was accepted" be tested against "the engine's top
+   * pick was a shift the person was glad to work", which are not the same
+   * claim and can disagree.
+   */
+  async getShiftRatings(
+    organizationId: string,
+    since: Date,
+    departmentIds?: string[] | null
+  ): Promise<
+    {
+      rating: number;
+      comment: string | null;
+      ratedAt: Date;
+      allocationSource: string | null;
+      allocationRank: number | null;
+      departmentId: string | null;
+      departmentName: string | null;
+      taskTitle: string;
+    }[]
+  > {
+    const rows = await prisma.taskAssignment.findMany({
+      where: {
+        satisfactionRating: { not: null },
+        ratedAt: { gte: since },
+        task: {
+          organizationId,
+          ...(departmentIds != null ? { departmentId: { in: departmentIds } } : {}),
+        },
+      },
+      select: {
+        satisfactionRating: true,
+        satisfactionComment: true,
+        ratedAt: true,
+        allocationSource: true,
+        allocationRank: true,
+        task: {
+          select: {
+            title: true,
+            departmentId: true,
+            department: { select: { name: true } },
+          },
+        },
+      },
+      orderBy: { ratedAt: "desc" },
+    });
+
+    return rows
+      .filter((r) => r.satisfactionRating !== null && r.ratedAt !== null)
+      .map((r) => ({
+        rating: r.satisfactionRating!,
+        comment: r.satisfactionComment,
+        ratedAt: r.ratedAt!,
+        allocationSource: r.allocationSource,
+        allocationRank: r.allocationRank,
+        departmentId: r.task.departmentId,
+        departmentName: r.task.department?.name ?? null,
+        taskTitle: r.task.title,
+      }));
+  }
+
+  /**
+   * Worked shifts in the window that carry no rating — the denominator.
+   *
+   * An average of 4.6 means something different from 8 responses than from
+   * 400, and without this the panel could only ever show the numerator.
+   */
+  async countRateableShifts(
+    organizationId: string,
+    since: Date,
+    departmentIds?: string[] | null
+  ): Promise<number> {
+    return prisma.taskAssignment.count({
+      where: {
+        status: { in: ["clocked_out", "completed"] },
+        task: {
+          organizationId,
+          ...(departmentIds != null ? { departmentId: { in: departmentIds } } : {}),
+        },
+        // Which shifts fall inside the window. A scheduled shift is placed by
+        // when it ended; an unscheduled one has no end date to place it by, so
+        // it falls back to when the assignment was made.
+        //
+        // Without the second branch, every unscheduled shift was excluded from
+        // the denominator while its rating still counted in the numerator —
+        // so an organisation that does not schedule could report more
+        // responses than rateable shifts.
+        OR: [
+          { task: { scheduledEnd: { gte: since } } },
+          { task: { scheduledEnd: null }, createdAt: { gte: since } },
+        ],
+      },
+    });
+  }
+
+  /**
+   * Completed shifts per membership, optionally within one department.
+   *
+   * Backs derived seniority. A groupBy rather than a count per member: the
+   * candidate list evaluates every active member at once, and a query each
+   * would put the eligibility check's cost on the size of the org.
+   */
+  async countCompletedShiftsByMember(
+    organizationId: string,
+    membershipIds: string[],
+    departmentId?: string | null
+  ): Promise<Record<string, number>> {
+    if (membershipIds.length === 0) return {};
+
+    const groups = await prisma.taskAssignment.groupBy({
+      by: ["membershipId"],
+      where: {
+        membershipId: { in: membershipIds },
+        // Only work actually done counts. Accepted-but-not-yet-worked shifts
+        // would let someone become "experienced" by being rostered, which is
+        // the thing the level is supposed to be evidence for.
+        status: { in: ["clocked_out", "completed"] },
+        task: {
+          organizationId,
+          ...(departmentId ? { departmentId } : {}),
+        },
+      },
+      _count: { _all: true },
+    });
+
+    const counts: Record<string, number> = {};
+    for (const id of membershipIds) counts[id] = 0;
+    for (const g of groups) counts[g.membershipId] = g._count._all;
+    return counts;
+  }
 }

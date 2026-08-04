@@ -2,9 +2,10 @@
  * Smart-engine Reports API (Boundary Layer)
  * GET /api/organizations/[orgId]/reports/engine?days=30
  *
- * Backs the allocation and eligibility panels: how assignments were made,
- * which strategy ranked them, whether the engine's top pick held up, and how
- * often managers override the constraint checks.
+ * Backs the allocation, eligibility, response and satisfaction panels: how
+ * assignments were made, which strategy ranked them, whether the engine's top
+ * pick held up, how often managers override the constraint checks, how quickly
+ * staff answer, and what they thought of the shifts they worked.
  *
  * Admin or manager. Managers are department-scoped like every other report —
  * a manager should not learn the whole organisation's allocation mix from a
@@ -48,13 +49,22 @@ export async function GET(
     const scope = departmentScopeFor(membership);
     const days = parseWindow(request.nextUrl.searchParams.get("days"));
 
-    const [allocation, eligibility, coverage] = await Promise.all([
-      reportingService.getAllocationEngineStats(orgId, days, scope),
-      reportingService.getEligibilityEngineStats(orgId, days, scope),
-      reportingService.getCalendarCoverage(orgId, scope),
-    ]);
+    const [allocation, eligibility, coverage, response, satisfaction] =
+      await Promise.all([
+        reportingService.getAllocationEngineStats(orgId, days, scope),
+        reportingService.getEligibilityEngineStats(orgId, days, scope),
+        reportingService.getCalendarCoverage(orgId, scope),
+        reportingService.getResponseStats(orgId, days, scope),
+        reportingService.getSatisfactionStats(orgId, days, scope),
+      ]);
 
-    return NextResponse.json({ allocation, eligibility, coverage });
+    return NextResponse.json({
+      allocation,
+      eligibility,
+      coverage,
+      response,
+      satisfaction,
+    });
   } catch (error) {
     console.error("[Engine Reports Error]", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

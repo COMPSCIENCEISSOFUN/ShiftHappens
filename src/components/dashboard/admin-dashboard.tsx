@@ -44,12 +44,20 @@ import {
   type EligibilityEngineStats,
 } from "@/components/dashboard/engine-panels";
 import type { CoverageCell } from "@/components/charts/chart-primitives";
+import {
+  ResponsePanel,
+  SatisfactionPanel,
+  type ResponseStats,
+  type SatisfactionStats,
+} from "@/components/dashboard/feedback-panels";
 
 /** Payload of GET /api/organizations/[orgId]/reports/engine. */
 interface EngineReport {
   allocation: AllocationEngineStats;
   eligibility: EligibilityEngineStats;
   coverage: CoverageCell[];
+  response: ResponseStats;
+  satisfaction: SatisfactionStats;
 }
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -729,6 +737,21 @@ export default function AdminDashboard({ orgId, orgName, userName }: AdminDashbo
           <div className="grid gap-4 lg:grid-cols-2">
             <AllocationEnginePanel stats={engine.allocation} />
             <EligibilityEnginePanel stats={engine.eligibility} />
+          </div>
+          {/*
+            Response and satisfaction sit beside the engine panels but carry no
+            engine mark, because no engine produced them — they are recorded
+            fact about what people did and said. Badging them to match their
+            neighbours is exactly the dishonesty the marks were introduced to
+            stop.
+
+            Guarded individually: this endpoint gained two fields after the
+            first three shipped, so a cached or older response can arrive
+            without them, and a missing key must not blank the panels above.
+          */}
+          <div className="grid gap-4 lg:grid-cols-2">
+            {engine.response && <ResponsePanel stats={engine.response} />}
+            {engine.satisfaction && <SatisfactionPanel stats={engine.satisfaction} />}
           </div>
           <CoveragePanel cells={engine.coverage} />
         </div>

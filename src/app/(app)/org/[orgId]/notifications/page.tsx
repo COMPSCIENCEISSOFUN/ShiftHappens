@@ -94,6 +94,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   cert_rejected: "Certification",
   hour_limit_warning: "Alert",
   staff_ineligible: "Alert",
+  shift_rated_low: "Alert",
   org_suspended: "Alert",
 };
 
