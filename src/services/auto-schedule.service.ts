@@ -29,6 +29,16 @@ import {
   type ProvisionalAssignments,
   type CommittedAssignmentsCache,
 } from "@/services/eligibility.service";
+import {
+  CompositionService,
+  type CompositionGateData,
+} from "@/services/composition.service";
+import { EligibilityOverrideRepository } from "@/repositories/eligibility-override.repository";
+import {
+  openCompositionGate,
+  parseCompositionRules,
+  type CompositionGate,
+} from "@/lib/composition-rules";
 
 interface StaffInfo {
   membershipId: string;
@@ -58,6 +68,14 @@ interface TaskInfo {
   scheduledEnd: Date;
   /** Hard constraint in the engine, so the prompt has to state it. */
   requiredCertifications: string[];
+  /**
+   * Whether this task carries composition rules at all.
+   *
+   * Read from the row already loaded, so the run can skip the whole composition
+   * mechanism for the tasks — usually most of them — that have no rules, rather
+   * than querying per task to discover there was nothing to enforce.
+   */
+  hasCompositionRules: boolean;
 }
 
 export interface DraftAssignment {
@@ -106,6 +124,8 @@ export class AutoScheduleService {
   private settingsRepo = new SettingsRepository();
   private membershipRepo = new MembershipRepository();
   private eligibilityService = new EligibilityService();
+  private compositionService = new CompositionService();
+  private overrideRepo = new EligibilityOverrideRepository();
   private auditService = new AuditLogService();
   private notificationService = new NotificationService();
 
@@ -136,6 +156,8 @@ export class AutoScheduleService {
         scheduledStart: start,
         scheduledEnd: end,
         requiredCertifications: task.requiredCertifications ?? [],
+        hasCompositionRules:
+          parseCompositionRules(task.compositionRules).length > 0,
       });
     }
 
@@ -204,6 +226,19 @@ export class AutoScheduleService {
      */
     const hoursCache: CommittedAssignmentsCache = new Map();
 
+    /*
+     * Composition data, gathered once for the same reason.
+     *
+     * Both strategies must produce drafts the confirm step will actually write.
+     * Before this, neither considered composition at all: a draft could show
+     * twenty assignments and write seventeen, with the three missing ones
+     * unexplained. The gate now runs during generation, so a person who cannot
+     * be admitted is reported as an unfilled slot with a reason, and the
+     * enforcement at confirm becomes the backstop it should be rather than the
+     * first place anybody hears about it.
+     */
+    const compositionData = await this.collectCompositionData(context);
+
     /** How many slots this week actually needs filling. */
     const demand = context.tasks.reduce(
       (n, t) => n + Math.max(0, t.requiredHeadcount - t.currentAssignments),
@@ -212,7 +247,12 @@ export class AutoScheduleService {
 
     let aiDraft: DraftSchedule | null = null;
     try {
-      aiDraft = await this.generateWithAI(context, organizationId, hoursCache);
+      aiDraft = await this.generateWithAI(
+        context,
+        organizationId,
+        hoursCache,
+        compositionData
+      );
     } catch (error) {
       console.log("[Auto-Schedule] AI failed, using algorithmic fallback:", error);
     }
@@ -250,7 +290,8 @@ export class AutoScheduleService {
     const algorithmic = await this.generateAlgorithmic(
       context,
       organizationId,
-      hoursCache
+      hoursCache,
+      compositionData
     );
 
     // Ties go to the model: it was asked, it answered legally, and its
@@ -342,6 +383,58 @@ export class AutoScheduleService {
     );
   }
 
+  /**
+   * Composition data for every task in the week that has rules, gathered once.
+   *
+   * Built in `generateSchedule` and shared by both draft strategies, for the
+   * same reason `hoursCache` is: they read the same committed roster, and
+   * nothing is written until confirm. The GATES are not shared — each pass
+   * proposes its own set and needs its own running tally — but the expensive
+   * part, describing every member, is done once.
+   *
+   * Returns an empty map when no task in the week has rules, which is the
+   * normal case and costs one boolean per task to discover.
+   */
+  private async collectCompositionData(
+    context: ScheduleContext
+  ): Promise<Map<string, CompositionGateData>> {
+    const constrained = context.tasks.filter((t) => t.hasCompositionRules);
+    const data = new Map<string, CompositionGateData>();
+    if (constrained.length === 0) return data;
+
+    const everyone = context.staff.map((s) => s.membershipId);
+    const built = await Promise.all(
+      constrained.map(async (task) => ({
+        taskId: task.id,
+        gate: await this.compositionService.buildGateData(task.id, everyone),
+      }))
+    );
+
+    for (const { taskId, gate } of built) {
+      if (gate) data.set(taskId, gate);
+    }
+    return data;
+  }
+
+  /** A fresh set of gates over shared data — one pass's running tally. */
+  private openGates(
+    data: Map<string, CompositionGateData>
+  ): Map<string, CompositionGate> {
+    const gates = new Map<string, CompositionGate>();
+    for (const [taskId, d] of data) {
+      gates.set(
+        taskId,
+        openCompositionGate(
+          d.rules,
+          d.assigned,
+          d.requiredHeadcount,
+          d.byMembership
+        )
+      );
+    }
+    return gates;
+  }
+
   /** Records a decision so later tasks in the same draft can see it. */
   private remember(
     provisional: ProvisionalAssignments,
@@ -361,7 +454,9 @@ export class AutoScheduleService {
     context: ScheduleContext,
     organizationId: string,
     /** Shared with the AI pass when both run — see `generateSchedule`. */
-    sharedHoursCache?: CommittedAssignmentsCache
+    sharedHoursCache?: CommittedAssignmentsCache,
+    /** Shared for the same reason; the gates built from it are not. */
+    compositionData?: Map<string, CompositionGateData>
   ): Promise<DraftSchedule> {
     const assignments: DraftAssignment[] = [];
     const unfilledTasks: { taskId: string; taskTitle: string; reason: string }[] = [];
@@ -376,10 +471,14 @@ export class AutoScheduleService {
 
     // One memo for the whole generation — see `eligibleFor`.
     const hoursCache: CommittedAssignmentsCache = sharedHoursCache ?? new Map();
+    const gates = this.openGates(
+      compositionData ?? (await this.collectCompositionData(context))
+    );
 
     for (const task of context.tasks) {
       const slotsNeeded = task.requiredHeadcount - task.currentAssignments;
       if (slotsNeeded <= 0) continue;
+      const gate = gates.get(task.id);
 
       const taskDuration =
         (task.scheduledEnd.getTime() - task.scheduledStart.getTime()) / 3600000;
@@ -409,6 +508,13 @@ export class AutoScheduleService {
       const assignedToThisTask: DraftAssignment[] = [];
       for (let i = 0; i < candidates.length && assignedToThisTask.length < slotsNeeded; i++) {
         const c = candidates[i];
+
+        // Eligibility says this person may work the shift; the gate says
+        // whether the shift is still a legal roster with them on it. Skipped
+        // rather than stopping the task — a later candidate may be exactly who
+        // an unmet rule is waiting for.
+        if (gate && !gate.admit(c.membershipId)) continue;
+
         const reasons: string[] = [];
         if (c.inDepartment) reasons.push("department match");
         reasons.push(`${Math.round(c.hours)}h this week`);
@@ -428,10 +534,17 @@ export class AutoScheduleService {
 
       assignments.push(...assignedToThisTask);
       if (assignedToThisTask.length < slotsNeeded) {
+        // Naming the composition rule matters here. "No eligible staff
+        // remaining" sends a manager looking for more people when the problem
+        // is the mix — there may be plenty of candidates and no legal one.
+        const why =
+          gate && gate.refused > 0
+            ? "no remaining candidate fits the shift's composition rules"
+            : "no eligible staff remaining";
         unfilledTasks.push({
           taskId: task.id,
           taskTitle: task.title,
-          reason: `${assignedToThisTask.length} of ${slotsNeeded} filled — no eligible staff remaining`,
+          reason: `${assignedToThisTask.length} of ${slotsNeeded} filled — ${why}`,
         });
       }
     }
@@ -451,7 +564,8 @@ export class AutoScheduleService {
     proposals: DraftAssignment[],
     context: ScheduleContext,
     organizationId: string,
-    sharedHoursCache?: CommittedAssignmentsCache
+    sharedHoursCache?: CommittedAssignmentsCache,
+    compositionData?: Map<string, CompositionGateData>
   ): Promise<DraftAssignment[]> {
     const byTask = new Map<string, DraftAssignment[]>();
     for (const p of proposals) {
@@ -461,10 +575,14 @@ export class AutoScheduleService {
     const accepted: DraftAssignment[] = [];
     const provisional: ProvisionalAssignments = new Map();
     const hoursCache: CommittedAssignmentsCache = sharedHoursCache ?? new Map();
+    const gates = this.openGates(
+      compositionData ?? (await this.collectCompositionData(context))
+    );
 
     for (const task of context.tasks) {
       const proposed = byTask.get(task.id);
       if (!proposed || proposed.length === 0) continue;
+      const gate = gates.get(task.id);
 
       const eligible = await this.eligibleFor(
         task.id,
@@ -485,6 +603,10 @@ export class AutoScheduleService {
       for (const p of proposed) {
         if (!eligible.has(p.membershipId)) continue;
         if (takenHere.has(p.membershipId)) continue;
+        // After the duplicate check, not before: admitting the same person
+        // twice would count them twice against every composition rule and
+        // exhaust the gate on a row that was never going to be written.
+        if (gate && !gate.admit(p.membershipId)) continue;
         takenHere.add(p.membershipId);
         accepted.push(p);
         this.remember(provisional, p.membershipId, task);
@@ -497,7 +619,8 @@ export class AutoScheduleService {
   private async generateWithAI(
     context: ScheduleContext,
     organizationId: string,
-    hoursCache: CommittedAssignmentsCache
+    hoursCache: CommittedAssignmentsCache,
+    compositionData?: Map<string, CompositionGateData>
   ): Promise<DraftSchedule> {
     const { prompt, taskMap, staffMap } = this.buildAIPrompt(context);
 
@@ -521,7 +644,8 @@ export class AutoScheduleService {
       taskMap,
       staffMap,
       organizationId,
-      hoursCache
+      hoursCache,
+      compositionData
     );
     return { ...draft, provider };
   }
@@ -622,7 +746,8 @@ Use the exact task numbers (1, 2, 3...) and staff letters (A, B, C...) from abov
     taskMap: Map<number, string>,
     staffMap: Map<string, string>,
     organizationId: string,
-    hoursCache: CommittedAssignmentsCache
+    hoursCache: CommittedAssignmentsCache,
+    compositionData?: Map<string, CompositionGateData>
   ): Promise<DraftSchedule> {
     const jsonMatch = response.match(/\[[\s\S]*\]/);
     if (!jsonMatch) throw new Error("No JSON array found");
@@ -667,7 +792,8 @@ Use the exact task numbers (1, 2, 3...) and staff letters (A, B, C...) from abov
       assignments,
       context,
       organizationId,
-      hoursCache
+      hoursCache,
+      compositionData
     );
     const unfilledTasks = this.findUnfilledTasks(screened, context);
     return this.buildSummary(screened, unfilledTasks, context);
@@ -803,6 +929,42 @@ Use the exact task numbers (1, 2, 3...) and staff letters (A, B, C...) from abov
       })
     );
 
+    /*
+     * Composition rules, re-checked here for the same reason headcount is.
+     *
+     * The draft is generated with these in mind, so in the ordinary case this
+     * refuses nothing. It is not therefore redundant: the draft round-trips
+     * through the browser, so it can be stale — someone else filled the shift,
+     * or a rule changed, between generating and confirming — or edited outright.
+     * This is the only write path that never passes through `assignStaff`, and
+     * without the check it was the one place a roster the manual path refuses
+     * could be written.
+     *
+     * Only tasks that actually carry rules are loaded, which is why
+     * `findManyByIdsInOrg` returns the column.
+     */
+    const gates = new Map<string, CompositionGate>();
+    await Promise.all(
+      ownTasks
+        .filter((t) => parseCompositionRules(t.compositionRules).length > 0)
+        .map(async (t) => {
+          const data = await this.compositionService.buildGateData(t.id, [
+            ...ownMemberIds,
+          ]);
+          if (data) {
+            gates.set(
+              t.id,
+              openCompositionGate(
+                data.rules,
+                data.assigned,
+                data.requiredHeadcount,
+                data.byMembership
+              )
+            );
+          }
+        })
+    );
+
     // A draft naming the same person on the same task twice cannot produce two
     // rows — `(taskId, membershipId)` is unique — so the second is dropped
     // here instead of becoming a swallowed constraint error below.
@@ -811,6 +973,9 @@ Use the exact task numbers (1, 2, 3...) and staff letters (A, B, C...) from abov
     const created = [];
     const rejected: string[] = [];
     const overCapacity: string[] = [];
+    const brokeComposition: string[] = [];
+    let duplicates = 0;
+    let writeErrors = 0;
     for (const draft of assignments) {
       if (!ownTaskIds.has(draft.taskId) || !ownMemberIds.has(draft.membershipId)) {
         rejected.push(draft.taskId);
@@ -820,13 +985,49 @@ Use the exact task numbers (1, 2, 3...) and staff letters (A, B, C...) from abov
         continue;
       }
       const pair = `${draft.taskId}|${draft.membershipId}`;
-      if (seenPairs.has(pair)) continue;
+      if (seenPairs.has(pair)) {
+        duplicates++;
+        continue;
+      }
       seenPairs.add(pair);
 
       if ((slotsLeft.get(draft.taskId) ?? 0) <= 0) {
         overCapacity.push(draft.taskId);
         continue;
       }
+
+      const gate = gates.get(draft.taskId);
+      if (gate && !gate.admit(draft.membershipId)) {
+        // The same escape hatch `assignStaff` offers: a manager who documented
+        // a reason may proceed. Looked up only for a row the gate turned away,
+        // so the ordinary path costs nothing.
+        const overridden = (
+          await Promise.all([
+            this.overrideRepo.hasOverride(
+              draft.taskId,
+              draft.membershipId,
+              "composition"
+            ),
+            this.overrideRepo.hasOverride(
+              draft.taskId,
+              draft.membershipId,
+              "all"
+            ),
+          ])
+        ).some(Boolean);
+
+        if (!overridden) {
+          brokeComposition.push(draft.taskId);
+          continue;
+        }
+        // Recorded even though the rule refused them, because they are about to
+        // be on the shift and later rows must be judged against the roster as
+        // it will really be. (If the write below then fails, the gate is one
+        // person pessimistic for the rest of this task — which can only refuse
+        // more, never admit something illegal.)
+        gate.force(draft.membershipId);
+      }
+
       try {
         const assignment = await this.assignmentRepo.create({
           taskId: draft.taskId, membershipId: draft.membershipId,
@@ -846,6 +1047,7 @@ Use the exact task numbers (1, 2, 3...) and staff letters (A, B, C...) from abov
           );
         }
       } catch (error) {
+        writeErrors++;
         console.error(`[Auto-Schedule] Failed: ${draft.staffName} → ${draft.taskTitle}:`, error);
       }
     }
@@ -853,14 +1055,31 @@ Use the exact task numbers (1, 2, 3...) and staff letters (A, B, C...) from abov
     await this.auditService.log({
       organizationId, userId: confirmedById,
       action: ACTIONS.TASK_ASSIGNED, entityType: "auto-schedule",
-      details: { assignmentsCreated: created.length, totalPlanned: assignments.length, status: assignmentStatus, rejectedCrossTenant: rejected.length, skippedOverCapacity: overCapacity.length, allocationProvider: provider ?? null },
+      details: { assignmentsCreated: created.length, totalPlanned: assignments.length, status: assignmentStatus, rejectedCrossTenant: rejected.length, skippedOverCapacity: overCapacity.length, skippedComposition: brokeComposition.length, allocationProvider: provider ?? null },
     });
 
+    /*
+     * `failed` stays "everything that did not get written", which is what the
+     * caller has always been told. The rest of the fields break that number
+     * down into reasons that need different responses — a write error is a
+     * database problem worth retrying, a composition skip is a roster the rules
+     * refuse, and a cross-tenant rejection means the draft carried a row it
+     * should never have had.
+     *
+     * They partition it exactly:
+     *   failed === rejected + overCapacity + brokeComposition + duplicates
+     *             + writeErrors
+     * which is worth asserting in a test — a category added later without a
+     * counter would silently disappear into `failed` otherwise.
+     */
     return {
       created: created.length,
       failed: assignments.length - created.length,
       rejected: rejected.length,
       overCapacity: overCapacity.length,
+      brokeComposition: brokeComposition.length,
+      duplicates,
+      writeErrors,
     };
   }
 }

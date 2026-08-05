@@ -62,7 +62,7 @@ export class MembershipRepository {
           select: { id: true, name: true, displayLabel: true },
         },
       },
-      orderBy: { createdAt: "asc" },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     });
   }
 

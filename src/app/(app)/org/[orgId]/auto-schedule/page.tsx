@@ -181,14 +181,28 @@ export default function AutoSchedulePage() {
 
       const result = await res.json();
 
-      // `rejected` counts draft rows the server refused because the task or the
-      // member did not belong to this organisation. It is reported separately
-      // from `failed`: a failure is a database problem worth retrying, whereas a
-      // rejection means the draft carried a row it should never have had, which
-      // is a different conversation.
+      /*
+       * One line per reason, and the reasons do not overlap.
+       *
+       * This used to report `failed` — everything not written — and then
+       * `rejected` as well, which is a subset of it, so a draft with one bad row
+       * said "1 could not be created · 1 rejected as out of scope" about the
+       * same row. The server now returns the breakdown, and each part is a
+       * different thing for the manager to do about it: retry a write error,
+       * look at the roster for a composition skip, regenerate a stale draft.
+       * Duplicate rows are not reported — a draft naming the same person twice
+       * is an artefact of editing, not something to act on.
+       */
       const parts = [`${result.created} assignment${result.created === 1 ? "" : "s"} created`];
-      if (result.failed > 0) parts.push(`${result.failed} could not be created`);
+      if (result.brokeComposition > 0)
+        parts.push(
+          `${result.brokeComposition} skipped — would break a composition rule`
+        );
+      if (result.overCapacity > 0)
+        parts.push(`${result.overCapacity} skipped — shift already full`);
       if (result.rejected > 0) parts.push(`${result.rejected} rejected as out of scope`);
+      if (result.writeErrors > 0)
+        parts.push(`${result.writeErrors} could not be created`);
 
       setSuccess(parts.join(" · "));
       setDraft(null);

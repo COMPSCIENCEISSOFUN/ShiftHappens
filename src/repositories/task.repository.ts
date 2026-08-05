@@ -149,7 +149,7 @@ export class TaskRepository {
           },
         },
       },
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     });
   }
 
@@ -170,7 +170,7 @@ export class TaskRepository {
         department: { select: { id: true, name: true, color: true } },
         createdBy: { select: { id: true, name: true } },
       },
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     });
   }
 
@@ -202,7 +202,13 @@ export class TaskRepository {
       // `requiredHeadcount` because the only caller — confirming an
       // auto-schedule draft — has to bound what it writes against the task's
       // own limit, and the draft it is handed is client-supplied.
-      select: { id: true, requiredHeadcount: true },
+      //
+      // `compositionRules` so that caller can tell which tasks constrain the
+      // MIX of people as well as the number, and load the fuller picture for
+      // those alone. It is one column against a set of ids already being read,
+      // and the alternative is a second query per task to discover most of them
+      // have no rules.
+      select: { id: true, requiredHeadcount: true, compositionRules: true },
     });
   }
 

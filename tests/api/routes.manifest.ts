@@ -141,6 +141,7 @@ export const ROUTES: RouteSpec[] = [
   org("tasks/[taskId]", "DELETE", MANAGER, { suspension: true, extraParams: ["taskId"] }),
   org("tasks/[taskId]/assign", "POST", MANAGER, { suspension: true, extraParams: ["taskId"] }),
   org("tasks/[taskId]/auto-allocate", "POST", MANAGER, { suspension: true, extraParams: ["taskId"] }),
+  org("tasks/[taskId]/composition", "GET", MANAGER, { extraParams: ["taskId"] }),
   org("tasks/[taskId]/eligibility", "GET", MANAGER, { extraParams: ["taskId"] }),
   org("tasks/[taskId]/eligibility/override", "POST", MANAGER, { suspension: true, extraParams: ["taskId"] }),
   org("tasks/[taskId]/suggest", "GET", MANAGER, { extraParams: ["taskId"] }),

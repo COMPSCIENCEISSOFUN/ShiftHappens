@@ -343,3 +343,158 @@ export function candidateEffect(
 
   return { helps, breaks };
 }
+
+/**
+ * The assign panel's whole composition view, for one moment in the manager's
+ * selection.
+ *
+ * Recomputed on every tick rather than fetched, so it stays a frame ahead of
+ * the manager rather than a request behind. Pure, which is the point — this is
+ * the part of the panel worth testing, and testing it does not need a rendered
+ * page.
+ *
+ * `effects` deliberately omits anyone already ticked. They are part of the
+ * roster the evaluation was computed over, so asking what adding them would do
+ * counts them twice — and a manager does not need to be told what the person
+ * they just chose would do.
+ */
+export function annotateSelection(input: {
+  rules: CompositionRule[];
+  members: CompositionCandidate[];
+  assignedMembershipIds: string[];
+  selectedMembershipIds: string[];
+  requiredHeadcount: number;
+}): {
+  evaluation: CompositionEvaluation | null;
+  effects: Record<string, { helps: string[]; breaks: string[] }>;
+} {
+  if (input.rules.length === 0) return { evaluation: null, effects: {} };
+
+  const byId = new Map(input.members.map((m) => [m.membershipId, m]));
+  const selected = new Set(input.selectedMembershipIds);
+
+  const roster = [...input.assignedMembershipIds, ...input.selectedMembershipIds]
+    .map((id) => byId.get(id))
+    .filter((c): c is CompositionCandidate => Boolean(c));
+
+  const evaluation = evaluateComposition(
+    input.rules,
+    roster,
+    input.requiredHeadcount
+  );
+
+  const effects: Record<string, { helps: string[]; breaks: string[] }> = {};
+  for (const member of input.members) {
+    if (selected.has(member.membershipId)) continue;
+    const effect = candidateEffect(evaluation, member);
+    // Only members the rules have something to say about. A badge on everybody
+    // is a badge nobody reads.
+    if (effect.helps.length > 0 || effect.breaks.length > 0) {
+      effects[member.membershipId] = effect;
+    }
+  }
+
+  return { evaluation, effects };
+}
+
+/* ------------------------------------------------------------------ */
+/* Admitting people one at a time                                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A task's composition rules, applied to a stream of proposed assignees.
+ *
+ * ## Why this exists
+ *
+ * `assignStaff` judges a whole batch at once and throws — right for a manager
+ * who picked three people and can be told why the set is wrong. The two batch
+ * writers cannot behave that way: the auto-scheduler is filling a week, and
+ * discarding twenty legal rows because the twenty-first breaks a rule is worse
+ * than writing the twenty. They need to admit what fits and skip what does not,
+ * which means asking the question once per person against the set accepted so
+ * far.
+ *
+ * ## The test is the same one `assignStaff` applies
+ *
+ * A person is admitted when the roster INCLUDING them is still feasible — an
+ * `at_most` rule not yet exceeded, an `at_least` rule still reachable in the
+ * slots that remain. Deliberately identical, so the generated path cannot write
+ * a roster the manual path would refuse; that divergence is the bug this closes.
+ *
+ * Applying it incrementally is more permissive than applying it to the batch,
+ * and that is intended. Two juniors proposed for a two-person shift needing one
+ * senior: the batch test refuses both, this admits the first and skips the
+ * second, leaving the slot the rule needs. The result is a partial roster rather
+ * than none, and nothing illegal is written either way.
+ *
+ * ## Order
+ *
+ * Proposals are considered in the order given, which for both draft strategies
+ * is the engine's own preference order. It matters — the first junior offered is
+ * the one admitted — so callers should not reorder proposals casually.
+ */
+export interface CompositionGate {
+  /**
+   * Admit this person if the roster stays feasible with them on it.
+   *
+   * Records them on success, so the next call sees the fuller roster. Returns
+   * false for a membership the gate was not built with: the safe direction when
+   * the subject of a rule cannot be evaluated is to refuse.
+   */
+  admit(membershipId: string): boolean;
+  /**
+   * Record someone the caller is writing anyway — an assignment a manager has
+   * already documented an override for.
+   *
+   * Without this the gate's picture of the roster would be wrong from that point
+   * on, and it would go on judging later proposals against a set missing a
+   * person who is really on the shift.
+   */
+  force(membershipId: string): void;
+  /** How many proposals `admit` has turned away, for the caller's reporting. */
+  readonly refused: number;
+}
+
+export function openCompositionGate(
+  rules: CompositionRule[],
+  /** Everyone already occupying a slot on the task. */
+  assigned: CompositionCandidate[],
+  requiredHeadcount: number,
+  /** Every person the caller might propose, by membership id. */
+  byMembership: Map<string, CompositionCandidate>
+): CompositionGate {
+  const accepted = [...assigned];
+  let refused = 0;
+
+  return {
+    admit(membershipId: string): boolean {
+      const candidate = byMembership.get(membershipId);
+      if (!candidate) {
+        refused++;
+        return false;
+      }
+
+      const next = evaluateComposition(
+        rules,
+        [...accepted, candidate],
+        requiredHeadcount
+      );
+      if (!next.feasible) {
+        refused++;
+        return false;
+      }
+
+      accepted.push(candidate);
+      return true;
+    },
+
+    force(membershipId: string): void {
+      const candidate = byMembership.get(membershipId);
+      if (candidate) accepted.push(candidate);
+    },
+
+    get refused() {
+      return refused;
+    },
+  };
+}

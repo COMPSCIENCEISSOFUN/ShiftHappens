@@ -85,7 +85,7 @@ export class TaskAssignmentRepository {
         },
         assignedBy: { select: { id: true, name: true } },
       },
-      orderBy: { createdAt: "asc" },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     });
   }
 
@@ -108,7 +108,7 @@ export class TaskAssignmentRepository {
         },
         assignedBy: { select: { id: true, name: true } },
       },
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     });
   }
 

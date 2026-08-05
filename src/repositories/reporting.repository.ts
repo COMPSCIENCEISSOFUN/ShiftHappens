@@ -709,7 +709,7 @@ export class ReportingRepository {
           },
         },
       },
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     });
 
     return records.map((r) => ({
@@ -849,7 +849,7 @@ export class ReportingRepository {
           },
         },
       },
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     });
 
     return records.map((r) => ({

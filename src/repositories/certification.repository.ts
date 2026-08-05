@@ -64,7 +64,7 @@ export class CertificationRepository {
       include: {
         verifiedBy: { select: { id: true, name: true } },
       },
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     });
   }
 
@@ -107,7 +107,7 @@ export class CertificationRepository {
         },
         verifiedBy: { select: { id: true, name: true } },
       },
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     });
   }
 

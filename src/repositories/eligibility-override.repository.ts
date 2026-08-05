@@ -44,7 +44,7 @@ export class EligibilityOverrideRepository {
         },
         overriddenBy: { select: { id: true, name: true } },
       },
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     });
   }
 
@@ -56,7 +56,7 @@ export class EligibilityOverrideRepository {
         task: { select: { id: true, title: true } },
         overriddenBy: { select: { id: true, name: true } },
       },
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     });
   }
 

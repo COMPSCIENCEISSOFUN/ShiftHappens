@@ -25,7 +25,7 @@ export class PlatformRepository {
     return prisma.organization.findMany({
       skip: offset,
       take: limit,
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       select: {
         id: true,
         name: true,

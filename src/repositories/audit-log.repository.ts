@@ -54,7 +54,7 @@ export class AuditLogRepository {
       include: {
         user: { select: { id: true, name: true, email: true } },
       },
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: limit,
       skip: offset,
     });

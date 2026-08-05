@@ -37,8 +37,10 @@ import { reasonLabel } from "@/lib/decline-reasons";
 import { countOccupied, remainingSlots as slotsLeft } from "@/lib/assignment-status";
 import { CompositionRulesEditor } from "@/components/tasks/composition-rules-editor";
 import {
+  annotateSelection,
   describeRule,
   parseCompositionRules,
+  type CompositionCandidate,
   type CompositionRule,
 } from "@/lib/composition-rules";
 import { usePermissions } from "@/components/layout/permission-provider";
@@ -155,6 +157,23 @@ interface EligibilityResult {
   overrides: string[];
 }
 
+/**
+ * The task's composition rules plus each candidate's attributes, from
+ * `GET /tasks/[taskId]/composition`.
+ *
+ * Sent as data rather than as a verdict because the verdict changes with every
+ * tick: the panel runs `evaluateComposition` and `candidateEffect` — the same
+ * pure functions the server enforces with — over whoever is currently selected.
+ * Asking the server per click would be a request per click and would still be a
+ * frame behind.
+ */
+interface CompositionInfo {
+  rules: CompositionRule[];
+  requiredHeadcount: number;
+  assignedMembershipIds: string[];
+  members: CompositionCandidate[];
+}
+
 /** One AI-ranked candidate from `GET /tasks/[taskId]/suggest`. */
 interface AISuggestion {
   membershipId: string;
@@ -256,6 +275,7 @@ export default function TasksPage() {
   const [loading, setLoading] = useState(true);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [eligibility, setEligibility] = useState<Record<string, EligibilityResult>>({});
+  const [composition, setComposition] = useState<CompositionInfo | null>(null);
   const [suggestions, setSuggestions] = useState<AISuggestion[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -393,6 +413,26 @@ export default function TasksPage() {
       setEligibility(map);
     } catch {} finally {
       setLoadingEligibility(false);
+    }
+  }
+
+  /**
+   * Composition attributes for the same panel.
+   *
+   * Failure is silent and clears the state: the annotations are guidance, and
+   * the server refuses an illegal assignment whether or not this loaded. Half a
+   * picture would be worse than none — a member with no "would break" badge
+   * because the fetch failed reads as a member who is fine.
+   */
+  async function fetchComposition(taskId: string) {
+    try {
+      const res = await fetch(
+        `/api/organizations/${orgId}/tasks/${taskId}/composition`
+      );
+      const data = await res.json();
+      setComposition(res.ok && Array.isArray(data?.rules) ? data : null);
+    } catch {
+      setComposition(null);
     }
   }
 
@@ -1459,8 +1499,15 @@ export default function TasksPage() {
                             setAssignError(null);
                             setSuggestions([]);
                             setShowSuggestions(false);
+                            setComposition(null);
                             if (newId) {
-                              await fetchEligibility(newId);
+                              // Concurrent: neither answer depends on the
+                              // other, and the panel is already open and empty
+                              // while they run.
+                              await Promise.all([
+                                fetchEligibility(newId),
+                                fetchComposition(newId),
+                              ]);
                               // In "suggested" mode, auto-fetch AI suggestions
                               if (allocationMode === "suggested") {
                                 fetchSuggestions(newId, true);
@@ -1807,6 +1854,28 @@ export default function TasksPage() {
                        */
                       const remainingSlots = slotsLeft(needed, task.assignments);
 
+                      /*
+                       * Composition annotations, recomputed on every render so
+                       * they follow the ticks.
+                       *
+                       * `candidateEffect` answers "would this person fill the
+                       * gap, or break a rule?" — the question a manager is
+                       * actually asking while choosing. Before this the only
+                       * feedback was the refusal AFTER picking the wrong person,
+                       * which tells them they were wrong without telling them
+                       * who is right.
+                       */
+                      const { evaluation: compEval, effects: compEffects } =
+                        annotateSelection({
+                          rules: composition?.rules ?? [],
+                          members: composition?.members ?? [],
+                          assignedMembershipIds:
+                            composition?.assignedMembershipIds ?? [],
+                          selectedMembershipIds: selectedMembers,
+                          requiredHeadcount:
+                            composition?.requiredHeadcount ?? needed,
+                        });
+
                       // Split members into eligible / ineligible for grouped display
                       const eligibleMembers = members.filter((m) => {
                         const elig = eligibility[m.id];
@@ -1844,6 +1913,38 @@ export default function TasksPage() {
                                   : "AI Suggest"}
                             </Button>
                           </div>
+
+                          {/*
+                            Live rule status.
+                            Three states, not two: met, not met but still
+                            reachable, and out of reach. The middle one is the
+                            common case while a shift is half-filled and must
+                            not be coloured like a problem.
+                          */}
+                          {compEval && compEval.rules.length > 0 && (
+                            <div className="border-b border-border/50 bg-card/40 px-4 py-2">
+                              <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                                Composition rules
+                              </p>
+                              <div className="mt-1 space-y-0.5">
+                                {compEval.rules.map((r, i) => (
+                                  <p
+                                    key={i}
+                                    className={`text-[11px] ${
+                                      r.satisfied
+                                        ? "text-emerald-600 dark:text-emerald-400"
+                                        : r.feasible
+                                          ? "text-muted-foreground"
+                                          : "font-medium text-amber-700 dark:text-amber-400"
+                                    }`}
+                                  >
+                                    {r.satisfied ? "✓" : r.feasible ? "○" : "⚠"} {r.description}
+                                    {!r.satisfied && ` — ${r.matched} so far`}
+                                  </p>
+                                ))}
+                              </div>
+                            </div>
+                          )}
 
                           {/* AI Recommendations — compact chip row */}
                           {suggestions.length > 0 && showSuggestions && (
@@ -1980,6 +2081,30 @@ export default function TasksPage() {
                                                   {suggestion.explanation}
                                                 </p>
                                               )}
+                                              {(() => {
+                                                const effect = compEffects[m.id];
+                                                if (!effect) return null;
+                                                return (
+                                                  <span className="mt-0.5 block text-[10px] leading-snug">
+                                                    {effect.breaks.map((d, i) => (
+                                                      <span
+                                                        key={`b${i}`}
+                                                        className="block font-medium text-amber-700 dark:text-amber-400"
+                                                      >
+                                                        ⚠ Would break: {d}
+                                                      </span>
+                                                    ))}
+                                                    {effect.helps.map((d, i) => (
+                                                      <span
+                                                        key={`h${i}`}
+                                                        className="block font-medium text-emerald-700 dark:text-emerald-400"
+                                                      >
+                                                        ✓ Fills: {d}
+                                                      </span>
+                                                    ))}
+                                                  </span>
+                                                );
+                                              })()}
                                             </div>
                                           </label>
                                         );

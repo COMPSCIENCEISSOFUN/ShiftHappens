@@ -69,7 +69,7 @@ export class InvitationRepository {
           select: { name: true, email: true },
         },
       },
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     });
   }
 

@@ -118,7 +118,7 @@ export class UserRepository {
               },
             },
           },
-          orderBy: { createdAt: "asc" },
+          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
         },
       },
     });

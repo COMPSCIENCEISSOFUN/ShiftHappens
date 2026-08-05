@@ -57,7 +57,7 @@ export class WorkRuleRepository {
     return prisma.workRule.findMany({
       where: { organizationId },
       include: RULE_INCLUDE,
-      orderBy: { createdAt: "asc" },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     });
   }
 
@@ -82,7 +82,7 @@ export class WorkRuleRepository {
         } : {}),
       },
       include: RULE_INCLUDE,
-      orderBy: { createdAt: "asc" },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     });
   }
 
