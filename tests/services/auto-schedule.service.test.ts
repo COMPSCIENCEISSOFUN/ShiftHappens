@@ -78,6 +78,26 @@ beforeEach(async () => {
 
 describe("AutoScheduleService", () => {
   describe("generateSchedule", () => {
+    it("only includes tasks in the manager's authorized departments", async () => {
+      const secondDepartment = await prisma.department.create({
+        data: { name: "Bar", organizationId: orgId },
+      });
+      const weekStart = getNextMonday();
+      const taskDate = new Date(weekStart);
+      taskDate.setDate(taskDate.getDate() + 1);
+      await prisma.task.createMany({
+        data: [
+          { title: "Kitchen task", organizationId: orgId, departmentId: deptId, requiredHeadcount: 1, scheduledStart: setHour(taskDate, 8), scheduledEnd: setHour(taskDate, 12), createdById: adminUserId },
+          { title: "Bar task", organizationId: orgId, departmentId: secondDepartment.id, requiredHeadcount: 1, scheduledStart: setHour(taskDate, 13), scheduledEnd: setHour(taskDate, 17), createdById: adminUserId },
+        ],
+      });
+
+      const draft = await new AutoScheduleService().generateSchedule(orgId, weekStart, [deptId]);
+
+      expect(draft.summary.totalTasks).toBe(1);
+      expect(draft.assignments.every((assignment) => assignment.taskTitle === "Kitchen task")).toBe(true);
+    });
+
     it("returns empty when no tasks need staffing", async () => {
       const service = new AutoScheduleService();
       const weekStart = getNextMonday();
@@ -268,6 +288,23 @@ describe("AutoScheduleService", () => {
       const staffNames = draft.assignments.map((a) => a.staffName);
       const unique = new Set(staffNames);
       expect(unique.size).toBe(3);
+    });
+
+    it("does not draft a staff member into an already committed overlapping task", async () => {
+      const weekStart = getNextMonday();
+      const taskDate = new Date(weekStart);
+      taskDate.setDate(taskDate.getDate() + 1);
+      const occupied = await prisma.task.create({
+        data: { title: "Committed work", organizationId: orgId, departmentId: deptId, requiredHeadcount: 1, scheduledStart: setHour(taskDate, 8), scheduledEnd: setHour(taskDate, 12), createdById: adminUserId },
+      });
+      await prisma.taskAssignment.create({ data: { taskId: occupied.id, membershipId: staffMembershipIds[0], assignedById: adminUserId } });
+      await prisma.task.create({
+        data: { title: "Open overlapping work", organizationId: orgId, departmentId: deptId, requiredHeadcount: 1, scheduledStart: setHour(taskDate, 9), scheduledEnd: setHour(taskDate, 13), createdById: adminUserId },
+      });
+
+      const draft = await new AutoScheduleService().generateSchedule(orgId, weekStart);
+
+      expect(draft.assignments.find((assignment) => assignment.taskTitle === "Open overlapping work")?.membershipId).not.toBe(staffMembershipIds[0]);
     });
 
     it("applies weekly availability only to temporary or part-time staff", async () => {

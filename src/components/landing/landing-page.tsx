@@ -395,18 +395,18 @@ function Hero() {
           <div className="flex items-center gap-2 mb-2">
             <Brain className="h-3.5 w-3.5 text-white/80" />
             <span className="text-[11px] font-semibold text-white/90 uppercase tracking-wide">
-              AI Suggestion
+              Operations receipt
             </span>
           </div>
           <p className="text-sm font-medium text-white mb-1.5">
-            Sarah M.
+            2 staff assigned
           </p>
           <div className="flex items-center gap-2">
             <div className="flex-1 h-1.5 rounded-full bg-white/20 overflow-hidden">
               <div className="h-full w-[98%] rounded-full bg-gradient-to-r from-emerald-400 to-emerald-300" />
             </div>
             <span className="text-xs font-semibold text-emerald-300">
-              98%
+              Checked
             </span>
           </div>
         </div>
@@ -437,7 +437,7 @@ function Hero() {
             </div>
             <div>
               <p className="text-xs font-medium text-white">
-                Shift swap approved
+                Coverage restored
               </p>
               <p className="text-[10px] text-white/50">Just now</p>
             </div>
@@ -449,23 +449,21 @@ function Hero() {
       <div className="relative z-10 mx-auto max-w-4xl px-6 text-center pt-20">
         <Reveal>
           <p className="mb-4 inline-block rounded-full border border-white/20 bg-white/10 px-4 py-1.5 text-sm text-white/90 backdrop-blur-sm">
-            AI-powered workforce management
+            Autonomous workforce operations
           </p>
         </Reveal>
 
         <Reveal delay={100}>
           <h1 className="text-4xl sm:text-5xl md:text-6xl font-extrabold tracking-tight text-white leading-[1.1]">
-            Smarter shifts.
-            <br />
-            Happier teams.
+            ShiftHappens
           </h1>
         </Reveal>
 
         <Reveal delay={200}>
           <p className="mt-6 text-base sm:text-lg text-white/70 max-w-2xl mx-auto leading-relaxed">
-            Smart Task Allocation matches staff to shifts using AI that
-            considers availability, certifications, work rules, and fairness
-            — so your schedule builds itself.
+            Tell ShiftHappens the outcome you need. It checks live workforce
+            constraints, coordinates the work, and asks for review only when
+            a decision needs your judgment.
           </p>
         </Reveal>
 

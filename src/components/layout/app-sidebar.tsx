@@ -356,12 +356,14 @@ export function AppSidebar({
   if (orgId && role) {
     if (can("tasks:read")) {
       overviewItems.push({ href: `/org/${orgId}/tasks`, label: "Tasks", icon: TasksIcon });
+      overviewItems.push({ href: `/org/${orgId}/projects`, label: "Projects", icon: TasksIcon });
     }
     if (can("calendar:view")) {
       overviewItems.push({ href: `/org/${orgId}/calendar`, label: "Calendar", icon: CalendarIcon });
     }
     if (role === "staff") {
       overviewItems.push({ href: `/org/${orgId}/my-tasks`, label: "My Tasks", icon: MyTasksIcon });
+      overviewItems.push({ href: `/org/${orgId}/my-calendar`, label: "My Calendar", icon: CalendarIcon });
     }
     if (role === "staff" || role === "manager") {
       overviewItems.push({ href: `/org/${orgId}/availability`, label: "My Availability", icon: AvailabilityIcon });
@@ -397,7 +399,7 @@ export function AppSidebar({
       orgItems.push({ href: `/org/${orgId}/work-rules`, label: "Work Rules", icon: WorkRulesIcon });
     }
     if (can("schedule:generate")) {
-      orgItems.push({ href: `/org/${orgId}/auto-schedule`, label: "Auto-Schedule", icon: AutoScheduleIcon });
+      orgItems.push({ href: `/org/${orgId}/auto-schedule`, label: "Schedule Review", icon: AutoScheduleIcon });
     }
 
     if (orgItems.length > 0) sections.push({ title: "Organization", items: orgItems });

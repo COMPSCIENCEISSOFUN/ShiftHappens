@@ -9,6 +9,7 @@
  * - Notification triggers on assignment
  */
 import { TaskRepository } from "@/repositories/task.repository";
+import { prisma } from "@/lib/prisma";
 import { TaskAssignmentRepository } from "@/repositories/task-assignment.repository";
 import { SettingsRepository } from "@/repositories/settings.repository";
 import { MembershipRepository } from "@/repositories/membership.repository";
@@ -40,6 +41,19 @@ export class TaskService {
 
   async create(input: CreateTaskInput, orgId: string, userId: string) {
     await this.subscriptionService.enforceResourceLimit(orgId, 'active_tasks');
+
+    let projectDepartmentId: string | null = null;
+    if (input.projectId) {
+      const project = await prisma.project.findUnique({
+        where: { id: input.projectId },
+        select: { organizationId: true, departmentId: true },
+      });
+      if (!project || project.organizationId !== orgId) throw new Error("Project not found");
+      projectDepartmentId = project.departmentId;
+      if (input.departmentId && projectDepartmentId && input.departmentId !== projectDepartmentId) {
+        throw new Error("Task department must match its project department");
+      }
+    }
     
     if ((input.scheduledStart && !input.scheduledEnd) || (!input.scheduledStart && input.scheduledEnd)) {
       throw new Error("Must provide both start and end time, or neither");
@@ -70,7 +84,8 @@ export class TaskService {
       location: input.location,
       instructions: input.instructions,
       organizationId: orgId,
-      departmentId: input.departmentId,
+      departmentId: input.departmentId ?? projectDepartmentId ?? undefined,
+      projectId: input.projectId,
       requiredHeadcount: input.requiredHeadcount,
       requiredCertifications: input.requiredCertifications,
       priority: input.priority,

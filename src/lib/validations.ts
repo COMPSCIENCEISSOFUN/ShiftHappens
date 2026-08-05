@@ -225,6 +225,7 @@ export const createTaskSchema = z.object({
   location: z.string().trim().max(200).optional(),
   instructions: z.string().trim().max(4000).optional(),
   departmentId: z.string().optional(),
+  projectId: z.string().optional(),
   requiredHeadcount: z.number().int().min(1).max(50).optional(),
   requiredCertifications: z.array(z.string().min(1).max(200)).max(20).optional(),
   priority: z.enum(["low", "medium", "high", "urgent"]).optional(),
@@ -241,6 +242,7 @@ export const updateTaskSchema = z.object({
   location: z.string().trim().max(200).optional(),
   instructions: z.string().trim().max(4000).optional(),
   departmentId: z.string().optional(),
+  projectId: z.string().optional(),
   requiredHeadcount: z.number().int().min(1).max(50).optional(),
   requiredCertifications: z.array(z.string().min(1).max(200)).max(20).optional(),
   priority: z.enum(["low", "medium", "high", "urgent"]).optional(),
@@ -252,6 +254,25 @@ export const updateTaskSchema = z.object({
 /** Validates staff assignment to a task */
 export const assignTaskSchema = z.object({
   membershipIds: z.array(z.string()).min(1, "Select at least one staff member"),
+});
+
+export const createProjectSchema = z.object({
+  title: z.string().trim().min(1, "Project title is required").max(200),
+  description: z.string().trim().max(4000).optional(),
+  departmentId: z.string().optional(),
+  priority: z.enum(["low", "medium", "high", "urgent"]).optional(),
+  plannedStart: z.string().datetime().optional(),
+  plannedEnd: z.string().datetime().optional(),
+});
+
+export const updateProjectSchema = z.object({
+  title: z.string().trim().min(1).max(200).optional(),
+  description: z.string().trim().max(4000).optional(),
+  departmentId: z.string().optional(),
+  priority: z.enum(["low", "medium", "high", "urgent"]).optional(),
+  status: z.enum(["planning", "active", "on_hold", "completed", "cancelled"]).optional(),
+  plannedStart: z.string().datetime().optional().or(z.literal("")),
+  plannedEnd: z.string().datetime().optional().or(z.literal("")),
 });
 
 const autoScheduleAssignmentReferenceSchema = z
@@ -520,6 +541,8 @@ export type UpdateRoleInput = z.infer<typeof updateRoleSchema>;
 export type UpdateCompanySettingsInput = z.infer<typeof updateCompanySettingsSchema>;
 export type CreateTaskInput = z.infer<typeof createTaskSchema>;
 export type UpdateTaskInput = z.infer<typeof updateTaskSchema>;
+export type CreateProjectInput = z.infer<typeof createProjectSchema>;
+export type UpdateProjectInput = z.infer<typeof updateProjectSchema>;
 export type AssignTaskInput = z.infer<typeof assignTaskSchema>;
 export type SetAvailabilityInput = z.infer<typeof setAvailabilitySchema>;
 export type SetWeeklyAvailabilityInput = z.infer<typeof setWeeklyAvailabilitySchema>;

@@ -92,8 +92,15 @@ export class AvailabilityRepository {
   }
 
   /** Deletes a specific override */
-  async deleteOverride(id: string) {
-    return prisma.availabilityOverride.delete({ where: { id } });
+  async deleteOverride(id: string, membershipId: string) {
+    const result = await prisma.availabilityOverride.deleteMany({ where: { id, membershipId } });
+    return result.count === 1;
+  }
+
+  async updateOverride(id: string, membershipId: string, data: { date: Date; isAvailable: boolean; reason?: string }) {
+    const existing = await prisma.availabilityOverride.findFirst({ where: { id, membershipId }, select: { id: true } });
+    if (!existing) return null;
+    return prisma.availabilityOverride.update({ where: { id }, data });
   }
 
   /**

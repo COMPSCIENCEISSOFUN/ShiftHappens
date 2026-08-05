@@ -28,6 +28,7 @@ import { Button } from "@/components/ui/button";
 import type { NeedsAttentionItem } from "@/components/dashboard/needs-attention";
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { EmptyState } from "@/components/ui/empty-state";
+import { OperationsAssistant } from "@/components/operations/operations-assistant";
 
 // ============================================================
 // API response types (matches ReportingService output)
@@ -324,6 +325,10 @@ export default function AdminDashboard({ orgId, orgName, userName }: AdminDashbo
       </div>
 
       {/* ════════════════════════════════════════════════════ */}
+      <div className="mb-8">
+        <OperationsAssistant orgId={orgId} role="company_admin" />
+      </div>
+
       {/* 2. Action Items + Inline AI Suggestions             */}
       {/* ════════════════════════════════════════════════════ */}
       {hasActionItems && (
@@ -368,7 +373,7 @@ export default function AdminDashboard({ orgId, orgName, userName }: AdminDashbo
             </div>
           ))}
 
-          {/* AI suggestions divider + cards */}
+          {/* Data-backed recommendations complement the primary assistant above. */}
           {aiRecs && aiRecs.recommendations.length > 0 && (
             <>
               <div className="my-3 flex items-center gap-2.5">

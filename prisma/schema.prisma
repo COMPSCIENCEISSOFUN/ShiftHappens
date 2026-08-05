@@ -29,6 +29,7 @@ model User {
   eligibilityOverrides   EligibilityOverride[]  @relation("EligibilityOverrider")
   auditLogs              AuditLog[]
   notifications          Notification[]
+  projectsCreated        Project[] @relation("ProjectCreator")
 }
 
 model Organization {
@@ -56,6 +57,7 @@ model Organization {
   roles            Role[]
   companySettings  CompanySettings?
   tasks            Task[]
+  projects         Project[]
   auditLogs        AuditLog[]
   workRules        WorkRule[]
   notifications    Notification[]
@@ -145,6 +147,7 @@ model Department {
   workRules             WorkRule[]             @relation("WorkRuleDepartment")
   departmentMemberships DepartmentMembership[]
   tasks                 Task[]
+  projects              Project[]
   certificationRequirements CertificationDefinitionDepartment[]
 
   @@unique([organizationId, name])
@@ -245,6 +248,7 @@ model Task {
   id                String    @id @default(cuid())
   organizationId    String
   departmentId      String?
+  projectId         String?
   title             String
   description       String?
   location          String?
@@ -269,6 +273,7 @@ model Task {
 
   organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   department   Department?      @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  project      Project?         @relation(fields: [projectId], references: [id], onDelete: SetNull)
   createdBy    User             @relation(fields: [createdById], references: [id])
   assignments  TaskAssignment[]
   eligibilityOverrides EligibilityOverride[]
@@ -279,6 +284,7 @@ model Task {
   @@index([departmentId])
   @@index([status])
   @@index([parentTaskId])
+  @@index([projectId])
 }
 
 model TaskAssignment {
@@ -485,4 +491,29 @@ model CertificationDefinitionDepartment {
 
   @@id([certificationDefinitionId, departmentId])
   @@index([departmentId])
+}
+
+/** A multi-task delivery outcome. Recurring task links remain separate. */
+model Project {
+  id             String   @id @default(cuid())
+  organizationId String
+  departmentId   String?
+  title          String
+  description    String?
+  status         String   @default("planning")
+  priority       String   @default("medium")
+  plannedStart   DateTime?
+  plannedEnd     DateTime?
+  createdById    String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  department   Department?  @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  createdBy    User         @relation("ProjectCreator", fields: [createdById], references: [id])
+  tasks        Task[]
+
+  @@index([organizationId])
+  @@index([departmentId])
+  @@index([plannedStart, plannedEnd])
 }

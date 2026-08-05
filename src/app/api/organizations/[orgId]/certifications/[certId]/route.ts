@@ -74,7 +74,7 @@ export async function PATCH(
     const { orgId, certId } = await params;
 
     const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
-    if (!membership || !hasPermission(membership, PERMISSIONS.CERTIFICATIONS_REVIEW)) {
+    if (membership?.role !== "manager" || !hasPermission(membership, PERMISSIONS.CERTIFICATIONS_REVIEW)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -127,7 +127,7 @@ export async function POST(
     const { orgId, certId } = await params;
 
     const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
-    if (!membership || !hasPermission(membership, PERMISSIONS.CERTIFICATIONS_REVIEW)) {
+    if (membership?.role !== "manager" || !hasPermission(membership, PERMISSIONS.CERTIFICATIONS_REVIEW)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 

@@ -21,6 +21,9 @@ const ACTIONS = {
   TASK_REPLACEMENT_ALLOCATED: "task.replacement_allocated",
   TASK_REPLACEMENT_UNFILLED: "task.replacement_unfilled",
   RECURRING_TASKS_GENERATED: "task.recurring_generated",
+  // Projects
+  PROJECT_CREATED: "project.created",
+  PROJECT_UPDATED: "project.updated",
   // Assignments
   ASSIGNMENT_CLOCKED_IN: "assignment.clocked_in",
   ASSIGNMENT_CLOCKED_OUT: "assignment.clocked_out",
@@ -64,6 +67,8 @@ const ACTIONS = {
   USER_LOGGED_IN: "user.logged_in",
   // Organization
   ORGANIZATION_UPDATED: "organization.updated",
+  // AI operations
+  AI_OPERATION_EXECUTED: "ai_operation.executed",
   // Billing / subscription
   CHECKOUT_STARTED: "subscription.checkout_started",
   SUBSCRIPTION_UPGRADED: "subscription.upgraded",
@@ -105,6 +110,7 @@ export class AuditLogService {
       action?: string;
       entityType?: string;
       userId?: string;
+      search?: string;
       startDate?: Date;
       endDate?: Date;
     },

@@ -52,6 +52,8 @@ export default function AvailabilityPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [editingOverrideId, setEditingOverrideId] = useState<string | null>(null);
+  const [savingSchedule, setSavingSchedule] = useState(false);
 
   useEffect(() => {
     fetchSchedule();
@@ -93,9 +95,21 @@ export default function AvailabilityPage() {
     );
   }
 
+  function copyWeekdayHours() {
+    const weekday = schedule.find((day) => day.dayOfWeek === 1) ?? schedule[0];
+    setSchedule((current) => current.map((day) => day.dayOfWeek >= 1 && day.dayOfWeek <= 5
+      ? { ...day, startTime: weekday.startTime, endTime: weekday.endTime, isAvailable: weekday.isAvailable }
+      : day));
+  }
+
+  function markWholeWeekUnavailable() {
+    setSchedule((current) => current.map((day) => ({ ...day, isAvailable: false })));
+  }
+
   async function onSaveSchedule() {
     setError(null);
     setSuccess(null);
+    setSavingSchedule(true);
 
     try {
       const res = await fetch(`/api/organizations/${orgId}/availability`, {
@@ -113,7 +127,26 @@ export default function AvailabilityPage() {
       setSuccess("Schedule saved");
     } catch {
       setError("Something went wrong");
+    } finally {
+      setSavingSchedule(false);
     }
+  }
+
+  async function onUpdateOverride(event: React.FormEvent<HTMLFormElement>, overrideId: string) {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    const res = await fetch(`/api/organizations/${orgId}/availability/overrides/${overrideId}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ date: new Date(formData.get("overrideDate") as string).toISOString(), isAvailable: formData.get("overrideAvailable") === "true", reason: formData.get("overrideReason") || undefined }),
+    });
+    if (!res.ok) { const result = await res.json(); setError(result.error || "Could not update override"); return; }
+    setEditingOverrideId(null); setSuccess("Override updated"); void fetchOverrides();
+  }
+
+  async function onDeleteOverride(overrideId: string) {
+    const res = await fetch(`/api/organizations/${orgId}/availability/overrides/${overrideId}`, { method: "DELETE" });
+    if (!res.ok) { const result = await res.json(); setError(result.error || "Could not remove override"); return; }
+    setSuccess("Override removed"); void fetchOverrides();
   }
 
   async function onCreateOverride(event: React.FormEvent<HTMLFormElement>) {
@@ -165,6 +198,10 @@ export default function AvailabilityPage() {
           <CardDescription>Set your regular working hours for each day</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
+          <div className="flex flex-wrap gap-2 border-b pb-3">
+            <Button type="button" size="sm" variant="outline" onClick={copyWeekdayHours}>Copy Monday to weekdays</Button>
+            <Button type="button" size="sm" variant="outline" onClick={markWholeWeekUnavailable}>Mark whole week unavailable</Button>
+          </div>
           {schedule.map((day, index) => (
             <div key={day.dayOfWeek} className="flex items-center gap-4">
               <label className="flex w-32 items-center gap-2 text-sm">
@@ -192,8 +229,8 @@ export default function AvailabilityPage() {
               />
             </div>
           ))}
-          <Button onClick={onSaveSchedule} className="mt-4">
-            Save Schedule
+          <Button onClick={onSaveSchedule} className="mt-4" disabled={savingSchedule}>
+            {savingSchedule ? "Saving..." : "Save schedule"}
           </Button>
         </CardContent>
       </Card>
@@ -230,11 +267,16 @@ export default function AvailabilityPage() {
             <p className="text-sm text-muted-foreground">No date overrides set.</p>
           ) : (
             <div className="space-y-2">
-              {overrides.map((ov) => (
-                <div
-                  key={ov.id}
-                  className="flex items-center justify-between rounded-md border p-3 text-sm"
-                >
+              {overrides.map((ov) => editingOverrideId === ov.id ? (
+                <form key={ov.id} onSubmit={(event) => void onUpdateOverride(event, ov.id)} className="flex flex-wrap items-end gap-2 rounded-md border p-3 text-sm">
+                  <Input type="date" name="overrideDate" defaultValue={ov.date.slice(0, 10)} required className="w-36" />
+                  <select name="overrideAvailable" defaultValue={String(ov.isAvailable)} className="rounded-md border px-3 py-2 text-sm"><option value="false">Unavailable</option><option value="true">Available</option></select>
+                  <Input name="overrideReason" defaultValue={ov.reason || ""} placeholder="Optional reason" className="max-w-xs" />
+                  <Button size="sm" type="submit">Save</Button>
+                  <Button size="sm" type="button" variant="outline" onClick={() => setEditingOverrideId(null)}>Cancel</Button>
+                </form>
+              ) : (
+                <div key={ov.id} className="flex items-center justify-between gap-3 rounded-md border p-3 text-sm">
                   <div>
                     <span className="font-medium">
                       {new Date(ov.date).toLocaleDateString()}
@@ -251,6 +293,10 @@ export default function AvailabilityPage() {
                     {ov.reason && (
                       <span className="ml-2 text-muted-foreground">{ov.reason}</span>
                     )}
+                  </div>
+                  <div className="flex shrink-0 gap-2">
+                    <Button size="sm" variant="outline" onClick={() => setEditingOverrideId(ov.id)}>Edit</Button>
+                    <Button size="sm" variant="outline" onClick={() => void onDeleteOverride(ov.id)}>Remove</Button>
                   </div>
                 </div>
               ))}

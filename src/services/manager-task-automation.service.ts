@@ -6,7 +6,10 @@ import { TaskService } from "@/services/task.service";
 import { SettingsRepository } from "@/repositories/settings.repository";
 import type { CreateTaskInput } from "@/lib/validations";
 
-type ManagerMembership = Parameters<typeof departmentScopeFor>[0];
+type ManagerMembership = {
+  role: string;
+  departmentMemberships?: { department: { id: string; name: string } }[];
+};
 
 export class ManagerTaskAutomationService {
   private parser = new AITaskParserService();
@@ -16,12 +19,36 @@ export class ManagerTaskAutomationService {
   async execute(text: string, organizationId: string, userId: string, membership: ManagerMembership) {
     const parsed = await this.parser.parseTaskDescription(text, organizationId);
     const scope = departmentScopeFor(membership);
+    const scopedDepartments = membership.departmentMemberships?.map((item) => item.department) ?? [];
+    const availableDepartments = scope === null
+      ? await prisma.department.findMany({
+          where: { organizationId, archivedAt: null },
+          select: { id: true, name: true },
+          orderBy: { name: "asc" },
+        })
+      : scopedDepartments;
+
+    // A manager with one authorised department should never need to repeat it.
+    if (!parsed.departmentId && scope !== null && scope.length === 1) {
+      parsed.departmentId = scope[0];
+      parsed.departmentName = scopedDepartments[0]?.name ?? null;
+    }
 
     if (!parsed.departmentId) {
-      return { status: "needs_review" as const, message: "Which department should handle this task?", parsed };
+      return {
+        status: "needs_review" as const,
+        message: "Which department should handle this task?",
+        parsed,
+        departmentOptions: availableDepartments,
+      };
     }
     if (!isDepartmentInScope(parsed.departmentId, scope)) {
-      return { status: "needs_review" as const, message: "This task is outside your department scope.", parsed };
+      return {
+        status: "needs_review" as const,
+        message: "I can only manage tasks in your authorised departments.",
+        parsed,
+        departmentOptions: availableDepartments,
+      };
     }
 
     const requiredCertifications = await this.requiredCertificationsFor(organizationId, parsed.departmentId);

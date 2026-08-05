@@ -101,6 +101,10 @@ export async function GET(
       coverageSummary: extractResult(coverageSummaryResult, "CoverageSummary"),
     };
 
+    if (role === "manager") {
+      response.managedDepartments = membership.departmentMemberships.map((item) => item.department.name);
+    }
+
     // Role-specific section (resilient — failure doesn't affect shared sections)
     if (role === "company_admin") {
       try {

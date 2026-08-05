@@ -25,6 +25,7 @@ import type { NeedsAttentionItem } from "@/components/dashboard/needs-attention"
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { EmptyState } from "@/components/ui/empty-state";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { OperationsAssistant } from "@/components/operations/operations-assistant";
 
 // ============================================================
 // API response types
@@ -78,6 +79,7 @@ interface ManagerDashboardData {
     | { membershipId: string; name: string; percentage: number }[]
     | null;
   teamRoster: TeamMemberItem[] | null;
+  managedDepartments?: string[];
 }
 
 // ============================================================
@@ -265,6 +267,11 @@ export default function ManagerDashboard({
           Your team for today &mdash; {availableCount} of {totalStaff} staff
           available.
         </p>
+        {data.managedDepartments && data.managedDepartments.length > 0 && (
+          <p className="mt-1 text-xs text-muted-foreground">
+            Managing: {data.managedDepartments.join(", ")}
+          </p>
+        )}
 
         <div
           className={`mt-3 inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-sm font-medium ${statusPill.bg} ${statusPill.text}`}
@@ -275,6 +282,8 @@ export default function ManagerDashboard({
           {statusPill.label}
         </div>
       </div>
+
+      <OperationsAssistant orgId={orgId} role="manager" />
 
       {/* ---- Action items ---- */}
       {attentionItems.length > 0 && (

@@ -11,6 +11,7 @@ import { AutoScheduleService } from "@/services/auto-schedule.service";
 import { getAuthenticatedUser, unauthorizedResponse, checkOrgSuspended } from "@/lib/auth-guard";
 import { MembershipRepository } from "@/repositories/membership.repository";
 import { hasPermission, PERMISSIONS } from "@/lib/permission-guard";
+import { departmentScopeFor } from "@/lib/department-scope";
 
 const autoScheduleService = new AutoScheduleService();
 const membershipRepo = new MembershipRepository();
@@ -48,7 +49,11 @@ export async function POST(
       );
     }
 
-    const draft = await autoScheduleService.generateSchedule(orgId, weekStart);
+    const draft = await autoScheduleService.generateSchedule(
+      orgId,
+      weekStart,
+      departmentScopeFor(membership)
+    );
     return NextResponse.json(draft);
   } catch (error) {
     console.error("[Auto-Schedule Generate Error]", error);

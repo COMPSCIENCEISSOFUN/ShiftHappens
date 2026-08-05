@@ -41,7 +41,9 @@ export async function GET(
       status,
       departmentScopeFor(membership)
     );
-    return NextResponse.json(certs);
+    const response = NextResponse.json(certs);
+    response.headers.set("X-Organization-Role", membership.role);
+    return response;
   } catch {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }

@@ -23,6 +23,7 @@ export class TaskRepository {
     instructions?: string;
     organizationId: string;
     departmentId?: string;
+    projectId?: string;
     requiredHeadcount?: number;
     requiredCertifications?: string[];
     priority?: string;
@@ -41,6 +42,7 @@ export class TaskRepository {
         instructions: data.instructions,
         organizationId: data.organizationId,
         departmentId: data.departmentId,
+        projectId: data.projectId,
         requiredHeadcount: data.requiredHeadcount ?? 1,
         requiredCertifications: data.requiredCertifications ?? [],
         priority: data.priority ?? "medium",
@@ -54,6 +56,7 @@ export class TaskRepository {
       include: {
         assignments: true,
         department: { select: { id: true, name: true, color: true } },
+        project: { select: { id: true, title: true, status: true } },
         createdBy: { select: { id: true, name: true } },
       },
     });
@@ -108,6 +111,7 @@ export class TaskRepository {
           },
         },
         department: { select: { id: true, name: true, color: true } },
+        project: { select: { id: true, title: true, status: true } },
         createdBy: { select: { id: true, name: true } },
       },
     });
@@ -127,6 +131,7 @@ export class TaskRepository {
       },
       include: {
         department: { select: { id: true, name: true, color: true } },
+        project: { select: { id: true, title: true, status: true } },
         createdBy: { select: { id: true, name: true } },
         assignments: {
           include: {

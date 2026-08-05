@@ -53,6 +53,9 @@ const ACTION_LABELS: Record<string, string> = {
   "role.created": "Role created",
   "role.updated": "Role updated",
   "role.deleted": "Role deleted",
+  "ai_operation.executed": "AI operation completed",
+  "project.created": "Project created",
+  "project.updated": "Project updated",
 };
 
 function actionColor(action: string): string {
@@ -73,13 +76,16 @@ export default function AuditLogPage() {
   const [offset, setOffset] = useState(0);
   const [filterAction, setFilterAction] = useState("");
   const [filterEntity, setFilterEntity] = useState("");
+  const [search, setSearch] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const limit = 20;
 
   useEffect(() => {
     fetchLogs();
-  }, [orgId, offset, filterAction, filterEntity]);
+  }, [orgId, offset, filterAction, filterEntity, search, startDate, endDate]);
 
   async function fetchLogs() {
     setLoading(true);
@@ -89,6 +95,9 @@ export default function AuditLogPage() {
       params.set("offset", String(offset));
       if (filterAction) params.set("action", filterAction);
       if (filterEntity) params.set("entityType", filterEntity);
+      if (search.trim()) params.set("search", search.trim());
+      if (startDate) params.set("startDate", startDate);
+      if (endDate) params.set("endDate", `${endDate}T23:59:59.999Z`);
 
       const res = await fetch(
         `/api/organizations/${orgId}/audit-logs?${params.toString()}`
@@ -118,7 +127,10 @@ export default function AuditLogPage() {
       {error && <AlertBanner message={error} variant="error" />}
 
       {/* Filters */}
-      <div className="mb-4 flex gap-3">
+      <div className="mb-4 flex flex-wrap gap-3">
+        <input aria-label="Search audit history" value={search} onChange={(e) => { setSearch(e.target.value); setOffset(0); }} placeholder="Search action or person" className="rounded-md border px-3 py-1.5 text-sm" />
+        <input aria-label="Audit history start date" type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); setOffset(0); }} className="rounded-md border px-3 py-1.5 text-sm" />
+        <input aria-label="Audit history end date" type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setOffset(0); }} className="rounded-md border px-3 py-1.5 text-sm" />
         <select
           className="rounded-md border px-3 py-1.5 text-sm"
           value={filterAction}
@@ -147,6 +159,7 @@ export default function AuditLogPage() {
           <option value="member">Members</option>
           <option value="role">Roles</option>
           <option value="settings">Settings</option>
+          <option value="ai-operation">AI operations</option>
         </select>
         <span className="flex items-center text-sm text-muted-foreground">
           {total} entries
@@ -226,6 +239,7 @@ function formatDetails(entry: AuditEntry): string {
     const keys = Object.keys(d);
     return `updated ${keys.join(", ")}`;
   }
+  if (entry.action === "ai_operation.executed" && d.request) return `Request: ${String(d.request)}`;
 
   return "";
 }

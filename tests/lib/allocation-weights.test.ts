@@ -3,9 +3,16 @@ import {
   DEFAULT_ALLOCATION_WEIGHTS,
   normalizeAllocationWeights,
   parseAllocationWeights,
+  setAllocationWeight,
 } from "@/lib/allocation-weights";
 
 describe("allocation weights", () => {
+  it("keeps the editable priority controls at exactly 100%", () => {
+    const changed = setAllocationWeight({ workloadBalance: 30, availabilityFit: 25, certificationBreadth: 25, departmentExperience: 20 }, "availabilityFit", 70);
+    expect(Object.values(changed).reduce((sum, value) => sum + value, 0)).toBe(100);
+    expect(changed.availabilityFit).toBe(70);
+    expect(Object.values(changed).every((value) => value >= 0 && value <= 100)).toBe(true);
+  });
   it("normalizes supported factors to a total of 100", () => {
     expect(
       normalizeAllocationWeights({

@@ -72,6 +72,27 @@ export function normalizeAllocationWeights(input: AllocationWeights): Allocation
   return normalized;
 }
 
+/** Changes one displayed priority while preserving a strict 100% budget. */
+export function setAllocationWeight(input: AllocationWeights, key: AllocationWeightKey, nextValue: number): AllocationWeights {
+  const target = Math.max(0, Math.min(100, Math.round(nextValue)));
+  const next = { ...input, [key]: target };
+  let difference = 100 - Object.values(next).reduce((sum, value) => sum + value, 0);
+  const otherKeys = ALLOCATION_FACTORS.map((factor) => factor.key).filter((factorKey) => factorKey !== key);
+
+  for (const otherKey of otherKeys) {
+    if (difference === 0) break;
+    if (difference > 0) {
+      next[otherKey] += difference;
+      difference = 0;
+    } else {
+      const reduction = Math.min(next[otherKey], Math.abs(difference));
+      next[otherKey] -= reduction;
+      difference += reduction;
+    }
+  }
+  return next;
+}
+
 export function parseAllocationWeights(value: string | null | undefined): AllocationWeights {
   if (!value) return { ...DEFAULT_ALLOCATION_WEIGHTS };
   try {

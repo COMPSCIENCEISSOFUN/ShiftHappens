@@ -49,6 +49,7 @@ interface StaffInfo {
   }[];
   certifications: string[];
   hoursThisWeek: number;
+  existingSlots: { start: number; end: number }[];
 }
 
 interface TaskInfo {
@@ -104,7 +105,11 @@ export class AutoScheduleService {
   private eligibilityService = new EligibilityService();
   private notificationService = new NotificationService();
 
-  async collectWeekData(organizationId: string, weekStart: Date): Promise<ScheduleContext> {
+  async collectWeekData(
+    organizationId: string,
+    weekStart: Date,
+    authorizedDepartmentIds: string[] | null = null
+  ): Promise<ScheduleContext> {
     const weekEnd = new Date(weekStart);
     weekEnd.setDate(weekEnd.getDate() + 7);
 
@@ -112,6 +117,7 @@ export class AutoScheduleService {
 
     const tasks: TaskInfo[] = [];
     for (const task of allTasks) {
+      if (!isDepartmentInScope(task.departmentId, authorizedDepartmentIds)) continue;
       if (!task.scheduledStart || !task.scheduledEnd) continue;
       const start = new Date(task.scheduledStart);
       const end = new Date(task.scheduledEnd);
@@ -155,10 +161,9 @@ export class AutoScheduleService {
         where: {
           membershipId: member.id,
           status: { in: ["assigned", "in_progress", "clocked_out", "completed"] },
-          clockInTime: { not: null },
-          task: { scheduledStart: { gte: weekStart }, scheduledEnd: { lte: weekEnd } },
+          task: { scheduledStart: { lt: weekEnd }, scheduledEnd: { gt: weekStart } },
         },
-        select: { clockInTime: true, clockOutTime: true },
+        select: { clockInTime: true, clockOutTime: true, task: { select: { scheduledStart: true, scheduledEnd: true } } },
       });
 
       let hoursThisWeek = 0;
@@ -183,6 +188,11 @@ export class AutoScheduleService {
         })),
         certifications: certs.map((c) => c.name),
         hoursThisWeek,
+        existingSlots: assignments.flatMap((assignment) =>
+          assignment.task.scheduledStart && assignment.task.scheduledEnd
+            ? [{ start: assignment.task.scheduledStart.getTime(), end: assignment.task.scheduledEnd.getTime() }]
+            : []
+        ),
       });
     }
 
@@ -198,21 +208,19 @@ export class AutoScheduleService {
     };
   }
 
-  async generateSchedule(organizationId: string, weekStart: Date): Promise<DraftSchedule> {
-    const context = await this.collectWeekData(organizationId, weekStart);
+  async generateSchedule(
+    organizationId: string,
+    weekStart: Date,
+    authorizedDepartmentIds: string[] | null = null
+  ): Promise<DraftSchedule> {
+    const context = await this.collectWeekData(organizationId, weekStart, authorizedDepartmentIds);
 
     if (context.tasks.length === 0) {
       return { assignments: [], unfilledTasks: [], summary: { totalTasks: 0, totalAssignments: 0, totalUnfilled: 0, hoursDistribution: [] } };
     }
 
-    try {
-      const draft = await this.generateWithAI(context);
-      if (draft.assignments.length > 0) return draft;
-      console.log("[Auto-Schedule] AI produced no valid assignments, using algorithmic fallback");
-    } catch (error) {
-      console.log("[Auto-Schedule] AI failed, using algorithmic fallback:", error);
-    }
-
+    // The deterministic scheduler evaluates committed future assignments before
+    // drafting. This keeps a draft aligned with the final eligibility gate.
     return this.generateAlgorithmic(context);
   }
 
@@ -221,7 +229,9 @@ export class AutoScheduleService {
     const unfilledTasks: { taskId: string; taskTitle: string; reason: string }[] = [];
     const cumulativeHours = new Map<string, number>();
     for (const s of context.staff) cumulativeHours.set(s.membershipId, s.hoursThisWeek);
-    const staffSlots = new Map<string, { start: number; end: number }[]>();
+    const staffSlots = new Map(
+      context.staff.map((staff) => [staff.membershipId, [...staff.existingSlots]])
+    );
 
     for (const task of context.tasks) {
       const slotsNeeded = task.requiredHeadcount - task.currentAssignments;
@@ -636,6 +646,10 @@ Use the exact task numbers (1, 2, 3...) and staff letters (A, B, C...) from abov
       );
     }
 
-    return { created: created.length, failed: 0 };
+    return {
+      created: created.length,
+      failed: 0,
+      assignmentIds: created.map((assignment) => assignment.id),
+    };
   }
 }

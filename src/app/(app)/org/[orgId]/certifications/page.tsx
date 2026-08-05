@@ -364,6 +364,7 @@ export default function CertificationsPage() {
   const [busyIds, setBusyIds] = useState<string[]>([]);
   const [reasonTarget, setReasonTarget] = useState<ReasonTarget | null>(null);
   const [dialogSubmitting, setDialogSubmitting] = useState(false);
+  const [viewerRole, setViewerRole] = useState<string | null>(null);
 
   // Debounced so typing does not re-filter on every keystroke.
   useEffect(() => {
@@ -389,6 +390,7 @@ export default function CertificationsPage() {
       }
 
       setCertifications(data);
+      setViewerRole(res.headers.get("X-Organization-Role"));
       setError(null);
     } catch {
       setError("Failed to load certifications");
@@ -1059,7 +1061,7 @@ export default function CertificationsPage() {
 
                         {/* Actions stack full-width under the details on a
                             phone and sit beside them from sm up. */}
-                        {cert.status === "pending" && (
+                        {viewerRole === "manager" && cert.status === "pending" && (
                           <div className="flex shrink-0 gap-2">
                             <button
                               onClick={() => void handleVerify(cert)}
@@ -1079,7 +1081,7 @@ export default function CertificationsPage() {
                             </button>
                           </div>
                         )}
-                        {cert.status === "verified" && (
+                        {viewerRole === "manager" && cert.status === "verified" && (
                           <div className="flex shrink-0">
                             <button
                               onClick={() =>

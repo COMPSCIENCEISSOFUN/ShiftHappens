@@ -126,6 +126,21 @@ describe("TaskAssignmentService", () => {
       const completed = await assignmentService.complete(assignment.id, membershipId);
 
       expect(completed.status).toBe("completed");
+      await expect(prisma.task.findUniqueOrThrow({ where: { id: taskId } })).resolves.toMatchObject({ status: "completed" });
+    });
+
+    it("keeps a multi-staff task open until every assigned staff member has completed", async () => {
+      await prisma.task.update({ where: { id: taskId }, data: { requiredHeadcount: 2 } });
+      const otherUser = await userRepo.create({ name: "Second Staff", email: "second-completion@example.com", hashedPassword: "hash" });
+      const otherMembership = await prisma.membership.create({ data: { userId: otherUser.id, organizationId: orgId, role: "staff", status: "active" } });
+      const first = await createAssignment();
+      const second = await prisma.taskAssignment.create({ data: { taskId, membershipId: otherMembership.id, assignedById: userId, status: "clocked_out", clockInTime: new Date(Date.now() - 3_600_000), clockOutTime: new Date() } });
+      await assignmentService.clockIn(first.id, membershipId);
+      await assignmentService.clockOut(first.id, membershipId);
+      await assignmentService.complete(first.id, membershipId);
+      await expect(prisma.task.findUniqueOrThrow({ where: { id: taskId } })).resolves.toMatchObject({ status: "open" });
+      await assignmentService.complete(second.id, otherMembership.id);
+      await expect(prisma.task.findUniqueOrThrow({ where: { id: taskId } })).resolves.toMatchObject({ status: "completed" });
     });
 
     it("throws if not clocked out yet", async () => {

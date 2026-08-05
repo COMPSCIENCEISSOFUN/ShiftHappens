@@ -31,6 +31,7 @@ import { AlertBanner } from "@/components/ui/alert-banner";
 import { EmptyState } from "@/components/ui/empty-state";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { certificationDisplayState } from "@/lib/certification-display";
+import { OperationsAssistant } from "@/components/operations/operations-assistant";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -296,6 +297,8 @@ export default function StaffDashboard({
 
   return (
     <div className="space-y-8">
+      <OperationsAssistant orgId={orgId} role="staff" />
+
       {/* ------------------------------------------------------------------ */}
       {/* Greeting                                                           */}
       {/* ------------------------------------------------------------------ */}

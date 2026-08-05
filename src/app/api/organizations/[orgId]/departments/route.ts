@@ -13,6 +13,7 @@ import { getAuthenticatedUser, unauthorizedResponse, checkOrgSuspended } from "@
 import { MembershipRepository } from "@/repositories/membership.repository";
 import { SubscriptionLimitError, FeatureNotAvailableError } from "@/lib/subscription-tiers";
 import { hasPermission, PERMISSIONS } from "@/lib/permission-guard";
+import { departmentScopeFor } from "@/lib/department-scope";
 
 const deptService = new DepartmentService();
 const membershipRepo = new MembershipRepository();
@@ -76,7 +77,13 @@ export async function GET(
 
     const includeArchived = request.nextUrl.searchParams.get("includeArchived") === "true";
     const depts = await deptService.getByOrganization(orgId, includeArchived);
-    return NextResponse.json(depts);
+    const scopeOnly = request.nextUrl.searchParams.get("scope") === "mine";
+    if (!scopeOnly) return NextResponse.json(depts);
+
+    const scope = departmentScopeFor(membership);
+    return NextResponse.json(
+      scope === null ? depts : depts.filter((department) => scope.includes(department.id))
+    );
   } catch {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }

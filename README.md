@@ -164,6 +164,23 @@ If you ran the demo seed script, these accounts are available:
 | Staff | jordan@oceangrill.com | TestPass1! |
 | Staff | casey@oceangrill.com | TestPass1! |
 
+### Project-based IT demo
+
+Run `npm exec -- tsx prisma/seed-it-demo.ts` to create the Northstar IT Solutions demo organisation.
+
+| Role | Email | Password | Scope |
+|------|-------|----------|-------|
+| Company Admin | admin@northstarit.com | TestPass1! | All departments |
+| Manager | priya@northstarit.com | TestPass1! | Product Engineering + Client Delivery |
+| Manager | daniel@northstarit.com | TestPass1! | Cloud & DevOps |
+| Staff | maya@northstarit.com | TestPass1! | Product Engineering |
+| Staff | leo@northstarit.com | TestPass1! | Product Engineering + Client Delivery |
+| Staff | sophia@northstarit.com | TestPass1! | Cloud & DevOps |
+| Staff | ethan@northstarit.com | TestPass1! | Cloud & DevOps + Security & QA |
+| Staff | nora@northstarit.com | TestPass1! | Client Delivery |
+| Staff | oliver@northstarit.com | TestPass1! | Security & QA |
+| Staff | ava@northstarit.com | TestPass1! | Product Engineering + Security & QA |
+
 ---
 
 ## Commands

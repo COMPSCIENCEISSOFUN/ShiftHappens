@@ -82,8 +82,15 @@ export default function MyTasksPage() {
         setError(result.error);
         return;
       }
+      const updated = await res.json();
+      setAssignments((current) => current.map((assignment) => assignment.id === assignmentId ? {
+        ...assignment,
+        status: updated.status,
+        clockInTime: updated.clockInTime ?? assignment.clockInTime,
+        clockOutTime: updated.clockOutTime ?? assignment.clockOutTime,
+      } : assignment));
       setSuccess(successText);
-      fetchAssignments();
+      void fetchAssignments();
     } catch {
       setError("Something went wrong");
     }

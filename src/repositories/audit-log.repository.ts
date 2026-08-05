@@ -30,6 +30,7 @@ export class AuditLogRepository {
       action?: string;
       entityType?: string;
       userId?: string;
+      search?: string;
       startDate?: Date;
       endDate?: Date;
     },
@@ -42,6 +43,11 @@ export class AuditLogRepository {
         ...(filters?.action && { action: filters.action }),
         ...(filters?.entityType && { entityType: filters.entityType }),
         ...(filters?.userId && { userId: filters.userId }),
+        ...(filters?.search ? { OR: [
+          { action: { contains: filters.search, mode: "insensitive" } },
+          { entityType: { contains: filters.search, mode: "insensitive" } },
+          { user: { is: { OR: [{ name: { contains: filters.search, mode: "insensitive" } }, { email: { contains: filters.search, mode: "insensitive" } }] } } },
+        ] } : {}),
         ...(filters?.startDate || filters?.endDate
           ? {
               createdAt: {
@@ -67,6 +73,7 @@ export class AuditLogRepository {
       action?: string;
       entityType?: string;
       userId?: string;
+      search?: string;
       startDate?: Date;
       endDate?: Date;
     }
@@ -77,6 +84,11 @@ export class AuditLogRepository {
         ...(filters?.action && { action: filters.action }),
         ...(filters?.entityType && { entityType: filters.entityType }),
         ...(filters?.userId && { userId: filters.userId }),
+        ...(filters?.search ? { OR: [
+          { action: { contains: filters.search, mode: "insensitive" } },
+          { entityType: { contains: filters.search, mode: "insensitive" } },
+          { user: { is: { OR: [{ name: { contains: filters.search, mode: "insensitive" } }, { email: { contains: filters.search, mode: "insensitive" } }] } } },
+        ] } : {}),
         ...(filters?.startDate || filters?.endDate
           ? {
               createdAt: {

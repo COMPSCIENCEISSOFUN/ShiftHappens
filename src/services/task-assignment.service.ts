@@ -46,7 +46,7 @@ export class TaskAssignmentService {
 
     const result = await this.assignmentRepo.clockIn(assignmentId);
 
-    await this.auditService.log({
+    void this.auditService.log({
       organizationId: assignment.task.organizationId,
       userId: assignment.membership.userId,
       action: ACTIONS.ASSIGNMENT_CLOCKED_IN,
@@ -81,7 +81,7 @@ export class TaskAssignmentService {
 
     const result = await this.assignmentRepo.clockOut(assignmentId);
 
-    await this.auditService.log({
+    void this.auditService.log({
       organizationId: assignment.task.organizationId,
       userId: assignment.membership.userId,
       action: ACTIONS.ASSIGNMENT_CLOCKED_OUT,
@@ -118,7 +118,7 @@ export class TaskAssignmentService {
 
     const result = await this.assignmentRepo.complete(assignmentId);
 
-    await this.auditService.log({
+    void this.auditService.log({
       organizationId: assignment.task.organizationId,
       userId: assignment.membership.userId,
       action: ACTIONS.ASSIGNMENT_COMPLETED,
@@ -128,7 +128,7 @@ export class TaskAssignmentService {
     });
 
     const staffName = assignment.membership.user?.name || "A staff member";
-    await this.notificationService.notify(
+    void this.notificationService.notify(
       assignment.task.organizationId,
       assignment.assignedById,
       NOTIFICATION_TYPES.TASK_COMPLETED,

@@ -40,6 +40,7 @@ export async function GET(
       action: searchParams.get("action") || undefined,
       entityType: searchParams.get("entityType") || undefined,
       userId: searchParams.get("userId") || undefined,
+      search: searchParams.get("search") || undefined,
       startDate: searchParams.get("startDate")
         ? new Date(searchParams.get("startDate")!)
         : undefined,

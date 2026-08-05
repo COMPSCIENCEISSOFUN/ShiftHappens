@@ -68,8 +68,16 @@ export class AvailabilityService {
   }
 
   /** Deletes a date override */
-  async deleteOverride(overrideId: string) {
-    return this.availRepo.deleteOverride(overrideId);
+  async deleteOverride(overrideId: string, membershipId: string) {
+    return this.availRepo.deleteOverride(overrideId, membershipId);
+  }
+
+  async updateOverride(overrideId: string, membershipId: string, input: CreateAvailabilityOverrideInput) {
+    return this.availRepo.updateOverride(overrideId, membershipId, {
+      date: new Date(input.date),
+      isAvailable: input.isAvailable,
+      reason: input.reason,
+    });
   }
 
   /** Checks if a member is available at a specific date and time */

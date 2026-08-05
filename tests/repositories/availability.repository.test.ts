@@ -158,13 +158,20 @@ describe("AvailabilityRepository", () => {
         isAvailable: false,
       });
 
-      await availRepo.deleteOverride(override.id);
+      await availRepo.deleteOverride(override.id, membershipId);
 
       const found = await availRepo.getOverrideForDate(
         membershipId,
         new Date("2026-06-15T00:00:00.000Z")
       );
       expect(found).toBeNull();
+    });
+
+    it("does not delete another member's override", async () => {
+      const other = await prisma.membership.create({ data: { userId: (await prisma.user.create({ data: { name: "Other", email: "other-availability@example.com", hashedPassword: "hash" } })).id, organizationId: (await prisma.membership.findUniqueOrThrow({ where: { id: membershipId } })).organizationId, role: "staff" } });
+      const override = await availRepo.createOverride({ membershipId: other.id, date: new Date("2026-06-16T00:00:00.000Z"), isAvailable: false });
+      await expect(availRepo.deleteOverride(override.id, membershipId)).resolves.toBe(false);
+      await expect(availRepo.getOverrideForDate(other.id, new Date("2026-06-16T00:00:00.000Z"))).resolves.not.toBeNull();
     });
   });
 

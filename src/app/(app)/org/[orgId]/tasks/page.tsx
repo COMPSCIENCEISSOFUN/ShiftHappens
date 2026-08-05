@@ -29,6 +29,7 @@ import {
 import { PageLoading } from "@/components/ui/page-loading";
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { EmptyState } from "@/components/ui/empty-state";
+import { OperationsAssistant } from "@/components/operations/operations-assistant";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { toDateTimeLocalValue } from "@/lib/timezone";
 import { ClipboardList, MapPin } from "lucide-react";
@@ -116,6 +117,7 @@ interface Task {
   recurringPattern: string | null;
   /** Set on tasks generated from a recurring series. */
   parentTaskId: string | null;
+  project?: { id: string; title: string; status: string } | null;
   department: { id: string; name: string; color?: string } | null;
   createdBy: { id: string; name: string | null };
   assignments: {
@@ -169,6 +171,11 @@ interface StaffSuggestion {
   explanation?: string;
 }
 
+interface DepartmentOption {
+  id: string;
+  name: string;
+}
+
 // ============================================================
 // Main component
 // ============================================================
@@ -207,8 +214,10 @@ export default function TasksPage() {
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [loadingEligibility, setLoadingEligibility] = useState(false);
+  // Retained for the manual task fallback and its status banner.
   const [naturalInput, setNaturalInput] = useState("");
   const [parsing, setParsing] = useState(false);
+  const [clarificationOptions, setClarificationOptions] = useState<DepartmentOption[]>([]);
   // "auto" | "manual" - smart suggestions are available in both modes.
   const [allocationMode, setAllocationMode] = useState<string>("auto");
   const [autoAssigningId, setAutoAssigningId] = useState<string | null>(null);
@@ -219,7 +228,7 @@ export default function TasksPage() {
     fetchTasks();
     fetchDepartments();
     fetchMembers();
-    fetchSettings();
+    fetchAllocationMode();
     fetchCertificationDefinitions();
   }, [orgId]);
 
@@ -227,6 +236,11 @@ export default function TasksPage() {
     try {
       const res = await fetch(`/api/organizations/${orgId}/tasks`);
       const data = await res.json();
+      if (!res.ok || !Array.isArray(data)) {
+        setTasks([]);
+        setError(data?.error || "Failed to load tasks");
+        return;
+      }
       setTasks(data);
     } catch {
       setError("Failed to load tasks");
@@ -237,15 +251,15 @@ export default function TasksPage() {
 
   async function fetchDepartments() {
     try {
-      const res = await fetch(`/api/organizations/${orgId}/departments`);
+      const res = await fetch(`/api/organizations/${orgId}/departments?scope=mine`);
       const data = await res.json();
       setDepartments(Array.isArray(data) ? data : []);
     } catch {}
   }
 
-  async function fetchSettings() {
+  async function fetchAllocationMode() {
     try {
-      const res = await fetch(`/api/organizations/${orgId}/settings`);
+      const res = await fetch(`/api/organizations/${orgId}/task-allocation-mode`);
       if (!res.ok) return;
       const data = await res.json();
       setAllocationMode(data.allocationMode ?? "auto");
@@ -348,7 +362,8 @@ export default function TasksPage() {
   /** Lets the system pick and assign the best-fit staff for a task (US-65). */
   async function onAutoAssign(taskId: string) {
     setError(null);
-    setSuccess(null);
+      setSuccess(null);
+      setClarificationOptions([]);
     setAutoAssigningId(taskId);
 
     try {
@@ -393,12 +408,14 @@ export default function TasksPage() {
         return;
       }
 
-      setNaturalInput("");
       if (result.status === "completed") {
+        setNaturalInput("");
+        setClarificationOptions([]);
         const names = result.assignedStaff?.join(", ") || "qualified staff";
         setSuccess(`${result.message} Assigned: ${names}`);
       } else {
         setError(result.message || "This request needs your review.");
+        setClarificationOptions(Array.isArray(result.departmentOptions) ? result.departmentOptions : []);
       }
       await fetchTasks();
 
@@ -804,8 +821,9 @@ export default function TasksPage() {
         <div>
           <h2 className="text-2xl font-bold tracking-tight">Tasks</h2>
           <p className="mt-0.5 text-sm text-muted-foreground">
-            Manage and assign shifts across your organization
+            Ask ShiftHappens to coordinate the work, then handle exceptions here.
           </p>
+          {departments.length > 0 && <p className="mt-1 text-xs text-muted-foreground">Managing: {departments.map((department) => department.name).join(", ")}</p>}
         </div>
         <div className="flex gap-2">
           <Button
@@ -819,7 +837,7 @@ export default function TasksPage() {
             ) : (
               <>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
-                Create Task
+                Manual task
               </>
             )}
           </Button>
@@ -869,34 +887,40 @@ export default function TasksPage() {
       {/* ──────────────────────────────────────────────── */}
       {/* 3. AI natural-language creation bar              */}
       {/* ──────────────────────────────────────────────── */}
-      <div className="mb-4 flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-1 transition-shadow focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-500/10 dark:focus-within:border-indigo-500 dark:focus-within:ring-indigo-400/10">
-        {/* Sparkle icon */}
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="shrink-0 text-indigo-500">
-          <path d="M12 2L14.4 8.4L21 10L14.4 12.4L12 19L9.6 12.4L3 10L9.6 8.4L12 2Z" fill="currentColor" opacity="0.8" />
-        </svg>
-        <Input
-          placeholder='Tell me what needs to happen, e.g. "I need 2 kitchen staff tomorrow morning for prep"'
-          value={naturalInput}
-          onChange={(e) => setNaturalInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") onParseNaturalLanguage();
-          }}
-          className="flex-1 border-0 bg-transparent shadow-none focus-visible:ring-0"
-        />
-        <Button
-          size="sm"
-          onClick={onParseNaturalLanguage}
-          disabled={parsing || !naturalInput.trim()}
-          className="shrink-0 gap-1 bg-gradient-to-r from-indigo-600 to-violet-700 text-white hover:opacity-90"
-        >
-          {parsing ? "Working..." : "Do it"}
-        </Button>
+      <div className="mb-4">
+        <OperationsAssistant orgId={orgId} role="manager" onCompleted={fetchTasks} />
       </div>
 
       {/* ──────────────────────────────────────────────── */}
       {/* Alerts                                           */}
       {/* ──────────────────────────────────────────────── */}
-      {error && <AlertBanner message={error} variant="error" className="mb-4" />}
+      {error && clarificationOptions.length === 0 && (
+        <AlertBanner message={error} variant="error" className="mb-4" />
+      )}
+      {error && clarificationOptions.length > 0 && (
+        <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-100">
+          <p className="font-semibold">{error}</p>
+          <p className="mt-1 text-xs text-blue-700 dark:text-blue-300">
+            Choose an authorised department to continue this request.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {clarificationOptions.map((department) => (
+              <button
+                key={department.id}
+                type="button"
+                onClick={() => {
+                  setNaturalInput((current) => `${current} for ${department.name}`);
+                  setError(null);
+                  setClarificationOptions([]);
+                }}
+                className="rounded-lg border border-blue-300 bg-white px-3 py-1.5 text-xs font-semibold text-blue-800 transition-colors hover:border-blue-500 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-200 dark:hover:bg-blue-900"
+              >
+                {department.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       {success && <AlertBanner message={success} variant="success" className="mb-4" />}
 
       {/* ──────────────────────────────────────────────── */}

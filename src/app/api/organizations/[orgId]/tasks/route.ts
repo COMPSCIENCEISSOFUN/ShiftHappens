@@ -72,7 +72,9 @@ export async function POST(
       (error.message === "End time must be after start time" ||
         error.message === "Must provide both start and end time, or neither" ||
         error.message === "A recurring task must have a start and end time" ||
-        error.message === "Invalid recurrence pattern")
+        error.message === "Invalid recurrence pattern" ||
+        error.message === "Project not found" ||
+        error.message === "Task department must match its project department")
     ) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }

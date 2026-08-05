@@ -15,7 +15,6 @@ import type { AIProvider, StaffCandidate, RankedStaff } from "./ai-provider";
 import { GroqProvider } from "./providers/groq.provider";
 import { GeminiProvider } from "./providers/gemini.provider";
 import { EligibilityService } from "./eligibility.service";
-import { CertificationRepository } from "@/repositories/certification.repository";
 import { SettingsRepository } from "@/repositories/settings.repository";
 import { TaskRepository } from "@/repositories/task.repository";
 import { TaskService } from "./task.service";
@@ -25,7 +24,6 @@ import { parseAllocationWeights, type AllocationWeights } from "@/lib/allocation
 export class AllocationService {
   private providers: AIProvider[];
   private eligibilityService = new EligibilityService();
-  private certRepo = new CertificationRepository();
   private settingsRepo = new SettingsRepository();
   private taskRepo = new TaskRepository();
   private taskService = new TaskService();
@@ -90,17 +88,14 @@ export class AllocationService {
 
     const settings = await this.settingsRepo.getOrCreate(organizationId);
     const weights = parseAllocationWeights(settings.smartAllocationWeights);
-    const candidates: StaffCandidate[] = [];
-
-    for (const staff of eligibleStaff) {
-      const candidate = await this.buildCandidate(
-        staff.membershipId,
-        staff.memberName,
-        settings.breakRuleHoursWorked,
-        task.departmentId
-      );
-      candidates.push(candidate);
-    }
+    const candidates = await this.buildCandidates(
+      eligibleStaff.map((staff) => ({
+        membershipId: staff.membershipId,
+        name: staff.memberName,
+      })),
+      settings.breakRuleHoursWorked,
+      task.departmentId
+    );
 
     const rankings = await this.rankWithFailover(
       {
@@ -177,65 +172,89 @@ export class AllocationService {
    * Builds a StaffCandidate object with all attributes
    * needed for AI ranking.
    */
-  private async buildCandidate(
-    membershipId: string,
-    name: string,
+  private async buildCandidates(
+    staff: { membershipId: string; name: string }[],
     maxHours: number,
     departmentId: string | null
-  ): Promise<StaffCandidate> {
-    // Get hours worked in last 24h
+  ): Promise<StaffCandidate[]> {
+    if (staff.length === 0) return [];
+
+    const membershipIds = staff.map((member) => member.membershipId);
     const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const recentAssignments = await prisma.taskAssignment.findMany({
-      where: {
+    const [recentAssignments, certifications, availability, departmentAssignments] =
+      await Promise.all([
+        prisma.taskAssignment.findMany({
+          where: {
+            membershipId: { in: membershipIds },
+            status: { in: ["clocked_out", "completed"] },
+            clockInTime: { gte: oneDayAgo },
+            clockOutTime: { not: null },
+          },
+          select: { membershipId: true, clockInTime: true, clockOutTime: true },
+        }),
+        prisma.certification.findMany({
+          where: {
+            membershipId: { in: membershipIds },
+            status: "verified",
+            OR: [{ expiryDate: null }, { expiryDate: { gte: new Date() } }],
+          },
+          select: { membershipId: true, name: true },
+        }),
+        prisma.availability.findMany({
+          where: { membershipId: { in: membershipIds } },
+          orderBy: { dayOfWeek: "asc" },
+          select: { membershipId: true, dayOfWeek: true, startTime: true, endTime: true, isAvailable: true },
+        }),
+        departmentId
+          ? prisma.taskAssignment.findMany({
+              where: {
+                membershipId: { in: membershipIds },
+                status: { in: ["assigned", "in_progress", "clocked_out", "completed"] },
+                task: { departmentId },
+              },
+              select: { membershipId: true },
+            })
+          : Promise.resolve([]),
+      ]);
+
+    const hoursByMember = new Map<string, number>();
+    for (const assignment of recentAssignments) {
+      if (!assignment.clockInTime || !assignment.clockOutTime) continue;
+      const hours = (assignment.clockOutTime.getTime() - assignment.clockInTime.getTime()) / 3600000;
+      hoursByMember.set(assignment.membershipId, (hoursByMember.get(assignment.membershipId) ?? 0) + hours);
+    }
+    const certificationsByMember = new Map<string, string[]>();
+    for (const certification of certifications) {
+      const names = certificationsByMember.get(certification.membershipId) ?? [];
+      names.push(certification.name);
+      certificationsByMember.set(certification.membershipId, names);
+    }
+    const availabilityByMember = new Map<string, typeof availability>();
+    for (const entry of availability) {
+      const entries = availabilityByMember.get(entry.membershipId) ?? [];
+      entries.push(entry);
+      availabilityByMember.set(entry.membershipId, entries);
+    }
+    const historyByMember = new Map<string, number>();
+    for (const assignment of departmentAssignments) {
+      historyByMember.set(assignment.membershipId, (historyByMember.get(assignment.membershipId) ?? 0) + 1);
+    }
+
+    const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    return staff.map(({ membershipId, name }) => {
+      const availableHours = (availabilityByMember.get(membershipId) ?? [])
+        .filter((entry) => entry.isAvailable)
+        .map((entry) => `${dayNames[entry.dayOfWeek]} ${entry.startTime}-${entry.endTime}`)
+        .join(", ") || "Not set";
+      return {
         membershipId,
-        status: { in: ["clocked_out", "completed"] },
-        clockInTime: { gte: oneDayAgo },
-        clockOutTime: { not: null },
-      },
+        name,
+        hoursWorkedToday: Math.round((hoursByMember.get(membershipId) ?? 0) * 10) / 10,
+        maxHours,
+        certifications: certificationsByMember.get(membershipId) ?? [],
+        availableHours,
+        departmentHistory: historyByMember.get(membershipId) ?? 0,
+      };
     });
-
-    let hoursWorkedToday = 0;
-    for (const a of recentAssignments) {
-      if (a.clockInTime && a.clockOutTime) {
-        hoursWorkedToday +=
-          (a.clockOutTime.getTime() - a.clockInTime.getTime()) / (1000 * 60 * 60);
-      }
-    }
-
-    // Get valid certifications
-    const certs = await this.certRepo.getValidCertifications(membershipId);
-    const certNames = certs.map((c) => c.name);
-
-    // Get availability summary
-    const availability = await prisma.availability.findMany({
-      where: { membershipId },
-      orderBy: { dayOfWeek: "asc" },
-    });
-    const availableHours = availability
-      .filter((a) => a.isAvailable)
-      .map((a) => `${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][a.dayOfWeek]} ${a.startTime}-${a.endTime}`)
-      .join(", ") || "Not set";
-
-    // Get department history (how many times assigned to tasks in this dept)
-    let departmentHistory = 0;
-    if (departmentId) {
-      departmentHistory = await prisma.taskAssignment.count({
-        where: {
-          membershipId,
-          task: { departmentId },
-          status: { in: ["assigned", "in_progress", "clocked_out", "completed"] },
-        },
-      });
-    }
-
-    return {
-      membershipId,
-      name,
-      hoursWorkedToday: Math.round(hoursWorkedToday * 10) / 10,
-      maxHours,
-      certifications: certNames,
-      availableHours,
-      departmentHistory,
-    };
   }
 }

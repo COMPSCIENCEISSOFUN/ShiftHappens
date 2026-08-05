@@ -382,11 +382,25 @@ export class TaskAssignmentRepository {
     });
   }
 
-  /** Marks a clocked-out assignment as completed (staff confirmation). */
+  /** Marks a clocked-out assignment as completed and closes fully completed work. */
   async complete(id: string) {
-    return prisma.taskAssignment.update({
-      where: { id },
-      data: { status: ASSIGNMENT_STATUSES.COMPLETED },
+    return prisma.$transaction(async (tx) => {
+      const completed = await tx.taskAssignment.update({
+        where: { id },
+        data: { status: ASSIGNMENT_STATUSES.COMPLETED },
+      });
+      const task = await tx.task.findUniqueOrThrow({
+        where: { id: completed.taskId },
+        select: { id: true, requiredHeadcount: true },
+      });
+      const assignments = await tx.taskAssignment.findMany({
+        where: { taskId: task.id, status: { notIn: ["withdrawn", "cancelled"] } },
+        select: { status: true },
+      });
+      if (assignments.length >= task.requiredHeadcount && assignments.every((assignment) => assignment.status === ASSIGNMENT_STATUSES.COMPLETED)) {
+        await tx.task.update({ where: { id: task.id }, data: { status: "completed" } });
+      }
+      return completed;
     });
   }
 

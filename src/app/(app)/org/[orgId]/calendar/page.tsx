@@ -22,6 +22,7 @@ import { SLOT_OCCUPYING_ASSIGNMENT_STATUSES } from "@/lib/assignment-status";
 import { PageLoading } from "@/components/ui/page-loading";
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { intersectsCalendarDay, positionForCalendarDay } from "@/lib/calendar-timeline";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -35,6 +36,11 @@ interface Task {
   requiredHeadcount: number;
   scheduledStart: string | null;
   scheduledEnd: string | null;
+  description?: string | null;
+  location?: string | null;
+  instructions?: string | null;
+  requiredCertifications?: string[];
+  project?: { id: string; title: string; status: string } | null;
   department: { id: string; name: string; color: string | null } | null;
   assignments: {
     id: string;
@@ -188,7 +194,9 @@ function TaskDetailPanel({ task, onClose }: { task: Task; onClose: () => void })
   const color = task.department?.color || "#94A3B8";
 
   return (
-    <div className="mt-4 overflow-hidden rounded-xl border border-border bg-card">
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/30 p-0 sm:p-4" role="dialog" aria-modal="true" aria-label={`Task details for ${task.title}`}>
+      <button type="button" aria-label="Close task details" className="absolute inset-0 cursor-default" onClick={onClose} />
+      <div className="relative flex h-full w-full max-w-xl flex-col overflow-hidden bg-card shadow-2xl sm:h-auto sm:max-h-[calc(100vh-2rem)] sm:rounded-xl sm:border sm:border-border">
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
         <div className="flex items-center gap-2.5 font-semibold">
@@ -204,6 +212,7 @@ function TaskDetailPanel({ task, onClose }: { task: Task; onClose: () => void })
       </div>
 
       {/* Body — responsive grid */}
+      <div className="overflow-y-auto">
       <div className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-4">
         <div>
           <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Department</p>
@@ -252,7 +261,39 @@ function TaskDetailPanel({ task, onClose }: { task: Task; onClose: () => void })
             )}
           </div>
         </div>
+        {task.project && (
+          <div className="col-span-2">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Project</p>
+            <p className="mt-1 text-[13px] font-medium">{task.project.title}</p>
+          </div>
+        )}
+        {task.description && (
+          <div className="col-span-2 sm:col-span-4">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Description</p>
+            <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">{task.description}</p>
+          </div>
+        )}
+        {task.location && (
+          <div className="col-span-2">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Location</p>
+            <p className="mt-1 text-[13px] font-medium">{task.location}</p>
+          </div>
+        )}
+        {task.requiredCertifications && task.requiredCertifications.length > 0 && (
+          <div className="col-span-2">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Required certifications</p>
+            <p className="mt-1 text-[13px] font-medium">{task.requiredCertifications.join(", ")}</p>
+          </div>
+        )}
+        {task.instructions && (
+          <div className="col-span-2 sm:col-span-4">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Instructions</p>
+            <p className="mt-1 whitespace-pre-wrap text-[13px] leading-relaxed text-muted-foreground">{task.instructions}</p>
+          </div>
+        )}
       </div>
+      </div>
+    </div>
     </div>
   );
 }
@@ -299,7 +340,7 @@ export default function CalendarPage() {
     fetchTasks();
     fetchCoverage();
     fetchStaff();
-    fetchSettings();
+    fetchCalendarSettings();
   }, [orgId]);
 
   useEffect(() => {
@@ -336,9 +377,9 @@ export default function CalendarPage() {
     } catch { /* non-critical */ }
   }
 
-  async function fetchSettings() {
+  async function fetchCalendarSettings() {
     try {
-      const res = await fetch(`/api/organizations/${orgId}/settings`);
+      const res = await fetch(`/api/organizations/${orgId}/calendar-settings`);
       if (res.ok) {
         const data = await res.json();
         if (data.operatingHoursStart !== undefined) setOpStart(data.operatingHoursStart);
@@ -382,20 +423,7 @@ export default function CalendarPage() {
   }
 
   function getTasksForDay(date: Date): Task[] {
-    return filteredTasks.filter((t) => {
-      if (!t.scheduledStart) return false;
-      return new Date(t.scheduledStart).toDateString() === date.toDateString();
-    });
-  }
-
-  function getTaskPosition(task: Task) {
-    const start = new Date(task.scheduledStart!);
-    const end = new Date(task.scheduledEnd!);
-    const startHour = start.getHours() + start.getMinutes() / 60;
-    const endHour = end.getHours() + end.getMinutes() / 60;
-    const top = ((startHour - opStart) / totalHours) * 100;
-    const height = ((endHour - startHour) / totalHours) * 100;
-    return { top: `${top}%`, height: `${Math.max(height, 2)}%` };
+    return filteredTasks.filter((task) => intersectsCalendarDay(task, date));
   }
 
   function getCurrentTimePosition(): number | null {
@@ -555,7 +583,8 @@ export default function CalendarPage() {
 
                 {/* Task blocks */}
                 {dayTasks.map((task) => {
-                  const pos = getTaskPosition(task);
+                  const pos = positionForCalendarDay(task, selectedDate, opStart, opEnd);
+                  if (!pos) return null;
                   const color = task.department?.color || "#94A3B8";
                   const overlap = overlapMap.get(task.id) || { column: 0, totalColumns: 1 };
                   const widthPercent = 100 / overlap.totalColumns;
@@ -564,7 +593,8 @@ export default function CalendarPage() {
                   const isUnderstaffed = active.length < task.requiredHeadcount;
 
                   return (
-                    <div
+                    <button
+                      type="button"
                       key={task.id}
                       className="absolute cursor-pointer overflow-hidden rounded-lg px-2.5 py-2 transition-all hover:shadow-md hover:-translate-y-px z-10"
                       style={{
@@ -573,7 +603,8 @@ export default function CalendarPage() {
                         backgroundColor: `${color}15`, borderLeft: `4px solid ${color}`,
                         ...(isUnderstaffed ? { outline: "1.5px dashed #F59E0B", outlineOffset: "-1px" } : {}),
                       }}
-                      onClick={() => setSelectedTask(selectedTask?.id === task.id ? null : task)}
+                      onClick={() => setSelectedTask(task)}
+                      aria-label={`View details for ${task.title}`}
                     >
                       <div className="truncate text-[13px] font-semibold" style={{ color }}>{task.title}</div>
                       <div className="mt-0.5 text-[11px] text-muted-foreground">
@@ -598,7 +629,7 @@ export default function CalendarPage() {
                           {active.length}/{task.requiredHeadcount}
                         </span>
                       </div>
-                    </div>
+                    </button>
                   );
                 })}
               </div>
@@ -876,7 +907,8 @@ export default function CalendarPage() {
 
                 {/* Task blocks */}
                 {dayTasks.map((task) => {
-                  const pos = getTaskPosition(task);
+                  const pos = positionForCalendarDay(task, date, opStart, opEnd);
+                  if (!pos) return null;
                   const color = task.department?.color || "#94A3B8";
                   const overlap = overlapMap.get(task.id) || { column: 0, totalColumns: 1 };
                   const widthPercent = 100 / overlap.totalColumns;
@@ -885,7 +917,8 @@ export default function CalendarPage() {
                   const isUnderstaffed = activeCount < task.requiredHeadcount;
 
                   return (
-                    <div
+                    <button
+                      type="button"
                       key={task.id}
                       className="absolute cursor-pointer overflow-hidden rounded-md px-1 py-0.5 text-xs transition-opacity hover:opacity-90 z-10"
                       style={{
@@ -894,13 +927,14 @@ export default function CalendarPage() {
                         backgroundColor: `${color}20`, borderLeft: `3px solid ${color}`,
                         ...(isUnderstaffed ? { outline: "1.5px dashed #F59E0B", outlineOffset: "-1px" } : {}),
                       }}
-                      onClick={() => setSelectedTask(selectedTask?.id === task.id ? null : task)}
+                      onClick={() => setSelectedTask(task)}
+                      aria-label={`View details for ${task.title}`}
                     >
                       <div className="truncate font-medium" style={{ color }}>{task.title}</div>
                       {parseFloat(pos.height) > 8 && (
                         <div className="truncate text-muted-foreground" style={{ fontSize: "10px" }}>{activeCount}/{task.requiredHeadcount} staff</div>
                       )}
-                    </div>
+                    </button>
                   );
                 })}
               </div>

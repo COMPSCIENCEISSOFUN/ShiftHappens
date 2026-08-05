@@ -46,7 +46,8 @@ import { AlertBanner } from "@/components/ui/alert-banner";
 import { StatusBadge } from "@/components/ui/status-badge";
 import {
   ALLOCATION_FACTORS,
-  DEFAULT_ALLOCATION_WEIGHTS,
+    DEFAULT_ALLOCATION_WEIGHTS,
+    setAllocationWeight,
   type AllocationWeights,
 } from "@/lib/allocation-weights";
 
@@ -395,6 +396,15 @@ export default function SettingsPage() {
     successText: string
   ): Promise<Record<string, unknown> | null> {
     setMsg(null);
+    try {
+      const impactResponse = await fetch(`/api/organizations/${orgId}/settings/impact`);
+      const impact = await impactResponse.json();
+      if (impactResponse.ok && typeof impact.summary === "string" && !window.confirm(`${impact.summary}\n\nReview this impact before applying the change. Continue?`)) {
+        return null;
+      }
+    } catch {
+      // The settings update remains available if the non-blocking preview fails.
+    }
     setLoad(true);
     try {
       const res = await fetch(`/api/organizations/${orgId}/settings`, {
@@ -853,10 +863,9 @@ export default function SettingsPage() {
                         step="5"
                         value={allocationWeights[factor.key]}
                         onChange={(event) =>
-                          setAllocationWeights((current) => ({
-                            ...current,
-                            [factor.key]: Number(event.target.value),
-                          }))
+                          setAllocationWeights((current) =>
+                            setAllocationWeight(current, factor.key, Number(event.target.value))
+                          )
                         }
                         className="h-2 w-full cursor-pointer accent-primary"
                       />

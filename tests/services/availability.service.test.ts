@@ -118,10 +118,17 @@ describe("AvailabilityService", () => {
         isAvailable: false,
       });
 
-      await availService.deleteOverride(override.id);
+      await availService.deleteOverride(override.id, membershipId);
 
       const overrides = await availService.getOverrides(membershipId);
       expect(overrides).toHaveLength(0);
+    });
+
+    it("updates only the member's own override", async () => {
+      const override = await availService.createOverride(membershipId, { date: "2026-06-15T00:00:00.000Z", isAvailable: false, reason: "Leave" });
+      const updated = await availService.updateOverride(override.id, membershipId, { date: "2026-06-16T00:00:00.000Z", isAvailable: true, reason: "Available after all" });
+      expect(updated).toMatchObject({ isAvailable: true, reason: "Available after all" });
+      await expect(availService.getOverrides(membershipId)).resolves.toHaveLength(1);
     });
   });
 
