@@ -9,6 +9,7 @@
  * Security: Prisma parameterized queries prevent SQL injection.
  */
 import { prisma } from "@/lib/prisma";
+import { occupyingStatusFilter } from "@/lib/assignment-status";
 
 export class TaskAssignmentRepository {
   /** Creates a new task assignment with pending status */
@@ -147,6 +148,68 @@ export class TaskAssignmentRepository {
     });
   }
 
+  /**
+   * A full-time member's request to be taken off a shift they were rostered
+   * onto but had not accepted.
+   *
+   * Stored in the rejection columns rather than new ones: this IS a rejection,
+   * held pending a manager's agreement, and if it is approved the row must
+   * already carry the reason the member gave. Duplicating the columns would
+   * mean copying values across on approval and leaving two places where a
+   * decline reason could live.
+   *
+   * `rejectedAt` stays NULL — nothing has been rejected yet. `approveDecline`
+   * stamps it, so the response-time figures still measure the member's answer
+   * rather than the manager's.
+   */
+  async requestDecline(id: string, reason: string, notes?: string) {
+    return prisma.taskAssignment.update({
+      where: { id },
+      data: {
+        status: "decline_requested",
+        rejectionReason: reason,
+        // null, not undefined — Prisma ignores undefined, so a second request
+        // without notes would silently keep the first request's notes.
+        rejectionNotes: notes ?? null,
+      },
+    });
+  }
+
+  /**
+   * Manager agrees: the decline takes effect and the slot is freed.
+   *
+   * Reason and notes are already on the row from `requestDecline` and are left
+   * untouched — the member's words, not the manager's.
+   */
+  async approveDecline(id: string) {
+    return prisma.taskAssignment.update({
+      where: { id },
+      data: { status: "rejected", rejectedAt: new Date() },
+    });
+  }
+
+  /**
+   * Manager refuses: back to pending, NOT to accepted.
+   *
+   * The member is expected on the shift and still has to answer for
+   * themselves. Reverting to "accepted" would have the system record an
+   * acceptance the member never gave, which is the reason this flow does not
+   * reuse the withdrawal statuses.
+   *
+   * Reason and notes are cleared: they described a request that was refused,
+   * and leaving them would make a later genuine decline look like a repeat.
+   */
+  async denyDecline(id: string) {
+    return prisma.taskAssignment.update({
+      where: { id },
+      data: {
+        status: "pending",
+        rejectionReason: null,
+        rejectionNotes: null,
+      },
+    });
+  }
+
   /** Records clock-in time for an accepted assignment */
   async clockIn(id: string) {
     return prisma.taskAssignment.update({
@@ -232,15 +295,21 @@ export class TaskAssignmentRepository {
 
   /**
    * Counts active (slot-occupying) assignments for a task.
-   * pending, accepted, and withdrawal_requested all reserve a slot —
-   * a pending withdrawal keeps the seat until a manager resolves it.
-   * Used to check against requiredHeadcount before adding more.
+   *
+   * "Occupying" is `occupyingStatusFilter()` — everything except rejected and
+   * withdrawn. That includes a decision still waiting on a manager, in either
+   * direction: a pending withdrawal or a pending full-time decline keeps the
+   * seat until it is resolved. Used against requiredHeadcount before adding
+   * more.
    */
   async countActiveByTaskId(taskId: string): Promise<number> {
     return prisma.taskAssignment.count({
       where: {
         taskId,
-        status: { in: ["pending", "accepted", "withdrawal_requested"] },
+        // The shared rule, which also covers clocked_out and completed. The
+        // hand-written list here undercounted an in-progress shift, so a
+        // manager could assign past requiredHeadcount once people clocked in.
+        status: { in: occupyingStatusFilter() },
       },
     });
   }
@@ -306,6 +375,11 @@ export class TaskAssignmentRepository {
         ...(excludeTaskId ? { taskId: { not: excludeTaskId } } : {}),
       },
       select: {
+        // `taskId` so a caller can exclude the task under evaluation in memory
+        // rather than in the query. That is what lets one member's commitments
+        // be loaded ONCE for a whole run instead of once per task — see
+        // `EligibilityService.loadStoredAssignments`.
+        taskId: true,
         clockInTime: true,
         clockOutTime: true,
         task: { select: { scheduledStart: true, scheduledEnd: true } },
@@ -316,9 +390,10 @@ export class TaskAssignmentRepository {
   /**
    * A member's live assignments to shifts that have not started yet.
    *
-   * "Live" means still standing: pending, accepted, or awaiting a withdrawal
-   * decision. A rejected or withdrawn assignment is not at risk because nobody
-   * is expecting that person to turn up.
+   * "Live" means still standing — the shared occupying set, which includes a
+   * decline or a withdrawal still awaiting a manager's decision. A rejected or
+   * withdrawn assignment is not at risk because nobody is expecting that
+   * person to turn up.
    *
    * Deliberately future-only. When someone changes their availability, alerting
    * a manager about a shift that has already been worked is noise about
@@ -328,7 +403,7 @@ export class TaskAssignmentRepository {
     return prisma.taskAssignment.findMany({
       where: {
         membershipId,
-        status: { in: ["pending", "accepted", "withdrawal_requested"] },
+        status: { in: occupyingStatusFilter() },
         task: { scheduledStart: { gte: from } },
       },
       select: {
@@ -362,7 +437,10 @@ export class TaskAssignmentRepository {
       },
       include: {
         membership: {
-          include: { user: { select: { name: true, email: true } } },
+          // `id` for grouping, `userId` because the dashboard's follow-up
+          // action addresses a person rather than a membership — the member
+          // routes are keyed on user id.
+          include: { user: { select: { id: true, name: true, email: true } } },
         },
       },
     });

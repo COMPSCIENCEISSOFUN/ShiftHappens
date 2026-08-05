@@ -14,6 +14,7 @@ import {
   checkOrgSuspended,
 } from "@/lib/auth-guard";
 import { AccessService } from "@/services/access.service";
+import { requirePermission } from "@/lib/permission-guard";
 import { departmentScopeFor } from "@/lib/department-scope";
 
 const certService = new CertificationService();
@@ -29,10 +30,9 @@ export async function GET(
 
     const { orgId } = await params;
 
-    const membership = await accessService.getMembership(user.id, orgId);
-    if (!membership || !["company_admin", "manager"].includes(membership.role)) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const gate = await requirePermission(user.id, orgId, "certifications:review");
+    if (!gate.ok) return gate.response;
+    const membership = gate.membership;
 
     const { searchParams } = new URL(request.url);
     const status = searchParams.get("status") || undefined;

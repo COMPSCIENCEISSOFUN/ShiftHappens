@@ -19,8 +19,11 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { CalendarAssignModal } from "@/components/calendar/calendar-assign-modal";
 import { PageLoading } from "@/components/ui/page-loading";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Lock } from "lucide-react";
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { occupiesSlot } from "@/lib/assignment-status";
 import { StatTile } from "@/components/ui/stat-tile";
 import {
   businessDayRange,
@@ -33,6 +36,8 @@ import {
   gridRows,
   taskBlockPosition,
 } from "@/lib/calendar-grid";
+import { usePermissions } from "@/components/layout/permission-provider";
+import { TASK_LIST_READERS } from "@/lib/permissions";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -54,14 +59,11 @@ interface Task {
   }[];
 }
 
-/** Statuses that no longer occupy a staffing slot. */
-const INACTIVE_ASSIGNMENT_STATUSES = ["rejected", "withdrawn"];
-
 /** Assignments that still count toward the staffing headcount. */
 function activeAssignments(task: Task) {
-  return task.assignments.filter(
-    (a) => !INACTIVE_ASSIGNMENT_STATUSES.includes(a.status)
-  );
+  // This page had the rule right, in a file-local constant nothing else could
+  // import — which is how the tasks page came to count rejected assignments.
+  return task.assignments.filter((a) => occupiesSlot(a.status));
 }
 
 interface CoverageCell {
@@ -290,6 +292,14 @@ export default function CalendarPage() {
   const [opStart, setOpStart] = useState(6);
   const [opEnd, setOpEnd] = useState(22);
 
+  /*
+   * The only action on this page is opening the assign modal, and it was
+   * offered to anyone who reached the calendar. `tasks:assign` is what the
+   * modal's endpoint enforces.
+   */
+  const { can, canAny } = usePermissions();
+  const canAssign = can("tasks:assign");
+
   const [assignTask, setAssignTask] = useState<{
     id: string; title: string; requiredHeadcount: number; currentCount: number;
   } | null>(null);
@@ -502,8 +512,11 @@ export default function CalendarPage() {
     return staffData.map((staff) => {
       const schedule = staff.schedules.find((s) => s.dayOfWeek === dow);
       const isAvailable = schedule?.isAvailable ?? false;
+      // Through `activeAssignments`, like every other reader on this page. The
+      // raw list still holds rejected and withdrawn rows, so this panel was
+      // drawing shifts against people who had turned them down.
       const assignments = dayTasks.filter((t) =>
-        t.assignments.some((a) => a.membership.user.name === staff.name)
+        activeAssignments(t).some((a) => a.membership.user.name === staff.name)
       );
       return {
         ...staff,
@@ -545,6 +558,24 @@ export default function CalendarPage() {
     const sched = s.schedules.find((sc) => sc.dayOfWeek === todayDow);
     return sched?.isAvailable ?? false;
   }).length;
+
+  /*
+   * Placed BELOW every hook, deliberately — a guard above them makes each
+   * useState and useEffect conditional, which React forbids.
+   *
+   * The permission set is the same constant the GET route enforces, so the
+   * page and the endpoint refuse for the same reason. Stating it twice is how
+   * the sidebar and the routes came to disagree in the first place.
+   */
+  if (!canAny(...TASK_LIST_READERS)) {
+    return (
+      <EmptyState
+        icon={Lock}
+        title="You don't have access to the calendar"
+        description="The team calendar requires the View team calendar permission. Ask a company admin if you need it."
+      />
+    );
+  }
 
   if (loading) return <PageLoading />;
 
@@ -778,6 +809,7 @@ export default function CalendarPage() {
                         <p className="text-xs font-medium">{t.title}</p>
                         <p className="text-[11px] text-amber-600 dark:text-amber-400">needs {t.requiredHeadcount - activeCount} more</p>
                       </div>
+                      {canAssign && (
                       <button
                         onClick={() => setAssignTask({
                           id: t.id, title: t.title,
@@ -787,6 +819,7 @@ export default function CalendarPage() {
                       >
                         Assign →
                       </button>
+                      )}
                     </div>
                   );
                 })}

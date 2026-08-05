@@ -2,7 +2,7 @@
 --
 -- One migration rather than three, because all three land in the same working
 -- session and every schema change on this project has to be hand-carried to
--- Supabase (migration history is not baselined — see claude/BACKLOG.md §5).
+-- Supabase.
 -- Three separate hand-runs is three chances to run two of them.
 --
 -- Safe against a live database. Every added column is either nullable or has a

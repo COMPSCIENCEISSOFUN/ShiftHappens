@@ -9,10 +9,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { RoleService } from "@/services/role.service";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
-import { AccessService } from "@/services/access.service";
+import { requirePermission } from "@/lib/permission-guard";
 
 const roleService = new RoleService();
-const accessService = new AccessService();
 
 export async function GET(
   request: NextRequest,
@@ -24,10 +23,8 @@ export async function GET(
 
     const { orgId } = await params;
 
-    const membership = await accessService.getMembership(user.id, orgId);
-    if (!membership || membership.role !== "company_admin") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const gate = await requirePermission(user.id, orgId, "roles:manage");
+    if (!gate.ok) return gate.response;
 
     const permissions = await roleService.getAllPermissions();
     return NextResponse.json(permissions);

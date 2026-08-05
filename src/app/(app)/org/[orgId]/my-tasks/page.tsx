@@ -253,10 +253,20 @@ export default function MyTasksPage() {
    * in-flight id is checked here as well as on the button because a fast double
    * click lands before React repaints `disabled`.
    */
+  /**
+   * `successMessage` may be a function of the updated assignment.
+   *
+   * Declining is the reason: for a casual member it takes effect immediately,
+   * and for a full-time member it becomes a request their manager has to
+   * approve. Which one happened is the server's decision, and reading it off
+   * the response is the only way the message cannot drift from the rule — a
+   * copy of the policy in the client would eventually disagree with the copy
+   * in the service, and the member would be told the wrong thing.
+   */
   async function runAction(
     assignmentId: string,
     request: () => Promise<Response>,
-    successMessage: string,
+    successMessage: string | ((updated: { status?: string }) => string),
     onSuccess?: () => void
   ) {
     if (busyIds.includes(assignmentId)) return;
@@ -271,8 +281,13 @@ export default function MyTasksPage() {
         setError(result.error || "Something went wrong");
         return;
       }
+      const updated = await res.json().catch(() => ({}));
       onSuccess?.();
-      setSuccess(successMessage);
+      setSuccess(
+        typeof successMessage === "function"
+          ? successMessage(updated)
+          : successMessage
+      );
       await fetchAssignments();
     } catch {
       setError("Something went wrong");
@@ -301,7 +316,10 @@ export default function MyTasksPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ rejectionReason: reason, rejectionNotes: notes }),
         }),
-      "Task declined",
+      (updated) =>
+        updated.status === "decline_requested"
+          ? "Sent to your manager — you are still rostered until they approve it"
+          : "Task declined",
       () => setRejectingId(null)
     );
   }
@@ -359,7 +377,13 @@ export default function MyTasksPage() {
 
   if (loading) return <PageLoading />;
 
-  const pending = assignments.filter((a) => a.status === "pending");
+  const pending = assignments.filter(
+    // decline_requested belongs here, not in history: the member is still
+    // rostered on the shift and the outcome is not decided. Filtering on
+    // "pending" alone dropped the row from every group on the page, so a
+    // full-time member who declined saw the shift simply disappear.
+    (a) => a.status === "pending" || a.status === "decline_requested"
+  );
   const active = assignments.filter(
     (a) => a.status === "accepted" || a.status === "withdrawal_requested"
   );
@@ -457,6 +481,17 @@ export default function MyTasksPage() {
                     </p>
                   )}
 
+                  {/*
+                    A decline already with a manager offers no buttons. Accept
+                    would contradict the request the member just made, and
+                    Decline would let them file it twice.
+                  */}
+                  {a.status === "decline_requested" ? (
+                    <p className="mt-3 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-[13px] text-orange-800 dark:border-orange-900 dark:bg-orange-950/40 dark:text-orange-300">
+                      Waiting for your manager to approve. You are still rostered
+                      on this shift until they do.
+                    </p>
+                  ) : (
                   <div className="mt-3 flex flex-wrap gap-2">
                     <button
                       disabled={busy}
@@ -475,8 +510,9 @@ export default function MyTasksPage() {
                       Decline
                     </button>
                   </div>
+                  )}
 
-                  {rejectingId === a.id && (
+                  {rejectingId === a.id && a.status === "pending" && (
                     <form
                       className="mt-3 space-y-2 rounded-lg border border-border bg-muted/30 p-3"
                       onSubmit={(e) => {

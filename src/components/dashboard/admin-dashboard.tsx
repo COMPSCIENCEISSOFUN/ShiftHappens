@@ -33,7 +33,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import type { NeedsAttentionItem } from "@/components/dashboard/needs-attention";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
 import {
@@ -167,21 +166,39 @@ interface DashboardData {
   coverageSummary: CoverageSummary | null;
 }
 
-interface AIRecommendation {
-  priority: number;
-  title: string;
-  reasoning: string;
-  actionType: string;
-  actionUrl: string;
-  /** The task this refers to, used to fold it into that task's alert. */
-  entityId?: string;
+/**
+ * The engine's answer to "what should I do first?".
+ *
+ * `reason` is nullable and often null — the ordering is the contribution, and
+ * the service withholds any justification it cannot vouch for rather than
+ * printing an unverifiable sentence beside a verified one.
+ */
+interface PriorityCall {
+  entityId: string;
+  message: string;
+  reason: string | null;
+  /** "groq" | "gemini". Never a fallback — there is no algorithmic path here. */
+  provider: string;
 }
 
-interface AIRecommendationsData {
-  recommendations: AIRecommendation[];
-  footer: string;
-  /** "groq" | "gemini" | "algorithmic" — see the badge note in mergeActionItems. */
-  provider?: string;
+/**
+ * What recurs in the free text staff wrote — the one panel here whose content
+ * a model produced rather than restated.
+ *
+ * `quotes` are verbatim and come from our database: the service resolves the
+ * line numbers the model cited back against its own array, so the model chooses
+ * which comments group together and writes none of the words shown under them.
+ */
+interface FeedbackTheme {
+  theme: string;
+  quotes: { text: string; context: string }[];
+}
+
+interface FeedbackThemes {
+  themes: FeedbackTheme[];
+  /** How many comments were read. Ours, counted — the denominator. */
+  basedOn: number;
+  provider: string | null;
 }
 
 // ============================================================
@@ -189,93 +206,63 @@ interface AIRecommendationsData {
 // ============================================================
 
 /**
- * One row of the merged action list.
+ * One row of the action list.
  *
- * The dashboard used to render two lists from two sources that read the same
- * data. `getNeedsAttention` reported understaffed tasks; the recommendation
- * service reported the same understaffed tasks as "Assign staff to X". The
- * page showed both, so the most common alert always appeared twice.
+ * There is one list, and every row in it is computed deterministically from
+ * the database. The model no longer contributes rows.
  *
- * They are one list now, and an AI recommendation about something already
- * flagged becomes a second line ON that alert rather than a card beside it.
- * The model's contribution is reasoning, not repetition — and where it has
- * something the deterministic checks cannot produce, it still gets its own row.
+ * ## What was here before, and why it went
+ *
+ * The dashboard rendered alerts AND a parallel list of AI recommendations
+ * built from the same data. The recommendations restated the alerts — and
+ * where one attached itself to an alert, its reasoning could contradict the
+ * row it sat under ("Only 2/3 staff are assigned" beneath "0/3 assigned").
+ *
+ * A model handed the same facts as a rule engine will always say the same
+ * things, less precisely. Its contribution now is ORDER, not content: see
+ * PriorityCall.
  */
 interface ActionItem {
   key: string;
   severity: "danger" | "warning" | "info";
   message: string;
-  /** The model's reasoning, when it had something to add. */
-  insight?: string;
   actionLabel: string;
   actionUrl: string;
-  /** True when a language model actually produced this — not the fallback. */
-  fromModel: boolean;
-  /** True for a deterministic insight that joins facts (unfillable, no-show). */
-  isInsight: boolean;
+  entityId?: string;
+  /** True when the action POSTs rather than navigating — the nudge. */
+  actionPost?: boolean;
 }
 
 /**
- * Folds recommendations into alerts.
+ * The alert list, with the engine's pick lifted to the top.
  *
- * `entityId` is the join. A recommendation carrying a task id that already has
- * an alert contributes its reasoning; one without a match becomes its own row.
- * Matching on the id rather than the message text matters — the two are worded
- * differently ("Lunch Service needs 1 more staff" vs "Assign staff to Lunch
- * Service") and string comparison would never have caught it.
+ * Sorting by severity alone put five identical-looking danger rows in
+ * whatever order they were computed. The pick, when there is one, goes first —
+ * that ordering IS the smart engine's output, so burying it in position four
+ * would discard the only thing it was asked for.
  */
-function mergeActionItems(
+function buildActionItems(
   alerts: NeedsAttentionItem[] | null,
-  recs: AIRecommendationsData | null
+  pickedEntityId: string | null
 ): ActionItem[] {
-  const fromModel = recs?.provider === "groq" || recs?.provider === "gemini";
-
-  const reasoningByEntity = new Map<string, string>();
-  for (const rec of recs?.recommendations ?? []) {
-    if (rec.entityId && rec.reasoning) {
-      reasoningByEntity.set(rec.entityId, rec.reasoning);
-    }
-  }
-
   const items: ActionItem[] = (alerts ?? []).map((alert, i) => ({
     key: `${alert.type}-${alert.entityId ?? i}`,
     severity: alert.severity,
     message: alert.message,
-    // Only attach the model's words. The algorithmic fallback restates the
-    // alert, so folding that in would print the same sentence twice on one row.
-    insight:
-      fromModel && alert.entityId
-        ? reasoningByEntity.get(alert.entityId)
-        : undefined,
     actionLabel: alert.actionLabel,
     actionUrl: alert.actionUrl,
-    fromModel: false,
-    isInsight: alert.isAiInsight === true,
+    entityId: alert.entityId,
+    actionPost: alert.actionPost,
   }));
 
-  const flagged = new Set(
-    (alerts ?? []).map((a) => a.entityId).filter(Boolean) as string[]
-  );
-
-  for (const rec of recs?.recommendations ?? []) {
-    // Anything about an already-flagged entity has been folded in above.
-    if (rec.entityId && flagged.has(rec.entityId)) continue;
-    items.push({
-      key: `rec-${rec.priority}`,
-      severity: "info",
-      message: rec.title,
-      insight: rec.reasoning,
-      actionLabel: AI_ACTION_LABELS[rec.actionType] || "View",
-      actionUrl: rec.actionUrl,
-      fromModel,
-      isInsight: true,
-    });
-  }
-
-  // Most urgent first; the list is short enough that a stable order matters
-  // more than a clever ranking.
   const weight = { danger: 0, warning: 1, info: 2 } as const;
-  return items.sort((a, b) => weight[a.severity] - weight[b.severity]);
+  return items.sort((a, b) => {
+    if (pickedEntityId) {
+      if (a.entityId === pickedEntityId) return -1;
+      if (b.entityId === pickedEntityId) return 1;
+    }
+    return weight[a.severity] - weight[b.severity];
+  });
 }
 
 
@@ -378,17 +365,26 @@ function severityIcon(severity: string): SeverityIcon {
     : UNKNOWN_SEVERITY;
 }
 
-const AI_ACTION_LABELS: Record<string, string> = {
-  quick_assign: "Quick assign",
-  edit_availability: "Review",
-  review_certs: "Review",
-};
+/**
+ * How many action rows are shown before the list is folded.
+ *
+ * The original supervisor note on this dashboard was "too many numbers but not
+ * much information". A thirteen-row action list is that same failure in a
+ * different shape: nobody triages thirteen things, they scroll past all of
+ * them. The panel's job is what to do next, not everything that is true.
+ *
+ * The rest are one click away rather than gone, because suppressing a genuine
+ * alert would be worse than burying it.
+ */
+const ACTION_PREVIEW = 6;
+
+const BUTTON_NEUTRAL = "border-border bg-card text-muted-foreground hover:bg-muted";
 
 // ============================================================
 // Skeleton loader
 // ============================================================
 
-function DashboardSkeleton({ orgName }: { orgName: string }) {
+function DashboardSkeleton() {
   return (
     <div>
       <div className="mb-7">
@@ -429,14 +425,41 @@ export default function AdminDashboard({ orgId, orgName, userName }: AdminDashbo
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [aiRecs, setAiRecs] = useState<AIRecommendationsData | null>(null);
+  const [priority, setPriority] = useState<PriorityCall | null>(null);
+  const [feedback, setFeedback] = useState<FeedbackThemes | null>(null);
   const [engine, setEngine] = useState<EngineReport | null>(null);
   const [engineLoading, setEngineLoading] = useState(true);
-  const [aiLoading, setAiLoading] = useState(true);
+  const [showAllActions, setShowAllActions] = useState(false);
+  /**
+   * Per-row state for the availability nudge.
+   *
+   * Kept here rather than in the row so the button can report back — a request
+   * that vanishes without acknowledgement gets sent three more times, and the
+   * recipient gets three notifications.
+   */
+  const [nudged, setNudged] = useState<Record<string, "sending" | "sent">>({});
+
+  async function sendNudge(key: string, url: string) {
+    setNudged((prev) => ({ ...prev, [key]: "sending" }));
+    try {
+      const res = await fetch(url, { method: "POST" });
+      if (!res.ok) throw new Error("Request failed");
+      setNudged((prev) => ({ ...prev, [key]: "sent" }));
+    } catch {
+      // Dropped back to its original label rather than showing an error banner
+      // for something this small — the manager can simply press it again.
+      setNudged((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+    }
+  }
 
   useEffect(() => {
     fetchDashboard();
     fetchAIRecommendations();
+    fetchFeedbackThemes();
     fetchEngineReport();
   }, [orgId]);
 
@@ -485,21 +508,37 @@ export default function AdminDashboard({ orgId, orgName, userName }: AdminDashbo
 
   async function fetchAIRecommendations() {
     try {
-      setAiLoading(true);
       const res = await fetch(
         `/api/organizations/${orgId}/dashboard/ai-recommendations`
       );
       if (res.ok) {
-        setAiRecs(await res.json());
+        const body = await res.json();
+        setPriority(body.call ?? null);
       }
     } catch {
-      // AI recommendations are non-critical — fail silently
-    } finally {
-      setAiLoading(false);
+      // Non-critical. No pick simply means the list keeps its own order — the
+      // page is fully usable without the engine having an opinion.
     }
   }
 
-  if (loading) return <DashboardSkeleton orgName={orgName} />;
+  /**
+   * Themes are slower than the priority call — it reads one list of alerts,
+   * this reads every comment in the window — so it is its own request and its
+   * own failure. Silent on error: an absent panel is a smaller problem than a
+   * dashboard that will not render.
+   */
+  async function fetchFeedbackThemes() {
+    try {
+      const res = await fetch(
+        `/api/organizations/${orgId}/dashboard/feedback-themes`
+      );
+      if (res.ok) setFeedback(await res.json());
+    } catch {
+      // Non-critical.
+    }
+  }
+
+  if (loading) return <DashboardSkeleton />;
 
   if (error) {
     return (
@@ -524,7 +563,8 @@ export default function AdminDashboard({ orgId, orgName, userName }: AdminDashbo
 
   const status = getStatusPill(data.needsAttention);
   // One list. See mergeActionItems for why the two used to duplicate.
-  const actionItems = mergeActionItems(data.needsAttention, aiRecs);
+  const actionItems = buildActionItems(data.needsAttention, priority?.entityId ?? null);
+  const shownActions = showAllActions ? actionItems : actionItems.slice(0, ACTION_PREVIEW);
 
   return (
     <div>
@@ -562,14 +602,23 @@ export default function AdminDashboard({ orgId, orgName, userName }: AdminDashbo
           count={actionItems.length}
           defaultOpen
         >
-          {actionItems.map((item) => {
+          {shownActions.map((item) => {
             const { Icon, tint, tone } = severityIcon(item.severity);
+            const isPicked =
+              Boolean(priority) && item.entityId === priority!.entityId;
 
             return (
+              /*
+                The indigo treatment marks the ONE row a model touched.
+                It used to mark four alert types flagged `isAiInsight`, every
+                one of which was a SQL join with a threshold — the sparkle was
+                decoration on a database query, and it made the panel's real
+                model output indistinguishable from the rest.
+              */
               <div
                 key={item.key}
                 className={`mb-2 flex items-start gap-3.5 rounded-xl border p-3.5 transition-shadow hover:shadow-sm ${
-                  item.isInsight
+                  isPicked
                     ? "border-indigo-200 bg-indigo-50/30 dark:border-indigo-800 dark:bg-indigo-950/30"
                     : "border-border bg-card"
                 }`}
@@ -577,18 +626,16 @@ export default function AdminDashboard({ orgId, orgName, userName }: AdminDashbo
                 {/* Decorative: the message beside it already says what this is. */}
                 <div
                   className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] ${
-                    item.isInsight
-                      ? "text-white"
-                      : tint
+                    isPicked ? "text-white" : tint
                   }`}
                   style={
-                    item.isInsight
+                    isPicked
                       ? { background: "linear-gradient(135deg, #4f46e5, #7c3aed)" }
                       : undefined
                   }
                   aria-hidden="true"
                 >
-                  {item.isInsight ? (
+                  {isPicked ? (
                     <Sparkles className="h-4 w-4" />
                   ) : (
                     <Icon className={`h-[18px] w-[18px] ${tone}`} />
@@ -599,47 +646,148 @@ export default function AdminDashboard({ orgId, orgName, userName }: AdminDashbo
                   <p className="text-sm font-semibold text-foreground">
                     {item.message}
                     {/*
-                      Only claimed when a model actually answered. The badge
-                      used to appear whichever path ran, so with no API key
-                      configured the algorithmic fallback was presented as
-                      model output.
+                      Marks the row the engine chose to lead with. The badge
+                      claims only what happened — a model picked this one — and
+                      the row's words are still ours.
                     */}
-                    {item.fromModel && (
+                    {isPicked && (
                       <span className="ml-1.5 inline-flex items-center gap-0.5 rounded-[5px] bg-indigo-50 px-[7px] py-0.5 align-middle text-[10px] font-bold text-indigo-600 dark:bg-indigo-950 dark:text-indigo-400">
-                        AI
+                        START HERE
                       </span>
                     )}
                   </p>
-                  {item.insight && (
+                  {/*
+                    Shown ONLY on the picked row, and only when the engine gave
+                    a reason we could vouch for. Every other row's facts are
+                    already stated above; a model sentence beneath them could
+                    only repeat or contradict them, which it did.
+                  */}
+                  {isPicked && priority?.reason && (
                     <p className="mt-0.5 text-[13px] text-muted-foreground">
-                      {item.insight}
+                      {priority.reason}
                     </p>
                   )}
                 </div>
 
-                <Link href={item.actionUrl}>
+                {item.actionPost ? (
                   <button
-                    className={`shrink-0 rounded-lg border px-3.5 py-1.5 text-xs font-semibold transition-all ${
-                      item.severity === "danger"
-                        ? "border-indigo-500 bg-indigo-600 text-white hover:opacity-90"
-                        : "border-border bg-card text-muted-foreground hover:bg-muted"
-                    }`}
+                    type="button"
+                    disabled={nudged[item.key] === "sending"}
+                    onClick={() => sendNudge(item.key, item.actionUrl)}
+                    className={`shrink-0 rounded-lg border px-3.5 py-1.5 text-xs font-semibold transition-all ${BUTTON_NEUTRAL} disabled:opacity-50`}
                   >
-                    {item.actionLabel}
+                    {nudged[item.key] === "sent"
+                      ? "Asked"
+                      : nudged[item.key] === "sending"
+                        ? "Asking…"
+                        : item.actionLabel}
                   </button>
-                </Link>
+                ) : (
+                  <Link href={item.actionUrl}>
+                    <button
+                      className={`shrink-0 rounded-lg border px-3.5 py-1.5 text-xs font-semibold transition-all ${
+                        item.severity === "danger"
+                          ? "border-indigo-500 bg-indigo-600 text-white hover:opacity-90"
+                          : BUTTON_NEUTRAL
+                      }`}
+                    >
+                      {item.actionLabel}
+                    </button>
+                  </Link>
+                )}
               </div>
             );
           })}
+
+          {actionItems.length > ACTION_PREVIEW && (
+            <button
+              type="button"
+              onClick={() => setShowAllActions(!showAllActions)}
+              className="w-full rounded-lg border border-border bg-card px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:border-indigo-400 hover:text-foreground"
+            >
+              {showAllActions
+                ? "Show fewer"
+                : `Show all ${actionItems.length} items`}
+            </button>
+          )}
         </CollapsibleSection>
       )}
 
-      {aiLoading && !aiRecs && (
-        <div className="mb-6 space-y-2">
-          {[1, 2].map((i) => (
-            <div key={i} className="h-14 rounded-xl bg-muted/50 animate-pulse" />
+      {/* ════════════════════════════════════════════════════ */}
+      {/* 2b. What staff are saying                           */}
+      {/*                                                     */}
+      {/* Kept out of the action list on purpose. Every row   */}
+      {/* above is something to DO; this is something to      */}
+      {/* KNOW, and mixing them would either put an           */}
+      {/* Assign button on a quotation or leave a row in the  */}
+      {/* action list with nothing to press.                  */}
+      {/* ════════════════════════════════════════════════════ */}
+      {/*
+        Rendered whenever enough comments were READ, not only when themes came
+        back. "We read 31 comments and found nothing recurring" is a real
+        answer and the service populates `basedOn` specifically so it can be
+        given — without this, an empty result, a failed model call and an org
+        with no feedback at all looked identical on screen.
+      */}
+      {feedback && feedback.basedOn >= 5 && (
+        <CollapsibleSection
+          title="What staff are saying"
+          storageKey="dashboard-feedback-themes"
+          count={feedback.themes.length}
+          defaultOpen
+        >
+          <p className="mb-3 flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Sparkles className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            {/*
+              The denominator is ours and it is the honest frame: three themes
+              out of eight comments is a different claim from three out of
+              eighty, and the reader cannot tell which without being told.
+            */}
+            Read from {feedback.basedOn} comment
+            {feedback.basedOn !== 1 ? "s" : ""} left on shifts in the last two
+            months.
+          </p>
+
+          {feedback.themes.map((theme, i) => (
+            <div
+              key={`theme-${i}`}
+              className="mb-2 rounded-xl border border-indigo-200 bg-indigo-50/30 p-3.5 dark:border-indigo-800 dark:bg-indigo-950/30"
+            >
+              <p className="text-sm font-semibold text-foreground">
+                {theme.theme}
+              </p>
+              <div className="mt-2 space-y-1.5">
+                {theme.quotes.map((quote, q) => (
+                  <div
+                    key={`quote-${i}-${q}`}
+                    className="border-l-2 border-indigo-300 pl-2.5 dark:border-indigo-700"
+                  >
+                    {/*
+                      Verbatim. The service resolved the line numbers the model
+                      cited back against its own array, so these are staff
+                      words, not the model's reproduction of them — a
+                      paraphrase shown inside quotation marks would put
+                      sentences in someone's mouth.
+                    */}
+                    <p className="text-[13px] italic leading-snug text-foreground">
+                      &ldquo;{quote.text}&rdquo;
+                    </p>
+                    <p className="mt-0.5 text-[11px] text-muted-foreground">
+                      {quote.context}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
           ))}
-        </div>
+
+          {feedback.themes.length === 0 && (
+            <p className="rounded-xl border border-dashed border-border px-3.5 py-3 text-[13px] text-muted-foreground">
+              Nothing recurring in what people wrote — the comments did not
+              group into a shared subject.
+            </p>
+          )}
+        </CollapsibleSection>
       )}
 
       {/* ════════════════════════════════════════════════════ */}

@@ -9,8 +9,30 @@
  * Security: Prisma parameterized queries prevent SQL injection.
  */
 import { prisma } from "@/lib/prisma";
+import { ROSTERABLE_ROLES } from "@/lib/role-config";
 
 export class MembershipRepository {
+  /**
+   * The status of every organisation this user actively belongs to.
+   *
+   * For the sign-in check: a user whose every organisation is suspended must
+   * not be able to log in, while a user who belongs to none yet (mid-onboarding,
+   * or invited but not yet placed) must still be able to.
+   *
+   * It exists because `lib/auth.ts` was running this query itself, with a raw
+   * `prisma.membership.findMany`. `auth-guard.ts` imports that module and every
+   * route calls `getAuthenticatedUser()`, so a direct Entity access sat on the
+   * Boundary path for the whole application — the one place the BCE refactor
+   * that cleaned up `org-guard` and `department-scope` did not reach.
+   */
+  async findActiveOrgStatuses(userId: string): Promise<string[]> {
+    const memberships = await prisma.membership.findMany({
+      where: { userId, status: "active" },
+      select: { organization: { select: { status: true } } },
+    });
+    return memberships.map((m) => m.organization.status);
+  }
+
   /**
    * Lists all members of an organization with their user details
    * and department assignments. Used by Company Admin and Manager
@@ -78,6 +100,28 @@ export class MembershipRepository {
           include: {
             department: {
               select: { id: true, name: true },
+            },
+          },
+        },
+        /*
+         * The custom role's permissions, resolved in the same round trip.
+         *
+         * This is the authorisation query — it runs on essentially every
+         * request — so fetching the role separately would put a second query on
+         * the hot path for the sake of a field the guard needs every time.
+         *
+         * `select` rather than `include` on the permission, because only the
+         * name is ever compared; pulling descriptions and categories into the
+         * authorisation path would be bytes moved on every request to render
+         * nothing.
+         */
+        customRole: {
+          select: {
+            id: true,
+            name: true,
+            displayLabel: true,
+            rolePermissions: {
+              select: { permission: { select: { name: true } } },
             },
           },
         },
@@ -318,7 +362,7 @@ export class MembershipRepository {
       where: {
         organizationId,
         status: "active",
-        role: { in: ["staff", "manager"] },
+        role: { in: [...ROSTERABLE_ROLES] },
       },
       include: {
         user: { select: { id: true, name: true, email: true } },

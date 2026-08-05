@@ -10,11 +10,10 @@ import { AuditLogService } from "@/services/audit-log.service";
 import { SubscriptionService } from "@/services/subscription.service";
 import { SubscriptionLimitError, FeatureNotAvailableError } from "@/lib/subscription-tiers";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
-import { AccessService } from "@/services/access.service";
+import { requirePermission } from "@/lib/permission-guard";
 
 const auditService = new AuditLogService();
 const subscriptionService = new SubscriptionService();
-const accessService = new AccessService();
 
 export async function GET(
   request: NextRequest,
@@ -26,10 +25,8 @@ export async function GET(
 
     const { orgId } = await params;
 
-    const membership = await accessService.getMembership(user.id, orgId);
-    if (!membership || membership.role !== "company_admin") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const gate = await requirePermission(user.id, orgId, "audit:view");
+    if (!gate.ok) return gate.response;
 
     // Feature gate: audit log is Enterprise only
     await subscriptionService.enforceFeatureAccess(orgId, "audit_log");

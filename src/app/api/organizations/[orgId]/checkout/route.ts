@@ -18,7 +18,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { BillingService } from "@/services/billing.service";
-import { AccessService } from "@/services/access.service";
+import { requirePermission } from "@/lib/permission-guard";
 import { ProfileService } from "@/services/profile.service";
 import { createCheckoutSchema } from "@/lib/validations";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
@@ -26,7 +26,6 @@ import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
 export const runtime = "nodejs";
 
 const billingService = new BillingService();
-const accessService = new AccessService();
 const profileService = new ProfileService();
 
 export async function POST(
@@ -39,17 +38,12 @@ export async function POST(
 
     const { orgId } = await params;
 
-    // Only company admins can change billing.
-    const membership = await accessService.getMembership(user.id, orgId);
-    if (!membership) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
-    if (membership.role !== "company_admin") {
-      return NextResponse.json(
-        { error: "Only a company admin can manage billing." },
-        { status: 403 }
-      );
-    }
+    // Only holders of billing:manage can change the plan. The bespoke message
+    // is gone with the role check: the guard cannot know whether the caller was
+    // refused for lacking the permission or for not being a member, and
+    // inventing a reason would be a guess printed as a fact.
+    const gate = await requirePermission(user.id, orgId, "billing:manage");
+    if (!gate.ok) return gate.response;
 
     const body = await request.json();
     const parsed = createCheckoutSchema.safeParse(body);

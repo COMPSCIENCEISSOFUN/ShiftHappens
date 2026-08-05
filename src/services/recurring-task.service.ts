@@ -46,9 +46,24 @@ export class RecurringTaskService {
   async generateForOrganization(
     organizationId: string,
     horizonDays: number = DEFAULT_HORIZON_DAYS,
-    userId?: string
+    userId?: string,
+    /**
+     * The caller's departments, or null/undefined for an unscoped caller.
+     *
+     * Without it a manager holding `tasks:create` but confined to one
+     * department materialised future occurrences for EVERY series in the
+     * organisation — and spent the org's active-task headroom doing it. The
+     * `tasks` POST beside it has always been scoped; this path was not.
+     *
+     * The cron job and the create-a-recurring-task path pass nothing, which is
+     * correct: neither has a caller whose departments could limit them.
+     */
+    departmentScope?: string[] | null
   ): Promise<GenerationResult> {
-    const templates = await this.taskRepo.findRecurringTemplates(organizationId);
+    const templates = await this.taskRepo.findRecurringTemplates(
+      organizationId,
+      departmentScope
+    );
 
     const result: GenerationResult = {
       seriesProcessed: 0,

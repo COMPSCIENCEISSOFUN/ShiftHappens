@@ -29,6 +29,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { usePermissions } from "@/components/layout/permission-provider";
 import { useParams } from "next/navigation";
 import { KeyRound, Lock, Pencil, Plus, ShieldCheck, Trash2, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -88,10 +89,13 @@ function PermissionPicker({
   grouped,
   selected,
   onToggle,
+  state,
 }: {
   grouped: Record<string, Permission[]>;
   selected: string[];
   onToggle: (id: string) => void;
+  /** Why the picker might be empty — see `fetchPermissions`. */
+  state: "loading" | "loaded" | "empty" | "failed" | "forbidden";
 }) {
   const categories = Object.keys(grouped).sort();
 
@@ -105,9 +109,27 @@ function PermissionPicker({
       </div>
 
       {categories.length === 0 ? (
+        /*
+          Three different reasons, three different answers. The single message
+          this replaced said "the permission list failed to load — reload the
+          page" for all of them, which on an unseeded database is both wrong and
+          unactionable: reloading cannot populate a table.
+        */
         <p className="rounded-lg border border-border p-3 text-[12px] text-muted-foreground">
-          No permissions available. This usually means the permission list
-          failed to load — reload the page.
+          {state === "loading" ? (
+            "Loading permissions…"
+          ) : state === "failed" ? (
+            "Could not load the permission list. Reload the page to try again."
+          ) : (
+            <>
+              The permission catalogue has not been seeded on this database.
+              Run{" "}
+              <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">
+                npx prisma db seed
+              </code>{" "}
+              and reload. Until then a role cannot be given any permissions.
+            </>
+          )}
         </p>
       ) : (
         <div className="grid gap-2 sm:grid-cols-2">
@@ -145,11 +167,15 @@ function PermissionPicker({
 /* ------------------------------------------------------------------ */
 
 export default function RolesPage() {
+  const { can } = usePermissions();
   const params = useParams();
   const orgId = params.orgId as string;
 
   const [roles, setRoles] = useState<Role[]>([]);
   const [permissions, setPermissions] = useState<Permission[]>([]);
+  const [permissionsState, setPermissionsState] = useState<
+    "loading" | "loaded" | "empty" | "failed" | "forbidden"
+  >("loading");
   const [showCreate, setShowCreate] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [selectedPermissions, setSelectedPermissions] = useState<string[]>([]);
@@ -182,14 +208,33 @@ export default function RolesPage() {
     }
   }
 
+  /**
+   * Load the permission catalogue.
+   *
+   * The outcome is recorded, not just the data. An empty picker has two very
+   * different causes — the request failed, or the `Permission` table was never
+   * seeded — and the page used to blame the first for both. The table is
+   * populated by `npx prisma db seed`, which nothing runs automatically, so on
+   * a fresh or demo-seeded database the honest answer is the second one, and
+   * telling an admin to reload sends them round a loop that cannot end.
+   */
   async function fetchPermissions() {
     try {
       const res = await fetch(`/api/organizations/${orgId}/permissions`);
       const data = await res.json();
       // Same shape trap — `groupedPermissions` iterates this list.
-      if (res.ok && Array.isArray(data)) setPermissions(data);
+      if (res.ok && Array.isArray(data)) {
+        setPermissions(data);
+        setPermissionsState(data.length > 0 ? "loaded" : "empty");
+        return;
+      }
+      // The catalogue endpoint requires `roles:manage`, so a 403 here IS the
+      // page's guard. Deriving it from the server's answer rather than from a
+      // role check in the client means there is one copy of the rule, and the
+      // page cannot come to disagree with the API about who may be here.
+      setPermissionsState(res.status === 403 ? "forbidden" : "failed");
     } catch {
-      // Silently fail
+      setPermissionsState("failed");
     }
   }
 
@@ -233,7 +278,6 @@ export default function RolesPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: formData.get("name"),
           displayLabel: formData.get("displayLabel"),
           description: formData.get("description"),
           permissionIds: selectedPermissions,
@@ -350,6 +394,32 @@ export default function RolesPage() {
 
   if (loading) return <PageLoading />;
 
+  /*
+   * Two guards for one question, on purpose.
+   *
+   * The permission check is the one that decides. The 403-derived state stays
+   * because it is the SERVER's answer: if the two ever disagree, the server
+   * wins and the page still refuses. It is also what catches a refusal this
+   * page cannot predict — a plan limit, a membership deactivated mid-session.
+   *
+   * The sidebar hid this page from non-admins, but the URL worked: a manager
+   * who typed it got the full shell and a populated role list, because the
+   * roles GET required only membership. It required only membership because
+   * two other screens read the same list — so the endpoint now names all three
+   * readers, and this page names the one that lets you EDIT.
+   */
+  if (!can("roles:manage") || permissionsState === "forbidden") {
+    return (
+      <div className="w-full">
+        <EmptyState
+          icon={Lock}
+          title="Roles are managed by company admins"
+          description="You can see which roles are assigned from the Members page, but only a company admin can create or change them."
+        />
+      </div>
+    );
+  }
+
   const grouped = groupedPermissions();
   const customRoles = roles.filter((r) => !r.isSystemRole);
   const systemRoles = roles.filter((r) => r.isSystemRole);
@@ -419,45 +489,44 @@ export default function RolesPage() {
         {showCreate && (
           <Panel title="New custom role" icon={Plus}>
             <form onSubmit={onCreateRole} className="space-y-4 p-4">
-              <div className="grid gap-3 sm:grid-cols-3">
-                <div className="space-y-1.5">
-                  <Label htmlFor="create-name" className="text-xs">
-                    Internal name
-                  </Label>
-                  <Input
-                    id="create-name"
-                    name="name"
-                    placeholder="e.g. shift_lead"
-                    required
-                    className="h-9 text-sm"
-                  />
-                  <p className="text-[11px] text-muted-foreground">
-                    Used in code. Lowercase, no spaces.
-                  </p>
-                </div>
+              {/*
+                One name, not two.
+                
+                This asked for an "Internal name" as well, annotated "Used in
+                code. Lowercase, no spaces." Nothing read it, the format was
+                never validated, and it could not be changed afterwards — so it
+                asked a manager to invent a technical identifier for a technical
+                purpose that did not exist. It is derived from this field now.
+              */}
+              <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-1.5">
                   <Label htmlFor="create-label" className="text-xs">
-                    Display label
+                    Role name
                   </Label>
                   <Input
                     id="create-label"
                     name="displayLabel"
                     placeholder="e.g. Shift Lead"
                     required
+                    maxLength={50}
                     className="h-9 text-sm"
                   />
                   <p className="text-[11px] text-muted-foreground">
-                    What your team sees.
+                    What your team sees on members and work rules.
                   </p>
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="create-desc" className="text-xs">
-                    Description
+                    Description{" "}
+                    <span className="font-normal text-muted-foreground">
+                      (optional)
+                    </span>
                   </Label>
                   <Input
                     id="create-desc"
                     name="description"
                     placeholder="What this role is for"
+                    maxLength={500}
                     className="h-9 text-sm"
                   />
                 </div>
@@ -467,6 +536,7 @@ export default function RolesPage() {
                 grouped={grouped}
                 selected={selectedPermissions}
                 onToggle={togglePermission}
+                state={permissionsState}
               />
 
               <div className="flex flex-wrap gap-2">
@@ -513,11 +583,12 @@ export default function RolesPage() {
                   >
                     <div className="grid gap-3 sm:grid-cols-2">
                       <div className="space-y-1.5">
-                        <Label className="text-xs">Display label</Label>
+                        <Label className="text-xs">Role name</Label>
                         <Input
                           name="displayLabel"
                           defaultValue={role.displayLabel}
                           required
+                          maxLength={50}
                           className="h-9 text-sm"
                         />
                       </div>
@@ -535,6 +606,7 @@ export default function RolesPage() {
                       grouped={grouped}
                       selected={selectedPermissions}
                       onToggle={togglePermission}
+                      state={permissionsState}
                     />
 
                     <div className="flex flex-wrap gap-2">
@@ -569,12 +641,18 @@ export default function RolesPage() {
                           </span>
                         )}
                       </div>
-                      <p className="mt-0.5 text-[12px] text-muted-foreground">
-                        <code className="rounded bg-muted px-1 py-0.5">
-                          {role.name}
-                        </code>
-                        {role.description && ` — ${role.description}`}
-                      </p>
+                      {/*
+                        The stored `name` used to be printed here as a code
+                        chip. It is derived now — nobody chose it and nothing
+                        reads it — so showing it put an implementation detail
+                        in front of the person least able to act on it. The
+                        description is what actually says what the role is for.
+                      */}
+                      {role.description && (
+                        <p className="mt-0.5 text-[12px] text-muted-foreground">
+                          {role.description}
+                        </p>
+                      )}
                     </div>
 
                     {!role.isSystemRole && (
@@ -604,9 +682,20 @@ export default function RolesPage() {
                       {role.rolePermissions.length !== 1 ? "s" : ""}
                     </p>
                     {role.rolePermissions.length === 0 ? (
-                      <p className="text-[12px] text-muted-foreground">
-                        This role grants nothing. Anyone holding it can sign in
-                        and see nothing else.
+                      /*
+                        This used to read "Anyone holding it can sign in and see
+                        nothing else", which was written when permissions were
+                        not enforced at all and was wrong in the other
+                        direction: the holder kept everything their system role
+                        gave them. Now that a custom role REPLACES the system
+                        role's bundle, an empty one really does grant nothing —
+                        so the warning is finally true, and worth stating
+                        plainly because it is almost certainly a mistake.
+                      */
+                      <p className="text-[12px] text-amber-700 dark:text-amber-400">
+                        This role grants nothing. Anyone holding it keeps their
+                        sign-in and nothing else — not even the task list their
+                        system role would normally give them.
                       </p>
                     ) : (
                       <div className="flex flex-wrap gap-1">

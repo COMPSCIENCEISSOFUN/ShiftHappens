@@ -10,6 +10,7 @@ import { TaskService } from "@/services/task.service";
 import { assignTaskSchema } from "@/lib/validations";
 import { getAuthenticatedUser, unauthorizedResponse, checkOrgSuspended } from "@/lib/auth-guard";
 import { AccessService } from "@/services/access.service";
+import { requirePermission } from "@/lib/permission-guard";
 
 const taskService = new TaskService();
 const accessService = new AccessService();
@@ -26,10 +27,9 @@ export async function POST(
     const suspended = await checkOrgSuspended(orgId);
     if (suspended) return suspended;
 
-    const membership = await accessService.getMembership(user.id, orgId);
-    if (!membership || !["company_admin", "manager"].includes(membership.role)) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const gate = await requirePermission(user.id, orgId, "tasks:assign");
+    if (!gate.ok) return gate.response;
+    const membership = gate.membership;
 
     if (!(await accessService.isTaskInScope(taskId, membership))) {
       return NextResponse.json({ error: "Task not found" }, { status: 404 });
@@ -54,7 +54,14 @@ export async function POST(
     return NextResponse.json(assignments, { status: 201 });
   } catch (error) {
     if (error instanceof Error) {
-      if (error.message.includes("headcount") || error.message.includes("conflict") || error.message.includes("cannot be assigned")) {
+      // "already has a record on this task" is a conflict with existing state,
+      // not bad input — the same 409 as a headcount breach.
+      if (
+        error.message.includes("headcount") ||
+        error.message.includes("conflict") ||
+        error.message.includes("already has a record on this task") ||
+        error.message.includes("cannot be assigned")
+      ) {
         return NextResponse.json({ error: error.message }, { status: 409 });
       }
       if (error.message === "Task not found") {

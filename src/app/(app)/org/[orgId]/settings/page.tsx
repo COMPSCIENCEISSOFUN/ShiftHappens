@@ -49,6 +49,8 @@ import {
 import { PageLoading } from "@/components/ui/page-loading";
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { usePermissions } from "@/components/layout/permission-provider";
+import { EmptyState } from "@/components/ui/empty-state";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -164,6 +166,18 @@ function usageColor(percentage: number | null): string {
 /* ------------------------------------------------------------------ */
 
 export default function SettingsPage() {
+  const { can } = usePermissions();
+  /*
+   * The page is reached with `settings:read`, but three different permissions
+   * govern what can be SAVED from it, and the catalogue keeps them separate so
+   * a "settings viewer" role is a thing an admin can compose. Every save button
+   * below names the permission its own route enforces — without these, that
+   * viewer saw four save buttons and an upgrade button, all of which 403.
+   */
+  const canUpdateOrg = can("organization:update");
+  const canUpdateSettings = can("settings:update");
+  const canManageBilling = can("billing:manage");
+
   const params = useParams();
   const orgId = params.orgId as string;
 
@@ -311,7 +325,7 @@ export default function SettingsPage() {
 
   async function fetchIndustries(): Promise<string[]> {
     try {
-      const res = await fetch("/api/platform/templates");
+      const res = await fetch("/api/industry-templates");
       if (!res.ok) return [];
       const data = await res.json();
       if (!Array.isArray(data)) return [];
@@ -565,6 +579,22 @@ export default function SettingsPage() {
     return <PageLoading />;
   }
 
+  /*
+   * The sidebar no longer links here without `settings:read`, but the URL still
+   * resolved — and this page had no check of its own, so it rendered its
+   * full surface and every action returned 403.
+   *
+   * Not a security boundary. The routes enforce this independently; this
+   * is so the product does not offer what it will refuse.
+   */
+  if (!can("settings:read")) {
+    return (
+      <div className="w-full">
+        <EmptyState title="Settings are managed by company admins" description="Allocation mode, operating hours and thresholds are set at the organisation level." />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* ─── Hero Banner ──────────────────────────────────────── */}
@@ -721,15 +751,17 @@ export default function SettingsPage() {
                 </p>
               </div>
             </CardContent>
-            <CardFooter>
-              <Button
-                type="button"
-                onClick={onSaveOrgDetails}
-                disabled={orgLoading}
-              >
-                {orgLoading ? "Saving..." : "Save Details"}
-              </Button>
-            </CardFooter>
+            {canUpdateOrg && (
+              <CardFooter>
+                <Button
+                  type="button"
+                  onClick={onSaveOrgDetails}
+                  disabled={orgLoading}
+                >
+                  {orgLoading ? "Saving..." : "Save Details"}
+                </Button>
+              </CardFooter>
+            )}
           </Card>
 
           {/* Card 2: Notification Preferences */}
@@ -860,11 +892,13 @@ export default function SettingsPage() {
                   </div>
                 </div>
               </CardContent>
-              <CardFooter>
-                <Button type="submit" disabled={notifLoading}>
-                  {notifLoading ? "Saving..." : "Save Preferences"}
-                </Button>
-              </CardFooter>
+              {canUpdateSettings && (
+                <CardFooter>
+                  <Button type="submit" disabled={notifLoading}>
+                    {notifLoading ? "Saving..." : "Save Preferences"}
+                  </Button>
+                </CardFooter>
+              )}
             </Card>
           </form>
         </div>
@@ -1033,11 +1067,13 @@ export default function SettingsPage() {
                   )}
                 </div>
               </CardContent>
-              <CardFooter>
-                <Button type="submit" disabled={taskLoading}>
-                  {taskLoading ? "Saving..." : "Save Configuration"}
-                </Button>
-              </CardFooter>
+              {canUpdateSettings && (
+                <CardFooter>
+                  <Button type="submit" disabled={taskLoading}>
+                    {taskLoading ? "Saving..." : "Save Configuration"}
+                  </Button>
+                </CardFooter>
+              )}
             </Card>
           </form>
 
@@ -1153,11 +1189,13 @@ export default function SettingsPage() {
                   </p>
                 </div>
               </CardContent>
-              <CardFooter>
-                <Button type="submit" disabled={hoursLoading}>
-                  {hoursLoading ? "Saving..." : "Save Operating Hours"}
-                </Button>
-              </CardFooter>
+              {canUpdateSettings && (
+                <CardFooter>
+                  <Button type="submit" disabled={hoursLoading}>
+                    {hoursLoading ? "Saving..." : "Save Operating Hours"}
+                  </Button>
+                </CardFooter>
+              )}
             </Card>
           </form>
         </div>
@@ -1327,13 +1365,15 @@ export default function SettingsPage() {
                     </div>
                   </div>
 
-                  <Button
-                    type="button"
-                    onClick={startUpgrade}
-                    disabled={upgrading}
-                  >
-                    {upgrading ? "Redirecting…" : "Upgrade to Pro"}
-                  </Button>
+                  {canManageBilling && (
+                    <Button
+                      type="button"
+                      onClick={startUpgrade}
+                      disabled={upgrading}
+                    >
+                      {upgrading ? "Redirecting…" : "Upgrade to Pro"}
+                    </Button>
+                  )}
                 </div>
               </>
             )}

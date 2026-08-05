@@ -104,26 +104,26 @@ export class AllocationService {
     );
 
     /*
-     * Anyone whose answer to this shift is already settled is not a candidate.
+     * Anyone who ALREADY HAS a row on this shift is not a candidate.
      *
-     * `rejected` was already excluded. `pending`, `accepted` and
-     * `withdrawal_requested` were not, so someone already on the shift could be
-     * ranked and suggested for it again — and `autoAllocate` would then fail on
-     * the unique constraint over (taskId, membershipId).
+     * Not a status list. `TaskAssignment` is unique on (taskId, membershipId),
+     * so an existing row of any status makes a second assignment impossible —
+     * `autoAllocate` would fail on the constraint. And an approved withdrawal
+     * DELETES the row rather than storing "withdrawn", so "has a row" is
+     * exactly the condition, not a proxy for it.
      *
-     * This matters more now that eligibility deliberately includes people
-     * already assigned, so that they can still be VALIDATED. That widening is
-     * about checking commitments, not proposing new ones; without this filter
-     * it would leak into the suggestion path.
+     * This was a hand-written list of four statuses, which is how
+     * `decline_requested` came to be missing from it: a full-time member with a
+     * pending decline was still on the shift and would have been suggested for
+     * it again.
+     *
+     * It matters more than it looks because eligibility deliberately INCLUDES
+     * people already assigned, so that their commitments can still be
+     * validated. That widening is about checking, not proposing; without this
+     * filter it leaks into the suggestion path.
      */
     const settledMembershipIds = new Set(
-      task.assignments
-        .filter((a) =>
-          ["rejected", "pending", "accepted", "withdrawal_requested"].includes(
-            a.status
-          )
-        )
-        .map((a) => a.membershipId)
+      task.assignments.map((a) => a.membershipId)
     );
 
     const eligibleStaff = eligibility

@@ -80,6 +80,70 @@ describe("findAll vs findActive", () => {
     const all = await repo.findAll();
     expect(all.map((t) => t.name)).toEqual(["Restaurant", "Retail"]);
   });
+
+  /*
+   * The order has to survive a TIE, which is the case the assertion above
+   * cannot reach on its own.
+   *
+   * Prisma maps `DateTime` to `timestamp(3)`, so two rows created in the same
+   * millisecond carry the same `createdAt` — and Postgres gives no defined
+   * order for ties, so `ORDER BY createdAt` alone can return them either way
+   * round on successive calls. Whether that happens depends on how fast the
+   * machine is: this passed on a slow one, where the two creates landed 50ms
+   * apart, and failed on a fast one where they did not.
+   *
+   * Forcing the timestamps equal makes the tiebreak the only thing deciding,
+   * so the test asserts the property rather than the timing.
+   */
+  it("stays in the same order when two rows share a timestamp", async () => {
+    const stamp = new Date("2026-01-01T00:00:00.000Z");
+    await prisma.industryTemplate.updateMany({ data: { createdAt: stamp } });
+
+    /*
+     * Equal timestamps alone are not enough to expose the fault: with two rows
+     * Postgres seq-scans and returns heap order, which happens to match
+     * insertion order, so a missing tiebreak still looks right.
+     *
+     * UPDATING the first row is what makes it observable. Postgres has no
+     * in-place update — the new tuple is appended to the end of the heap — so
+     * after this, a scan returns Retail before Restaurant. Without a tiebreak
+     * the list silently flips; with one it does not. This is not a contrived
+     * scenario: editing a template is an ordinary admin action.
+     */
+    await repo.update(
+      (await repo.findByName("Restaurant"))!.id,
+      { description: "Edited" }
+    );
+    await prisma.industryTemplate.updateMany({ data: { createdAt: stamp } });
+
+    const first = await repo.findAll();
+    const second = await repo.findAll();
+
+    expect(first.map((t) => t.createdAt.getTime())).toEqual([
+      stamp.getTime(),
+      stamp.getTime(),
+    ]);
+    // Stable across calls…
+    expect(first.map((t) => t.id)).toEqual(second.map((t) => t.id));
+    // …and still oldest-created first, because the cuid tiebreak agrees.
+    expect(first.map((t) => t.name)).toEqual(["Restaurant", "Retail"]);
+  });
+
+  it("applies the same tiebreak to findActive", async () => {
+    const stamp = new Date("2026-01-01T00:00:00.000Z");
+    await repo.activate((await repo.findByName("Retail"))!.id);
+    // Same heap-reorder trick as above — see the comment there.
+    await repo.update(
+      (await repo.findByName("Restaurant"))!.id,
+      { description: "Edited" }
+    );
+    await prisma.industryTemplate.updateMany({ data: { createdAt: stamp } });
+
+    const first = await repo.findActive();
+    const second = await repo.findActive();
+    expect(first.map((t) => t.id)).toEqual(second.map((t) => t.id));
+    expect(first.map((t) => t.name)).toEqual(["Restaurant", "Retail"]);
+  });
 });
 
 describe("findById and findByName", () => {

@@ -1,10 +1,17 @@
 /**
- * AI Recommendations API Endpoint (Boundary Layer)
+ * Priority Call API Endpoint (Boundary Layer)
  * GET /api/organizations/[orgId]/dashboard/ai-recommendations
  *
- * Returns AI-powered ranked recommendations for the admin dashboard.
- * Separated from the main dashboard endpoint because AI calls
- * are slow (2-5 seconds) and can fail independently.
+ * Returns which outstanding item the smart engine would do first, and why.
+ *
+ * It used to return a list of AI recommendations, which restated the
+ * deterministic alerts computed from the same data — see the PriorityCall
+ * docblock. The path is unchanged so nothing else has to move; the shape it
+ * returns is `{ call: PriorityCall | null }`.
+ *
+ * Separate from the main dashboard endpoint because model calls are slow
+ * (2-5 seconds) and must fail independently — a null answer is normal and
+ * costs the page nothing.
  *
  * Only available to company_admin and manager roles.
  * Rate limit tier: moderate (20 req/min — AI endpoint).
@@ -12,11 +19,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { AIDashboardService } from "@/services/ai-dashboard.service";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
-import { AccessService } from "@/services/access.service";
+import { requirePermission } from "@/lib/permission-guard";
 import { departmentScopeFor } from "@/lib/department-scope";
 
 const aiService = new AIDashboardService();
-const accessService = new AccessService();
 
 export async function GET(
   request: NextRequest,
@@ -28,22 +34,21 @@ export async function GET(
 
     const { orgId } = await params;
 
-    const membership = await accessService.getMembership(user.id, orgId);
-    if (!membership || !["company_admin", "manager"].includes(membership.role)) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const gate = await requirePermission(user.id, orgId, "reports:view");
+    if (!gate.ok) return gate.response;
+    const membership = gate.membership;
 
-    const result = await aiService.generateRecommendations(
+    const result = await aiService.getPriorityCall(
       orgId,
-      // Managers see only their own departments. Without this the alerts and
-      // recommendations named staff and tasks from across the organisation.
+      // Managers see only their own departments. Without this the engine could
+      // point a manager at a shift in a department they cannot see.
       departmentScopeFor(membership)
     );
     return NextResponse.json(result);
   } catch (error) {
-    console.error("[AI Recommendations Error]", error);
+    console.error("[Priority Call Error]", error);
     return NextResponse.json(
-      { error: "Failed to generate recommendations" },
+      { error: "Failed to determine priority" },
       { status: 500 }
     );
   }

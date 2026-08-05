@@ -20,6 +20,15 @@ let orgId: string;
 let userId: string;
 let membershipId: string;
 let taskId: string;
+/**
+ * A second person, for the transitions that need one.
+ *
+ * `userId` here owns the only membership in the fixture, so it is both the
+ * assignee and the actor — which `resolveWithdrawal` and `resolveDecline` now
+ * refuse, because a request for someone else's agreement is not a request if
+ * you can answer it yourself.
+ */
+let managerUserId: string;
 
 beforeEach(async () => {
   await cleanDatabase();
@@ -41,6 +50,21 @@ beforeEach(async () => {
     where: { organizationId: orgId },
   });
   membershipId = membership!.id;
+
+  const manager = await userRepo.create({
+    name: "Manager User",
+    email: "manager@example.com",
+    hashedPassword: "hash",
+  });
+  managerUserId = manager.id;
+  await prisma.membership.create({
+    data: {
+      userId: manager.id,
+      organizationId: orgId,
+      role: "manager",
+      status: "active",
+    },
+  });
 
   const task = await taskRepo.create({
     title: "Test task",
@@ -228,7 +252,7 @@ describe("TaskAssignmentService", () => {
       const assignment = await createAssignment("accepted");
       await assignmentService.requestWithdrawal(assignment.id, membershipId, "reason");
 
-      await assignmentService.resolveWithdrawal(assignment.id, "approve", userId, orgId);
+      await assignmentService.resolveWithdrawal(assignment.id, "approve", managerUserId, orgId);
 
       const found = await prisma.taskAssignment.findUnique({
         where: { id: assignment.id },
@@ -243,7 +267,7 @@ describe("TaskAssignmentService", () => {
       const result = await assignmentService.resolveWithdrawal(
         assignment.id,
         "deny",
-        userId,
+        managerUserId,
         orgId
       );
       expect(result.status).toBe("accepted");
@@ -253,7 +277,7 @@ describe("TaskAssignmentService", () => {
       const assignment = await createAssignment("accepted");
 
       await expect(
-        assignmentService.resolveWithdrawal(assignment.id, "approve", userId, orgId)
+        assignmentService.resolveWithdrawal(assignment.id, "approve", managerUserId, orgId)
       ).rejects.toThrow("No pending withdrawal request");
     });
   });

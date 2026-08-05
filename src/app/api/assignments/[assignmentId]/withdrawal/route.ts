@@ -17,6 +17,7 @@ import {
   checkOrgSuspended,
 } from "@/lib/auth-guard";
 import { AccessService } from "@/services/access.service";
+import { requirePermission } from "@/lib/permission-guard";
 
 const assignmentService = new TaskAssignmentService();
 const accessService = new AccessService();
@@ -46,10 +47,9 @@ export async function POST(
     if (suspended) return suspended;
 
     // Only managers/admins can resolve withdrawal requests.
-    const membership = await accessService.getMembership(user.id, orgId);
-    if (!membership || !["company_admin", "manager"].includes(membership.role)) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const gate = await requirePermission(user.id, orgId, "tasks:assign");
+    if (!gate.ok) return gate.response;
+    const membership = gate.membership;
 
     // Managers can only resolve withdrawals for tasks in their department scope.
     if (!(await accessService.isAssignmentTaskInScope(assignmentId, membership))) {
@@ -76,6 +76,10 @@ export async function POST(
     if (error instanceof Error) {
       if (error.message === "Assignment not found") {
         return NextResponse.json({ error: error.message }, { status: 404 });
+      }
+      // 403, not 400 — the caller holds the permission, just not over this row.
+      if (error.message === "You cannot resolve your own withdrawal request") {
+        return NextResponse.json({ error: error.message }, { status: 403 });
       }
       if (error.message.includes("No pending withdrawal")) {
         return NextResponse.json({ error: error.message }, { status: 400 });

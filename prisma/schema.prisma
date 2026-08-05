@@ -515,8 +515,28 @@ model WorkRule {
   updatedAt       DateTime @updatedAt
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  role         Role?        @relation(fields: [roleId], references: [id], onDelete: SetNull)
-  department   Department?  @relation("WorkRuleDepartment", fields: [departmentId], references: [id], onDelete: SetNull)
+  /*
+   * Restrict, not SetNull.
+   *
+   * A rule with NEITHER target set means "everybody" — that is how a global
+   * rule is expressed. Under SetNull, deleting the role or department a rule
+   * pointed at blanked the reference, and the rule silently became org-wide:
+   * "trainees need 11 hours off" quietly turned into "everyone does", with
+   * nothing to distinguish it from a rule someone deliberately made global.
+   *
+   * The ambiguity is the fault — blank cannot mean both "I meant everyone" and
+   * "my target was deleted". Restrict removes it at the source by refusing the
+   * delete while rules still point at the row. `RoleService.delete` and
+   * `DepartmentService.delete` check first and refuse with a message naming the
+   * rules, so the constraint is the backstop rather than the error the user
+   * sees.
+   *
+   * It fails in the safe direction either way — a widened rule refuses MORE
+   * rostering, never less — but silently wrong is still wrong, and it surfaces
+   * as managers unable to roster people for reasons that make no sense.
+   */
+  role         Role?        @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  department   Department?  @relation("WorkRuleDepartment", fields: [departmentId], references: [id], onDelete: Restrict)
 
   @@unique([organizationId, name])
   @@index([organizationId])

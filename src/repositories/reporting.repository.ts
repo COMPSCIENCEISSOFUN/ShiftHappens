@@ -16,6 +16,30 @@
  * Security: Prisma parameterized queries prevent SQL injection.
  */
 import { prisma } from "@/lib/prisma";
+import { occupyingStatusFilter } from "@/lib/assignment-status";
+
+/**
+ * A membership filter for a caller who may be limited to some departments.
+ *
+ * `undefined` means unrestricted (company admin). An ARRAY is the caller's own
+ * departments, and an empty one therefore means "no departments" — matching
+ * nothing — never "all departments". Getting that distinction the wrong way
+ * round is the difference between a manager seeing nothing and a manager
+ * seeing the whole organisation.
+ */
+function departmentScopedMembership(
+  organizationId: string,
+  departmentIds?: string[]
+) {
+  return departmentIds != null
+    ? {
+        organizationId,
+        departmentMemberships: {
+          some: { departmentId: { in: departmentIds } },
+        },
+      }
+    : { organizationId };
+}
 
 // ============================================================
 // Return type interfaces
@@ -87,6 +111,8 @@ export interface AssignmentStatusCount {
 /** Individual rejection record with staff and reason details */
 export interface RejectionRecord {
   membershipId: string;
+  /** The person, not the membership — follow-up actions address a user. */
+  userId: string;
   staffName: string;
   staffEmail: string;
   rejectionReason: string | null;
@@ -179,6 +205,22 @@ export interface StaffAssignmentStatRecord {
   clockInTime: Date | null;
   scheduledStart: Date | null;
   createdAt: Date;
+}
+
+/**
+ * One thing a staff member wrote, with just enough around it to be read.
+ *
+ * No name — see `getFeedbackText`.
+ */
+export interface FeedbackSnippet {
+  kind: "rating" | "decline" | "withdrawal";
+  /** Verbatim, trimmed. Never rewritten. */
+  text: string;
+  /** The structured value beside the text: "rated 2/5", or a decline reason. */
+  label: string | null;
+  departmentName: string | null;
+  taskTitle: string;
+  at: Date;
 }
 
 // ============================================================
@@ -279,7 +321,7 @@ export class ReportingRepository {
         clockOutTime: true,
         membership: {
           select: {
-            user: { select: { name: true, email: true } },
+            user: { select: { id: true, name: true, email: true } },
           },
         },
       },
@@ -399,7 +441,10 @@ export class ReportingRepository {
         user: { select: { name: true, email: true } },
         taskAssignments: {
           where: {
-            status: { in: ["pending", "accepted"] },
+            // Everything that still puts them on a shift today, including a
+            // decision waiting on a manager — they are expected to turn up
+            // until it is resolved, so the roster has to show them.
+            status: { in: occupyingStatusFilter() },
             task: {
               scheduledStart: { lt: todayEnd },
               scheduledEnd: { gt: todayStart },
@@ -473,7 +518,12 @@ export class ReportingRepository {
         scheduledEnd: true,
         department: { select: { name: true, color: true } },
         assignments: {
-          where: { status: { in: ["pending", "accepted"] } },
+          // Was ["pending", "accepted"]. That omitted withdrawal_requested,
+          // whose whole purpose is to hold the slot while a manager decides —
+          // so a shift nobody had actually left was reported as needing a
+          // replacement, and the engine would offer it to someone else while
+          // the original assignee was still expected to turn up.
+          where: { status: { in: occupyingStatusFilter() } },
           select: { id: true },
         },
       },
@@ -523,7 +573,10 @@ export class ReportingRepository {
         scheduledEnd: true,
         department: { select: { name: true, color: true } },
         assignments: {
-          where: { status: { in: ["pending", "accepted"] } },
+          // Headcount, so the shared rule. A shift in progress has people
+          // clocked in on it; counting only pending and accepted made it look
+          // as though they had left.
+          where: { status: { in: occupyingStatusFilter() } },
           select: { id: true, status: true },
         },
       },
@@ -697,7 +750,8 @@ export class ReportingRepository {
         rejectionNotes: true,
         membership: {
           select: {
-            user: { select: { name: true, email: true } },
+            // `id` because follow-up actions address a person, not a membership.
+            user: { select: { id: true, name: true, email: true } },
           },
         },
       },
@@ -705,6 +759,7 @@ export class ReportingRepository {
 
     return records.map((r) => ({
       membershipId: r.membershipId,
+      userId: r.membership.user.id,
       staffName: r.membership.user.name || r.membership.user.email,
       staffEmail: r.membership.user.email,
       rejectionReason: r.rejectionReason,
@@ -721,7 +776,8 @@ export class ReportingRepository {
    */
   async getExpiringCertifications(
     organizationId: string,
-    withinDays: number
+    withinDays: number,
+    departmentIds?: string[]
   ): Promise<ExpiringCertRecord[]> {
     const now = new Date();
     const cutoff = new Date();
@@ -729,7 +785,12 @@ export class ReportingRepository {
 
     const records = await prisma.certification.findMany({
       where: {
-        membership: { organizationId },
+        // Scoped through the OWNER's departments, not the task's — a
+        // certification belongs to a person. Six of the eight sources feeding
+        // `getNeedsAttention` were scoped and these two were not, so a manager
+        // limited to one department was shown other departments' staff names
+        // and expiry dates, and those items were serialised into the AI prompt.
+        membership: departmentScopedMembership(organizationId, departmentIds),
         status: "verified",
         expiryDate: {
           gte: now,
@@ -769,11 +830,12 @@ export class ReportingRepository {
    * Used for pending verification alert in needs-attention section.
    */
   async getPendingCertVerifications(
-    organizationId: string
+    organizationId: string,
+    departmentIds?: string[]
   ): Promise<PendingCertVerificationRecord[]> {
     const records = await prisma.certification.findMany({
       where: {
-        membership: { organizationId },
+        membership: departmentScopedMembership(organizationId, departmentIds),
         status: "pending",
       },
       select: {
@@ -805,7 +867,11 @@ export class ReportingRepository {
   /**
    * Gets a staff member's task assignments within a date range.
    * Used for personal weekly calendar view.
-   * Includes pending, accepted, and completed assignments.
+   *
+   * Everything that still ties them to a shift. The list here was "pending,
+   * accepted, completed" — which dropped `clocked_out` as well as both
+   * awaiting-a-decision states, so a member who had clocked out of a shift saw
+   * it vanish from their own calendar before it was marked complete.
    */
   async getStaffAssignments(
     membershipId: string,
@@ -815,7 +881,7 @@ export class ReportingRepository {
     const records = await prisma.taskAssignment.findMany({
       where: {
         membershipId,
-        status: { in: ["pending", "accepted", "completed"] },
+        status: { in: occupyingStatusFilter() },
         task: {
           scheduledStart: { lt: endDate },
           scheduledEnd: { gt: startDate },
@@ -1057,7 +1123,8 @@ export class ReportingRepository {
   /**
    * Upcoming tasks with their required headcount and how many slots are
    * actually taken — the raw material for the coverage summary.
-   * Only slot-occupying assignments count (pending/accepted/withdrawal_requested).
+   * Only slot-occupying assignments count — the shared rule, which is
+   * everything except rejected and withdrawn.
    */
   async getUpcomingCoverage(
     organizationId: string,
@@ -1079,9 +1146,7 @@ export class ReportingRepository {
         _count: {
           select: {
             assignments: {
-              where: {
-                status: { in: ["pending", "accepted", "withdrawal_requested"] },
-              },
+              where: { status: { in: occupyingStatusFilter() } },
             },
           },
         },
@@ -1305,9 +1370,7 @@ export class ReportingRepository {
         _count: {
           select: {
             assignments: {
-              where: {
-                status: { in: ["pending", "accepted", "withdrawal_requested"] },
-              },
+              where: { status: { in: occupyingStatusFilter() } },
             },
           },
         },
@@ -1378,7 +1441,7 @@ export class ReportingRepository {
     const assignments = await prisma.taskAssignment.findMany({
       where: {
         membershipId: { in: certs.map((c) => c.membershipId) },
-        status: { in: ["pending", "accepted", "withdrawal_requested"] },
+        status: { in: occupyingStatusFilter() },
         task: {
           organizationId,
           status: { notIn: ["completed", "cancelled"] },
@@ -1681,5 +1744,137 @@ export class ReportingRepository {
     for (const id of membershipIds) counts[id] = 0;
     for (const g of groups) counts[g.membershipId] = g._count._all;
     return counts;
+  }
+
+  /**
+   * Free text staff wrote, from all three places they can write it.
+   *
+   * Everything else on this repository counts, averages or groups. This is the
+   * one read whose value is in the words themselves: `GROUP BY rejectionReason`
+   * can report that eight declines said `schedule_conflict`, and nothing in SQL
+   * can notice that six of the notes beside them mention the same closing shift.
+   *
+   * Deliberately excludes staff names. Themes are about the work, not about
+   * people, and a name in the prompt is an invitation to hand back an
+   * accusation about someone who cannot see it or answer it. Department, shift
+   * title and the structured value beside the text are enough context to make a
+   * theme actionable.
+   *
+   * Three queries rather than one OR, because each kind is windowed on its own
+   * timestamp. Rows written before those columns existed carry NULL and fall
+   * back to `updatedAt`, which is imprecise — it moves with every later
+   * transition — but only decides which window an old comment lands in, never
+   * what it says.
+   */
+  async getFeedbackText(
+    organizationId: string,
+    since: Date,
+    departmentIds?: string[] | null,
+    perKindLimit = 40
+  ): Promise<FeedbackSnippet[]> {
+    const scope = {
+      organizationId,
+      ...(departmentIds != null ? { departmentId: { in: departmentIds } } : {}),
+    };
+    const taskSelect = {
+      select: {
+        title: true,
+        department: { select: { name: true } },
+      },
+    } as const;
+
+    /** `<field> >= since`, or `updatedAt >= since` for rows predating it. */
+    const windowed = (field: "ratedAt" | "rejectedAt" | "withdrawalRequestedAt") => ({
+      OR: [
+        { [field]: { gte: since } },
+        { [field]: null, updatedAt: { gte: since } },
+      ],
+    });
+
+    const [rated, declined, withdrawn] = await Promise.all([
+      prisma.taskAssignment.findMany({
+        where: {
+          satisfactionComment: { not: null },
+          task: scope,
+          ...windowed("ratedAt"),
+        },
+        select: {
+          satisfactionComment: true,
+          satisfactionRating: true,
+          ratedAt: true,
+          updatedAt: true,
+          task: taskSelect,
+        },
+        orderBy: { updatedAt: "desc" },
+        take: perKindLimit,
+      }),
+      prisma.taskAssignment.findMany({
+        where: {
+          rejectionNotes: { not: null },
+          task: scope,
+          ...windowed("rejectedAt"),
+        },
+        select: {
+          rejectionNotes: true,
+          rejectionReason: true,
+          rejectedAt: true,
+          updatedAt: true,
+          task: taskSelect,
+        },
+        orderBy: { updatedAt: "desc" },
+        take: perKindLimit,
+      }),
+      prisma.taskAssignment.findMany({
+        where: {
+          withdrawalNotes: { not: null },
+          task: scope,
+          ...windowed("withdrawalRequestedAt"),
+        },
+        select: {
+          withdrawalNotes: true,
+          withdrawalReason: true,
+          withdrawalRequestedAt: true,
+          updatedAt: true,
+          task: taskSelect,
+        },
+        orderBy: { updatedAt: "desc" },
+        take: perKindLimit,
+      }),
+    ]);
+
+    const snippets: FeedbackSnippet[] = [
+      ...rated.map((r) => ({
+        kind: "rating" as const,
+        text: r.satisfactionComment ?? "",
+        label: r.satisfactionRating != null ? `rated ${r.satisfactionRating}/5` : null,
+        departmentName: r.task.department?.name ?? null,
+        taskTitle: r.task.title,
+        at: r.ratedAt ?? r.updatedAt,
+      })),
+      ...declined.map((r) => ({
+        kind: "decline" as const,
+        text: r.rejectionNotes ?? "",
+        label: r.rejectionReason,
+        departmentName: r.task.department?.name ?? null,
+        taskTitle: r.task.title,
+        at: r.rejectedAt ?? r.updatedAt,
+      })),
+      ...withdrawn.map((r) => ({
+        kind: "withdrawal" as const,
+        text: r.withdrawalNotes ?? "",
+        label: r.withdrawalReason,
+        departmentName: r.task.department?.name ?? null,
+        taskTitle: r.task.title,
+        at: r.withdrawalRequestedAt ?? r.updatedAt,
+      })),
+    ];
+
+    // A column that is present but blank is not feedback. `not: null` above
+    // cannot express this, and an empty string sent to the model is a numbered
+    // line with nothing on it that it may still try to find a theme in.
+    return snippets
+      .map((s) => ({ ...s, text: s.text.trim() }))
+      .filter((s) => s.text.length > 0)
+      .sort((a, b) => b.at.getTime() - a.at.getTime());
   }
 }

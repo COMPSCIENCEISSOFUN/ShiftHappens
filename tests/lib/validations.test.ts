@@ -294,18 +294,29 @@ describe("updateOrganizationSchema", () => {
 describe("createRoleSchema", () => {
   it("accepts valid role data", () => {
     const result = createRoleSchema.safeParse({
-      name: "shift_lead", displayLabel: "Shift Lead", description: "Leads a shift", permissionIds: ["perm-1", "perm-2"],
+      displayLabel: "Shift Lead", description: "Leads a shift", permissionIds: ["perm-1", "perm-2"],
     });
     expect(result.success).toBe(true);
   });
 
-  it("rejects empty name", () => {
-    const result = createRoleSchema.safeParse({ name: "", displayLabel: "Shift Lead", permissionIds: ["perm-1"] });
+  /*
+   * There is no `name` any more. It was asked for alongside the label,
+   * annotated "Used in code", and read by nothing — it is derived now. The old
+   * "rejects empty name" test went with it; the label is what must be present.
+   */
+  it("rejects an empty label", () => {
+    const result = createRoleSchema.safeParse({ displayLabel: "", permissionIds: ["perm-1"] });
     expect(result.success).toBe(false);
   });
 
+  // A label of pure punctuation slugifies to nothing, so the service would have
+  // no stored name to write. Refused here, where the message can name the field.
+  it("rejects a label with no letters or digits", () => {
+    expect(createRoleSchema.safeParse({ displayLabel: "!!!", permissionIds: ["perm-1"] }).success).toBe(false);
+  });
+
   it("rejects empty permissions", () => {
-    const result = createRoleSchema.safeParse({ name: "shift_lead", displayLabel: "Shift Lead", permissionIds: [] });
+    const result = createRoleSchema.safeParse({ displayLabel: "Shift Lead", permissionIds: [] });
     expect(result.success).toBe(false);
   });
 });

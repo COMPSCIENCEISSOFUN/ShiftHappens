@@ -1,10 +1,23 @@
 /**
  * Platform Template Management API (Boundary Layer)
- * GET  /api/platform/templates — List all templates (platform admin)
- * POST /api/platform/templates — Create a new template (platform admin)
+ * GET  /api/platform/templates — every template, with usage counts
+ * POST /api/platform/templates — create a template
  *
- * Also serves as public endpoint for active templates when
- * accessed without platform admin auth (GET only, active filter).
+ * Platform admin only, both verbs.
+ *
+ * ## What changed
+ *
+ * GET used to branch on `isPlatformAdmin` and never deny — an admin got every
+ * template with usage counts, everyone else got the active ones. It was
+ * recorded as a KNOWN GAP in the route manifest, because a path under
+ * `/api/platform/` that any authenticated user may call is a contradiction: the
+ * prefix is the only thing telling the next person who the audience is.
+ *
+ * The member-facing half moved to `GET /api/industry-templates`, which is
+ * honest about serving anyone signed in. What stays here is the part that
+ * genuinely belongs to the console: retired templates, and usage counts — a
+ * cross-tenant aggregate of how many organisations chose each template, which
+ * nothing outside the platform console should read.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
@@ -19,15 +32,13 @@ export async function GET(req: NextRequest) {
     const user = await getAuthenticatedUser();
     if (!user) return unauthorizedResponse();
 
-    // Check if platform admin
-    if (await platformService.isPlatformAdmin(user.id)) {
-      // Platform admin sees all templates with usage counts
-      const templates = await templateService.getAllTemplates();
-      return NextResponse.json(templates);
+    // Denies, rather than branching. The active-template list non-admins used
+    // to fall through to lives at `GET /api/industry-templates` now.
+    if (!(await platformService.isPlatformAdmin(user.id))) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    // Regular users see active templates only (for onboarding/settings)
-    const templates = await templateService.getActiveTemplates();
+    const templates = await templateService.getAllTemplates();
     return NextResponse.json(templates);
   } catch (error) {
     console.error("[GET /api/platform/templates]", error);

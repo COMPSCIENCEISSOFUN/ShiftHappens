@@ -9,10 +9,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { UserManagementService } from "@/services/user-management.service";
 import { updateUserRoleSchema } from "@/lib/validations";
 import { getAuthenticatedUser, unauthorizedResponse, checkOrgSuspended } from "@/lib/auth-guard";
-import { AccessService } from "@/services/access.service";
+import { requirePermission } from "@/lib/permission-guard";
 
 const userMgmtService = new UserManagementService();
-const accessService = new AccessService();
 
 export async function PATCH(
   request: NextRequest,
@@ -26,10 +25,8 @@ export async function PATCH(
     const suspended = await checkOrgSuspended(orgId);
     if (suspended) return suspended;
 
-    const membership = await accessService.getMembership(user.id, orgId);
-    if (!membership || membership.role !== "company_admin") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const gate = await requirePermission(user.id, orgId, "members:update_role");
+    if (!gate.ok) return gate.response;
 
     const body = await request.json();
     const parsed = updateUserRoleSchema.safeParse(body);
@@ -66,6 +63,20 @@ export async function PATCH(
       }
       if (error.message.includes("Cannot demote")) {
         return NextResponse.json({ error: error.message }, { status: 400 });
+      }
+      /*
+       * 403, not 400. These are authorisation refusals — the request was
+       * well-formed and the caller simply may not make it — and a 400 would
+       * read as "fix your input" for something no input can fix.
+       */
+      if (
+        error.message === "You cannot change your own role" ||
+        error.message === "You cannot grant a role above your own" ||
+        error.message === "You cannot change the role of a member above your own" ||
+        error.message === "Not authorized to change roles" ||
+        error.message.startsWith("You cannot grant permissions you do not hold")
+      ) {
+        return NextResponse.json({ error: error.message }, { status: 403 });
       }
       if (error.message === "Company Admins cannot be assigned custom roles") {
         return NextResponse.json({ error: error.message }, { status: 400 });

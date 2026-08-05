@@ -64,14 +64,47 @@ export class CertificationService {
   }
 
   /**
-   * Gets a certification by ID, scoped to an organization.
+   * Gets a certification by ID, scoped to an organization and, optionally, to
+   * a set of departments.
+   *
    * A cert belongs to the org of the member who owns it. Returns null for a
-   * missing cert OR one owned by a member of another tenant.
+   * missing cert, one owned by a member of another tenant, or — when a scope is
+   * given — one owned by a member outside it.
    */
-  async getById(certId: string, organizationId: string) {
+  async getById(
+    certId: string,
+    organizationId: string,
+    departmentScope?: string[] | null
+  ) {
     const cert = await this.certRepo.findById(certId);
     if (!cert || cert.membership.organizationId !== organizationId) return null;
+    if (!this.ownerInScope(cert, departmentScope)) return null;
     return cert;
+  }
+
+  /**
+   * Is this certification's owner inside the caller's department scope?
+   *
+   * `undefined`/`null` means unrestricted — a company admin. Anything else is
+   * the caller's own departments, and the owner must share at least one.
+   *
+   * The listing endpoint was scoped from the start; the three that ACT on a
+   * single record were not, and a certification id is not a secret — they come
+   * back in dashboard and eligibility payloads. A manager scoped to Kitchen
+   * could verify or revoke a Front-of-House member's certification, which
+   * silently changes who the eligibility engine will roster.
+   */
+  private ownerInScope(
+    cert: {
+      membership: { departmentMemberships: { departmentId: string }[] };
+    },
+    departmentScope?: string[] | null
+  ): boolean {
+    if (departmentScope === undefined || departmentScope === null) return true;
+    const scope = new Set(departmentScope);
+    return cert.membership.departmentMemberships.some((dm) =>
+      scope.has(dm.departmentId)
+    );
   }
 
   /** Gets all certifications for a member */
@@ -111,10 +144,17 @@ export class CertificationService {
     organizationId: string,
     status: string,
     verifiedById: string,
-    reason?: { rejectionReason?: string; rejectionNotes?: string }
+    reason?: { rejectionReason?: string; rejectionNotes?: string },
+    departmentScope?: string[] | null
   ) {
     const cert = await this.certRepo.findById(certId);
-    if (!cert || cert.membership.organizationId !== organizationId) {
+    if (
+      !cert ||
+      cert.membership.organizationId !== organizationId ||
+      !this.ownerInScope(cert, departmentScope)
+    ) {
+      // Out of scope is reported as not found on purpose — a manager should
+      // not be able to probe for the existence of another department's records.
       throw new Error("Certification not found");
     }
 
@@ -164,10 +204,15 @@ export class CertificationService {
     certId: string,
     organizationId: string,
     revokedById: string,
-    reason: { rejectionReason: string; rejectionNotes?: string }
+    reason: { rejectionReason: string; rejectionNotes?: string },
+    departmentScope?: string[] | null
   ) {
     const cert = await this.certRepo.findById(certId);
-    if (!cert || cert.membership.organizationId !== organizationId) {
+    if (
+      !cert ||
+      cert.membership.organizationId !== organizationId ||
+      !this.ownerInScope(cert, departmentScope)
+    ) {
       throw new Error("Certification not found");
     }
 

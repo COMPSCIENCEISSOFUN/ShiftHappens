@@ -15,6 +15,8 @@
  */
 import { ReportingRepository } from "@/repositories/reporting.repository";
 import { SettingsRepository } from "@/repositories/settings.repository";
+import { REASON_PHRASE, type DeclineReason } from "@/lib/decline-reasons";
+import { occupiesSlot } from "@/lib/assignment-status";
 import {
   DEFAULT_TIMEZONE,
   dayOfWeekInTimeZone,
@@ -41,6 +43,9 @@ const HOUR_MS = 60 * 60 * 1000;
  * is not, because ranked lists are read by position.
  */
 const MIN_GROUP_RESPONSES = 5;
+
+/** One decline is a Tuesday. Two is worth a manager's attention. */
+const MIN_DECLINES_FOR_PATTERN = 2;
 
 /** Comments render in a dashboard panel, not a report. */
 const MAX_RECENT_COMMENTS = 5;
@@ -90,17 +95,31 @@ export interface NeedsAttentionItem {
     | "pending_acceptance"
     | "expiring_cert"
     | "pending_verification"
-    // Insight types. Each joins two facts to say something neither carries
-    // alone, and each sets `isAiInsight` so the dashboard can mark it.
+    // Cross-referenced types. Each joins two facts to say something neither
+    // carries alone — an expiry beside the shifts it grounds, a decline count
+    // beside its commonest reason.
+    //
+    // These once carried an `isAiInsight` flag and rendered with a sparkle,
+    // which was a lie: every one is a SQL join with a threshold. Nothing on
+    // this list is model output, and labelling deterministic work as AI is
+    // exactly what makes a real model feature impossible to trust.
     | "expiring_cert_impact"
     | "unfillable"
-    | "no_show";
+    | "no_show"
+    | "decline_pattern";
   severity: "danger" | "warning" | "info";
   message: string;
   actionLabel: string;
   actionUrl: string;
   entityId?: string;
-  isAiInsight?: boolean;
+  /**
+   * True when the action POSTs to `actionUrl` instead of navigating to it.
+   *
+   * Only the availability nudge uses it. Kept as a flag on the alert rather
+   * than inferred in the UI so the one row that DOES something rather than
+   * going somewhere is declared where the row is built.
+   */
+  actionPost?: boolean;
 }
 
 /** Three key metric cards for dashboard header */
@@ -475,11 +494,12 @@ export class ReportingService {
       certImpact,
       noShows,
       unfillable,
+      declinePatterns,
     ] = await Promise.all([
       this.reportingRepo.getUnderstaffedTasks(organizationId, departmentIds),
       this.reportingRepo.getPendingAssignments(organizationId, departmentIds),
-      this.reportingRepo.getExpiringCertifications(organizationId, 30),
-      this.reportingRepo.getPendingCertVerifications(organizationId),
+      this.reportingRepo.getExpiringCertifications(organizationId, 30, departmentIds),
+      this.reportingRepo.getPendingCertVerifications(organizationId, departmentIds),
       this.reportingRepo.getExpiringCertificationImpact(
         organizationId,
         30,
@@ -487,6 +507,7 @@ export class ReportingService {
       ),
       this.getNoShowSummary(organizationId, departmentIds),
       this.getUnfillableShifts(organizationId, departmentIds),
+      this.getDeclinePatterns(organizationId, departmentIds),
     ]);
 
     const items: NeedsAttentionItem[] = [];
@@ -513,9 +534,11 @@ export class ReportingService {
         severity: "danger",
         message: `${impact.staffName}'s ${impact.certName} expires in ${days} day${days !== 1 ? "s" : ""} — they are booked on ${count} later shift${count !== 1 ? "s" : ""} that require${count === 1 ? "s" : ""} it`,
         actionLabel: "Review",
-        actionUrl: `/org/${organizationId}/certifications`,
+        // Deep-linked to the matching pill. Every one of these alerts names a
+        // subset and used to land the reader on "All", leaving them to find
+        // again what the alert had just told them.
+        actionUrl: `/org/${organizationId}/certifications?status=expiring`,
         entityId: impact.certificationId,
-        isAiInsight: true,
       });
     }
 
@@ -527,7 +550,6 @@ export class ReportingService {
         actionLabel: "View",
         actionUrl: `/org/${organizationId}/tasks`,
         entityId: shift.taskId,
-        isAiInsight: true,
       });
     }
 
@@ -542,7 +564,33 @@ export class ReportingService {
           (others > 0 ? `, and ${others} other${others !== 1 ? "s" : ""} did the same` : ""),
         actionLabel: "View",
         actionUrl: `/org/${organizationId}/tasks`,
-        isAiInsight: true,
+      });
+    }
+
+    /*
+     * Decline patterns.
+     *
+     * This lived in the AI recommendation list, which is where it acquired two
+     * problems: it asserted that the member's availability was out of date —
+     * an inference the data does not support, since they may simply be busy —
+     * and its action pointed at a page where a manager can only edit their own
+     * schedule.
+     *
+     * It is a deterministic fact about the last seven days, so it belongs
+     * here, and its action is a real one: ask the person who owns the
+     * constraint to confirm it still holds.
+     */
+    for (const pattern of declinePatterns) {
+      items.push({
+        type: "decline_pattern",
+        severity: "info",
+        message:
+          `${pattern.staffName} declined ${pattern.count} shifts recently` +
+          (pattern.topReason ? ` — mostly ${pattern.topReason}` : ""),
+        actionLabel: "Ask to review",
+        actionUrl: `/api/organizations/${organizationId}/members/${pattern.userId}/request-availability`,
+        actionPost: true,
+        entityId: pattern.userId,
       });
     }
 
@@ -590,7 +638,7 @@ export class ReportingService {
         severity: "warning",
         message: `${cert.staffName}'s ${cert.certName} expires in ${daysUntil} day${daysUntil !== 1 ? "s" : ""}`,
         actionLabel: "View",
-        actionUrl: `/org/${organizationId}/certifications`,
+        actionUrl: `/org/${organizationId}/certifications?status=expiring`,
         entityId: cert.id,
       });
     }
@@ -602,7 +650,7 @@ export class ReportingService {
         severity: "info",
         message: `${pendingVerifications.length} certification${pendingVerifications.length !== 1 ? "s" : ""} awaiting verification`,
         actionLabel: "Review",
-        actionUrl: `/org/${organizationId}/certifications`,
+        actionUrl: `/org/${organizationId}/certifications?status=pending`,
       });
     }
 
@@ -946,8 +994,16 @@ export class ReportingService {
       let status: TeamMemberItem["status"];
       let statusLabel: string;
 
-      const hasAccepted = m.todayAssignments.some(
-        (a) => a.status === "accepted"
+      /*
+       * A member awaiting a decision on a decline or a withdrawal is still
+       * rostered. The repository fetches them for exactly that reason — its
+       * comment says they are expected to turn up until it is resolved — and
+       * narrowing to `accepted` here threw that away, so someone whose decline
+       * was pending appeared as "Available" or "Off today" to the manager
+       * looking for cover for that very shift.
+       */
+      const hasAccepted = m.todayAssignments.some((a) =>
+        occupiesSlot(a.status)
       );
       const hasPending = m.pendingCount > 0;
       const isAvailable = m.availability?.isAvailable ?? false;
@@ -1029,11 +1085,13 @@ export class ReportingService {
     const hoursThisMonth = this.sumClockHours(myClockMonth);
 
     // Next upcoming shift
+    // `getStaffAssignments` has already dropped everything released, so a
+    // second status list here could only ever remove shifts the member is
+    // still on. It removed the two awaiting a manager's decision — telling
+    // someone their next shift was the one AFTER the one they are rostered
+    // for, while the week calendar below still drew both.
     const upcoming = weekAssignments.find(
-      (a) =>
-        a.scheduledStart &&
-        a.scheduledStart > now &&
-        (a.status === "accepted" || a.status === "pending")
+      (a) => a.scheduledStart && a.scheduledStart > now
     );
     const nextShift = upcoming?.scheduledStart && upcoming?.scheduledEnd
       ? {
@@ -1677,6 +1735,62 @@ export class ReportingService {
           ratedAt: r.ratedAt,
         })),
     };
+  }
+
+  /**
+   * People who have declined several shifts in the last week.
+   *
+   * Two or more, because one decline is a Tuesday, not a pattern — the same
+   * threshold the old recommendation used.
+   *
+   * The message states what happened and stops there. It deliberately does NOT
+   * conclude that the member's availability is wrong: repeated declines for
+   * schedule conflicts are equally consistent with someone being busy, and a
+   * confident wrong alert costs trust in every other row on the page.
+   */
+  async getDeclinePatterns(
+    organizationId: string,
+    departmentIds?: string[]
+  ): Promise<{ userId: string; staffName: string; count: number; topReason: string | null }[]> {
+    const since = new Date(startOfDayInTimeZone(new Date()).getTime() - 7 * DAY_MS);
+    const rejections = await this.reportingRepo.getRejectionData(
+      organizationId,
+      since,
+      departmentIds
+    );
+
+    const byUser = new Map<
+      string,
+      { staffName: string; count: number; reasons: Map<string, number> }
+    >();
+
+    for (const r of rejections) {
+      const entry = byUser.get(r.userId) ?? {
+        staffName: r.staffName,
+        count: 0,
+        reasons: new Map<string, number>(),
+      };
+      entry.count += 1;
+      if (r.rejectionReason) {
+        entry.reasons.set(r.rejectionReason, (entry.reasons.get(r.rejectionReason) ?? 0) + 1);
+      }
+      byUser.set(r.userId, entry);
+    }
+
+    return [...byUser.entries()]
+      .filter(([, e]) => e.count >= MIN_DECLINES_FOR_PATTERN)
+      .map(([userId, e]) => {
+        const top = [...e.reasons.entries()].sort((a, b) => b[1] - a[1])[0];
+        return {
+          userId,
+          staffName: e.staffName,
+          count: e.count,
+          // Humanised. The raw column holds enum keys, and "exceeds_preferred_hours"
+          // printed at a manager is a database value leaking through the UI.
+          topReason: top ? REASON_PHRASE[top[0] as DeclineReason] ?? null : null,
+        };
+      })
+      .sort((a, b) => b.count - a.count);
   }
 
   // ===== Insights =====

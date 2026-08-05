@@ -12,7 +12,8 @@
  * - User card with avatar initials + role info
  * - Dark mode toggle and sign out
  *
- * Navigation is filtered by role and subscription tier.
+ * Navigation is filtered by the caller's effective PERMISSIONS and by
+ * subscription tier — see the comment above the section builders.
  */
 "use client";
 
@@ -21,7 +22,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import { useTheme } from "next-themes";
-import { getSystemRoleLabel } from "@/lib/role-config";
+import { getSystemRoleLabel, canBeRostered } from "@/lib/role-config";
 
 // ============================================================
 // SVG icon components
@@ -251,6 +252,8 @@ interface AppSidebarProps {
   role?: string;
   employmentType?: string;
   customRoleLabel?: string;
+  /** The caller's effective permissions — see the nav comment below. */
+  permissions?: string[];
 }
 
 // ============================================================
@@ -283,6 +286,7 @@ export function AppSidebar({
   role,
   employmentType,
   customRoleLabel,
+  permissions = [],
 }: AppSidebarProps) {
   const pathname = usePathname();
   const { resolvedTheme, setTheme } = useTheme();
@@ -345,52 +349,117 @@ export function AppSidebar({
   }, [orgId]);
 
 
-  // Build navigation sections based on role
+  /*
+   * The menu is built from PERMISSIONS, not from the role string.
+   *
+   * It used to read `role === "company_admin" || role === "manager"`, which
+   * meant a custom role changed what the API would allow without changing what
+   * the user was offered — in both directions. A "Shift Lead" granted
+   * `tasks:assign` never saw the Tasks link; a manager whose custom role
+   * withheld `reports:view` still saw Reports and met a 403 on arrival.
+   *
+   * Every entry below names the permission its destination actually enforces,
+   * so a visible link always leads somewhere the user may go. Personal pages —
+   * their own shifts, availability and certificates — carry no permission,
+   * because being an active member is what grants those.
+   */
+  const held = new Set(permissions);
+  const can = (permission: string) => held.has(permission);
+  const canAny = (...candidates: string[]) => candidates.some(can);
+
   const sections: NavSection[] = [];
 
-  // --- Overview section (visible to all) ---
+  // --- Overview section ---
   const overviewItems: NavItem[] = [
     { href: "/dashboard", label: "Dashboard", icon: DashboardIcon },
   ];
 
-  if (orgId && role) {
-    if (role === "company_admin" || role === "manager") {
+  if (orgId) {
+    // The management view. Any one of the shift powers is reason to be here —
+    // a role that may assign but not create still needs the page.
+    if (canAny("tasks:create", "tasks:update", "tasks:delete", "tasks:assign")) {
       overviewItems.push({ href: `/org/${orgId}/tasks`, label: "Tasks", icon: TasksIcon });
+    }
+    if (can("calendar:view_team")) {
       overviewItems.push({ href: `/org/${orgId}/calendar`, label: "Calendar", icon: CalendarIcon });
     }
-    if (role === "staff") {
+
+    /*
+     * Personal pages — for anyone who can actually be put on a shift.
+     *
+     * Not a permission, and deliberately not `role === "staff"` either.
+     *
+     * "My Tasks" was shown only to staff, so a MANAGER assigned to a shift had
+     * nowhere to accept it: the page existed and was reachable by URL, but
+     * nothing linked them to it. Fixing that by making all three unconditional
+     * overshot in the other direction and began offering them to admins, who
+     * are excluded from rostering in three separate places — the eligibility
+     * engine, `assignStaff`, and `findSchedulableStaff`. All three pages are
+     * permanently empty for them, and availability and certifications only feed
+     * an eligibility check they are never part of.
+     *
+     * `canBeRostered` is the same predicate those three now share, so the menu
+     * cannot drift from what the engine will consider.
+     */
+    if (canBeRostered(role)) {
       overviewItems.push({ href: `/org/${orgId}/my-tasks`, label: "My Tasks", icon: MyTasksIcon });
-    }
-    if (role === "staff" || role === "manager") {
       overviewItems.push({ href: `/org/${orgId}/availability`, label: "My Availability", icon: AvailabilityIcon });
-      // Managers hold certifications too, and the org-wide Certifications page
-      // is a review queue for other people's — it has no way to submit one.
+      // The org-wide Certifications page is a review queue for other people's;
+      // it has no way to submit one of your own.
       overviewItems.push({ href: `/org/${orgId}/my-certifications`, label: "My Certifications", icon: MyCertificationsIcon });
     }
   }
 
   sections.push({ title: "Overview", items: overviewItems });
 
-  // --- Organization section (admin + manager) ---
-  if (orgId && role && (role === "company_admin" || role === "manager")) {
+  // --- Organization section ---
+  if (orgId) {
     const orgItems: NavItem[] = [];
 
-    if (role === "company_admin") {
+    /*
+     * `members:update_seniority` and `members:request_availability` belong in
+     * this list. A DEFAULT manager holds those two and none of the other three,
+     * so the members page — the only screen exposing the seniority control the
+     * seniority route was written for — was unlinked for exactly the role it
+     * was built for.
+     */
+    if (
+      canAny(
+        "members:invite",
+        "members:update_role",
+        "members:deactivate",
+        "members:update_seniority",
+        "members:request_availability"
+      )
+    ) {
       orgItems.push({ href: `/org/${orgId}/members`, label: "Members", icon: MembersIcon });
     }
-    orgItems.push({ href: `/org/${orgId}/departments`, label: "Departments", icon: DepartmentsIcon });
-    orgItems.push({ href: `/org/${orgId}/certifications`, label: "Certifications", icon: CertificationsIcon });
-
-    if (role === "company_admin") {
-      // Roles: only show if custom_roles feature is available (Pro+)
-      if (features === null || features.custom_roles !== false) {
-        orgItems.push({ href: `/org/${orgId}/roles`, label: "Roles", icon: RolesIcon });
-      }
+    /*
+     * Departments was shown to managers, who hold none of these — so the link
+     * led to a page whose every button was hidden from them. The list itself is
+     * available where it is useful: the task filters and the member list.
+     */
+    if (canAny("departments:create", "departments:update", "departments:delete")) {
+      orgItems.push({ href: `/org/${orgId}/departments`, label: "Departments", icon: DepartmentsIcon });
+    }
+    if (can("certifications:review")) {
+      orgItems.push({ href: `/org/${orgId}/certifications`, label: "Certifications", icon: CertificationsIcon });
+    }
+    // Tier AND permission. Both can only deny, and the plan is checked first
+    // for the same reason the route guard checks it first.
+    if (can("roles:manage") && (features === null || features.custom_roles !== false)) {
+      orgItems.push({ href: `/org/${orgId}/roles`, label: "Roles", icon: RolesIcon });
+    }
+    if (can("work_rules:manage")) {
       orgItems.push({ href: `/org/${orgId}/work-rules`, label: "Work Rules", icon: WorkRulesIcon });
+    }
+    if (can("allocation:auto_schedule")) {
       orgItems.push({ href: `/org/${orgId}/auto-schedule`, label: "Auto-Schedule", icon: AutoScheduleIcon });
     }
 
-    sections.push({ title: "Organization", items: orgItems });
+    if (orgItems.length > 0) {
+      sections.push({ title: "Organization", items: orgItems });
+    }
   }
 
   // --- System section ---
@@ -405,12 +474,13 @@ export function AppSidebar({
     });
   }
 
-  if (orgId && role === "company_admin") {
-    // Audit Log: only show if audit_log feature is available (Enterprise)
-    if (features === null || features.audit_log !== false) {
+  if (orgId) {
+    if (can("audit:view") && (features === null || features.audit_log !== false)) {
       systemItems.push({ href: `/org/${orgId}/audit-log`, label: "Audit Log", icon: AuditLogIcon });
     }
-    systemItems.push({ href: `/org/${orgId}/settings`, label: "Settings", icon: SettingsIcon });
+    if (can("settings:read")) {
+      systemItems.push({ href: `/org/${orgId}/settings`, label: "Settings", icon: SettingsIcon });
+    }
   }
 
   systemItems.push({ href: "/settings/profile", label: "Profile", icon: ProfileIcon });

@@ -30,6 +30,26 @@ import {
   type SeniorityThresholds,
 } from "@/lib/seniority";
 
+
+/**
+ * Is this member inside the caller's department scope?
+ *
+ * `undefined`/`null` is unrestricted — a company admin. An ARRAY is the
+ * caller's own departments, and an EMPTY array therefore means "no
+ * departments", matching nobody. That distinction is the difference between a
+ * manager seeing nothing and a manager seeing the whole organisation.
+ */
+function memberInScope(
+  membership: { departmentMemberships?: { department: { id: string } }[] },
+  departmentScope?: string[] | null
+): boolean {
+  if (departmentScope === undefined || departmentScope === null) return true;
+  const scope = new Set(departmentScope);
+  return (membership.departmentMemberships ?? []).some((dm) =>
+    scope.has(dm.department.id)
+  );
+}
+
 export class SeniorityService {
   private membershipRepo = new MembershipRepository();
   private reportingRepo = new ReportingRepository();
@@ -159,13 +179,27 @@ export class SeniorityService {
     organizationId: string,
     userId: string,
     level: string | null,
-    actorUserId?: string
+    actorUserId?: string,
+    /**
+     * The caller's departments, or null/undefined for a company admin.
+     *
+     * Seniority feeds composition rules, so pinning it changes who satisfies a
+     * staffing constraint. Without this a manager confined to Kitchen could
+     * change a Front-of-House member's level and silently alter which shifts
+     * that department could fill. Out of scope is reported as "not found", the
+     * same convention `CertificationService` uses — a manager must not be able
+     * to probe for members outside their own departments.
+     */
+    departmentScope?: string[] | null
   ) {
     const membership = await this.membershipRepo.findByUserAndOrgIncludingInactive(
       userId,
       organizationId
     );
     if (!membership) throw new Error("Member not found");
+    if (!memberInScope(membership, departmentScope)) {
+      throw new Error("Member not found");
+    }
 
     return this.setOverride(organizationId, membership.id, level, actorUserId);
   }
@@ -179,12 +213,18 @@ export class SeniorityService {
    * showing.
    */
   async assessOrganisation(
-    organizationId: string
+    organizationId: string,
+    /** Manager scope. null/undefined = unrestricted (company admin). */
+    departmentScope?: string[] | null
   ): Promise<Record<string, SeniorityAssessment>> {
     const members = await this.membershipRepo.findByOrgId(organizationId);
+    // `GET /members` next door has been scoped from the start. This endpoint
+    // returns the same roster's seniority judgements and was not, so a scoped
+    // manager could read the whole company's levels through it instead.
+    const visible = members.filter((m) => memberInScope(m, departmentScope));
     return this.assessMany(
       organizationId,
-      members.map((m) => m.id),
+      visible.map((m) => m.id),
       null
     );
   }

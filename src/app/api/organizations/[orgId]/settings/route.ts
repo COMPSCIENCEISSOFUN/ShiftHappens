@@ -10,10 +10,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { SettingsService } from "@/services/settings.service";
 import { updateCompanySettingsSchema } from "@/lib/validations";
 import { getAuthenticatedUser, unauthorizedResponse, checkOrgSuspended } from "@/lib/auth-guard";
-import { AccessService } from "@/services/access.service";
+import { requirePermission } from "@/lib/permission-guard";
 
 const settingsService = new SettingsService();
-const accessService = new AccessService();
 
 export async function GET(
   request: NextRequest,
@@ -25,10 +24,8 @@ export async function GET(
 
     const { orgId } = await params;
 
-    const membership = await accessService.getMembership(user.id, orgId);
-    if (!membership || membership.role !== "company_admin") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const gate = await requirePermission(user.id, orgId, "settings:read");
+    if (!gate.ok) return gate.response;
 
     const settings = await settingsService.getSettings(orgId);
     return NextResponse.json(settings);
@@ -49,10 +46,8 @@ export async function PATCH(
     const suspended = await checkOrgSuspended(orgId);
     if (suspended) return suspended;
 
-    const membership = await accessService.getMembership(user.id, orgId);
-    if (!membership || membership.role !== "company_admin") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const gate = await requirePermission(user.id, orgId, "settings:update");
+    if (!gate.ok) return gate.response;
 
     const body = await request.json();
     const parsed = updateCompanySettingsSchema.safeParse(body);

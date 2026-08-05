@@ -13,9 +13,10 @@
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import { AuthService } from "@/services/auth.service";
-import { prisma } from "@/lib/prisma";
+import { AccessService } from "@/services/access.service";
 
 const authService = new AuthService();
+const accessService = new AccessService();
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   providers: [
@@ -37,19 +38,15 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         // Block login for unverified email addresses
         if (!user.emailVerified) return null;
 
-        // Platform admins bypass org suspension check
+        // Platform admins bypass the org suspension check.
+        //
+        // Through the Control layer, not a raw query. This module is imported
+        // by `auth-guard.ts`, which every route calls, so the `prisma` access
+        // that used to be here put Boundary→Entity on the hot path for the
+        // whole application.
         if (!user.isPlatformAdmin) {
-          // Check if user belongs to at least one active org
-          const memberships = await prisma.membership.findMany({
-            where: { userId: user.id, status: "active" },
-            include: { organization: { select: { status: true } } },
-          });
-          if (memberships.length > 0) {
-            const hasActiveOrg = memberships.some(
-              (m) => m.organization.status === "active"
-            );
-            if (!hasActiveOrg) return null;
-          }
+          const mayEnter = await accessService.maySignIn(user.id);
+          if (!mayEnter) return null;
         }
 
         return {

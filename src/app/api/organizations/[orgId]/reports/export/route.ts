@@ -17,14 +17,13 @@ import {
   unauthorizedResponse,
   checkOrgSuspended,
 } from "@/lib/auth-guard";
-import { AccessService } from "@/services/access.service";
+import { requirePermission } from "@/lib/permission-guard";
 import { PdfReportService } from "@/services/pdf-report.service";
 import { SubscriptionService } from "@/services/subscription.service";
 import { OrganizationService } from "@/services/organization.service";
 import { FeatureNotAvailableError } from "@/lib/subscription-tiers";
 import { departmentScopeFor } from "@/lib/department-scope";
 
-const accessService = new AccessService();
 
 export async function GET(
   req: Request,
@@ -42,14 +41,9 @@ export async function GET(
     if (suspended) return suspended;
 
     // --- Membership + role check ---
-    const membership = await accessService.getMembership(user.id, orgId);
-
-    if (!membership || !["company_admin", "manager"].includes(membership.role)) {
-      return NextResponse.json(
-        { error: "Only admins and managers can export reports" },
-        { status: 403 }
-      );
-    }
+    const gate = await requirePermission(user.id, orgId, "reports:export");
+    if (!gate.ok) return gate.response;
+    const membership = gate.membership;
 
     // --- Subscription feature gate (Pro+) ---
     const subscriptionService = new SubscriptionService();

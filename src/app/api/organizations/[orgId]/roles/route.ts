@@ -9,11 +9,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { RoleService } from "@/services/role.service";
 import { createRoleSchema } from "@/lib/validations";
 import { getAuthenticatedUser, unauthorizedResponse, checkOrgSuspended } from "@/lib/auth-guard";
-import { AccessService } from "@/services/access.service";
+import { requirePermission, requireAnyPermission } from "@/lib/permission-guard";
 import { SubscriptionLimitError, FeatureNotAvailableError } from "@/lib/subscription-tiers";
 
 const roleService = new RoleService();
-const accessService = new AccessService();
 
 export async function POST(
   request: NextRequest,
@@ -27,10 +26,8 @@ export async function POST(
     const suspended = await checkOrgSuspended(orgId);
     if (suspended) return suspended;
 
-    const membership = await accessService.getMembership(user.id, orgId);
-    if (!membership || membership.role !== "company_admin") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const gate = await requirePermission(user.id, orgId, "roles:manage");
+    if (!gate.ok) return gate.response;
 
     const body = await request.json();
     const parsed = createRoleSchema.safeParse(body);
@@ -65,10 +62,21 @@ export async function GET(
 
     const { orgId } = await params;
 
-    const membership = await accessService.getMembership(user.id, orgId);
-    if (!membership) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    /*
+     * Three screens read this list, for three different reasons: the roles page
+     * to edit them, the members page to assign one, and the work-rules page to
+     * target a rule at one. Membership alone left every staff member able to
+     * enumerate the org's custom roles and the permissions attached to each —
+     * which is a map of who can do what, and the roles page rendered it in full
+     * to anyone who typed the URL. `roles:manage` alone would have broken the
+     * other two screens, so the endpoint names all three.
+     */
+    const gate = await requireAnyPermission(user.id, orgId, [
+      "roles:manage",
+      "members:update_role",
+      "work_rules:manage",
+    ]);
+    if (!gate.ok) return gate.response;
 
     const roles = await roleService.getByOrganization(orgId);
     return NextResponse.json(roles);

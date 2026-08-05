@@ -8,7 +8,8 @@
  * - Applicable rules lookup for eligibility engine
  *
  * Rule types and required fields:
- * - break_interval: hoursThreshold + breakHours
+ * - break_interval: hoursThreshold + breakHours — after a shift of at least
+ *   hoursThreshold, the member needs breakHours clear before the next one
  * - max_hours_daily: maxHours
  * - max_hours_weekly: maxHours
  *
@@ -18,6 +19,8 @@
  * All operations are org-scoped and audit-logged.
  */
 import { WorkRuleRepository } from "@/repositories/work-rule.repository";
+import { DepartmentRepository } from "@/repositories/department.repository";
+import { RoleRepository } from "@/repositories/role.repository";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 import type { CreateWorkRuleInput, UpdateWorkRuleInput } from "@/lib/validations";
 import { SubscriptionService } from "@/services/subscription.service";
@@ -26,6 +29,42 @@ export class WorkRuleService {
   private workRuleRepo = new WorkRuleRepository();
   private auditService = new AuditLogService();
   private subscriptionService = new SubscriptionService();
+  private deptRepo = new DepartmentRepository();
+  private roleRepo = new RoleRepository();
+
+
+  /**
+   * Refuses a target that belongs to another tenant.
+   *
+   * `roleId` and `departmentId` came straight from the request body with no
+   * ownership check, so a rule in org A could be bound to org B's department or
+   * custom role. The rule then matches nobody — org A's members are in none of
+   * org B's departments — so the visible effect is a silently inert rule that an
+   * admin cannot work out why nobody is subject to. The invisible effect is
+   * worse: a successful save confirms that a foreign id exists.
+   *
+   * It also compounds a hazard already in the schema. Both FKs are
+   * `onDelete: SetNull`, and a rule with neither target set reads as GLOBAL — so
+   * if the foreign row is ever deleted, the inert rule silently becomes a rule
+   * for everybody in this organisation.
+   */
+  private async assertTargetsOwned(
+    organizationId: string,
+    target: { roleId?: string | null; departmentId?: string | null }
+  ) {
+    if (target.departmentId) {
+      const dept = await this.deptRepo.findById(target.departmentId);
+      if (!dept || dept.organizationId !== organizationId) {
+        throw new Error("Department not found");
+      }
+    }
+    if (target.roleId) {
+      const role = await this.roleRepo.findById(target.roleId);
+      if (!role || role.organizationId !== organizationId) {
+        throw new Error("Role not found");
+      }
+    }
+  }
 
   /**
    * Creates a new work rule with type-specific field validation.
@@ -40,6 +79,10 @@ export class WorkRuleService {
     }
 
     this.validateFieldsForType(input.type, input);
+    await this.assertTargetsOwned(orgId, {
+      roleId: input.roleId ?? null,
+      departmentId: (input as Record<string, unknown>).departmentId as string | null ?? null,
+    });
 
     const rule = await this.workRuleRepo.create({
       organizationId: orgId,
@@ -103,6 +146,10 @@ export class WorkRuleService {
       maxHours: input.maxHours !== undefined ? input.maxHours : existing.maxHours,
     };
     this.validateFieldsForType(effectiveType, merged);
+    await this.assertTargetsOwned(orgId, {
+      roleId: input.roleId ?? null,
+      departmentId: (input as Record<string, unknown>).departmentId as string | null ?? null,
+    });
 
     const inputAny = input as Record<string, unknown>;
 

@@ -7,14 +7,14 @@
  * List is accessible to all org members.
  */
 import { NextRequest, NextResponse } from "next/server";
+import { DEPARTMENT_LIST_READERS } from "@/lib/permissions";
 import { DepartmentService } from "@/services/department.service";
 import { createDepartmentSchema } from "@/lib/validations";
 import { getAuthenticatedUser, unauthorizedResponse, checkOrgSuspended } from "@/lib/auth-guard";
-import { AccessService } from "@/services/access.service";
+import { requirePermission, requireAnyPermission } from "@/lib/permission-guard";
 import { SubscriptionLimitError, FeatureNotAvailableError } from "@/lib/subscription-tiers";
 
 const deptService = new DepartmentService();
-const accessService = new AccessService();
 
 export async function POST(
   request: NextRequest,
@@ -29,10 +29,8 @@ export async function POST(
     if (suspended) return suspended;
 
     // Only Company Admin can create departments
-    const membership = await accessService.getMembership(user.id, orgId);
-    if (!membership || membership.role !== "company_admin") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const gate = await requirePermission(user.id, orgId, "departments:create");
+    if (!gate.ok) return gate.response;
 
     const body = await request.json();
     const parsed = createDepartmentSchema.safeParse(body);
@@ -68,10 +66,14 @@ export async function GET(
     const { orgId } = await params;
 
     // Any org member can view departments
-    const membership = await accessService.getMembership(user.id, orgId);
-    if (!membership) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    /*
+     * Membership alone was the whole check, so any staff member who typed the
+     * URL got this list in full — while the sidebar hid the link. The menu was
+     * right; the route was the half that had not been tightened. The readers
+     * are the department screen, the task form, work rules and the importer.
+     */
+    const gate = await requireAnyPermission(user.id, orgId, DEPARTMENT_LIST_READERS);
+    if (!gate.ok) return gate.response;
 
     const includeArchived = request.nextUrl.searchParams.get("includeArchived") === "true";
     const depts = await deptService.getByOrganization(orgId, includeArchived);

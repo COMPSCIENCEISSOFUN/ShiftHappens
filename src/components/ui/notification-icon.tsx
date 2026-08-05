@@ -45,6 +45,7 @@ import {
   Lock,
   LogOut,
   ShieldAlert,
+  CalendarCheck,
   ShieldCheck,
   Star,
   TriangleAlert,
@@ -90,6 +91,9 @@ const NOTIFICATION_ICON: Record<string, NotificationIcon> = {
   // at a glance.
   assignment_accepted: { Icon: UserCheck, ...GREEN },
   assignment_rejected: { Icon: CircleX, ...RED },
+  decline_requested: { Icon: LogOut, ...AMBER },
+  decline_approved: { Icon: CheckCheck, ...GREEN },
+  decline_denied: { Icon: Undo2, ...RED },
   withdrawal_requested: { Icon: LogOut, ...AMBER },
   withdrawal_approved: { Icon: CheckCheck, ...GREEN },
   withdrawal_denied: { Icon: Undo2, ...RED },
@@ -107,6 +111,9 @@ const NOTIFICATION_ICON: Record<string, NotificationIcon> = {
   // a manager a shift went badly, not the system detecting a fault, and the
   // manager's response is a conversation rather than a fix.
   shift_rated_low: { Icon: Star, ...AMBER },
+  // A request, not a warning — nothing is wrong, a manager is asking the
+  // person who owns the constraint to confirm it still holds.
+  availability_review_requested: { Icon: CalendarCheck, ...INDIGO },
   org_suspended: { Icon: Lock, ...RED },
 };
 

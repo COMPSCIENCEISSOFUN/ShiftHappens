@@ -18,6 +18,9 @@ import { useParams, useRouter } from "next/navigation";
 import { Input } from "@/components/ui/input";
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { StatTile } from "@/components/ui/stat-tile";
+import { EmptyState } from "@/components/ui/empty-state";
+import { usePermissions } from "@/components/layout/permission-provider";
+import { Lock } from "lucide-react";
 import * as XLSX from "xlsx";
 import {
   INVITABLE_ROLES,
@@ -86,6 +89,7 @@ export default function MemberImportPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ─── State ──────────────────────────────────────────────────
+  const { can } = usePermissions();
   const [phase, setPhase] = useState<Phase>("upload");
   const [departments, setDepartments] = useState<Department[]>([]);
   const [memberLimit, setMemberLimit] = useState<number | null>(null);
@@ -713,6 +717,25 @@ export default function MemberImportPage() {
   }
 
   // ─── Render ─────────────────────────────────────────────────
+
+  /*
+   * Below every hook, deliberately. A guard placed above them would make each
+   * `useState` and `useEffect` in this file conditional, which React forbids —
+   * the same mistake the other gated pages were corrected for.
+   *
+   * `members:invite` is what `POST /members/import` enforces. Without this the
+   * page offered the whole upload-and-map flow to anyone who typed the URL,
+   * and refused only at the final step, after the work of mapping columns.
+   */
+  if (!can("members:invite")) {
+    return (
+      <EmptyState
+        icon={Lock}
+        title="You don't have access to member import"
+        description="Importing members requires the Invite members permission. Ask a company admin if you need it."
+      />
+    );
+  }
 
   return (
     <div className="w-full">

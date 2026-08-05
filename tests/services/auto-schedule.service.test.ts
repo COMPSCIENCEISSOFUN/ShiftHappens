@@ -6,7 +6,7 @@
  * since it requires external API keys — the algorithmic fallback
  * is the safety net and must be rock-solid.
  */
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { AutoScheduleService } from "@/services/auto-schedule.service";
 import { prisma } from "@/lib/prisma";
 import { cleanDatabase } from "../helpers/cleanup";
@@ -385,3 +385,383 @@ function getNextMonday(): Date {
 function setHour(date: Date, hour: number): Date {
   return atHourSgt(date, hour);
 }
+/**
+ * The draft used to be built by a SECOND implementation of the eligibility
+ * rules, weaker than the real one in ways nobody had noticed:
+ *
+ *   - the daily cap read `taskDuration > rule.maxHours` — one shift's length
+ *     against the limit, never the day's total
+ *   - rest gaps were not consulted at all
+ *   - certifications were not checked
+ *   - and the AI path, which `generateSchedule` PREFERS, checked only that the
+ *     model had named a real task and a real person without exceeding headcount
+ *
+ * Both paths now go through `checkEligibilityForTask`, with the draft so far
+ * passed in as provisional, so a shift decided earlier in the same run counts
+ * against the ones decided after it.
+ */
+describe("a generated draft obeys the same rules as the assign screen", () => {
+  /**
+   * Two 6-hour shifts on the same Tuesday, both INSIDE the 06:00-18:00
+   * availability the fixture gives every member.
+   *
+   * That detail is the test. The first version used 07:00-13:00 and
+   * 13:00-19:00, and 19:00 falls outside the window — so the second shift was
+   * refused on availability and the assertions passed without the daily cap or
+   * the rest gap ever being consulted. Mutation testing caught it: deleting the
+   * provisional-hours logic entirely changed nothing.
+   */
+  async function twoSameDayShifts(hours: [number, number][] = [[6, 12], [12, 18]]) {
+    const weekStart = getNextMonday();
+    const taskDate = new Date(weekStart);
+    taskDate.setDate(taskDate.getDate() + 1);
+    for (const [from, to] of hours) {
+      await prisma.task.create({
+        data: {
+          title: `Shift ${from}-${to}`,
+          organizationId: orgId,
+          departmentId: deptId,
+          priority: "high",
+          requiredHeadcount: 1,
+          scheduledStart: setHour(taskDate, from),
+          scheduledEnd: setHour(taskDate, to),
+          createdById: adminUserId,
+        },
+      });
+    }
+    return weekStart;
+  }
+
+  /** Everyone but one member unavailable, so the draft has no choice but to stack. */
+  async function leaveOnlyOneCandidate() {
+    for (const membershipId of staffMembershipIds.slice(1)) {
+      await prisma.availability.deleteMany({ where: { membershipId } });
+    }
+  }
+
+  /**
+   * The daily-cap gap. `taskDuration > maxHours` is false for each 6-hour
+   * shift taken alone, so the old check waved both through and the one
+   * available member was drafted for 12 hours under an 8-hour cap.
+   */
+  it("does not stack two shifts past a daily cap", async () => {
+    await prisma.workRule.create({
+      data: {
+        organizationId: orgId,
+        name: "Daily cap",
+        type: "max_hours_daily",
+        maxHours: 8,
+        isActive: true,
+      },
+    });
+    await leaveOnlyOneCandidate();
+    const weekStart = await twoSameDayShifts();
+
+    const draft = await new AutoScheduleService().generateSchedule(orgId, weekStart);
+
+    const forTheOne = draft.assignments.filter(
+      (a) => a.membershipId === staffMembershipIds[0]
+    );
+    expect(forTheOne).toHaveLength(1);
+    expect(draft.unfilledTasks).toHaveLength(1);
+  });
+
+  /**
+   * Rest gaps had no effect on a generated week at all — `break_interval` was
+   * simply not among the rule types the draft looked at.
+   */
+  it("respects a rest gap between shifts it schedules", async () => {
+    await prisma.workRule.create({
+      data: {
+        organizationId: orgId,
+        name: "Daily rest",
+        type: "break_interval",
+        hoursThreshold: 6,
+        breakHours: 11,
+        isActive: true,
+      },
+    });
+    await leaveOnlyOneCandidate();
+    // 07:00-13:00 then 13:00-19:00: six hours each, no rest between them.
+    const weekStart = await twoSameDayShifts();
+
+    const draft = await new AutoScheduleService().generateSchedule(orgId, weekStart);
+
+    expect(
+      draft.assignments.filter((a) => a.membershipId === staffMembershipIds[0])
+    ).toHaveLength(1);
+  });
+
+  /**
+   * Certifications were not consulted by either draft path, so a generated
+   * week could put an uncertified member on a shift the assign screen would
+   * have refused.
+   */
+  it("does not draft someone who lacks a required certification", async () => {
+    await leaveOnlyOneCandidate();
+    const weekStart = getNextMonday();
+    const taskDate = new Date(weekStart);
+    taskDate.setDate(taskDate.getDate() + 1);
+    await prisma.task.create({
+      data: {
+        title: "Needs a ticket",
+        organizationId: orgId,
+        departmentId: deptId,
+        priority: "high",
+        requiredHeadcount: 1,
+        requiredCertifications: ["Food Safety"],
+        scheduledStart: setHour(taskDate, 8),
+        scheduledEnd: setHour(taskDate, 12),
+        createdById: adminUserId,
+      },
+    });
+
+    const draft = await new AutoScheduleService().generateSchedule(orgId, weekStart);
+
+    expect(draft.assignments).toHaveLength(0);
+    expect(draft.unfilledTasks).toHaveLength(1);
+  });
+
+  it("drafts them once they hold it", async () => {
+    await leaveOnlyOneCandidate();
+    await prisma.certification.create({
+      data: {
+        membershipId: staffMembershipIds[0],
+        name: "Food Safety",
+        status: "verified",
+        issuedDate: new Date("2026-01-01"),
+        expiryDate: new Date("2027-01-01"),
+      },
+    });
+    const weekStart = getNextMonday();
+    const taskDate = new Date(weekStart);
+    taskDate.setDate(taskDate.getDate() + 1);
+    await prisma.task.create({
+      data: {
+        title: "Needs a ticket",
+        organizationId: orgId,
+        departmentId: deptId,
+        priority: "high",
+        requiredHeadcount: 1,
+        requiredCertifications: ["Food Safety"],
+        scheduledStart: setHour(taskDate, 8),
+        scheduledEnd: setHour(taskDate, 12),
+        createdById: adminUserId,
+      },
+    });
+
+    const draft = await new AutoScheduleService().generateSchedule(orgId, weekStart);
+
+    expect(draft.assignments).toHaveLength(1);
+  });
+
+  /**
+   * Hours already committed in the database count alongside the draft's own.
+   *
+   * This is the realistic case — a week is rarely generated onto an empty
+   * roster — and it is the one where the two sources have to be summed rather
+   * than either taken alone.
+   */
+  it("counts committed shifts as well as drafted ones", async () => {
+    await prisma.workRule.create({
+      data: {
+        organizationId: orgId,
+        name: "Weekly cap",
+        type: "max_hours_weekly",
+        maxHours: 10,
+        isActive: true,
+      },
+    });
+    await leaveOnlyOneCandidate();
+
+    const weekStart = getNextMonday();
+    const monday = new Date(weekStart);
+    const committed = await prisma.task.create({
+      data: {
+        title: "Already on the books",
+        organizationId: orgId,
+        departmentId: deptId,
+        priority: "high",
+        requiredHeadcount: 1,
+        scheduledStart: setHour(monday, 8),
+        scheduledEnd: setHour(monday, 14), // six hours
+        createdById: adminUserId,
+      },
+    });
+    await prisma.taskAssignment.create({
+      data: {
+        taskId: committed.id,
+        membershipId: staffMembershipIds[0],
+        assignedById: adminUserId,
+        status: "accepted",
+      },
+    });
+
+    await twoSameDayShifts();
+
+    const draft = await new AutoScheduleService().generateSchedule(orgId, weekStart);
+
+    // Six committed + six drafted is twelve, past the ten-hour week, so neither
+    // of the two new shifts can be taken.
+    expect(
+      draft.assignments.filter((a) => a.membershipId === staffMembershipIds[0])
+    ).toHaveLength(0);
+  });
+
+  /**
+   * The provisional set must not leak between runs. If it did, a second
+   * generation would see the first one's decisions as commitments and refuse
+   * work that is still unassigned.
+   */
+  it("starts each generation from a clean draft", async () => {
+    await leaveOnlyOneCandidate();
+    const weekStart = getNextMonday();
+    const taskDate = new Date(weekStart);
+    taskDate.setDate(taskDate.getDate() + 1);
+    await prisma.task.create({
+      data: {
+        title: "Only shift",
+        organizationId: orgId,
+        departmentId: deptId,
+        priority: "high",
+        requiredHeadcount: 1,
+        scheduledStart: setHour(taskDate, 8),
+        scheduledEnd: setHour(taskDate, 12),
+        createdById: adminUserId,
+      },
+    });
+
+    const service = new AutoScheduleService();
+    const first = await service.generateSchedule(orgId, weekStart);
+    const second = await service.generateSchedule(orgId, weekStart);
+
+    expect(first.assignments).toHaveLength(1);
+    expect(second.assignments).toHaveLength(1);
+  });
+});
+
+/**
+ * The AI path, which nothing tested and which `generateSchedule` PREFERS.
+ *
+ * `parseAIResponse` checked that the model had named a real task and a real
+ * person and had not exceeded headcount. It checked nothing else — so the
+ * default output could roster someone unavailable, uncertified, double-booked
+ * or over their cap, and the first anyone heard of it was the confirm failing.
+ *
+ * The model is stubbed rather than called; what is under test is what happens
+ * to its answer, not the answer itself.
+ */
+describe("the AI draft is screened too", () => {
+  function mockGroq(picks: { task: number; staff: string; reason: string }[]) {
+    process.env.GROQ_API_KEY = "test-key";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: JSON.stringify(picks) } }],
+        }),
+      })
+    );
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    delete process.env.GROQ_API_KEY;
+  });
+
+  it("drops a pick the engine refuses, rather than trusting the model", async () => {
+    const weekStart = getNextMonday();
+    const taskDate = new Date(weekStart);
+    taskDate.setDate(taskDate.getDate() + 1);
+    await prisma.task.create({
+      data: {
+        title: "Needs a ticket",
+        organizationId: orgId,
+        departmentId: deptId,
+        priority: "high",
+        requiredHeadcount: 1,
+        requiredCertifications: ["Food Safety"],
+        scheduledStart: setHour(taskDate, 8),
+        scheduledEnd: setHour(taskDate, 12),
+        createdById: adminUserId,
+      },
+    });
+    // Nobody holds the certificate, and the model picks someone anyway.
+    mockGroq([{ task: 1, staff: "A", reason: "Looks free" }]);
+
+    const draft = await new AutoScheduleService().generateSchedule(orgId, weekStart);
+
+    expect(draft.assignments).toHaveLength(0);
+    expect(draft.unfilledTasks).toHaveLength(1);
+  });
+
+  it("keeps a pick the engine allows", async () => {
+    await prisma.certification.create({
+      data: {
+        membershipId: staffMembershipIds[0],
+        name: "Food Safety",
+        status: "verified",
+        issuedDate: new Date("2026-01-01"),
+        expiryDate: new Date("2027-01-01"),
+      },
+    });
+    const weekStart = getNextMonday();
+    const taskDate = new Date(weekStart);
+    taskDate.setDate(taskDate.getDate() + 1);
+    await prisma.task.create({
+      data: {
+        title: "Needs a ticket",
+        organizationId: orgId,
+        departmentId: deptId,
+        priority: "high",
+        requiredHeadcount: 1,
+        requiredCertifications: ["Food Safety"],
+        scheduledStart: setHour(taskDate, 8),
+        scheduledEnd: setHour(taskDate, 12),
+        createdById: adminUserId,
+      },
+    });
+    mockGroq([{ task: 1, staff: "A", reason: "Certified and free" }]);
+
+    const draft = await new AutoScheduleService().generateSchedule(orgId, weekStart);
+
+    expect(draft.assignments).toHaveLength(1);
+    expect(draft.provider).toBe("groq");
+  });
+
+  /**
+   * The model listing one person on two overlapping shifts is the case the
+   * provisional set exists for on this path — the second is refused because
+   * the first has already been accepted in the same run.
+   */
+  it("refuses the second of two overlapping picks for the same person", async () => {
+    const weekStart = getNextMonday();
+    const taskDate = new Date(weekStart);
+    taskDate.setDate(taskDate.getDate() + 1);
+    for (const [from, to] of [[8, 12], [10, 14]]) {
+      await prisma.task.create({
+        data: {
+          title: `Shift ${from}`,
+          organizationId: orgId,
+          departmentId: deptId,
+          priority: "high",
+          requiredHeadcount: 1,
+          scheduledStart: setHour(taskDate, from),
+          scheduledEnd: setHour(taskDate, to),
+          createdById: adminUserId,
+        },
+      });
+    }
+    mockGroq([
+      { task: 1, staff: "A", reason: "free" },
+      { task: 2, staff: "A", reason: "also free" },
+    ]);
+
+    const draft = await new AutoScheduleService().generateSchedule(orgId, weekStart);
+
+    expect(
+      draft.assignments.filter((a) => a.membershipId === staffMembershipIds[0])
+    ).toHaveLength(1);
+  });
+});

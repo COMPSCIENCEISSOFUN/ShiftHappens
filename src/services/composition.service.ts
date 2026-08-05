@@ -32,15 +32,9 @@ import {
   type CompositionCandidate,
   type CompositionEvaluation,
 } from "@/lib/composition-rules";
+import { occupiesSlot } from "@/lib/assignment-status";
 
-/**
- * Statuses that occupy a slot, matching `countActiveByTaskId`.
- *
- * `withdrawal_requested` counts: the member is still on the shift until a
- * manager resolves the request, and treating them as gone would let a
- * replacement be assigned into a seat that is not free.
- */
-const OCCUPYING = ["pending", "accepted", "withdrawal_requested"];
+
 
 export class CompositionService {
   private taskRepo = new TaskRepository();
@@ -111,7 +105,7 @@ export class CompositionService {
     const rules = parseCompositionRules(task.compositionRules);
 
     const assigned = task.assignments
-      .filter((a) => OCCUPYING.includes(a.status))
+      .filter((a) => occupiesSlot(a.status))
       .map((a) => a.membershipId);
 
     const candidates = await this.buildCandidates(

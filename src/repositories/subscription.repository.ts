@@ -36,9 +36,19 @@ export class SubscriptionRepository {
    * Count all resources that are subject to tier limits.
    * - members: active memberships (status = 'active')
    * - activeTasks: tasks not completed or cancelled
-   * - departments: all departments in org
-   * - workRules: all work rules in org (active or inactive)
+   * - departments: ACTIVE departments — archived ones do not count
+   * - workRules: all work rules in org (active or paused)
    * - customRoles: roles where isSystemRole = false
+   *
+   * The archived-department exclusion was a fix, not a preference. Departments
+   * are soft-deleted (`archivedAt`), and this counted them regardless — so an
+   * organisation on the Free plan, whose limit is two, could archive both and
+   * still be refused a third. Archiving is the only way the product offers to
+   * get under the limit, and it did not work.
+   *
+   * Paused work rules DO still count, which is deliberate and matches how
+   * `members` treats a deactivated member's seat: pausing is a temporary state
+   * a rule returns from, not a deletion. Deleting the rule frees the slot.
    */
   async getResourceCounts(organizationId: string): Promise<ResourceCounts> {
     const [members, activeTasks, departments, workRules, customRoles] =
@@ -53,7 +63,7 @@ export class SubscriptionRepository {
           },
         }),
         prisma.department.count({
-          where: { organizationId },
+          where: { organizationId, archivedAt: null },
         }),
         prisma.workRule.count({
           where: { organizationId },
@@ -86,8 +96,11 @@ export class SubscriptionRepository {
           },
         });
       case 'departments':
+        // Must match getResourceCounts above — the two answer the same
+        // question and a difference between them would show one number on the
+        // usage panel and enforce a different one on create.
         return prisma.department.count({
-          where: { organizationId },
+          where: { organizationId, archivedAt: null },
         });
       case 'work_rules':
         return prisma.workRule.count({

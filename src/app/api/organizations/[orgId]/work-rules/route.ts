@@ -9,13 +9,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { WorkRuleService } from "@/services/work-rule.service";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
-import { AccessService } from "@/services/access.service";
+import { requirePermission } from "@/lib/permission-guard";
 import { createWorkRuleSchema } from "@/lib/validations";
 import { checkOrgActive } from "@/lib/org-guard";
 import { SubscriptionLimitError, FeatureNotAvailableError } from "@/lib/subscription-tiers";
 
 const workRuleService = new WorkRuleService();
-const accessService = new AccessService();
 
 export async function GET(
   request: NextRequest,
@@ -27,10 +26,8 @@ export async function GET(
 
     const { orgId } = await params;
 
-    const membership = await accessService.getMembership(user.id, orgId);
-    if (!membership || membership.role !== "company_admin") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const gate = await requirePermission(user.id, orgId, "work_rules:manage");
+    if (!gate.ok) return gate.response;
 
     const rules = await workRuleService.getByOrganization(orgId);
     return NextResponse.json(rules);
@@ -61,10 +58,8 @@ export async function POST(
       );
     }
 
-    const membership = await accessService.getMembership(user.id, orgId);
-    if (!membership || membership.role !== "company_admin") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const gate = await requirePermission(user.id, orgId, "work_rules:manage");
+    if (!gate.ok) return gate.response;
 
     const body = await request.json();
     const parsed = createWorkRuleSchema.safeParse(body);
@@ -84,6 +79,10 @@ export async function POST(
 
     const message = error instanceof Error ? error.message : "Internal server error";
 
+    // Foreign targets read as missing — see WorkRuleService.assertTargetsOwned.
+    if (message === "Department not found" || message === "Role not found") {
+      return NextResponse.json({ error: message }, { status: 404 });
+    }
     if (message.includes("already exists")) {
       return NextResponse.json({ error: message }, { status: 409 });
     }

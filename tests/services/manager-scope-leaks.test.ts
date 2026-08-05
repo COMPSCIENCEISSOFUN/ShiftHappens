@@ -105,11 +105,22 @@ describe("getDepartmentWorkload", () => {
 /* ------------------------------------------------------------------ */
 
 describe("AI dashboard data", () => {
-  async function insightsFor(scope: string[] | null) {
-    // No API keys in the test environment, so this exercises the algorithmic
-    // path — which is the one that formats names and titles into strings, and
-    // therefore the one where a leak would actually appear.
-    return aiDashboard.generateInsights(tenant.orgId, scope);
+  /*
+   * The data itself, not the prose built from it.
+   *
+   * These used to go through `generateInsights`, on the reasoning that the
+   * algorithmic path was where names and titles got formatted into strings and
+   * therefore where a leak would show. That method has been deleted — its panel
+   * was mounted nowhere — so the check moved one layer down, to the source
+   * those strings were built from.
+   *
+   * That is the stronger place for it anyway: `gatherDashboardData` carries
+   * staff names and task titles as structured fields, and it feeds every live
+   * surface including the model prompt. A leak here is a leak everywhere; a
+   * leak in a formatter was only ever a leak in that formatter.
+   */
+  function insightsFor(scope: string[] | null) {
+    return aiDashboard.gatherDashboardData(tenant.orgId, scope);
   }
 
   it("does not name another department's understaffed task", async () => {
@@ -167,7 +178,7 @@ describe("AI dashboard data", () => {
 
     const scoped = await insightsFor(OWN_SCOPE());
 
-    expect(scoped.rejectionPatterns.map((p) => p.staffName)).not.toContain(
+    expect(scoped.recentRejections.map((r) => r.staffName)).not.toContain(
       "Nadia Other-Department"
     );
   });
@@ -189,7 +200,9 @@ describe("AI dashboard data", () => {
     expect(JSON.stringify(unscoped)).toContain("Rooftop bar");
   });
 
-  it("recommendations are scoped the same way", async () => {
+  // The priority call reads the same alert list the dashboard shows, so a
+  // scoped manager must never be pointed at a shift outside their departments.
+  it("the priority call is scoped the same way", async () => {
     const task = await foreignTask();
     await prisma.taskAssignment.create({
       data: {
@@ -200,10 +213,7 @@ describe("AI dashboard data", () => {
       },
     });
 
-    const scoped = await aiDashboard.generateRecommendations(
-      tenant.orgId,
-      OWN_SCOPE()
-    );
+    const scoped = await aiDashboard.getPriorityCall(tenant.orgId, OWN_SCOPE());
 
     expect(JSON.stringify(scoped)).not.toContain("Rooftop bar");
   });

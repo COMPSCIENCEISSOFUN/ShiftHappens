@@ -120,6 +120,28 @@ export class WorkRuleRepository {
   }
 
   /** Deletes a work rule */
+
+  /**
+   * The rules that target a given role or department, by name.
+   *
+   * For the delete guards on roles and departments. Names rather than a bare
+   * count, because "3 work rules target this role" tells an admin they have a
+   * problem and nothing about how to solve it — the names are what let them go
+   * and deal with the right ones.
+   */
+  async findTargeting(target: {
+    roleId?: string;
+    departmentId?: string;
+  }): Promise<{ id: string; name: string }[]> {
+    return prisma.workRule.findMany({
+      where: target.roleId
+        ? { roleId: target.roleId }
+        : { departmentId: target.departmentId },
+      select: { id: true, name: true },
+      orderBy: [{ name: "asc" }, { id: "asc" }],
+    });
+  }
+
   async delete(id: string) {
     return prisma.workRule.delete({ where: { id } });
   }

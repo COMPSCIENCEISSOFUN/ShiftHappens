@@ -9,11 +9,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { UserManagementService } from "@/services/user-management.service";
 import { inviteUserSchema } from "@/lib/validations";
 import { getAuthenticatedUser, unauthorizedResponse, checkOrgSuspended } from "@/lib/auth-guard";
-import { AccessService } from "@/services/access.service";
+import { requirePermission } from "@/lib/permission-guard";
 import { SubscriptionLimitError, FeatureNotAvailableError } from "@/lib/subscription-tiers";
 
 const userMgmtService = new UserManagementService();
-const accessService = new AccessService();
 
 export async function POST(
   request: NextRequest,
@@ -28,10 +27,8 @@ export async function POST(
     if (suspended) return suspended;
 
     // Only Company Admin can invite users
-    const membership = await accessService.getMembership(user.id, orgId);
-    if (!membership || membership.role !== "company_admin") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const gate = await requirePermission(user.id, orgId, "members:invite");
+    if (!gate.ok) return gate.response;
 
     const body = await request.json();
     const parsed = inviteUserSchema.safeParse(body);
@@ -60,6 +57,14 @@ export async function POST(
       ) {
         return NextResponse.json({ error: error.message }, { status: 409 });
       }
+      // An invitation is a membership waiting to happen, so it carries the same
+      // ceiling as the role picker: you cannot invite above your own level.
+      if (
+        error.message === "You cannot grant a role above your own" ||
+        error.message === "Not authorized to change roles"
+      ) {
+        return NextResponse.json({ error: error.message }, { status: 403 });
+      }
     }
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
@@ -75,10 +80,8 @@ export async function GET(
 
     const { orgId } = await params;
 
-    const membership = await accessService.getMembership(user.id, orgId);
-    if (!membership || membership.role !== "company_admin") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const gate = await requirePermission(user.id, orgId, "members:invite");
+    if (!gate.ok) return gate.response;
 
     const invitations = await userMgmtService.getOrgInvitations(orgId);
     return NextResponse.json(invitations);

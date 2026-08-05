@@ -8,8 +8,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { EligibilityService } from "@/services/eligibility.service";
 import { createEligibilityOverrideSchema } from "@/lib/validations";
-import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
+import { getAuthenticatedUser, unauthorizedResponse, checkOrgSuspended } from "@/lib/auth-guard";
 import { AccessService } from "@/services/access.service";
+import { requirePermission } from "@/lib/permission-guard";
 
 const eligibilityService = new EligibilityService();
 const accessService = new AccessService();
@@ -24,10 +25,14 @@ export async function POST(
 
     const { orgId, taskId } = await params;
 
-    const membership = await accessService.getMembership(user.id, orgId);
-    if (!membership || !["company_admin", "manager"].includes(membership.role)) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    // Suspension gate, missing here while every comparable sibling had one.
+    // It writes the record that authorises bypassing a hard eligibility block — a missing certification, a work-rule breach. Every sibling that grants or reviews a qualification is gated.
+    const suspended = await checkOrgSuspended(orgId);
+    if (suspended) return suspended;
+
+    const gate = await requirePermission(user.id, orgId, "eligibility:override");
+    if (!gate.ok) return gate.response;
+    const membership = gate.membership;
 
     if (!(await accessService.isTaskInScope(taskId, membership))) {
       return NextResponse.json({ error: "Task not found" }, { status: 404 });

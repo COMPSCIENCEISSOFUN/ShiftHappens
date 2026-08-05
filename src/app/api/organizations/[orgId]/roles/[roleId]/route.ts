@@ -12,6 +12,7 @@ import { RoleService } from "@/services/role.service";
 import { updateRoleSchema } from "@/lib/validations";
 import { getAuthenticatedUser, unauthorizedResponse, checkOrgSuspended } from "@/lib/auth-guard";
 import { AccessService } from "@/services/access.service";
+import { requirePermission } from "@/lib/permission-guard";
 
 const roleService = new RoleService();
 const accessService = new AccessService();
@@ -54,10 +55,8 @@ export async function PATCH(
     const suspended = await checkOrgSuspended(orgId);
     if (suspended) return suspended;
 
-    const membership = await accessService.getMembership(user.id, orgId);
-    if (!membership || membership.role !== "company_admin") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const gate = await requirePermission(user.id, orgId, "roles:manage");
+    if (!gate.ok) return gate.response;
 
     const body = await request.json();
     const parsed = updateRoleSchema.safeParse(body);
@@ -79,6 +78,11 @@ export async function PATCH(
       if (error.message === "Role not found") {
         return NextResponse.json({ error: error.message }, { status: 404 });
       }
+      // 409: the request is well-formed and the role exists — it is the
+      // current state that refuses, and the message names the rules to fix.
+      if (error.message.startsWith("Cannot delete:")) {
+        return NextResponse.json({ error: error.message }, { status: 409 });
+      }
     }
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
@@ -96,10 +100,8 @@ export async function DELETE(
     const suspended = await checkOrgSuspended(orgId);
     if (suspended) return suspended;
 
-    const membership = await accessService.getMembership(user.id, orgId);
-    if (!membership || membership.role !== "company_admin") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const gate = await requirePermission(user.id, orgId, "roles:manage");
+    if (!gate.ok) return gate.response;
 
     await roleService.delete(roleId, orgId, user.id);
     return NextResponse.json({ message: "Role deleted" });

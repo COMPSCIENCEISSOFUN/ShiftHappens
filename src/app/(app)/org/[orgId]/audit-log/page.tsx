@@ -18,6 +18,7 @@ import {
 import { PageLoading } from "@/components/ui/page-loading";
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { EmptyState } from "@/components/ui/empty-state";
+import { usePermissions } from "@/components/layout/permission-provider";
 
 interface AuditEntry {
   id: string;
@@ -43,6 +44,17 @@ const ACTION_LABELS: Record<string, string> = {
   "assignment.withdrawal_requested": "Withdrawal requested",
   "assignment.withdrawal_approved": "Withdrawal approved",
   "assignment.withdrawal_denied": "Withdrawal denied",
+  /*
+   * The decline lifecycle, added with the full-time approval flow and missed
+   * here. This map is both the display lookup AND the filter dropdown's option
+   * list, so their absence meant two things at once: the entries rendered as
+   * raw `assignment.decline_approved`, and a manager could not filter for them
+   * at all — the approvals were in the log and unreachable from the screen.
+   */
+  "assignment.decline_requested": "Decline requested",
+  "assignment.decline_approved": "Decline approved",
+  "assignment.decline_denied": "Decline denied",
+  "assignment.rated": "Assignment rated",
   "assignment.eligibility_overridden": "Eligibility overridden",
   "member.invited": "Member invited",
   "member.role_changed": "Role changed",
@@ -58,9 +70,21 @@ const ACTION_LABELS: Record<string, string> = {
 };
 
 function actionColor(action: string): string {
-  if (action.includes("deleted") || action.includes("rejected") || action.includes("deactivated"))
+  // `denied` and `approved` are matched explicitly: substring tests on
+  // "rejected"/"accepted" miss both, so every decline entry came out grey.
+  if (
+    action.includes("deleted") ||
+    action.includes("rejected") ||
+    action.includes("denied") ||
+    action.includes("deactivated")
+  )
     return "bg-red-100 text-red-700";
-  if (action.includes("created") || action.includes("accepted") || action.includes("activated"))
+  if (
+    action.includes("created") ||
+    action.includes("accepted") ||
+    action.includes("approved") ||
+    action.includes("activated")
+  )
     return "bg-green-100 text-green-700";
   if (action.includes("clocked"))
     return "bg-blue-100 text-blue-700";
@@ -68,6 +92,8 @@ function actionColor(action: string): string {
 }
 
 export default function AuditLogPage() {
+  const { can } = usePermissions();
+
   const params = useParams();
   const orgId = params.orgId as string;
   const [entries, setEntries] = useState<AuditEntry[]>([]);
@@ -77,6 +103,16 @@ export default function AuditLogPage() {
   const [filterEntity, setFilterEntity] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  /*
+   * A refusal the permission cannot express.
+   *
+   * `audit:view` is plan-gated to Enterprise, and a company admin holds every
+   * permission in the catalogue regardless of plan — so on Pro, `can` says yes
+   * and every fetch comes back 403 with an upgrade message. Derived from the
+   * server's answer rather than by fetching the plan again, so the page and the
+   * route cannot come to disagree about who may be here.
+   */
+  const [planRefusal, setPlanRefusal] = useState<string | null>(null);
   const limit = 20;
 
   async function fetchLogs() {
@@ -91,6 +127,15 @@ export default function AuditLogPage() {
       const res = await fetch(
         `/api/organizations/${orgId}/audit-logs?${params.toString()}`
       );
+      if (res.status === 403) {
+        const body = await res.json().catch(() => null);
+        setPlanRefusal(
+          typeof body?.error === "string"
+            ? body.error
+            : "The audit log is not available on your current plan."
+        );
+        return;
+      }
       if (!res.ok) {
         setError("Failed to load audit logs");
         return;
@@ -114,6 +159,33 @@ export default function AuditLogPage() {
 
   const totalPages = Math.ceil(total / limit);
   const currentPage = Math.floor(offset / limit) + 1;
+
+  /*
+   * The sidebar no longer links here without `audit:view`, but the URL still
+   * resolved — and this page had no check of its own, so it rendered its
+   * full surface and every action returned 403.
+   *
+   * Not a security boundary. The routes enforce this independently; this
+   * is so the product does not offer what it will refuse.
+   */
+  if (planRefusal) {
+    return (
+      <div className="w-full">
+        <EmptyState
+          title="The audit log is an Enterprise feature"
+          description={planRefusal}
+        />
+      </div>
+    );
+  }
+
+  if (!can("audit:view")) {
+    return (
+      <div className="w-full">
+        <EmptyState title="The audit log is available to company admins" description="It records every change made in the organisation, so access is kept narrow." />
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-5xl">

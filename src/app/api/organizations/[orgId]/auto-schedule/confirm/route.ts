@@ -9,10 +9,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { AutoScheduleService } from "@/services/auto-schedule.service";
 import { getAuthenticatedUser, unauthorizedResponse, checkOrgSuspended } from "@/lib/auth-guard";
-import { AccessService } from "@/services/access.service";
+import { requirePermission } from "@/lib/permission-guard";
 
 const autoScheduleService = new AutoScheduleService();
-const accessService = new AccessService();
 
 export async function POST(
   request: NextRequest,
@@ -26,10 +25,8 @@ export async function POST(
     const suspended = await checkOrgSuspended(orgId);
     if (suspended) return suspended;
 
-    const membership = await accessService.getMembership(user.id, orgId);
-    if (!membership || membership.role !== "company_admin") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const gate = await requirePermission(user.id, orgId, "allocation:auto_schedule");
+    if (!gate.ok) return gate.response;
 
     const body = await request.json();
     if (!body.assignments || !Array.isArray(body.assignments)) {

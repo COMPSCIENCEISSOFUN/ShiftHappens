@@ -15,10 +15,13 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { Mail, Sparkles } from "lucide-react";
+import { Mail, Sparkles,
+  Lock,
+} from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PageLoading } from "@/components/ui/page-loading";
+import { EmptyState } from "@/components/ui/empty-state";
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { StatTile } from "@/components/ui/stat-tile";
@@ -29,6 +32,8 @@ import {
   type SeniorityAssessment,
 } from "@/lib/seniority";
 import { filterMembers, hasActiveFilters as checkActiveFilters } from "@/lib/member-filters";
+import { usePermissions } from "@/components/layout/permission-provider";
+import { MEMBER_LIST_READERS } from "@/lib/permissions";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -117,6 +122,21 @@ export default function MembersPage() {
   const [departments, setDepartments] = useState<Department[]>([]);
   const [customRoles, setCustomRoles] = useState<CustomRole[]>([]);
   const [invitations, setInvitations] = useState<Invitation[]>([]);
+  /*
+   * Nothing here consulted permissions, so every control was offered to
+   * whoever reached the page: invite, bulk import, the role dropdown, the
+   * department checkboxes, employment type, the custom-role picker and
+   * activate/deactivate. Each one names the permission its own route enforces.
+   */
+  const { can, canAny } = usePermissions();
+  const canInvite = can("members:invite");
+  const canUpdateRole = can("members:update_role");
+  const canDeactivate = can("members:deactivate");
+  // Its own permission, and a default manager holds it without holding any of
+  // the three above — this is the one control on the page a manager is meant
+  // to use. It was the one control left ungated.
+  const canUpdateSeniority = can("members:update_seniority");
+
   const [showInvite, setShowInvite] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -309,8 +329,31 @@ export default function MembersPage() {
     } catch { setError("Something went wrong"); }
   }
 
-  async function onUpdateDepartment(userId: string, currentRole: string, deptId: string) {
-    const departmentIds = deptId ? [deptId] : [];
+  /**
+   * Adds or removes ONE department, leaving the rest alone.
+   *
+   * This used to send `[deptId]` — the whole set replaced by a single entry —
+   * because the control was a single select. Everything underneath already
+   * worked on a set: `departmentIds` is an array through the API and the
+   * service, `departmentScopeFor` returns an array, and `isDepartmentInScope`
+   * tests membership of it. Only the screen insisted on one, and the row
+   * display read `departmentMemberships[0]`, so a second department would have
+   * been invisible even if something else had created it.
+   *
+   * That matters for real rosters: a small venue has one manager covering
+   * Kitchen and Bar. Without this the only ways to express that were a second
+   * account, or promoting them to company admin — which removes department
+   * scoping altogether and hands over billing and settings.
+   */
+  async function onToggleDepartment(
+    userId: string,
+    currentRole: string,
+    deptId: string,
+    current: string[]
+  ) {
+    const departmentIds = current.includes(deptId)
+      ? current.filter((id) => id !== deptId)
+      : [...current, deptId];
     await onUpdateRole(userId, currentRole, departmentIds);
   }
 
@@ -363,6 +406,24 @@ export default function MembersPage() {
   const hasActiveFilters = checkActiveFilters(currentFilters);
   const filteredMembers = filterMembers(members, currentFilters);
 
+  /*
+   * Placed BELOW every hook, deliberately — a guard above them makes each
+   * useState and useEffect conditional, which React forbids.
+   *
+   * The permission set is the same constant the GET route enforces, so the
+   * page and the endpoint refuse for the same reason. Stating it twice is how
+   * the sidebar and the routes came to disagree in the first place.
+   */
+  if (!canAny(...MEMBER_LIST_READERS)) {
+    return (
+      <EmptyState
+        icon={Lock}
+        title="You don't have access to Members"
+        description="The member directory is available to people who administer members. Ask a company admin if you need access."
+      />
+    );
+  }
+
   if (loading) return <PageLoading />;
 
   return (
@@ -376,17 +437,22 @@ export default function MembersPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
-          <Link href={`/org/${orgId}/members/import`}>
-            <button className="rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-indigo-400 hover:text-foreground">
-              Import Members
-            </button>
-          </Link>
-          <button
-            onClick={() => setShowInvite(!showInvite)}
-            className={`rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-colors ${showInvite ? "border border-border bg-card text-muted-foreground hover:text-foreground" : "bg-gradient-to-r from-indigo-600 to-indigo-500 text-white shadow-sm hover:from-indigo-700 hover:to-indigo-600"}`}
-          >
-            {showInvite ? "Cancel" : "+ Invite User"}
-          </button>
+          {/* Bulk import is the same endpoint permission as a single invite. */}
+          {canInvite && (
+            <>
+              <Link href={`/org/${orgId}/members/import`}>
+                <button className="rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-indigo-400 hover:text-foreground">
+                  Import Members
+                </button>
+              </Link>
+              <button
+                onClick={() => setShowInvite(!showInvite)}
+                className={`rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-colors ${showInvite ? "border border-border bg-card text-muted-foreground hover:text-foreground" : "bg-gradient-to-r from-indigo-600 to-indigo-500 text-white shadow-sm hover:from-indigo-700 hover:to-indigo-600"}`}
+              >
+                {showInvite ? "Cancel" : "+ Invite User"}
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -473,7 +539,7 @@ export default function MembersPage() {
       )}
 
       {/* ── Invite form ── */}
-      {showInvite && (
+      {showInvite && canInvite && (
         <div className="mb-4 overflow-hidden rounded-xl border border-border bg-card">
           <div className="border-b border-border px-4 py-3">
             <h3 className="text-[13px] font-semibold">Invite User</h3>
@@ -554,7 +620,9 @@ export default function MembersPage() {
                 </tr>
               ) : (
               filteredMembers.map((member) => {
-                const currentDeptId = member.departmentMemberships[0]?.department.id || "";
+                    const memberDeptIds = member.departmentMemberships.map(
+                  (dm) => dm.department.id
+                );
                 const isSelf = member.user.id === currentUserId;
                 return (
                   <tr key={member.id} className={`border-b border-border last:border-b-0 transition-colors hover:bg-muted/20 ${member.status !== "active" ? "opacity-50" : ""}`}>
@@ -580,7 +648,7 @@ export default function MembersPage() {
                           className="rounded-lg border border-border bg-background px-2 py-1 text-xs"
                           value={member.role}
                           onChange={(e) => onUpdateRole(member.user.id, e.target.value)}
-                          disabled={isSelf}
+                          disabled={isSelf || !canUpdateRole}
                           title={isSelf ? "Cannot change your own role" : undefined}
                         >
                           <option value="staff">Staff</option>
@@ -639,6 +707,7 @@ export default function MembersPage() {
                           className="rounded-lg border border-border bg-background px-2 py-1 text-xs"
                           value={member.employmentType || DEFAULT_EMPLOYMENT_TYPE}
                           onChange={(e) => onUpdateEmploymentType(member.user.id, e.target.value)}
+                          disabled={!canUpdateRole}
                         >
                           {Object.entries(EMPLOYMENT_TYPE_LABELS).map(([value, label]) => (
                             <option key={value} value={value}>{label}</option>
@@ -665,6 +734,7 @@ export default function MembersPage() {
                                 ? seniority[member.id].level
                                 : ""
                             }
+                            disabled={!canUpdateSeniority}
                             onChange={(e) => onUpdateSeniority(member.user.id, e.target.value)}
                           >
                             {/* The empty option is the DEFAULT, not a blank —
@@ -694,21 +764,44 @@ export default function MembersPage() {
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      <select
-                        className="rounded-lg border border-border bg-background px-2 py-1 text-xs"
-                        value={currentDeptId}
-                        onChange={(e) => onUpdateDepartment(member.user.id, member.role, e.target.value)}
-                      >
-                        <option value="">None</option>
+                      {/*
+                        A checkbox per department, not a select. A member can
+                        belong to several — the engine has always taken the
+                        union — and a select could only ever express one.
+                      */}
+                      <div className="flex flex-col gap-0.5">
+                        {departments.length === 0 && (
+                          <span className="text-[11px] text-muted-foreground">None</span>
+                        )}
                         {departments.map((d) => (
-                          <option key={d.id} value={d.id}>{d.name}</option>
+                          <label
+                            key={d.id}
+                            className="flex cursor-pointer items-center gap-1.5 text-[11px]"
+                          >
+                            <input
+                              type="checkbox"
+                              className="h-3 w-3 rounded border-border accent-indigo-600 disabled:opacity-40"
+                              disabled={!canUpdateRole}
+                              checked={memberDeptIds.includes(d.id)}
+                              onChange={() =>
+                                onToggleDepartment(
+                                  member.user.id,
+                                  member.role,
+                                  d.id,
+                                  memberDeptIds
+                                )
+                              }
+                            />
+                            <span className="truncate">{d.name}</span>
+                          </label>
                         ))}
-                      </select>
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       <StatusBadge value={member.status} palette="membershipStatus" />
                     </td>
                     <td className="px-4 py-3 text-right">
+                      {canDeactivate && (
                       <button
                         onClick={() => onToggleStatus(member.user.id)}
                         disabled={isSelf}
@@ -717,6 +810,7 @@ export default function MembersPage() {
                       >
                         {member.status === "active" ? "Deactivate" : "Activate"}
                       </button>
+                      )}
                     </td>
                   </tr>
                 );
@@ -744,7 +838,6 @@ export default function MembersPage() {
             </div>
           ) : (
           filteredMembers.map((member) => {
-            const currentDeptId = member.departmentMemberships[0]?.department.id || "";
             const isSelf = member.user.id === currentUserId;
             return (
               <div key={member.id} className={`p-4 ${member.status !== "active" ? "opacity-50" : ""}`}>
@@ -772,23 +865,28 @@ export default function MembersPage() {
                         </span>
                       )}
                       <StatusBadge value={member.status} palette="membershipStatus" />
-                      {member.departmentMemberships[0] && (
-                        <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                          {member.departmentMemberships[0].department.name}
+                      {/* Every department, not just the first — see onToggleDepartment. */}
+                      {member.departmentMemberships.map((dm) => (
+                        <span
+                          key={dm.department.id}
+                          className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground"
+                        >
+                          {dm.department.name}
                         </span>
-                      )}
+                      ))}
                     </div>
                     <div className="mt-2 flex items-center gap-2">
                       <select
                         className="flex-1 rounded-lg border border-border bg-background px-2 py-1 text-xs"
                         value={member.role}
                         onChange={(e) => onUpdateRole(member.user.id, e.target.value)}
-                        disabled={isSelf}
+                        disabled={isSelf || !canUpdateRole}
                       >
                         <option value="staff">Staff</option>
                         <option value="manager">Manager</option>
                         <option value="company_admin">Admin</option>
                       </select>
+                      {canDeactivate && (
                       <button
                         onClick={() => onToggleStatus(member.user.id)}
                         disabled={isSelf}
@@ -796,6 +894,7 @@ export default function MembersPage() {
                       >
                         {member.status === "active" ? "Deactivate" : "Activate"}
                       </button>
+                      )}
                     </div>
                   </div>
                 </div>

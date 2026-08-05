@@ -12,6 +12,7 @@
  * for calendar view and any UI that shows department colors.
  */
 import { prisma } from "@/lib/prisma";
+import { occupyingStatusFilter } from "@/lib/assignment-status";
 
 export class TaskRepository {
   /** Creates a new task within an organization */
@@ -62,10 +63,24 @@ export class TaskRepository {
    * the first occurrence (no parent), still active, and actually schedulable.
    * These are the tasks the generator expands into future instances.
    */
-  async findRecurringTemplates(organizationId: string) {
+  async findRecurringTemplates(
+    organizationId: string,
+    /**
+     * The caller's departments, or null/undefined for an unscoped caller
+     * (a company admin, or the cron job, which has no caller at all).
+     *
+     * An empty array means "no departments" and matches nothing — never "all".
+     * A task with NO department is out of scope for anyone who is scoped, the
+     * same rule `TaskService.getByOrganization` applies.
+     */
+    departmentIds?: string[] | null
+  ) {
     return prisma.task.findMany({
       where: {
         organizationId,
+        ...(departmentIds != null
+          ? { departmentId: { in: departmentIds } }
+          : {}),
         isRecurring: true,
         parentTaskId: null,
         status: { notIn: ["cancelled", "completed"] },
@@ -184,7 +199,10 @@ export class TaskRepository {
     if (ids.length === 0) return [];
     return prisma.task.findMany({
       where: { id: { in: ids }, organizationId },
-      select: { id: true },
+      // `requiredHeadcount` because the only caller — confirming an
+      // auto-schedule draft — has to bound what it writes against the task's
+      // own limit, and the draft it is handed is client-supplied.
+      select: { id: true, requiredHeadcount: true },
     });
   }
 
@@ -225,7 +243,12 @@ export class TaskRepository {
   /**
    * Finds tasks that conflict with a given time range for a specific member.
    * Used for scheduling conflict detection (US-38).
-   * Only considers active assignments (pending or accepted).
+   *
+   * Counts every assignment that still ties the member to a shift — see
+   * `occupiesSlot`. This said "pending or accepted" and meant it, which left a
+   * pending withdrawal (and later a pending decline) invisible to the conflict
+   * check while the member was still expected to turn up.
+   *
    * Excludes optional taskId to allow checking conflicts for updates.
    */
   async findConflictingTasks(
@@ -239,7 +262,7 @@ export class TaskRepository {
         assignments: {
           some: {
             membershipId,
-            status: { in: ["pending", "accepted"] },
+            status: { in: occupyingStatusFilter() },
           },
         },
         scheduledStart: { lt: scheduledEnd },
@@ -279,9 +302,10 @@ export class TaskRepository {
    * Titles of the tasks a member is already committed to that overlap a time
    * window — what the eligibility engine reports back as the clash.
    *
-   * Unlike `findConflictingTasks`, a pending withdrawal request still counts:
-   * the slot stays reserved until a manager resolves it, so double-booking
-   * over it would hand the member two shifts at once if the request is denied.
+   * Same rule as `findConflictingTasks` — both now share `occupiesSlot`. They
+   * disagreed before: this one counted a pending withdrawal and that one did
+   * not, so the eligibility engine and the conflict finder could give different
+   * answers about the same member at the same moment.
    */
   async findConflictingTaskTitles(
     membershipId: string,
@@ -294,7 +318,7 @@ export class TaskRepository {
         assignments: {
           some: {
             membershipId,
-            status: { in: ["pending", "accepted", "withdrawal_requested"] },
+            status: { in: occupyingStatusFilter() },
           },
         },
         scheduledStart: { lt: scheduledEnd },

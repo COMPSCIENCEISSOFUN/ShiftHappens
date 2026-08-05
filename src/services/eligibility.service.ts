@@ -1,17 +1,21 @@
 /**
  * Eligibility Service (Control Layer)
  *
- * The core eligibility engine. Checks four dimensions to determine
+ * The core eligibility engine. Checks five dimensions to determine
  * if a staff member is eligible for a task assignment:
  *
- * 1. HOURS LIMIT — Has the member exceeded the company break rule threshold?
+ * 1. HOURS LIMIT — Has the member exceeded the company break rule threshold in
+ *    the 24 hours before the shift begins?
  * 2. AVAILABILITY — Is the member available at the task's scheduled time?
  *    - Casual staff: weekly availability is a HARD CONSTRAINT
  *    - Full-time staff: SKIP — always available during operating hours
  * 3. SCHEDULING — Does the member have conflicting assignments?
  * 4. WORK RULES — Does the assignment violate any custom work rules?
- *    Rules can target globally, by department, or by custom role.
- *    Checks task duration against daily/weekly limits.
+ *    Rules can target globally, by department, or by custom role. Daily and
+ *    weekly caps sum every window the shift touches; the rest-gap rule checks
+ *    both sides of it.
+ * 5. CERTIFICATIONS — Does the member hold every certification the task
+ *    requires, unexpired?
  *
  * Each dimension returns eligible/ineligible with a reason.
  * Eligibility overrides can bypass specific rules with documentation.
@@ -25,7 +29,7 @@ import { TaskRepository } from "@/repositories/task.repository";
 import { MembershipRepository } from "@/repositories/membership.repository";
 import { WorkRuleRepository } from "@/repositories/work-rule.repository";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
-import { DEFAULT_EMPLOYMENT_TYPE } from "@/lib/role-config";
+import { DEFAULT_EMPLOYMENT_TYPE, canBeRostered } from "@/lib/role-config";
 import { localDateInTimeZone, timeOfDayInTimeZone } from "@/lib/timezone";
 import {
   DEFAULT_DAY_START_HOUR,
@@ -33,6 +37,7 @@ import {
   businessWeekRange,
   overlapHours,
 } from "@/lib/business-day";
+import { occupiesSlot, occupyingStatusFilter } from "@/lib/assignment-status";
 
 interface EligibilityCheck {
   eligible: boolean;
@@ -55,11 +60,47 @@ interface StaffEligibility {
 }
 
 /**
+ * All any hour calculation reads off an assignment. Structural on purpose, so a
+ * provisional shift and a stored one are the same thing to everything below.
+ */
+interface CommittedInterval {
+  /** Null for a provisional shift, which has no row yet. */
+  taskId?: string | null;
+  clockInTime: Date | null;
+  clockOutTime: Date | null;
+  task: { scheduledStart: Date | null; scheduledEnd: Date | null } | null;
+}
+
+/**
+ * Shifts a caller has decided but not yet written to the database.
+ *
+ * The auto-scheduler builds a whole week before saving anything, so by the time
+ * it evaluates the fifth task it has already committed the same people to four
+ * others that the engine cannot see. It used to solve that with its own running
+ * tallies and its own copies of the availability, conflict and work-rule
+ * checks — copies that were weaker than the originals in two specific ways: the
+ * daily cap compared ONE shift's length against the limit rather than summing
+ * the day, so two six-hour shifts fitted under an eight-hour cap; and rest gaps
+ * were not checked at all.
+ *
+ * Passing the draft in instead means the engine's own arithmetic — the same
+ * windowing, clipping and rest-gap logic the assign screen uses — decides the
+ * answer, and there is one implementation of each rule rather than two.
+ *
+ * Keyed by membershipId. Intervals need a title only so a conflict can name
+ * what it clashes with.
+ */
+export type ProvisionalAssignments = Map<
+  string,
+  { start: Date; end: Date; title: string }[]
+>;
+
+/**
  * Per-evaluation memo of committed assignments, keyed by
  * `membershipId|excludeTaskId`. Created by the caller and passed down, so its
  * lifetime is one eligibility run — see `loadCommittedAssignments`.
  */
-type CommittedAssignmentsCache = Map<
+export type CommittedAssignmentsCache = Map<
   string,
   ReturnType<TaskAssignmentRepository["findCommittedWithSchedule"]>
 >;
@@ -95,7 +136,25 @@ export class EligibilityService {
    */
   async checkEligibilityForTask(
     taskId: string,
-    organizationId: string
+    organizationId: string,
+    /**
+     * Shifts the caller has decided but not yet saved. Only the auto-scheduler
+     * passes this — see `ProvisionalAssignments`.
+     */
+    provisional?: ProvisionalAssignments,
+    /**
+     * A memo of per-member commitments that OUTLIVES this call.
+     *
+     * One evaluation is cheap; a whole generated week is not. Without a shared
+     * memo the auto-scheduler reloaded every member's assignments for every
+     * task — 100 tasks against 100 members is 10,000 identical round trips for
+     * data that does not change during the run.
+     *
+     * Only a caller that owns a bounded run should pass one, because a stale
+     * entry is a wrong verdict. The assign screen passes nothing and gets a
+     * fresh memo per call, which is the safe default.
+     */
+    sharedHoursCache?: CommittedAssignmentsCache
   ): Promise<StaffEligibility[]> {
     const task = await this.taskRepo.findByIdWithoutRelations(taskId);
     // Cross-tenant tasks are invisible — never evaluate another org's task.
@@ -133,7 +192,7 @@ export class EligibilityService {
      */
     const allMembers = await this.membershipRepo.findByOrgId(organizationId);
     const activeMembers = allMembers.filter(
-      (m) => m.status === "active" && m.role !== "company_admin"
+      (m) => m.status === "active" && canBeRostered(m.role)
     );
 
     let eligibleMembers = activeMembers;
@@ -154,12 +213,24 @@ export class EligibilityService {
     // One memo for the whole evaluation. Every member is checked against the
     // break rule, the daily cap and the weekly cap, and all three read the same
     // per-member assignment list — without this they issue that query three
-    // times each. Scoped to this call, so it cannot go stale between requests.
-    const hoursCache: CommittedAssignmentsCache = new Map();
+    // times each. Scoped to this call unless a caller supplied one, in which
+    // case it lives as long as that caller's run.
+    const hoursCache: CommittedAssignmentsCache = sharedHoursCache ?? new Map();
 
-    const results: StaffEligibility[] = [];
-
-    for (const member of eligibleMembers) {
+    /*
+     * Members are evaluated CONCURRENTLY.
+     *
+     * Each one is independent — nothing in the loop reads another member's
+     * result — but the body awaits four to six queries, so running it in series
+     * made the wall-clock cost the sum of every member's round trips. On a
+     * generated week that is the difference between a page load and a timeout.
+     *
+     * Safe with the shared memo because the memo stores the PROMISE, not the
+     * resolved rows: two members starting at once either find the same pending
+     * promise or insert their own, and neither can observe a half-filled cache.
+     */
+    const results = await Promise.all(
+      eligibleMembers.map(async (member) => {
       // TODO: Remove cast after running `npx prisma generate` — employmentType
       // is on the Membership model; Prisma types will include it natively.
       const memberEmploymentType =
@@ -183,7 +254,19 @@ export class EligibilityService {
       // 1. Hours limit
       const hoursCheck = applyOverride(
         this.OVERRIDE_KEYS.hoursLimit,
-        await this.checkHoursLimit(member.id, settings.breakRuleHoursWorked, task.id, hoursCache)
+        await this.checkHoursLimit(
+          member.id,
+          settings.breakRuleHoursWorked,
+          task.id,
+          hoursCache,
+          provisional,
+          // Judged at the shift, not at the clock. Everything else in this
+          // method is evaluated at the task's own moment; this check was the
+          // last one still measuring the day the manager happened to click.
+          task.scheduledStart && task.scheduledEnd
+            ? { start: task.scheduledStart, end: task.scheduledEnd }
+            : undefined
+        )
       );
 
       // 2. Availability
@@ -217,7 +300,7 @@ export class EligibilityService {
       // 3. Scheduling conflicts
       const schedulingCheck = applyOverride(
         this.OVERRIDE_KEYS.scheduling,
-        await this.checkSchedulingConflicts(member.id, task)
+        await this.checkSchedulingConflicts(member.id, task, provisional)
       );
 
       // 4. Work rules — filtered by member's departments and custom role
@@ -235,7 +318,8 @@ export class EligibilityService {
           memberDeptIds,
           memberCustomRoleId || null,
           hoursCache,
-          settings.operatingHoursStart
+          settings.operatingHoursStart,
+          provisional
         )
       );
 
@@ -256,7 +340,7 @@ export class EligibilityService {
         workRulesCheck.eligible &&
         certCheck.eligible;
 
-      results.push({
+      return {
         membershipId: member.id,
         memberName: (member as { user: { name: string | null; email: string } }).user.name ||
           (member as { user: { name: string | null; email: string } }).user.email,
@@ -270,8 +354,9 @@ export class EligibilityService {
           certifications: certCheck,
         },
         overrides: Array.from(memberOverrides),
-      });
-    }
+      };
+      })
+    );
 
     return results;
   }
@@ -280,16 +365,17 @@ export class EligibilityService {
   /**
    * Members holding a live assignment on this task.
    *
-   * "Live" is the same set that occupies a headcount slot — pending, accepted,
-   * or awaiting a withdrawal decision. Someone who rejected or withdrew is not
-   * on the shift, so there is nothing about them left to validate.
+   * "Live" is the same set that occupies a headcount slot — everything except
+   * rejected and withdrawn, so a decline or a withdrawal awaiting a manager's
+   * decision still counts. Someone who rejected or withdrew is not on the
+   * shift, so there is nothing about them left to validate.
    */
   private async committedMembershipIds(taskId: string): Promise<Set<string>> {
     const assignments = await this.assignmentRepo.findByTaskId(taskId);
     return new Set(
       assignments
         .filter((a) =>
-          ["pending", "accepted", "withdrawal_requested"].includes(a.status)
+          occupiesSlot(a.status)
         )
         .map((a) => a.membershipId)
     );
@@ -307,29 +393,111 @@ export class EligibilityService {
   }
 
   /**
-   * Checks a member against the company break rule (hours in a rolling 24h).
-   * Counts actual clocked time plus any committed shift that started within
-   * the window. `excludeTaskId` drops the task being evaluated so it isn't
-   * counted against itself.
+   * Checks a member against the company break rule: a cap on hours in any
+   * rolling 24 hours.
+   *
+   * ## What this used to ask, and why it was wrong twice
+   *
+   * It summed the 24 hours ending at `new Date()` and refused when that total
+   * reached the cap. Two separate faults, and correcting the first exposed the
+   * second.
+   *
+   * The window was anchored to the CLOCK, not the shift. Rostering someone
+   * three weeks out was judged on what they had worked the day before the
+   * manager clicked — so a heavy yesterday blocked a shift next month, while
+   * two back-to-back shifts next Tuesday passed because neither had happened
+   * yet. That is the same fault the rest-gap rule was rewritten to remove.
+   *
+   * And it never looked at the shift being PROPOSED. It compared prior hours
+   * alone against the cap, at-or-over. With the default of 8, a member rostered
+   * Monday 09:00–17:00 was refused the identical Tuesday shift: the 24 hours
+   * before Tuesday 09:00 land exactly on Monday 09:00, so Monday's whole eight
+   * hours fall inside and eight is "at" eight. Nothing was actually wrong —
+   * those shifts are a day apart and no 24-hour window holds more than eight
+   * hours of work — but the most ordinary roster there is was refused.
+   *
+   * ## What it asks now
+   *
+   * Whether the proposed shift PUSHES a 24-hour window over the cap, which is
+   * how `max_hours_daily` and `max_hours_weekly` already work. Three hour rules
+   * that phrase the same question three ways is how one of them comes to be
+   * wrong without anybody noticing.
+   *
+   * ## Which windows
+   *
+   * Two, because a 24-hour window can be worst on either side of the shift:
+   *
+   *   [end − 24h, end]     work done just BEFORE the shift, plus the shift
+   *   [start, start + 24h] the shift, plus work coming just AFTER it
+   *
+   * Checking only one is order-dependent in exactly the way the rest-gap rule
+   * was. A 2-hour shift proposed the night before an existing 8-hour day would
+   * pass an end-anchored window (which sees nothing) while genuinely putting
+   * ten hours into the day that follows it.
+   *
+   * The true worst window is always flush against one of the two shift edges,
+   * so these two bound it — a window sitting strictly between them contains
+   * less of the proposed shift and no more of anything else.
+   *
+   * `shift` omitted falls back to the 24 hours up to now, which answers a
+   * question about the present rather than about a shift. Only callers with no
+   * shift in hand should use it.
    */
   async checkHoursLimit(
     membershipId: string,
     maxHours: number,
     excludeTaskId?: string,
-    cache?: CommittedAssignmentsCache
+    cache?: CommittedAssignmentsCache,
+    provisional?: ProvisionalAssignments,
+    shift?: { start: Date; end: Date }
   ): Promise<EligibilityCheck> {
-    const totalHours = await this.getHoursInLast24h(membershipId, excludeTaskId, cache);
+    const DAY_MS = 24 * 60 * 60 * 1000;
 
-    if (totalHours >= maxHours) {
+    if (!shift) {
+      const now = await this.getHoursInLast24h(
+        membershipId,
+        excludeTaskId,
+        cache,
+        provisional
+      );
+      return now >= maxHours
+        ? {
+            eligible: false,
+            reason: `${now.toFixed(1)}h in last 24h (limit: ${maxHours}h)`,
+          }
+        : { eligible: true, reason: `${now.toFixed(1)}h of ${maxHours}h limit` };
+    }
+
+    const committed = await this.loadCommittedAssignments(
+      membershipId,
+      excludeTaskId,
+      cache,
+      provisional
+    );
+
+    const windows = [
+      { start: new Date(shift.end.getTime() - DAY_MS), end: shift.end },
+      { start: shift.start, end: new Date(shift.start.getTime() + DAY_MS) },
+    ];
+
+    let worst = 0;
+    for (const window of windows) {
+      const total =
+        this.sumHoursInWindow(committed, window.start, window.end) +
+        overlapHours(shift.start, shift.end, window.start, window.end);
+      if (total > worst) worst = total;
+    }
+
+    if (worst > maxHours) {
       return {
         eligible: false,
-        reason: `${totalHours.toFixed(1)}h in last 24h (limit: ${maxHours}h)`,
+        reason: `Would total ${worst.toFixed(1)}h in 24h (limit: ${maxHours}h)`,
       };
     }
 
     return {
       eligible: true,
-      reason: `${totalHours.toFixed(1)}h of ${maxHours}h limit`,
+      reason: `${worst.toFixed(1)}h of ${maxHours}h limit`,
     };
   }
 
@@ -371,24 +539,36 @@ export class EligibilityService {
    */
   private async checkSchedulingConflicts(
     membershipId: string,
-    task: { id: string; scheduledStart: Date | null; scheduledEnd: Date | null }
+    task: { id: string; scheduledStart: Date | null; scheduledEnd: Date | null },
+    provisional?: ProvisionalAssignments
   ): Promise<EligibilityCheck> {
     if (!task.scheduledStart || !task.scheduledEnd) {
       return { eligible: true, reason: "No schedule set" };
     }
 
     // A pending withdrawal still occupies the schedule until resolved.
-    const conflicts = await this.taskRepo.findConflictingTaskTitles(
+    const stored = await this.taskRepo.findConflictingTaskTitles(
       membershipId,
       task.scheduledStart,
       task.scheduledEnd,
       task.id
     );
 
-    if (conflicts.length > 0) {
+    /*
+     * Draft shifts clash too. A whole-week draft decides several shifts before
+     * saving any of them, so the database cannot answer this on its own — and
+     * without it a draft would happily put one person on two overlapping shifts
+     * and only discover it when the confirm failed.
+     */
+    const drafted = (provisional?.get(membershipId) ?? []).filter(
+      (d) => task.scheduledStart! < d.end && task.scheduledEnd! > d.start
+    );
+
+    const titles = [...stored.map((c) => c.title), ...drafted.map((d) => d.title)];
+    if (titles.length > 0) {
       return {
         eligible: false,
-        reason: `Conflicts with: ${conflicts.map((c) => c.title).join(", ")}`,
+        reason: `Conflicts with: ${titles.join(", ")}`,
       };
     }
 
@@ -417,7 +597,8 @@ export class EligibilityService {
     memberDepartmentIds: string[],
     memberCustomRoleId: string | null,
     cache?: CommittedAssignmentsCache,
-    dayStartHour: number = DEFAULT_DAY_START_HOUR
+    dayStartHour: number = DEFAULT_DAY_START_HOUR,
+    provisional?: ProvisionalAssignments
   ): Promise<EligibilityCheck> {
     if (rules.length === 0) {
       return { eligible: true };
@@ -434,12 +615,55 @@ export class EligibilityService {
       let reason = "";
 
       switch (rule.type) {
+        /*
+         * A REST GAP between shifts, measured against the shift being judged.
+         *
+         * What this replaced was neither of those things. It asked
+         * `getHoursInLast24h`, which anchors its window to `new Date()` — so
+         * assigning someone to a shift three weeks out was judged on what they
+         * had worked in the day before the manager clicked, and the check
+         * failed in both directions at once: a double yesterday blocked a shift
+         * next month, while two back-to-back shifts next Tuesday passed
+         * because nothing had been worked yet.
+         *
+         * And `breakHours` was never read. The form demands it, validation
+         * refuses to save without it, the auto-schedule prompt quotes it — and
+         * no enforcement path touched it, so "a 1-hour break after 6 hours"
+         * meant "blocked after 6 hours", with no way to express the break at
+         * all. What remained was a third hour cap wearing a break rule's name.
+         *
+         * The daily and weekly caps were corrected for this same class of bug
+         * (see the comment below); this one was left behind.
+         */
         case "break_interval": {
-          if (!rule.hoursThreshold) break;
-          const hours = await this.getHoursInLast24h(membershipId, task.id, cache);
-          if (hours >= rule.hoursThreshold) {
+          if (!rule.hoursThreshold || !rule.breakHours) break;
+          if (!task.scheduledStart || !task.scheduledEnd) break;
+
+          const clash = await this.findRestGapBreach(
+            membershipId,
+            task.id,
+            task.scheduledStart,
+            task.scheduledEnd,
+            rule.hoursThreshold,
+            rule.breakHours,
+            cache,
+            provisional
+          );
+          if (clash) {
             violated = true;
-            reason = `${hours.toFixed(1)}h in last 24h (rule "${rule.name}": max ${rule.hoursThreshold}h before break)`;
+            /*
+             * Which shift is named depends on which one earned the rest, and a
+             * manager has to be able to tell which of the two to move. The
+             * earlier version ran one phrasing through an inverted ternary and
+             * described a preceding shift as coming after the gap.
+             */
+            const where =
+              clash.side === "before"
+                ? `since a ${clash.shiftHours.toFixed(1)}h shift ending just before it`
+                : `after this ${clash.shiftHours.toFixed(1)}h shift, before the next one starts`;
+            reason =
+              `Only ${clash.gapHours.toFixed(1)}h rest ${where} ` +
+              `(rule "${rule.name}": ${rule.breakHours}h break after ${rule.hoursThreshold}h worked)`;
           }
           break;
         }
@@ -486,7 +710,8 @@ export class EligibilityService {
               window.start,
               task.id,
               cache,
-              dayStartHour
+              dayStartHour,
+              provisional
             );
             if (committed + taskHours > rule.maxHours) {
               violated = true;
@@ -518,7 +743,8 @@ export class EligibilityService {
               window.start,
               task.id,
               cache,
-              dayStartHour
+              dayStartHour,
+              provisional
             );
             if (committed + taskHours > rule.maxHours) {
               violated = true;
@@ -582,13 +808,7 @@ export class EligibilityService {
    * Assignment statuses that represent a real or committed time commitment.
    * rejected/withdrawn are excluded — they no longer occupy the person's time.
    */
-  private static readonly COMMITTED_STATUSES = [
-    "pending",
-    "accepted",
-    "withdrawal_requested",
-    "clocked_out",
-    "completed",
-  ];
+  private static readonly COMMITTED_STATUSES = occupyingStatusFilter();
 
   /**
    * The effective time interval an assignment occupies:
@@ -638,6 +858,50 @@ export class EligibilityService {
   private async loadCommittedAssignments(
     membershipId: string,
     excludeTaskId?: string,
+    cache?: CommittedAssignmentsCache,
+    provisional?: ProvisionalAssignments
+  ): Promise<CommittedInterval[]> {
+    const stored = await this.loadStoredAssignments(
+      membershipId,
+      excludeTaskId,
+      cache
+    );
+
+    const drafted = provisional?.get(membershipId);
+    if (!drafted || drafted.length === 0) return stored;
+
+    /*
+     * Draft shifts are shaped as unclocked scheduled ones, so `effectiveInterval`
+     * reads them exactly as it reads a real assignment and every downstream
+     * calculation — the 24h window, the daily and weekly sums, the rest gap —
+     * works on them without knowing they are provisional.
+     *
+     * Appended to a COPY. The array behind `stored` may be the memoised one, and
+     * mutating it would leave one evaluation's draft visible to the next read
+     * of the same key.
+     *
+     * Mutation testing could not kill this: emptying the cached array still
+     * produces the right answer today, because every read within a single
+     * `checkEligibilityForTask` recomputes from the same freshly-loaded list
+     * and the draft is re-appended each time. It stays because the property it
+     * protects is one nobody would think to re-check — the memo is shared by
+     * every member in a run, and a mutation here would surface as one member's
+     * hours quietly going missing rather than as an error.
+     */
+    return [
+      ...stored,
+      ...drafted.map((d) => ({
+        clockInTime: null,
+        clockOutTime: null,
+        task: { scheduledStart: d.start, scheduledEnd: d.end },
+      })),
+    ];
+  }
+
+  /** The database half of `loadCommittedAssignments`, with the memo. */
+  private async loadStoredAssignments(
+    membershipId: string,
+    excludeTaskId?: string,
     cache?: CommittedAssignmentsCache
   ) {
     if (!cache) {
@@ -648,17 +912,33 @@ export class EligibilityService {
       );
     }
 
-    const key = `${membershipId}|${excludeTaskId ?? ""}`;
-    const cached = cache.get(key);
-    if (cached) return cached;
+    /*
+     * Keyed on the MEMBER alone, with the exclusion applied afterwards.
+     *
+     * The key used to include `excludeTaskId`, which is different for every
+     * task — so the memo could never be reused across tasks, and a caller
+     * evaluating a whole week reloaded every member's commitments once per
+     * task. At 100 tasks and 100 members that is 10,000 round trips for data
+     * that changes once.
+     *
+     * Excluding in memory is equivalent because the query is the same set minus
+     * one row, and the row is identified by an id we now select.
+     */
+    const cached = cache.get(membershipId);
+    const all = cached ?? this.loadAllCommitted(membershipId);
+    if (!cached) cache.set(membershipId, all);
 
-    const pending = this.assignmentRepo.findCommittedWithSchedule(
+    const rows = await all;
+    return excludeTaskId
+      ? rows.filter((r) => r.taskId !== excludeTaskId)
+      : rows;
+  }
+
+  private loadAllCommitted(membershipId: string) {
+    return this.assignmentRepo.findCommittedWithSchedule(
       membershipId,
-      EligibilityService.COMMITTED_STATUSES,
-      excludeTaskId
+      EligibilityService.COMMITTED_STATUSES
     );
-    cache.set(key, pending);
-    return pending;
   }
 
   /**
@@ -741,21 +1021,127 @@ export class EligibilityService {
   }
 
   /**
-   * Total committed hours in the last 24 hours (rolling). Counts actual
-   * clocked time where it exists, otherwise the schedule, and counts only the
-   * portion of each that falls inside the window — so the result can never
-   * exceed 24, and a shift still in progress contributes the hours already
-   * worked rather than nothing.
+   * The nearest shift that leaves too little rest either side of `[start, end)`.
+   *
+   * Both sides on purpose. A manager does not only add shifts after existing
+   * ones — inserting an early shift the morning after a late one is the same
+   * breach seen from the other end, and checking only backwards would let the
+   * roster be built in the order that hides it.
+   *
+   * `hoursThreshold` gates which pairs count: a rule reading "11 hours off
+   * after 8 hours worked" should say nothing about a two-hour shift. It is
+   * compared against whichever of the two shifts is WORKED FIRST, because that
+   * is the one that earns the rest — and which shift that is depends on the
+   * side:
+   *
+   *   neighbour, rest, [proposed]   → the neighbour earned it
+   *   [proposed], rest, neighbour   → the proposed shift earned it
+   *
+   * Gating on the neighbour in both directions was the bug that made this
+   * order-dependent, which is the exact fault the two-sided check was written
+   * to remove. Under "11h after 8h": an existing 10h shift then a proposed 2h
+   * one two hours later was refused, while the same pair entered the other way
+   * round — existing 2h, proposed 10h — was allowed, because the 2h neighbour
+   * fell under the threshold. Same roster, same breach, different answer
+   * depending on which one the manager happened to create first.
+   *
+   * Overlapping shifts are left alone. A negative gap is a double-booking,
+   * which the scheduling-conflict check already refuses with a message that
+   * names the clash; reporting it here as "-3.0h rest" would be a second,
+   * worse explanation of a problem already handled.
+   *
+   * `shiftHours` in the result is the EARNING shift's length, and `side` says
+   * where the neighbour sits relative to the shift being judged.
+   */
+  private async findRestGapBreach(
+    membershipId: string,
+    excludeTaskId: string,
+    start: Date,
+    end: Date,
+    hoursThreshold: number,
+    breakHours: number,
+    cache?: CommittedAssignmentsCache,
+    provisional?: ProvisionalAssignments
+  ): Promise<{ gapHours: number; shiftHours: number; side: "before" | "after" } | null> {
+    const assignments = await this.loadCommittedAssignments(
+      membershipId,
+      excludeTaskId,
+      cache,
+      provisional
+    );
+    const required = breakHours * 60 * 60 * 1000;
+    const HOUR = 60 * 60 * 1000;
+    const proposedHours = (end.getTime() - start.getTime()) / HOUR;
+
+    for (const a of assignments) {
+      const other = this.effectiveInterval(a);
+      if (!other) continue;
+
+      const neighbourHours = (other.end.getTime() - other.start.getTime()) / HOUR;
+
+      // Neighbour is worked first — it earns the rest, so it is the one the
+      // threshold judges.
+      if (other.end <= start) {
+        if (neighbourHours < hoursThreshold) continue;
+        const gap = start.getTime() - other.end.getTime();
+        if (gap < required) {
+          return {
+            gapHours: gap / HOUR,
+            shiftHours: neighbourHours,
+            side: "before",
+          };
+        }
+        continue;
+      }
+
+      // Proposed shift is worked first — it earns the rest, so the threshold
+      // judges IT and the neighbour's length is irrelevant.
+      if (other.start >= end) {
+        if (proposedHours < hoursThreshold) continue;
+        const gap = other.start.getTime() - end.getTime();
+        if (gap < required) {
+          return {
+            gapHours: gap / HOUR,
+            shiftHours: proposedHours,
+            side: "after",
+          };
+        }
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Total committed hours in the 24 hours ending at `anchor` (default: now).
+   *
+   * Counts actual clocked time where it exists, otherwise the schedule, and
+   * counts only the portion of each that falls inside the window — so the
+   * result can never exceed 24, and a shift still in progress contributes the
+   * hours already worked rather than nothing.
+   *
+   * The anchor exists because two callers ask genuinely different questions of
+   * the same window. The dashboard's hour alert asks "how loaded is this person
+   * RIGHT NOW", and `new Date()` is the correct anchor for it. The eligibility
+   * engine asks "how loaded will they be when this shift begins", and using
+   * `new Date()` there was wrong in both directions at once: a heavy yesterday
+   * blocked a shift three weeks out, while two back-to-back shifts next Tuesday
+   * passed because neither had been worked yet.
+   *
+   * That is the same fault the rest-gap rule was rewritten to remove; this
+   * caller was left on the old anchor.
    */
   async getHoursInLast24h(
     membershipId: string,
     excludeTaskId?: string,
-    cache?: CommittedAssignmentsCache
+    cache?: CommittedAssignmentsCache,
+    provisional?: ProvisionalAssignments,
+    anchor?: Date
   ): Promise<number> {
-    const now = new Date();
-    const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-    const assignments = await this.loadCommittedAssignments(membershipId, excludeTaskId, cache);
-    return this.sumHoursInWindow(assignments, oneDayAgo, now);
+    const end = anchor ?? new Date();
+    const start = new Date(end.getTime() - 24 * 60 * 60 * 1000);
+    const assignments = await this.loadCommittedAssignments(membershipId, excludeTaskId, cache, provisional);
+    return this.sumHoursInWindow(assignments, start, end);
   }
 
   /**
@@ -777,14 +1163,15 @@ export class EligibilityService {
     date: Date,
     excludeTaskId?: string,
     cache?: CommittedAssignmentsCache,
-    dayStartHour: number = DEFAULT_DAY_START_HOUR
+    dayStartHour: number = DEFAULT_DAY_START_HOUR,
+    provisional?: ProvisionalAssignments
   ): Promise<number> {
     // Resolved in the organisation's timezone, not the server's. On Vercel a
     // naive setHours(0,0,0,0) starts the day at 08:00 Singapore time, so a
     // morning shift counts against the previous day's cap.
     const { start, end } = businessDayRange(date, dayStartHour);
 
-    const assignments = await this.loadCommittedAssignments(membershipId, excludeTaskId, cache);
+    const assignments = await this.loadCommittedAssignments(membershipId, excludeTaskId, cache, provisional);
     return this.sumHoursInWindow(assignments, start, end);
   }
 
@@ -803,11 +1190,12 @@ export class EligibilityService {
     date: Date,
     excludeTaskId?: string,
     cache?: CommittedAssignmentsCache,
-    dayStartHour: number = DEFAULT_DAY_START_HOUR
+    dayStartHour: number = DEFAULT_DAY_START_HOUR,
+    provisional?: ProvisionalAssignments
   ): Promise<number> {
     const { start, end } = businessWeekRange(date, dayStartHour);
 
-    const assignments = await this.loadCommittedAssignments(membershipId, excludeTaskId, cache);
+    const assignments = await this.loadCommittedAssignments(membershipId, excludeTaskId, cache, provisional);
     return this.sumHoursInWindow(assignments, start, end);
   }
 

@@ -11,6 +11,8 @@ import { AvailabilityRepository } from "@/repositories/availability.repository";
 import { TaskAssignmentRepository } from "@/repositories/task-assignment.repository";
 import { EligibilityService } from "@/services/eligibility.service";
 import { NotificationService, NOTIFICATION_TYPES } from "@/services/notification.service";
+import { MembershipRepository } from "@/repositories/membership.repository";
+import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 import { taskWatcherUserIds } from "@/services/task-watchers";
 import type {
   SetAvailabilityInput,
@@ -31,6 +33,83 @@ export class AvailabilityService {
   private assignmentRepo = new TaskAssignmentRepository();
   private eligibilityService = new EligibilityService();
   private notificationService = new NotificationService();
+  private membershipRepo = new MembershipRepository();
+  private auditService = new AuditLogService();
+
+  /**
+   * Asks a member to review their own availability.
+   *
+   * ## Why this exists rather than a manager edit
+   *
+   * There is no path for a manager to change another member's availability,
+   * and there should not be. Availability is that person's statement about
+   * when they can work, and for casual staff the eligibility engine treats it
+   * as a hard constraint. A manager able to rewrite it turns "unavailable"
+   * into "unavailable unless someone disagreed" — which is exactly what the
+   * documented, per-task, reason-carrying eligibility override already does,
+   * and doing it a second way silently would weaken the mechanism that can be
+   * defended.
+   *
+   * The dashboard used to recommend "Update Alex's availability", pointing at
+   * a page that shows the MANAGER their own schedule. This is that
+   * recommendation made real: the question goes to the one person who can
+   * answer it.
+   *
+   * Nothing is asserted about the availability being wrong. The notification
+   * says declines were noticed and asks them to confirm — because repeated
+   * declines for schedule conflicts do not establish that a schedule is stale.
+   */
+  async requestAvailabilityReview(
+    organizationId: string,
+    targetUserId: string,
+    requestedByName: string,
+    actorUserId?: string,
+    /**
+     * The caller's departments, or null/undefined for a company admin.
+     *
+     * The notification is signed with the sender's name, so without this any
+     * manager could send a nudge, apparently personally, to every member of the
+     * organisation. Reported as "not found" when out of scope — the same answer
+     * as a member who does not exist.
+     */
+    departmentScope?: string[] | null
+  ) {
+    const membership = await this.membershipRepo.findByUserAndOrg(
+      targetUserId,
+      organizationId
+    );
+    // Cross-tenant guard: the id arrives from a request body, so belonging to
+    // this organisation has to be proved rather than assumed.
+    if (!membership) throw new Error("Member not found");
+
+    if (departmentScope !== undefined && departmentScope !== null) {
+      const scope = new Set(departmentScope);
+      const inScope = (membership.departmentMemberships ?? []).some(
+        (dm: { department: { id: string } }) => scope.has(dm.department.id)
+      );
+      if (!inScope) throw new Error("Member not found");
+    }
+
+    await this.notificationService.notify(
+      organizationId,
+      targetUserId,
+      NOTIFICATION_TYPES.AVAILABILITY_REVIEW_REQUESTED,
+      "Please review your availability",
+      `${requestedByName} asked you to check your weekly availability is still right.`,
+      "availability",
+      membership.id
+    );
+
+    await this.auditService.log({
+      organizationId,
+      userId: actorUserId,
+      action: ACTIONS.AVAILABILITY_REVIEW_REQUESTED,
+      entityType: "membership",
+      entityId: membership.id,
+    });
+
+    return { requested: true };
+  }
 
   /** Sets availability for a single day of the week */
   async setDayAvailability(membershipId: string, input: SetAvailabilityInput) {

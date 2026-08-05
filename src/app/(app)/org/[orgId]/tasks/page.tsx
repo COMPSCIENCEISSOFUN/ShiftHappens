@@ -29,20 +29,43 @@ import {
 import { PageLoading } from "@/components/ui/page-loading";
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { EmptyState } from "@/components/ui/empty-state";
+import { Lock } from "lucide-react";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { toDateTimeLocalValue } from "@/lib/timezone";
 import { OperatingHoursNotice } from "@/components/tasks/operating-hours-notice";
 import { reasonLabel } from "@/lib/decline-reasons";
+import { countOccupied, remainingSlots as slotsLeft } from "@/lib/assignment-status";
 import { CompositionRulesEditor } from "@/components/tasks/composition-rules-editor";
 import {
   describeRule,
   parseCompositionRules,
   type CompositionRule,
 } from "@/lib/composition-rules";
+import { usePermissions } from "@/components/layout/permission-provider";
+import { TASK_LIST_READERS } from "@/lib/permissions";
 
 // ============================================================
 // Constants
 // ============================================================
+
+/**
+ * Runners-up shown beneath the engine's picks, on top of the seats being
+ * filled. A FIXED number, not a proportion of headcount.
+ *
+ * `getSuggestions` applies no cap — it returns every eligible member, ranked.
+ * The picks block rendered all of them, so a shift for two in a small demo org
+ * showed three rows and looked deliberate, while a shift for five in a
+ * thirty-person org would have listed twenty-five. Scaling the allowance with
+ * headcount would make the big case worse, not better.
+ *
+ * Two is enough for the job these rows do: the top pick is occasionally
+ * unavailable in a way the engine cannot see, and the manager wants the next
+ * name without re-running anything. Beyond that it is a duplicate of the member
+ * grid below, where every eligible member already carries their rank and score —
+ * and a panel repeating a list it is sitting on top of is the same fault the
+ * dashboard's recommendation list had.
+ */
+const MAX_ALTERNATES = 2;
 
 const WEEKDAYS = [
   { value: 1, label: "Mon" },
@@ -164,6 +187,9 @@ interface Task {
     clockOutTime: string | null;
     withdrawalReason: string | null;
     withdrawalNotes: string | null;
+    /** Set once a full-time member has declined, before and after approval. */
+    rejectionReason: string | null;
+    rejectionNotes: string | null;
     membership: { user: { id: string; name: string | null } };
   }[];
 }
@@ -198,12 +224,31 @@ export default function TasksPage() {
   const [repeatInterval, setRepeatInterval] = useState(1);
   const [repeatDays, setRepeatDays] = useState<number[]>([]);
   const [repeatUntil, setRepeatUntil] = useState("");
+  /*
+   * This page carried no permission checks at all, so every visitor saw every
+   * action. Once custom roles became enforceable that produced a real mismatch:
+   * a "Shift Lead" granted `tasks:assign` gets the Tasks link, arrives here,
+   * and is offered Edit, Delete and the status dropdown — three controls whose
+   * endpoints will refuse them.
+   *
+   * Each flag names the permission the matching route enforces, so what is
+   * offered and what will be allowed come from one source.
+   */
+  const { can, canAny } = usePermissions();
+  const canCreate = can("tasks:create");
+  const canUpdate = can("tasks:update");
+  const canDelete = can("tasks:delete");
+  const canAssign = can("tasks:assign");
+  const canSuggest = can("allocation:use_suggestions");
+  const canAutoAllocate = can("allocation:auto_allocate");
+
   const [assigningTaskId, setAssigningTaskId] = useState<string | null>(null);
   const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
   // membershipId → reason, when a manager overrides an ineligible staff member
   const [overrideReasons, setOverrideReasons] = useState<Record<string, string>>({});
   // Shown inside the assign panel — the page-level banner is off-screen there.
   const [assignError, setAssignError] = useState<string | null>(null);
+  const [assigning, setAssigning] = useState(false);
   const [filterStatus, setFilterStatus] = useState("");
   const [filterDept, setFilterDept] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -367,8 +412,18 @@ export default function TasksPage() {
       const data = await res.json();
       if (res.ok) {
         setSuggestions(data);
+        // Seats still to fill, NOT the full headcount. Sliced on
+        // requiredHeadcount, a shift needing 3 with 1 already assigned
+        // auto-selected 3 more — the server refuses that (assignStaff checks
+        // currentCount + selected against requiredHeadcount), so the manager
+        // met "Assignment exceeds required headcount" after the panel had
+        // proposed the over-selection itself.
+        const task = tasks.find((t) => t.id === taskId);
+        const remaining = task
+          ? slotsLeft(task.requiredHeadcount, task.assignments)
+          : 1;
         const topIds = data
-          .slice(0, tasks.find((t) => t.id === taskId)?.requiredHeadcount || 1)
+          .slice(0, remaining)
           .map((s: AISuggestion) => s.membershipId);
         setSelectedMembers(topIds);
       }
@@ -578,6 +633,25 @@ export default function TasksPage() {
   async function onAssignStaff(taskId: string) {
     setAssignError(null);
 
+    /*
+     * One at a time.
+     *
+     * This handler writes override records and then assigns, so a double-click
+     * fired two overlapping runs: the second reached `assign` after the first
+     * had created rows, hit the unique constraint on (taskId, membershipId),
+     * and reported a failure over a assignment that had in fact succeeded.
+     * `my-tasks` guards its actions this way already.
+     */
+    if (assigning) return;
+    setAssigning(true);
+    try {
+      await runAssign(taskId);
+    } finally {
+      setAssigning(false);
+    }
+  }
+
+  async function runAssign(taskId: string) {
     if (selectedMembers.length === 0) {
       setAssignError("Select at least one member");
       return;
@@ -788,6 +862,39 @@ export default function TasksPage() {
     }
   }
 
+  /**
+   * Resolve a full-time member's decline request.
+   *
+   * Separate endpoint from the withdrawal decision, and separate handler,
+   * because the two resolve different states — see `decline_requested` in
+   * `src/lib/assignment-status.ts`. Denying a withdrawal returns the row to
+   * accepted; denying a decline returns it to pending.
+   */
+  async function onResolveDecline(
+    assignmentId: string,
+    decision: "approve" | "deny"
+  ) {
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/assignments/${assignmentId}/decline?orgId=${orgId}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ decision }),
+        }
+      );
+      if (!res.ok) {
+        const result = await res.json();
+        setError(result.error || "Failed to resolve decline");
+        return;
+      }
+      fetchTasks();
+    } catch {
+      setError("Something went wrong");
+    }
+  }
+
   function toggleMemberSelection(membId: string) {
     setSelectedMembers((prev) =>
       prev.includes(membId)
@@ -813,7 +920,7 @@ export default function TasksPage() {
   const inProgressCount = tasks.filter((t) => t.status === "in_progress").length;
   const completedCount = tasks.filter((t) => t.status === "completed").length;
   const needsStaffCount = tasks.filter(
-    (t) => t.status === "open" && t.assignments.length < t.requiredHeadcount
+    (t) => t.status === "open" && countOccupied(t.assignments) < t.requiredHeadcount
   ).length;
 
   // Filter pill counts: scoped to current department so "All" is consistent.
@@ -826,6 +933,24 @@ export default function TasksPage() {
   };
 
   // ── Loading state ────────────────────────────────
+
+  /*
+   * Placed BELOW every hook, deliberately — a guard above them makes each
+   * useState and useEffect conditional, which React forbids.
+   *
+   * The permission set is the same constant the GET route enforces, so the
+   * page and the endpoint refuse for the same reason. Stating it twice is how
+   * the sidebar and the routes came to disagree in the first place.
+   */
+  if (!canAny(...TASK_LIST_READERS)) {
+    return (
+      <EmptyState
+        icon={Lock}
+        title="You don't have access to Tasks"
+        description="Managing shifts requires one of the task permissions. Ask a company admin if you need access."
+      />
+    );
+  }
 
   if (loading) return <PageLoading />;
 
@@ -846,21 +971,23 @@ export default function TasksPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-1.5"
-            onClick={() => setShowCreate(!showCreate)}
-          >
-            {showCreate ? (
-              "Cancel"
-            ) : (
-              <>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
-                Create Task
-              </>
-            )}
-          </Button>
+          {canCreate && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              onClick={() => setShowCreate(!showCreate)}
+            >
+              {showCreate ? (
+                "Cancel"
+              ) : (
+                <>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+                  Create Task
+                </>
+              )}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -986,7 +1113,7 @@ export default function TasksPage() {
       {/* ──────────────────────────────────────────────── */}
       {/* 5. Create task form (collapsible)                */}
       {/* ──────────────────────────────────────────────── */}
-      {showCreate && (
+      {showCreate && canCreate && (
         <div className="task-create-form mb-5 rounded-xl border border-border bg-card">
           <div className="border-t-[3px] border-t-indigo-600 rounded-t-xl" />
           <form onSubmit={onCreateTask} className="p-5">
@@ -1197,7 +1324,13 @@ export default function TasksPage() {
         <div className="flex flex-col gap-3">
           {displayedTasks.map((task) => {
             const deptColor = task.department?.color || "#6366f1";
-            const assigned = task.assignments.length;
+            // Rows that still hold a slot — NOT assignments.length.
+            //
+            // Counting every row meant a shift both assignees had REJECTED
+            // rendered "2/3 staff" with an amber bar, while the dashboard read
+            // the same shift as "needs 3 more staff (0/3 assigned)". Same data,
+            // same moment, two numbers.
+            const assigned = countOccupied(task.assignments);
             const needed = task.requiredHeadcount;
             const fillPct = needed > 0 ? Math.min(100, Math.round((assigned / needed) * 100)) : 0;
             const staffingClass =
@@ -1315,7 +1448,7 @@ export default function TasksPage() {
                     {/* ── Actions ─────────────────── */}
                     <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-border/50 pt-3">
                       {/* Assign */}
-                      {task.status === "open" && (
+                      {task.status === "open" && canAssign && (
                         <button
                           type="button"
                           onClick={async () => {
@@ -1346,7 +1479,7 @@ export default function TasksPage() {
                       )}
 
                       {/* AI Suggest */}
-                      {task.status === "open" && assigningTaskId === task.id && (
+                      {canSuggest && task.status === "open" && assigningTaskId === task.id && (
                         <button
                           type="button"
                           onClick={() => fetchSuggestions(task.id)}
@@ -1359,7 +1492,8 @@ export default function TasksPage() {
                       )}
 
                       {/* Auto-assign */}
-                      {allocationMode === "auto" &&
+                      {canAutoAllocate &&
+                        allocationMode === "auto" &&
                         task.status === "open" &&
                         assigned < needed && (
                           <button
@@ -1374,6 +1508,7 @@ export default function TasksPage() {
                         )}
 
                       {/* Edit */}
+                      {canUpdate && (
                       <button
                         type="button"
                         onClick={() => {
@@ -1412,8 +1547,10 @@ export default function TasksPage() {
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
                         Edit
                       </button>
+                      )}
 
-                      {/* Status dropdown */}
+                      {/* Status dropdown — a status change is a task update. */}
+                      {canUpdate && (
                       <select
                         className="h-8 appearance-none rounded-lg border border-border bg-card py-0 pl-2.5 pr-7 text-[12px] font-medium text-muted-foreground transition-colors hover:border-indigo-300 dark:hover:border-indigo-600"
                         value={task.status}
@@ -1429,7 +1566,10 @@ export default function TasksPage() {
                         <option value="completed">Completed</option>
                         <option value="cancelled">Cancelled</option>
                       </select>
+                      )}
 
+                      {canDelete && (
+                      <>
                       <div className="mx-0.5 h-5 w-px bg-border/60" />
 
                       {/* Delete */}
@@ -1441,6 +1581,8 @@ export default function TasksPage() {
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg>
                         Delete
                       </button>
+                      </>
+                      )}
                     </div>
 
                     {/* ── Edit form ───────────────── */}
@@ -1558,7 +1700,15 @@ export default function TasksPage() {
                                     Out: {new Date(a.clockOutTime).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
                                   </span>
                                 )}
-                                {a.status !== "completed" && a.status !== "withdrawal_requested" && (
+                                {canAssign &&
+                                  a.status !== "completed" &&
+                                  a.status !== "withdrawal_requested" &&
+                                  // A decline awaiting a decision has its own
+                                  // Approve control below, which records the
+                                  // member's reason. Unassign here would free
+                                  // the same slot with no reason attached and
+                                  // leave the request unanswered.
+                                  a.status !== "decline_requested" && (
                                   <button
                                     type="button"
                                     className="ml-auto text-[11px] text-red-500 hover:underline"
@@ -1569,8 +1719,44 @@ export default function TasksPage() {
                                 )}
                               </div>
 
+                              {/* Full-time decline awaiting a decision */}
+                              {canAssign && a.status === "decline_requested" && (
+                                <div className="ml-9 mt-1 rounded-lg border border-orange-200 bg-orange-50 p-2.5 dark:border-orange-900 dark:bg-orange-950/40">
+                                  <p className="text-xs text-orange-800 dark:text-orange-300">
+                                    <strong>{a.membership.user.name}</strong> asked to be taken off this shift
+                                    {a.rejectionReason ? ` — ${reasonLabel(a.rejectionReason)}` : ""}
+                                  </p>
+                                  {a.rejectionNotes && (
+                                    <p className="mt-0.5 text-[11px] text-orange-700 dark:text-orange-400">
+                                      &ldquo;{a.rejectionNotes}&rdquo;
+                                    </p>
+                                  )}
+                                  {/* Says what each button DOES, not just yes
+                                      and no. Denying returns the shift to
+                                      pending — the member is still rostered and
+                                      still has to answer — and a bare "Deny"
+                                      does not tell a manager that. */}
+                                  <div className="mt-2 flex gap-2">
+                                    <button
+                                      type="button"
+                                      className="rounded-md bg-red-600 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-red-700"
+                                      onClick={() => onResolveDecline(a.id, "approve")}
+                                    >
+                                      Approve &amp; free the slot
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="rounded-md border border-border px-2.5 py-1 text-[11px] font-medium hover:bg-muted"
+                                      onClick={() => onResolveDecline(a.id, "deny")}
+                                    >
+                                      Keep them rostered
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+
                               {/* Withdrawal request */}
-                              {a.status === "withdrawal_requested" && (
+                              {canAssign && a.status === "withdrawal_requested" && (
                                 <div className="ml-9 mt-1 rounded-lg border border-orange-200 bg-orange-50 p-2.5 dark:border-orange-900 dark:bg-orange-950/40">
                                   <p className="text-xs text-orange-800 dark:text-orange-300">
                                     <strong>{a.membership.user.name}</strong> requested to withdraw
@@ -1612,6 +1798,15 @@ export default function TasksPage() {
 
                     {/* ── Assign staff panel ─────── */}
                     {assigningTaskId === task.id && (() => {
+                      /*
+                       * Seats still to fill. `assigned` already excludes people
+                       * who rejected or withdrew (see countOccupied), so this is
+                       * the number the server will accept — the panel and
+                       * `assignStaff` now agree on the ceiling instead of the
+                       * panel proposing selections the API refuses.
+                       */
+                      const remainingSlots = slotsLeft(needed, task.assignments);
+
                       // Split members into eligible / ineligible for grouped display
                       const eligibleMembers = members.filter((m) => {
                         const elig = eligibility[m.id];
@@ -1653,12 +1848,30 @@ export default function TasksPage() {
                           {/* AI Recommendations — compact chip row */}
                           {suggestions.length > 0 && showSuggestions && (
                             <div className="border-b border-indigo-200 bg-indigo-50/60 px-4 py-2.5 dark:border-indigo-800/50 dark:bg-indigo-950/30">
+                              {/*
+                                The heading used to read "top {requiredHeadcount}
+                                auto-selected" above a list of every suggestion
+                                the engine returned — so a shift with two seats
+                                announced "top 2" and then listed three people,
+                                and there was no way to tell which two were
+                                actually ticked.
+
+                                The extra names are worth keeping: the ranking
+                                is the engine's output, and a manager who knows
+                                the top pick is unavailable in practice wants
+                                the next one without re-running anything. They
+                                just have to be labelled as alternates rather
+                                than presented as picks.
+                              */}
                               <p className="mb-2 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
                                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2L14.4 8.4L21 10L14.4 12.4L12 19L9.6 12.4L3 10L9.6 8.4L12 2Z" /></svg>
-                                AI Picks — top {task.requiredHeadcount} auto-selected
+                                {remainingSlots > 0
+                                  ? `AI picks — top ${Math.min(remainingSlots, suggestions.length)} auto-selected`
+                                  : "AI ranking — this shift is already full"}
                               </p>
                               <div className="space-y-2">
-                                {suggestions.map((s) => {
+                                {suggestions.slice(0, remainingSlots + MAX_ALTERNATES).map((s, i) => {
+                                  const isAlternate = i >= remainingSlots;
                                   const member = members.find((m) => m.id === s.membershipId);
                                   const eligEntry = Object.values(eligibility).find(
                                     (e) => e.membershipId === s.membershipId
@@ -1667,16 +1880,31 @@ export default function TasksPage() {
                                   return (
                                     <div
                                       key={s.membershipId}
-                                      className="rounded-lg border border-indigo-200 bg-white px-3 py-2 dark:border-indigo-700 dark:bg-indigo-950/60"
+                                      className={`rounded-lg border px-3 py-2 ${
+                                        isAlternate
+                                          ? "border-border bg-card/60"
+                                          : "border-indigo-200 bg-white dark:border-indigo-700 dark:bg-indigo-950/60"
+                                      }`}
                                     >
                                       <div className="flex items-center gap-1.5">
-                                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-[10px] font-bold text-white dark:bg-indigo-500">
+                                        <span
+                                          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white ${
+                                            isAlternate
+                                              ? "bg-indigo-300 dark:bg-indigo-800"
+                                              : "bg-indigo-600 dark:bg-indigo-500"
+                                          }`}
+                                        >
                                           {s.rank}
                                         </span>
                                         <span className="text-[13px] font-medium text-foreground">{name}</span>
                                         <span className="rounded bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700 dark:bg-indigo-800 dark:text-indigo-300">
                                           {s.score}/100
                                         </span>
+                                        {isAlternate && (
+                                          <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                                            alternate
+                                          </span>
+                                        )}
                                       </div>
                                       {s.explanation && (
                                         <p className="mt-1 pl-6.5 text-[11px] leading-relaxed text-indigo-700/80 dark:text-indigo-300/70">
@@ -1687,6 +1915,16 @@ export default function TasksPage() {
                                   );
                                 })}
                               </div>
+                              {suggestions.length > remainingSlots + MAX_ALTERNATES && (
+                                <p className="mt-2 text-[11px] text-muted-foreground">
+                                  {suggestions.length - remainingSlots - MAX_ALTERNATES} more
+                                  ranked candidate
+                                  {suggestions.length - remainingSlots - MAX_ALTERNATES !== 1
+                                    ? "s"
+                                    : ""}{" "}
+                                  — every eligible member below carries their rank and score.
+                                </p>
+                              )}
                             </div>
                           )}
 
@@ -1703,7 +1941,8 @@ export default function TasksPage() {
                                       {eligibleMembers.map((m) => {
                                         const suggestion = suggestions.find((s) => s.membershipId === m.id);
                                         const selected = selectedMembers.includes(m.id);
-                                        const atLimit = !selected && selectedMembers.length >= task.requiredHeadcount;
+                                        // Against the seats LEFT, not the headcount — see remainingSlots.
+                                        const atLimit = !selected && selectedMembers.length >= remainingSlots;
 
                                         return (
                                           <label
@@ -1761,7 +2000,7 @@ export default function TasksPage() {
                                         const overrideReason = overrideReasons[m.id] || "";
                                         const hasOverride = overrideReason.trim().length > 0;
                                         const selected = selectedMembers.includes(m.id);
-                                        const atLimit = !selected && selectedMembers.length >= task.requiredHeadcount;
+                                        const atLimit = !selected && selectedMembers.length >= remainingSlots;
                                         const canSelect = hasOverride;
                                         const suggestion = suggestions.find((s) => s.membershipId === m.id);
 
@@ -1797,6 +2036,26 @@ export default function TasksPage() {
                                                   #{suggestion.rank} · {suggestion.score}/100
                                                 </span>
                                               )}
+                                              {/*
+                                                Says why the box will not tick.
+                                                Typing a reason has always
+                                                unlocked it, but the control and
+                                                the field that unlocks it are
+                                                two rows apart, so a disabled
+                                                checkbox with no explanation
+                                                read as "this person cannot be
+                                                assigned at all".
+                                              */}
+                                              {!canSelect && !atLimit && (
+                                                <span className="ml-auto text-[11px] font-medium text-amber-700 dark:text-amber-400">
+                                                  Add a reason below to select
+                                                </span>
+                                              )}
+                                              {atLimit && !selected && (
+                                                <span className="ml-auto text-[11px] text-muted-foreground">
+                                                  No seats left
+                                                </span>
+                                              )}
                                             </label>
                                             <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 pl-8 text-[11px] text-amber-700 dark:text-amber-400">
                                               {warnings.map((w, i) => (
@@ -1817,7 +2076,9 @@ export default function TasksPage() {
                                               />
                                               {hasOverride && (
                                                 <p className="mt-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
-                                                  ✓ Override recorded
+                                                  {selected
+                                                    ? "✓ Override will be recorded against this assignment"
+                                                    : "✓ Reason saved — you can select them now"}
                                                 </p>
                                               )}
                                             </div>
@@ -1838,10 +2099,16 @@ export default function TasksPage() {
                             <Button
                               size="sm"
                               onClick={() => onAssignStaff(task.id)}
-                              disabled={loadingEligibility || selectedMembers.length === 0}
+                              disabled={
+                                loadingEligibility ||
+                                assigning ||
+                                selectedMembers.length === 0
+                              }
                               className="bg-gradient-to-r from-indigo-600 to-violet-700 text-white hover:opacity-90"
                             >
-                              Confirm Assignment{selectedMembers.length > 0 ? ` (${selectedMembers.length})` : ""}
+                              {assigning
+                                ? "Assigning…"
+                                : `Confirm Assignment${selectedMembers.length > 0 ? ` (${selectedMembers.length})` : ""}`}
                             </Button>
                             <Button
                               size="sm"

@@ -16,8 +16,10 @@ import {
   verifyCertificationSchema,
 } from "@/lib/validations";
 import { validationErrorResponse } from "@/lib/api-utils";
-import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
+import { getAuthenticatedUser, unauthorizedResponse, checkOrgSuspended } from "@/lib/auth-guard";
+import { departmentScopeFor } from "@/lib/department-scope";
 import { AccessService } from "@/services/access.service";
+import { requirePermission } from "@/lib/permission-guard";
 
 const certService = new CertificationService();
 const accessService = new AccessService();
@@ -37,7 +39,14 @@ export async function GET(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const cert = await certService.getById(certId, orgId);
+    // Scoped like the listing endpoint next door. A certification id is not
+    // a secret — they come back in dashboard and eligibility payloads — so an
+    // unscoped read here reopened exactly what the list closed.
+    const cert = await certService.getById(
+      certId,
+      orgId,
+      departmentScopeFor(membership)
+    );
     if (!cert) {
       return NextResponse.json({ error: "Certification not found" }, { status: 404 });
     }
@@ -58,10 +67,11 @@ export async function PATCH(
 
     const { orgId, certId } = await params;
 
-    const membership = await accessService.getMembership(user.id, orgId);
-    if (!membership || !["company_admin", "manager"].includes(membership.role)) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const suspended = await checkOrgSuspended(orgId);
+    if (suspended) return suspended;
+
+    const gate = await requirePermission(user.id, orgId, "certifications:review");
+    if (!gate.ok) return gate.response;
 
     const body = await request.json();
     const parsed = verifyCertificationSchema.safeParse(body);
@@ -76,7 +86,8 @@ export async function PATCH(
       {
         rejectionReason: parsed.data.rejectionReason,
         rejectionNotes: parsed.data.rejectionNotes,
-      }
+      },
+      departmentScopeFor(gate.membership)
     );
     return NextResponse.json(updated);
   } catch (error) {
@@ -110,20 +121,27 @@ export async function POST(
 
     const { orgId, certId } = await params;
 
-    const membership = await accessService.getMembership(user.id, orgId);
-    if (!membership || !["company_admin", "manager"].includes(membership.role)) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const suspended = await checkOrgSuspended(orgId);
+    if (suspended) return suspended;
+
+    const gate = await requirePermission(user.id, orgId, "certifications:review");
+    if (!gate.ok) return gate.response;
 
     const body = await request.json();
     const parsed = revokeCertificationSchema.safeParse(body);
 
     if (!parsed.success) return validationErrorResponse(parsed.error);
 
-    const updated = await certService.revoke(certId, orgId, user.id, {
-      rejectionReason: parsed.data.rejectionReason,
-      rejectionNotes: parsed.data.rejectionNotes,
-    });
+    const updated = await certService.revoke(
+      certId,
+      orgId,
+      user.id,
+      {
+        rejectionReason: parsed.data.rejectionReason,
+        rejectionNotes: parsed.data.rejectionNotes,
+      },
+      departmentScopeFor(gate.membership)
+    );
     return NextResponse.json(updated);
   } catch (error) {
     if (error instanceof Error) {
@@ -147,6 +165,12 @@ export async function DELETE(
     if (!user) return unauthorizedResponse();
 
     const { orgId, certId } = await params;
+
+    // The remaining ungated write in this file. Ownership and status are
+    // enforced in the service, so the exposure is small — but PATCH and POST
+    // beside it are both gated and this was not.
+    const suspended = await checkOrgSuspended(orgId);
+    if (suspended) return suspended;
 
     const membership = await accessService.getMembership(user.id, orgId);
     if (!membership) {

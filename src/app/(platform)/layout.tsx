@@ -3,10 +3,25 @@
  * 
  * Separate layout for platform administration pages.
  * Uses its own sidebar with platform-level navigation.
- * Only accessible to users with isPlatformAdmin flag.
+ *
+ * ## Why this asks the database and not the session
+ *
+ * It used to read `session.user.isPlatformAdmin`. That claim is written into
+ * the JWT once at sign-in and never revalidated, and sessions use the JWT
+ * strategy with NextAuth's 30-day default — so a revoked platform admin kept
+ * rendering this entire console for up to a month. The API routes beneath it
+ * were already immune, because `getPlatformAdmin()` does a live lookup for
+ * exactly this reason and says so in its own docblock; this layout was the one
+ * place still trusting the token, which made the codebase disagree with itself
+ * about the widest privilege in the system.
+ *
+ * It also left the holder stranded: `(app)/layout.tsx` redirects anyone
+ * carrying the claim here, so a revoked admin could reach neither console. Both
+ * ends now ask the same question of the same source.
  */
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
+import { getPlatformAdmin } from "@/lib/platform-guard";
 import { PlatformSidebar } from "@/components/layout/platform-sidebar";
 
 export default async function PlatformLayout({
@@ -20,8 +35,8 @@ export default async function PlatformLayout({
     redirect("/login");
   }
 
-  const isPlatformAdmin = (session.user as unknown as Record<string, unknown>).isPlatformAdmin;
-  if (!isPlatformAdmin) {
+  const admin = await getPlatformAdmin();
+  if (!admin) {
     redirect("/dashboard");
   }
 

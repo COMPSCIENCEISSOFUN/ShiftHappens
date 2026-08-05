@@ -132,6 +132,42 @@ export class RoleRepository {
     return count > 0;
   }
 
+  /**
+   * Is a role with this DISPLAY LABEL already in the organisation?
+   *
+   * Case-insensitive, because "Shift Lead" and "shift lead" are the same role
+   * to anyone reading a dropdown, and refusing only the exact match would let
+   * the list fill with near-duplicates.
+   *
+   * The database's unique index is on `name`, which is derived — so it enforces
+   * the rule but cannot express it in the terms the user typed. This is what
+   * lets the service refuse with "a role called Shift Lead already exists"
+   * instead of a constraint violation about a string nobody chose.
+   */
+  async labelExistsInOrg(
+    displayLabel: string,
+    organizationId: string,
+    excludeId?: string
+  ): Promise<boolean> {
+    const count = await prisma.role.count({
+      where: {
+        displayLabel: { equals: displayLabel.trim(), mode: "insensitive" },
+        organizationId,
+        ...(excludeId ? { id: { not: excludeId } } : {}),
+      },
+    });
+    return count > 0;
+  }
+
+  /** Every stored `name` in an organisation, for deriving a fresh one. */
+  async takenNamesInOrg(organizationId: string): Promise<string[]> {
+    const roles = await prisma.role.findMany({
+      where: { organizationId },
+      select: { name: true },
+    });
+    return roles.map((r) => r.name);
+  }
+
   /** Gets all available permissions (global, not org-scoped) */
   async getAllPermissions() {
     return prisma.permission.findMany({

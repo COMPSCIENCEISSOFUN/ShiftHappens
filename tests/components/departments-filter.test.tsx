@@ -14,6 +14,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import DepartmentsPage from "@/app/(app)/org/[orgId]/departments/page";
+import { PermissionProvider } from "@/components/layout/permission-provider";
 
 vi.mock("next/navigation", () => ({ useParams: () => ({ orgId: "org-1" }) }));
 
@@ -73,8 +74,27 @@ function pill(name: string) {
   return screen.getByRole("button", { name: new RegExp(`^${name}`) });
 }
 
-async function loaded() {
-  render(<DepartmentsPage />);
+/**
+ * Rendered inside a provider granting the department permissions.
+ *
+ * The page now hides Create, Edit, Archive, Restore and Delete behind the
+ * permission each one's endpoint enforces, and the provider denies by default —
+ * so a page rendered without one shows no actions at all. That default is
+ * deliberate (a wiring mistake should hide buttons, not reveal them), which
+ * makes stating the permissions part of the fixture.
+ */
+function renderPage(
+  permissions = ["departments:create", "departments:update", "departments:delete"]
+) {
+  render(
+    <PermissionProvider permissions={permissions}>
+      <DepartmentsPage />
+    </PermissionProvider>
+  );
+}
+
+async function loaded(permissions?: string[]) {
+  renderPage(permissions);
   await screen.findByText("Kitchen");
 }
 
@@ -162,9 +182,9 @@ describe("filtering", () => {
     await user.click(pill("Archived"));
 
     expect(screen.getByText("Old Bar")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Restore/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Restore" })).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /Delete Permanently/ })
+      screen.getByRole("button", { name: "Delete Permanently" })
     ).toBeInTheDocument();
   });
 
@@ -175,7 +195,7 @@ describe("filtering", () => {
     await loaded();
 
     expect(
-      screen.queryByRole("button", { name: /Delete Permanently/ })
+      screen.queryByRole("button", { name: "Delete Permanently" })
     ).not.toBeInTheDocument();
   });
 });
@@ -263,9 +283,103 @@ describe("search", () => {
 
   it("distinguishes an org with no departments from a filtered-out list", async () => {
     stubFetch([]);
-    render(<DepartmentsPage />);
+    renderPage();
 
     expect(await screen.findByText("No departments yet")).toBeInTheDocument();
     expect(screen.queryByText(/Clear filters/)).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * The page had NO role check of any kind. A manager arriving by URL was offered
+ * "+ New Department", plus Edit, Archive and Delete on every row — four actions
+ * that each returned 403 — alongside stat tiles counting every department and
+ * member in the organisation, which is outside the scope they are held to
+ * everywhere else in the product.
+ *
+ * Hiding a button is not a security boundary; the routes refuse these
+ * independently. It is so the product stops offering what it will not do.
+ */
+describe("actions follow the caller's permissions", () => {
+  /*
+   * The page is no longer reachable at all without one of the reader
+   * permissions. It was: the buttons were hidden but the LIST rendered, with
+   * org-wide member and task counts, for anyone who typed the URL — and the
+   * GET route agreed, requiring only membership. Both halves are now gated on
+   * `DEPARTMENT_LIST_READERS`.
+   */
+  it("refuses the page to someone holding no permissions at all", async () => {
+    renderPage([]);
+
+    expect(
+      await screen.findByText(/don't have access to Departments/i)
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Kitchen")).not.toBeInTheDocument();
+  });
+
+  /*
+   * A reader is not an editor. `tasks:create` is on the reader list because the
+   * task form picks a department — so that holder must SEE the list and be
+   * offered none of the actions. This is the case the old test was reaching
+   * for; it just used the empty set, which no longer gets through the door.
+   */
+  it("shows the list but no actions to a reader who cannot edit", async () => {
+    await loaded(["tasks:create"]);
+
+    expect(screen.getByText("Kitchen")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "+ New Department" })
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Archive" })).not.toBeInTheDocument();
+  });
+
+  it("offers create only with departments:create", async () => {
+    await loaded(["departments:create"]);
+
+    expect(
+      screen.getByRole("button", { name: "+ New Department" })
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Archive" })).not.toBeInTheDocument();
+  });
+
+  it("offers edit and archive only with departments:update", async () => {
+    await loaded(["departments:update"]);
+
+    // getAllBy, not getBy: the fixture has several active departments and each
+    // one carries its own pair of buttons.
+    expect(screen.getAllByRole("button", { name: "Edit" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: "Archive" }).length).toBeGreaterThan(0);
+    expect(
+      screen.queryByRole("button", { name: "+ New Department" })
+    ).not.toBeInTheDocument();
+  });
+
+  /**
+   * Delete is its own permission again. The shared guard checked
+   * `departments:update` for GET, PATCH *and* DELETE, so `departments:delete`
+   * could be ticked and was never consulted while update silently carried the
+   * power to destroy a department.
+   */
+  it("separates permanent delete from restore on an archived department", async () => {
+    const user = userEvent.setup();
+    await loaded(["departments:update"]);
+    await user.click(pill("Archived"));
+
+    expect(screen.getByRole("button", { name: "Restore" })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Delete Permanently" })
+    ).not.toBeInTheDocument();
+  });
+
+  it("offers permanent delete with departments:delete", async () => {
+    const user = userEvent.setup();
+    await loaded(["departments:delete"]);
+    await user.click(pill("Archived"));
+
+    expect(
+      screen.getByRole("button", { name: "Delete Permanently" })
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Restore" })).not.toBeInTheDocument();
   });
 });

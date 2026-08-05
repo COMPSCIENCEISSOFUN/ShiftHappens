@@ -257,7 +257,7 @@ describe("Tenant isolation — RoleService", () => {
   async function makeRole(tenant: Tenant, name: string) {
     const permissions = await prisma.permission.findMany({ take: 2 });
     return roleService.create(
-      { name, displayLabel: name, permissionIds: permissions.map((p) => p.id) },
+      { displayLabel: name, permissionIds: permissions.map((p) => p.id) },
       tenant.orgId,
       tenant.adminUserId
     );

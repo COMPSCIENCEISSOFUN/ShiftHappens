@@ -81,7 +81,20 @@ export class DepartmentRepository {
     return prisma.department.findMany({
       where: { organizationId, archivedAt: null },
       include: {
-        _count: { select: { departmentMemberships: true, tasks: true } },
+        _count: {
+          select: {
+            departmentMemberships: true,
+            // Only work still to be done.
+            //
+            // This counted EVERY task the department had ever held, so a
+            // department with three months of completed history reported
+            // dozens of tasks against a handful of staff and looked
+            // catastrophically understaffed. The figure is fed to the model as
+            // ground truth, which then reasoned confidently from it — a false
+            // premise producing a fluent, wrong conclusion.
+            tasks: { where: { status: { in: ["open", "in_progress"] } } },
+          },
+        },
       },
     });
   }

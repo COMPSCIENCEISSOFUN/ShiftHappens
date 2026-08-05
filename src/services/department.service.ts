@@ -14,10 +14,12 @@
  */
 import { DepartmentRepository } from "@/repositories/department.repository";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
+import { WorkRuleRepository } from "@/repositories/work-rule.repository";
 import { SubscriptionService } from "@/services/subscription.service";
 import type { CreateDepartmentInput, UpdateDepartmentInput } from "@/lib/validations";
 
 export class DepartmentService {
+  private workRuleRepo = new WorkRuleRepository();
   private deptRepo = new DepartmentRepository();
   private auditService = new AuditLogService();
   private subscriptionService = new SubscriptionService();
@@ -197,6 +199,30 @@ export class DepartmentService {
    * Only allowed on departments that have already been archived.
    * Also checks that no members are still assigned.
    */
+
+  /**
+   * Refuses the delete while work rules still target this department.
+   *
+   * The database now enforces it too — the FK is `onDelete: Restrict` — but a
+   * constraint violation reaches the caller as an opaque 500. This runs first
+   * so the admin gets a sentence they can act on, and the constraint is the
+   * backstop rather than the error anybody sees.
+   *
+   * Names, not a count: "3 work rules target this department" says there is a
+   * problem and nothing about how to solve it.
+   */
+  private async assertNoWorkRulesTargetDepartment(id: string) {
+    const rules = await this.workRuleRepo.findTargeting({ departmentId: id });
+    if (rules.length === 0) return;
+
+    const names = rules.map((r) => r.name).join(", ");
+    throw new Error(
+      `Cannot delete: ${rules.length} work rule${rules.length === 1 ? "" : "s"} ` +
+        `target${rules.length === 1 ? "s" : ""} this department (${names}). ` +
+        `Retarget or delete ${rules.length === 1 ? "it" : "them"} first.`
+    );
+  }
+
   async delete(departmentId: string, organizationId: string, userId?: string) {
     const dept = await this.requireOwned(departmentId, organizationId);
     if (!dept.archivedAt) {
@@ -211,6 +237,8 @@ export class DepartmentService {
         "Cannot delete department with assigned members. Please reassign or remove members first."
       );
     }
+
+    await this.assertNoWorkRulesTargetDepartment(departmentId);
 
     const deleted = await this.deptRepo.delete(departmentId);
 

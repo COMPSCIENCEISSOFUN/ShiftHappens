@@ -45,6 +45,23 @@ export const registerSchema = z
     path: ["confirmPassword"],
   });
 
+/**
+ * Validates a new account created by accepting an invitation.
+ *
+ * Same name bounds and the same `passwordSchema` as registration. This route
+ * had NO schema at all — `body.password` went straight to bcrypt — so an
+ * invited user could set a one-character password, and `name` was unbounded
+ * where registration caps it at 100. The account is auto-verified on
+ * acceptance, so it is a full member from the first request.
+ *
+ * No `confirmPassword`: the invitation form is a single field, and a mismatch
+ * check the client never sends would refuse every legitimate request.
+ */
+export const acceptInvitationSchema = z.object({
+  name: z.string().min(1, "Name is required").max(100),
+  password: passwordSchema,
+});
+
 /** Validates login credentials */
 export const loginSchema = z.object({
   email: z.string().email("Invalid email address"),
@@ -175,16 +192,40 @@ export const updateOrganizationSchema = z.object({
 // ============================================================
 
 /** Validates custom role creation with permission assignments */
+/**
+ * Validates a new custom role.
+ *
+ * `name` is GONE from the input. The form used to ask for it alongside the
+ * label, annotated "Used in code. Lowercase, no spaces." — and nothing read it,
+ * nothing validated the format, and `updateRoleSchema` never allowed changing
+ * it. It is now derived from the label; see `src/lib/role-slug.ts`.
+ *
+ * The label must contain at least one letter or digit. Without that, "!!!" or a
+ * bare emoji is a legal role name that slugifies to nothing, and the service
+ * would have no stored name to write.
+ */
 export const createRoleSchema = z.object({
-  name: z.string().min(1, "Role name is required").max(50),
-  displayLabel: z.string().min(1, "Display label is required").max(50),
+  displayLabel: z
+    .string()
+    .min(1, "Role name is required")
+    .max(50)
+    .refine((v) => /[a-zA-Z0-9]/.test(v), {
+      message: "Role name needs at least one letter or number",
+    }),
   description: z.string().max(500).optional(),
   permissionIds: z.array(z.string()).min(1, "At least one permission is required"),
 });
 
 /** Validates role updates — all fields optional for partial updates */
 export const updateRoleSchema = z.object({
-  displayLabel: z.string().min(1, "Display label is required").max(50).optional(),
+  displayLabel: z
+    .string()
+    .min(1, "Role name is required")
+    .max(50)
+    .refine((v) => /[a-zA-Z0-9]/.test(v), {
+      message: "Role name needs at least one letter or number",
+    })
+    .optional(),
   description: z.string().max(500).optional(),
   permissionIds: z.array(z.string()).optional(),
 });
@@ -332,6 +373,18 @@ export const seniorityOverrideSchema = z.object({
 
 /** Validates a manager's decision on a pending withdrawal request */
 export const withdrawalDecisionSchema = z.object({
+  decision: z.enum(["approve", "deny"]),
+});
+
+/**
+ * Validates a manager's decision on a full-time member's decline request.
+ *
+ * Same shape as the withdrawal decision and deliberately a separate export:
+ * they are decisions on different things at different points in the lifecycle,
+ * and aliasing them would make a later divergence — a required note on refusal,
+ * say — look like a change to both.
+ */
+export const declineDecisionSchema = z.object({
   decision: z.enum(["approve", "deny"]),
 });
 
@@ -510,6 +563,7 @@ export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
 export type CreateDepartmentInput = z.infer<typeof createDepartmentSchema>;
 export type UpdateDepartmentInput = z.infer<typeof updateDepartmentSchema>;
 export type InviteUserInput = z.infer<typeof inviteUserSchema>;
+export type AcceptInvitationInput = z.infer<typeof acceptInvitationSchema>;
 export type UpdateUserRoleInput = z.infer<typeof updateUserRoleSchema>;
 export type UpdateOrganizationInput = z.infer<typeof updateOrganizationSchema>;
 export type CreateRoleInput = z.infer<typeof createRoleSchema>;

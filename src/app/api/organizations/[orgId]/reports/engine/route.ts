@@ -14,11 +14,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ReportingService } from "@/services/reporting.service";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
-import { AccessService } from "@/services/access.service";
+import { requirePermission } from "@/lib/permission-guard";
 import { departmentScopeFor } from "@/lib/department-scope";
 
 const reportingService = new ReportingService();
-const accessService = new AccessService();
 
 /** Bounded so a caller cannot ask for an unindexed scan of all history. */
 const MIN_DAYS = 7;
@@ -41,10 +40,9 @@ export async function GET(
 
     const { orgId } = await params;
 
-    const membership = await accessService.getMembership(user.id, orgId);
-    if (!membership || !["company_admin", "manager"].includes(membership.role)) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const gate = await requirePermission(user.id, orgId, "reports:view");
+    if (!gate.ok) return gate.response;
+    const membership = gate.membership;
 
     const scope = departmentScopeFor(membership);
     const days = parseWindow(request.nextUrl.searchParams.get("days"));

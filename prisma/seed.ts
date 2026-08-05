@@ -11,68 +11,21 @@
  * Run with: npx prisma db seed
  */
 import { PrismaClient, Prisma } from "@prisma/client";
+import { PERMISSIONS } from "../src/lib/permissions";
 
 const prisma = new PrismaClient();
 
 type Tx = Prisma.TransactionClient;
 
-const permissions = [
-  // Department management
-  { name: "departments:create", description: "Create new departments", category: "departments" },
-  { name: "departments:read", description: "View departments", category: "departments" },
-  { name: "departments:update", description: "Update department details", category: "departments" },
-  { name: "departments:delete", description: "Delete departments", category: "departments" },
-
-  // Member management
-  { name: "members:read", description: "View organization members", category: "members" },
-  { name: "members:invite", description: "Invite new members", category: "members" },
-  { name: "members:update_role", description: "Update member roles", category: "members" },
-  { name: "members:deactivate", description: "Activate or deactivate members", category: "members" },
-
-  // Task management (Phase 4)
-  { name: "tasks:create", description: "Create new tasks", category: "tasks" },
-  { name: "tasks:read", description: "View tasks", category: "tasks" },
-  { name: "tasks:update", description: "Update task details", category: "tasks" },
-  { name: "tasks:delete", description: "Delete tasks", category: "tasks" },
-  { name: "tasks:assign", description: "Assign staff to tasks", category: "tasks" },
-  { name: "tasks:accept_reject", description: "Accept or reject task assignments", category: "tasks" },
-  { name: "tasks:clock", description: "Clock in and out of tasks", category: "tasks" },
-
-  // Eligibility & allocation (Phase 5)
-  { name: "eligibility:view", description: "View eligibility status of staff", category: "eligibility" },
-  { name: "eligibility:override", description: "Override eligibility blocks with reason", category: "eligibility" },
-  { name: "allocation:use_suggestions", description: "Use AI-powered allocation suggestions", category: "allocation" },
-  { name: "allocation:auto_allocate", description: "Trigger auto-allocation for tasks", category: "allocation" },
-
-  // Reporting (Phase 6)
-  { name: "reports:view", description: "View reports and analytics", category: "reports" },
-  { name: "reports:export", description: "Export reports as CSV or PDF", category: "reports" },
-
-  // Calendar (Phase 6)
-  { name: "calendar:view", description: "View calendar", category: "calendar" },
-  { name: "calendar:manage_availability", description: "Manage own availability schedule", category: "calendar" },
-
-  // Notifications (Phase 6)
-  { name: "notifications:receive", description: "Receive notifications", category: "notifications" },
-  { name: "notifications:manage", description: "Manage notification preferences", category: "notifications" },
-
-  // Settings (Phase 3)
-  { name: "settings:read", description: "View company settings", category: "settings" },
-  { name: "settings:update", description: "Update company settings", category: "settings" },
-
-  // Roles (Phase 3)
-  { name: "roles:create", description: "Create custom roles", category: "roles" },
-  { name: "roles:read", description: "View roles and permissions", category: "roles" },
-  { name: "roles:update", description: "Update role permissions", category: "roles" },
-  { name: "roles:delete", description: "Delete custom roles", category: "roles" },
-
-  // Organization (Phase 2)
-  { name: "organization:read", description: "View organization details", category: "organization" },
-  { name: "organization:update", description: "Update organization profile", category: "organization" },
-
-  // Audit (Phase 7)
-  { name: "audit:view", description: "View audit logs", category: "audit" },
-];
+/*
+ * The catalogue lives in `src/lib/permissions.ts`, not here.
+ *
+ * It used to be defined in this file and nowhere else, which is how it came to
+ * be seeded, displayed and never once read back by application code. Now the
+ * guard, the role bundles and this seed all take the same list, so a permission
+ * cannot exist in the database without something able to enforce it.
+ */
+const permissions = PERMISSIONS;
 
 // ============================================================
 // Industry Templates
@@ -168,7 +121,46 @@ async function seedAll(tx: Tx) {
     });
   }
 
-  console.log(`Seeded ${permissions.length} permissions.`);
+  /*
+   * Remove permissions the catalogue no longer defines.
+   *
+   * Upserting alone only ever ADDS. Sixteen entries were retired in the audit
+   * that left the catalogue at 28, and without this they would sit in the table
+   * forever — still listed by `getAllPermissions`, still offered in the Roles
+   * picker, and still tickable, while no code path could ever read them. That
+   * is precisely the state this whole exercise was undoing.
+   *
+   * `RolePermission.permissionId` cascades on delete, so any custom role that
+   * had one of these ticked loses that entry, silently and irreversibly. That
+   * is the correct outcome — the permission granted nothing, so removing it
+   * takes nothing away — but it is a destructive write against production
+   * data, so both counts are reported below rather than just the permissions'.
+   * A role composed ENTIRELY of retired names becomes an empty role, and an
+   * empty custom role means "nothing" by design, so its holders end up with no
+   * permissions rather than falling back to their system bundle. Worth knowing
+   * before the run, which is why the count is printed.
+   */
+  const doomed = await tx.permission.findMany({
+    where: { name: { notIn: permissions.map((p) => p.name) } },
+    select: { name: true, _count: { select: { rolePermissions: true } } },
+  });
+  const grantsLost = doomed.reduce((n, p) => n + p._count.rolePermissions, 0);
+
+  const retired = await tx.permission.deleteMany({
+    where: { name: { notIn: permissions.map((p) => p.name) } },
+  });
+
+  console.log(
+    `Seeded ${permissions.length} permissions` +
+      (retired.count > 0
+        ? `, removed ${retired.count} retired (${doomed
+            .map((p) => p.name)
+            .join(", ")})` +
+          (grantsLost > 0
+            ? `, dropping ${grantsLost} custom-role grant(s).`
+            : ".")
+        : ".")
+  );
 
   console.log("Seeding industry templates...");
 
@@ -201,8 +193,15 @@ async function seedAll(tx: Tx) {
 // Run everything inside a single interactive transaction.
 // This keeps PgBouncer on one backend connection, avoiding
 // "prepared statement already exists" errors.
+//
+// The timeouts are generous because they are not measuring the work. Seeding is
+// ~35 upserts and takes well under a second on a reachable database; what these
+// have to survive is everything AROUND the work — a laptop that sleeps mid-run,
+// a slow link to Supabase, or a connection stalling on an unreachable host. A
+// two-minute ceiling turned any of those into "Transaction already closed",
+// which reads like the seed was too big when nothing had run at all.
 prisma
-  .$transaction(seedAll, { maxWait: 30000, timeout: 120000 })
+  .$transaction(seedAll, { maxWait: 120000, timeout: 900000 })
   .catch((e) => {
     console.error(e);
     process.exit(1);

@@ -7,10 +7,22 @@
  * assignments.
  *
  * NO TEST HERE REACHES A REAL AI ENDPOINT. Both provider keys are cleared in
- * `beforeEach`, which drives the algorithmic path; the two tests that exercise
- * the AI path set a key and stub `fetch`. The algorithmic path is the one worth
- * pinning anyway — it is what runs whenever the models are down, and it is
- * deterministic.
+ * `beforeEach`; the tests that exercise a model path set a key and stub `fetch`.
+ *
+ * ## Why these assert on data rather than prose
+ *
+ * They used to go through `generateInsights`, reading its output for phrases
+ * like "1 active task" and "2 staff". That method and its algorithmic half have
+ * been deleted: the panel that rendered them was mounted nowhere, and its
+ * header read "AI Insights" over output that silently became a set of `if`
+ * statements whenever both providers failed — the same claim-outruns-behaviour
+ * problem the `isAiInsight` flag was removed for.
+ *
+ * What the tests were really protecting was `gatherDashboardData` — the counts
+ * every live surface is built from, and where the missing `withdrawalNotes`
+ * column surfaced in production. So they now assert those counts directly,
+ * which is a stronger check than reading a sentence: a wrong number and a wrong
+ * sentence are indistinguishable through prose.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { AIDashboardService } from "@/services/ai-dashboard.service";
@@ -82,206 +94,86 @@ describe("An organisation with nothing in it", () => {
       data: { status: "inactive" },
     });
 
-    const result = await service.generateRecommendations(tenant.orgId);
+    // Nothing to order, so nothing is claimed. The old design manufactured a
+    // "Get started" recommendation to fill the space; a placeholder that looks
+    // like an insight is worse than an empty section.
+    const result = await service.getPriorityCall(tenant.orgId);
 
-    expect(result.recommendations).toHaveLength(1);
-    expect(result.recommendations[0].title).toBe("Get started");
-    expect(result.footer).toBe("No data to analyze yet");
+    expect(result.call).toBeNull();
   });
 
-  it("says the same in the insights view", async () => {
+  it("reports an empty picture rather than inventing one", async () => {
     await prisma.departmentMembership.deleteMany({});
     await prisma.membership.updateMany({
       where: { organizationId: tenant.orgId },
       data: { status: "inactive" },
     });
 
-    const insight = await service.generateInsights(tenant.orgId);
+    const data = await service.gatherDashboardData(tenant.orgId);
 
-    expect(insight.alerts).toEqual([]);
-    expect(insight.summary).toContain("ready");
+    expect(data.activeStaff).toBe(0);
+    expect(data.totalTasks).toBe(0);
   });
 });
 
-describe("Recommendations without AI", () => {
-  it("ranks understaffed tasks first", async () => {
-    const t = await task({ title: "Dinner service", requiredHeadcount: 3 });
-    await assign(t.id, "accepted");
 
-    const result = await service.generateRecommendations(tenant.orgId);
-
-    expect(result.recommendations[0].title).toBe("Assign staff to Dinner service");
-    expect(result.recommendations[0].priority).toBe(1);
-    expect(result.recommendations[0].reasoning).toContain("needs 2 more staff");
-  });
-
-  it("does not count a task with nobody on it as understaffed", async () => {
-    // Zero assigned is a different problem — "unassigned", handled elsewhere —
-    // and the understaffed list requires at least one person already on it.
-    await task({ title: "Nobody assigned", requiredHeadcount: 2 });
-
-    const result = await service.generateRecommendations(tenant.orgId);
-
-    expect(result.recommendations.map((r) => r.title)).not.toContain(
-      "Assign staff to Nobody assigned"
-    );
-  });
-
-  it("suggests fixing availability when rejections cite schedule conflicts", async () => {
-    for (let i = 0; i < 2; i++) {
-      const t = await task({ title: `Shift ${i}` });
-      await assign(t.id, "rejected", { rejectionReason: "schedule_conflict" });
-    }
-
-    const result = await service.generateRecommendations(tenant.orgId);
-    const availability = result.recommendations.find(
-      (r) => r.actionType === "edit_availability"
-    );
-
-    expect(availability).toBeDefined();
-    expect(availability!.actionUrl).toBe(`/org/${tenant.orgId}/availability`);
-  });
-
-  it("only reports a rejection pattern once someone has rejected twice", async () => {
-    const t = await task();
-    await assign(t.id, "rejected", { rejectionReason: "schedule_conflict" });
-
-    const result = await service.generateRecommendations(tenant.orgId);
-
-    expect(
-      result.recommendations.some((r) => r.actionType === "edit_availability")
-    ).toBe(false);
-  });
-
-  it("flags a department with tasks but no staff", async () => {
-    const empty = await prisma.department.create({
-      data: { name: "Bar", organizationId: tenant.orgId, color: "#3B82F6" },
-    });
-    await task({ title: "Bar shift", departmentId: empty.id });
-
-    const result = await service.generateRecommendations(tenant.orgId);
-
-    expect(result.recommendations.map((r) => r.title)).toContain(
-      "Assign staff to Bar"
-    );
-  });
-
-  it("flags certifications awaiting verification", async () => {
-    await prisma.certification.create({
-      data: {
-        membershipId: tenant.staff.membershipId,
-        name: "Food Safety",
-        status: "pending",
-        issuedDate: new Date(),
-      },
-    });
-    await task();
-
-    const result = await service.generateRecommendations(tenant.orgId);
-    const certs = result.recommendations.find((r) => r.actionType === "review_certs");
-
-    expect(certs).toBeDefined();
-    expect(certs!.actionUrl).toBe(`/org/${tenant.orgId}/certifications`);
-  });
-
-  it("says so when nothing needs attention", async () => {
-    const t = await task({ requiredHeadcount: 1 });
-    await assign(t.id, "accepted");
-
-    const result = await service.generateRecommendations(tenant.orgId);
-
-    expect(result.recommendations).toHaveLength(1);
-    expect(result.recommendations[0].title).toBe("All looking good");
-  });
-
-  it("returns at most five, so the panel cannot grow without bound", async () => {
-    for (let i = 0; i < 8; i++) {
-      const t = await task({ title: `Shift ${i}`, requiredHeadcount: 3 });
-      await assign(t.id, "accepted");
-    }
-    const empty = await prisma.department.create({
-      data: { name: "Bar", organizationId: tenant.orgId, color: "#3B82F6" },
-    });
-    await task({ title: "Bar shift", departmentId: empty.id });
-
-    const result = await service.generateRecommendations(tenant.orgId);
-
-    expect(result.recommendations.length).toBeLessThanOrEqual(5);
-  });
-
-  it("numbers priorities from one, without gaps", async () => {
-    for (let i = 0; i < 2; i++) {
-      const t = await task({ title: `Shift ${i}`, requiredHeadcount: 3 });
-      await assign(t.id, "accepted");
-    }
-
-    const result = await service.generateRecommendations(tenant.orgId);
-
-    expect(result.recommendations.map((r) => r.priority)).toEqual(
-      result.recommendations.map((_, i) => i + 1)
-    );
-  });
-
-  it("points every recommendation at a URL inside this organisation", async () => {
-    const t = await task({ requiredHeadcount: 3 });
-    await assign(t.id, "accepted");
-
-    const result = await service.generateRecommendations(tenant.orgId);
-
-    for (const r of result.recommendations) {
-      expect(r.actionUrl.startsWith(`/org/${tenant.orgId}/`)).toBe(true);
-    }
-  });
-});
-
-describe("Insights without AI", () => {
-  it("warns about tasks with nobody assigned", async () => {
+/*
+ * What the deleted "Insights without AI" block was really checking.
+ *
+ * Those tests asserted on sentences — "still need staff", "Rejected 2 tasks",
+ * "at most five alerts" — produced by a formatter that no longer renders
+ * anywhere. The facts underneath are what the live surfaces use, so they are
+ * asserted here as facts.
+ */
+describe("The picture the dashboard is built from", () => {
+  it("counts a task with nobody assigned as unassigned", async () => {
     await task({ title: "Unstaffed" });
 
-    const insight = await service.generateInsights(tenant.orgId);
+    const data = await service.gatherDashboardData(tenant.orgId);
 
-    expect(insight.alerts.some((a) => a.type === "warning" && a.message.includes("still need staff"))).toBe(true);
+    expect(data.unassignedTasks).toBe(1);
+    expect(data.understaffedTasks).toHaveLength(0);
   });
 
-  it("reports completed work as a success alert", async () => {
+  it("counts a partly-filled task as understaffed, with the shortfall", async () => {
+    const t = await task({ title: "Evening", requiredHeadcount: 3 });
+    await assign(t.id, "accepted");
+
+    const data = await service.gatherDashboardData(tenant.orgId);
+    const entry = data.understaffedTasks.find((e) => e.taskId === t.id);
+
+    expect(entry?.assigned).toBe(1);
+    expect(entry?.needed).toBe(2);
+  });
+
+  /*
+   * `totalTasks` is open + in-progress, NOT every task ever created — worth
+   * pinning, because the name reads like the latter and a caller assuming so
+   * would under-report completion rates without anything failing.
+   */
+  it("excludes completed work from every open count", async () => {
     const t = await task({ status: "completed" });
     await assign(t.id, "completed", { clockOutTime: new Date() });
 
-    const insight = await service.generateInsights(tenant.orgId);
+    const data = await service.gatherDashboardData(tenant.orgId);
 
-    expect(insight.alerts.some((a) => a.type === "success")).toBe(true);
+    expect(data.openTasks).toBe(0);
+    expect(data.inProgressTasks).toBe(0);
+    expect(data.totalTasks).toBe(0);
+    // It is still counted where completion is the point.
+    expect(data.completedToday).toBe(1);
   });
 
-  it("caps alerts at five", async () => {
-    for (let i = 0; i < 10; i++) {
-      const t = await task({ title: `Shift ${i}`, requiredHeadcount: 3 });
-      await assign(t.id, "accepted");
-    }
-
-    const insight = await service.generateInsights(tenant.orgId);
-
-    expect(insight.alerts.length).toBeLessThanOrEqual(5);
-  });
-
-  it("summarises the counts in prose", async () => {
-    await task();
-
-    const insight = await service.generateInsights(tenant.orgId);
-
-    expect(insight.summary).toContain("1 active task");
-    expect(insight.summary).toContain("2 staff");
-  });
-
-  it("lists rejection patterns per person", async () => {
+  it("groups repeated rejections by person", async () => {
     for (let i = 0; i < 2; i++) {
       const t = await task({ title: `Shift ${i}` });
       await assign(t.id, "rejected", { rejectionReason: "feeling_unwell" });
     }
 
-    const insight = await service.generateInsights(tenant.orgId);
+    const data = await service.gatherDashboardData(tenant.orgId);
 
-    expect(insight.rejectionPatterns).toHaveLength(1);
-    expect(insight.rejectionPatterns[0].pattern).toContain("Rejected 2 tasks");
+    expect(data.recentRejections).toHaveLength(1);
+    expect(data.recentRejections[0].count).toBe(2);
   });
 });
 
@@ -294,15 +186,15 @@ describe("Data gathering", () => {
     const t = await task();
     await assign(t.id, "accepted");
 
-    await expect(service.generateRecommendations(tenant.orgId)).resolves.toBeDefined();
-    await expect(service.generateInsights(tenant.orgId)).resolves.toBeDefined();
+    await expect(service.getPriorityCall(tenant.orgId)).resolves.toBeDefined();
+    await expect(service.gatherDashboardData(tenant.orgId)).resolves.toBeDefined();
   });
 
   it("counts staff but not the company admin", async () => {
     await task();
-    const insight = await service.generateInsights(tenant.orgId);
+    const data = await service.gatherDashboardData(tenant.orgId);
     // manager + staff; the admin and the deactivated member are excluded.
-    expect(insight.summary).toContain("2 staff");
+    expect(data.activeStaff).toBe(2);
   });
 
   it("sees nothing belonging to another organisation", async () => {
@@ -317,9 +209,9 @@ describe("Data gathering", () => {
     });
     await task();
 
-    const insight = await service.generateInsights(tenant.orgId);
+    const data = await service.gatherDashboardData(tenant.orgId);
 
-    expect(insight.summary).toContain("1 active task");
+    expect(data.totalTasks).toBe(1);
   });
 
   it("counts open and in-progress tasks but not completed ones", async () => {
@@ -327,145 +219,9 @@ describe("Data gathering", () => {
     await task({ status: "in_progress" });
     await task({ status: "completed" });
 
-    const insight = await service.generateInsights(tenant.orgId);
+    const data = await service.gatherDashboardData(tenant.orgId);
 
-    expect(insight.summary).toContain("2 active tasks");
+    expect(data.openTasks + data.inProgressTasks).toBe(2);
   });
 });
 
-describe("Provider failover", () => {
-  it("uses the model's answer when Groq responds", async () => {
-    process.env.GROQ_API_KEY = "test-key";
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => ({
-          choices: [
-            {
-              message: {
-                content: JSON.stringify({
-                  recommendations: [
-                    {
-                      title: "Model suggestion",
-                      reasoning: "Because the model said so",
-                      actionType: "review_certs",
-                    },
-                  ],
-                }),
-              },
-            },
-          ],
-        }),
-      })
-    );
-    await task();
-
-    const result = await service.generateRecommendations(tenant.orgId);
-
-    expect(result.recommendations[0].title).toBe("Model suggestion");
-    expect(result.recommendations[0].actionUrl).toBe(
-      `/org/${tenant.orgId}/certifications`
-    );
-  });
-
-  it("falls back to the algorithmic path when the model returns nonsense", async () => {
-    // A hallucinated or truncated payload must not take the dashboard down.
-    process.env.GROQ_API_KEY = "test-key";
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => ({ choices: [{ message: { content: "not json at all" } }] }),
-      })
-    );
-    vi.spyOn(console, "error").mockImplementation(() => {});
-    const t = await task({ title: "Dinner service", requiredHeadcount: 3 });
-    await assign(t.id, "accepted");
-
-    const result = await service.generateRecommendations(tenant.orgId);
-
-    expect(result.recommendations[0].title).toBe("Assign staff to Dinner service");
-  });
-
-  it("falls back when the provider itself fails", async () => {
-    process.env.GROQ_API_KEY = "test-key";
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network down")));
-    vi.spyOn(console, "error").mockImplementation(() => {});
-    await task();
-
-    const result = await service.generateRecommendations(tenant.orgId);
-
-    expect(result.recommendations.length).toBeGreaterThan(0);
-  });
-
-  it("rejects an action type the model invented", async () => {
-    // The model is free to return anything; the URL it drives must not be.
-    process.env.GROQ_API_KEY = "test-key";
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => ({
-          choices: [
-            {
-              message: {
-                content: JSON.stringify({
-                  recommendations: [
-                    { title: "Odd one", reasoning: "", actionType: "delete_everything" },
-                  ],
-                }),
-              },
-            },
-          ],
-        }),
-      })
-    );
-    await task();
-
-    const result = await service.generateRecommendations(tenant.orgId);
-
-    expect(result.recommendations[0].actionType).toBe("view_tasks");
-    expect(result.recommendations[0].actionUrl).toBe(`/org/${tenant.orgId}/tasks`);
-  });
-
-  it("caps the model at five recommendations too", async () => {
-    process.env.GROQ_API_KEY = "test-key";
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => ({
-          choices: [
-            {
-              message: {
-                content: JSON.stringify({
-                  recommendations: Array.from({ length: 12 }, (_, i) => ({
-                    title: `Suggestion ${i}`,
-                    reasoning: "",
-                    actionType: "view_tasks",
-                  })),
-                }),
-              },
-            },
-          ],
-        }),
-      })
-    );
-    await task();
-
-    const result = await service.generateRecommendations(tenant.orgId);
-
-    expect(result.recommendations).toHaveLength(5);
-  });
-
-  it("makes no network call at all when neither key is set", async () => {
-    const fetchSpy = vi.fn();
-    vi.stubGlobal("fetch", fetchSpy);
-    await task();
-
-    await service.generateRecommendations(tenant.orgId);
-
-    expect(fetchSpy).not.toHaveBeenCalled();
-  });
-});

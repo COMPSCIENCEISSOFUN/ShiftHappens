@@ -1,25 +1,29 @@
 /**
  * App Layout (Boundary Layer)
  *
- * Shared layout for all authenticated pages.
- * Validates session user still exists in database.
- * Fetches org, role, employment type, and custom role for the sidebar.
- * Redirects unauthenticated or invalid users to /login.
- * Shows suspension message inline if org is suspended.
+ * The checks that are true of every signed-in page, and nothing else:
+ * a session exists, the user still exists in the database, and a platform
+ * admin belongs in their own console rather than here.
+ *
+ * ## Why the chrome moved out
+ *
+ * This layout sits ABOVE `org/[orgId]` in the route tree, so it never sees the
+ * org id. It nonetheless resolved the org name, the role badge, the suspension
+ * state and the permission set every page gates on — all from `orgs[0]`, the
+ * user's arbitrarily-first organisation — while the page below read a different
+ * id from the URL.
+ *
+ * A layout cannot answer a question about a segment beneath it. So it no longer
+ * tries: `org/[orgId]/layout.tsx` owns everything org-scoped, including the
+ * membership guard that decides whether the page is served at all, and the
+ * org-agnostic pages carry their own shell.
  */
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
-import { AppSidebar } from "@/components/layout/app-sidebar";
-import { OrganizationService } from "@/services/organization.service";
-import { AccessService } from "@/services/access.service";
+import { getPlatformAdmin } from "@/lib/platform-guard";
 import { ProfileService } from "@/services/profile.service";
-import { RoleService } from "@/services/role.service";
-import { OrgSuspendedBanner } from "@/components/layout/org-suspended-banner";
 
-const orgService = new OrganizationService();
-const accessService = new AccessService();
 const profileService = new ProfileService();
-const roleService = new RoleService();
 
 export default async function AppLayout({
   children,
@@ -32,72 +36,25 @@ export default async function AppLayout({
     redirect("/login");
   }
 
-  // Platform admins have their own layout — redirect them
-  const isPlatformAdmin = (session.user as unknown as Record<string, unknown>).isPlatformAdmin;
-  if (isPlatformAdmin) {
+  /*
+   * Platform admins have their own console — send them to it.
+   *
+   * Asked of the database, not of the token. The JWT claim is written once at
+   * sign-in and never revalidated, so a REVOKED platform admin was redirected
+   * here for up to thirty days while the platform layout (which now also asks
+   * live) sent them back — leaving them unable to reach either console.
+   */
+  const platformAdmin = await getPlatformAdmin();
+  if (platformAdmin) {
     redirect("/platform-admin");
   }
 
-  // Validate the session user still exists in the database
+  // A session can outlive the account it names. Deleting a user does not
+  // invalidate their JWT, so without this the token keeps working.
   const dbUser = await profileService.getProfile(session.user.id);
   if (!dbUser) {
     redirect("/login");
   }
 
-  // Get user's first organization and role for sidebar
-  const orgs = await orgService.getUserOrganizations(session.user.id);
-  let orgId: string | undefined;
-  let orgName: string | undefined;
-  let role: string | undefined;
-  let employmentType: string | undefined;
-  let customRoleLabel: string | undefined;
-  let orgSuspended = false;
-
-  if (orgs.length > 0) {
-    orgId = orgs[0].id;
-    orgName = orgs[0].name;
-
-    if (orgs[0].status !== "active") {
-      orgSuspended = true;
-    } else {
-      const membership = await accessService.getMembership(
-        session.user.id,
-        orgId
-      );
-      role = membership?.role;
-      employmentType = (membership as Record<string, unknown>)?.employmentType as string | undefined;
-
-      // Fetch custom role display label if assigned. Scoped to the org the
-      // sidebar is rendering: the role always belongs to it (assignCustomRole
-      // rejects anything else), so this reads the same label as before while
-      // keeping the lookup tenant-scoped like every other query.
-      const customRoleId = (membership as Record<string, unknown>)?.customRoleId as string | undefined;
-      if (customRoleId) {
-        const customRole = await roleService.getById(customRoleId, orgId);
-        customRoleLabel = customRole?.displayLabel;
-      }
-    }
-  }
-
-  if (orgSuspended) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-background">
-        <OrgSuspendedBanner />
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex min-h-screen">
-      <AppSidebar
-        user={{ name: dbUser.name, email: dbUser.email }}
-        orgId={orgId}
-        orgName={orgName}
-        role={role}
-        employmentType={employmentType}
-        customRoleLabel={customRoleLabel}
-      />
-      <main className="flex-1 overflow-x-hidden px-4 pt-18 pb-6 md:p-6">{children}</main>
-    </div>
-  );
+  return <>{children}</>;
 }

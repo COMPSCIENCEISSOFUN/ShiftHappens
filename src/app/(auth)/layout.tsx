@@ -11,6 +11,19 @@
 import Link from "next/link";
 import { AuthHeroPanel } from "@/components/auth/auth-hero-panel";
 
+/*
+ * No session guard here, deliberately.
+ *
+ * A layout cannot reliably know which of its pages is rendering — Next 16 gives
+ * it no pathname — and the pages beneath it do not want the same answer.
+ * Verifying an email, resetting a password and accepting an invitation are all
+ * reached from a link in a mail and are legitimately opened by someone who
+ * already has a session; redirecting them would make those links dead ends. So
+ * `login` and `register` carry the guard themselves, where the decision is
+ * unambiguous. A guard here keyed on a header that may be absent would refuse
+ * everything the moment the header changed name.
+ */
+
 export default function AuthLayout({
   children,
 }: {

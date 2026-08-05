@@ -23,7 +23,10 @@ import { Label } from "@/components/ui/label";
 import { PageLoading } from "@/components/ui/page-loading";
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { EmptyState } from "@/components/ui/empty-state";
+import { Lock } from "lucide-react";
 import { StatTile } from "@/components/ui/stat-tile";
+import { usePermissions } from "@/components/layout/permission-provider";
+import { DEPARTMENT_LIST_READERS } from "@/lib/permissions";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -301,6 +304,12 @@ function ArchivedGrid({
   onUnarchive: (id: string) => void;
   onDelete: (dept: Department) => void;
 }) {
+  // Read here rather than threaded from the page: the provider is a context, so
+  // a component asks for what it needs instead of every parent forwarding it.
+  const { can } = usePermissions();
+  const canUpdate = can("departments:update");
+  const canDelete = can("departments:delete");
+
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
       {departments.map((dept) => (
@@ -340,8 +349,10 @@ function ArchivedGrid({
               </div>
             </div>
 
-            {/* Archived actions */}
+            {/* Archived actions — restore is an update, delete is a delete. */}
+            {(canUpdate || canDelete) && (
             <div className="mt-3 flex gap-2 border-t border-border/30 pt-3">
+              {canUpdate && (
               <button
                 onClick={() => onUnarchive(dept.id)}
                 className="flex items-center gap-1 rounded-lg border border-border bg-card px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:border-green-400 hover:text-green-600 dark:hover:border-green-700 dark:hover:text-green-400"
@@ -349,6 +360,8 @@ function ArchivedGrid({
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" /><path d="M21 3v5h-5" /><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" /><path d="M8 16H3v5" /></svg>
                 Restore
               </button>
+              )}
+              {canDelete && (
               <button
                 onClick={() => onDelete(dept)}
                 className="flex items-center gap-1 rounded-lg border border-border bg-card px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:border-red-300 hover:text-red-600 dark:hover:border-red-800 dark:hover:text-red-400"
@@ -356,7 +369,9 @@ function ArchivedGrid({
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg>
                 Delete Permanently
               </button>
+              )}
             </div>
+            )}
           </div>
         </div>
       ))}
@@ -373,6 +388,17 @@ export default function DepartmentsPage() {
   const orgId = params.orgId as string;
   const [departments, setDepartments] = useState<Department[]>([]);
   const [showCreate, setShowCreate] = useState(false);
+  /*
+   * This page had NO role check of any kind. A manager arriving by URL was
+   * offered "+ New Department", plus Edit, Archive and Delete on every row —
+   * four actions that each returned 403 — and four stat tiles counting every
+   * department and member in the organisation, which is outside the scope they
+   * are held to everywhere else.
+   */
+  const { can, canAny } = usePermissions();
+  const canCreate = can("departments:create");
+  const canUpdate = can("departments:update");
+  const canDelete = can("departments:delete");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -660,6 +686,23 @@ export default function DepartmentsPage() {
 
   const showingArchivedCards = filter === "archived";
 
+  /*
+   * Below the hooks — a guard above them makes every useState conditional.
+   *
+   * Same constant the GET route enforces. This page previously carried no page
+   * gate at all: the actions were hidden but the list, with its org-wide member
+   * and task counts, rendered in full for anyone who typed the URL.
+   */
+  if (!canAny(...DEPARTMENT_LIST_READERS)) {
+    return (
+      <EmptyState
+        icon={Lock}
+        title="You don't have access to Departments"
+        description="Departments are managed by people who hold one of the department permissions. Ask a company admin if you need access."
+      />
+    );
+  }
+
   if (loading) return <PageLoading />;
 
   return (
@@ -672,12 +715,14 @@ export default function DepartmentsPage() {
             Organise your team into departments for scheduling and management
           </p>
         </div>
-        <button
-          onClick={() => setShowCreate(!showCreate)}
-          className={`rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-colors ${showCreate ? "border border-border bg-card text-muted-foreground hover:text-foreground" : "bg-gradient-to-r from-indigo-600 to-indigo-500 text-white shadow-sm hover:from-indigo-700 hover:to-indigo-600"}`}
-        >
-          {showCreate ? "Cancel" : "+ New Department"}
-        </button>
+        {canCreate && (
+          <button
+            onClick={() => setShowCreate(!showCreate)}
+            className={`rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-colors ${showCreate ? "border border-border bg-card text-muted-foreground hover:text-foreground" : "bg-gradient-to-r from-indigo-600 to-indigo-500 text-white shadow-sm hover:from-indigo-700 hover:to-indigo-600"}`}
+          >
+            {showCreate ? "Cancel" : "+ New Department"}
+          </button>
+        )}
       </div>
 
       {/* ── Stat tiles ── */}
@@ -691,7 +736,7 @@ export default function DepartmentsPage() {
       {error && <AlertBanner message={error} variant="error" />}
 
       {/* ── Create form ── */}
-      {showCreate && (
+      {showCreate && canCreate && (
         <div className="mb-4 overflow-hidden rounded-xl border border-border bg-card">
           <div className="border-b border-border px-4 py-3">
             <h3 className="text-[13px] font-semibold">New Department</h3>
@@ -886,6 +931,7 @@ export default function DepartmentsPage() {
                   </div>
 
                   {/* Actions */}
+                  {canUpdate && (
                   <div className="mt-3 flex gap-2 border-t border-border/50 pt-3">
                     <button
                       onClick={() => setEditingId(dept.id)}
@@ -902,6 +948,7 @@ export default function DepartmentsPage() {
                       Archive
                     </button>
                   </div>
+                  )}
                 </div>
               )}
             </div>

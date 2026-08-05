@@ -11,6 +11,7 @@ import { TaskService } from "@/services/task.service";
 import { updateTaskSchema } from "@/lib/validations";
 import { getAuthenticatedUser, unauthorizedResponse, checkOrgSuspended } from "@/lib/auth-guard";
 import { AccessService } from "@/services/access.service";
+import { requirePermission } from "@/lib/permission-guard";
 
 const taskService = new TaskService();
 const accessService = new AccessService();
@@ -58,10 +59,9 @@ export async function PATCH(
     const suspended = await checkOrgSuspended(orgId);
     if (suspended) return suspended;
 
-    const membership = await accessService.getMembership(user.id, orgId);
-    if (!membership || !["company_admin", "manager"].includes(membership.role)) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const gate = await requirePermission(user.id, orgId, "tasks:update");
+    if (!gate.ok) return gate.response;
+    const membership = gate.membership;
 
     if (!(await accessService.isTaskInScope(taskId, membership))) {
       return NextResponse.json({ error: "Task not found" }, { status: 404 });
@@ -81,7 +81,10 @@ export async function PATCH(
     return NextResponse.json(updated);
   } catch (error) {
     if (error instanceof Error) {
-      if (error.message === "Task not found") {
+      if (
+        error.message === "Task not found" ||
+        error.message === "Department not found"
+      ) {
         return NextResponse.json({ error: error.message }, { status: 404 });
       }
       if (error.message.includes("start and end time") || error.message.includes("End time must be after")) {
@@ -104,10 +107,9 @@ export async function DELETE(
     const suspended = await checkOrgSuspended(orgId);
     if (suspended) return suspended;
 
-    const membership = await accessService.getMembership(user.id, orgId);
-    if (!membership || !["company_admin", "manager"].includes(membership.role)) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const gate = await requirePermission(user.id, orgId, "tasks:delete");
+    if (!gate.ok) return gate.response;
+    const membership = gate.membership;
 
     if (!(await accessService.isTaskInScope(taskId, membership))) {
       return NextResponse.json({ error: "Task not found" }, { status: 404 });

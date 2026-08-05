@@ -9,33 +9,68 @@
  */
 import { RoleRepository } from "@/repositories/role.repository";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
+import { WorkRuleRepository } from "@/repositories/work-rule.repository";
+import { uniqueRoleName } from "@/lib/role-slug";
 import type { CreateRoleInput, UpdateRoleInput } from "@/lib/validations";
 import { SubscriptionService } from "@/services/subscription.service";
 
 export class RoleService {
+  private workRuleRepo = new WorkRuleRepository();
   private roleRepo = new RoleRepository();
   private auditService = new AuditLogService();
   private subscriptionService = new SubscriptionService();
 
   /**
    * Creates a new custom role in an organization.
-   * Checks for duplicate names before creating.
+   *
+   * ## One name, not two
+   *
+   * The caller supplies only the display label. The stored `name` is derived
+   * from it — the form used to ask for both, annotating the second "Used in
+   * code. Lowercase, no spaces." when nothing read it, nothing validated the
+   * format, and nothing could change it afterwards.
+   *
+   * ## Uniqueness moved to the label
+   *
+   * `@@unique([organizationId, name])` guarded the field nobody sees, so two
+   * roles could both be labelled "Shift Lead" — stored as `shift_lead` and
+   * `shiftlead` — and show as two identical entries in the roles list and every
+   * member dropdown. The label is checked first now, case-insensitively,
+   * because "Shift Lead" and "shift lead" are the same role to anyone reading a
+   * dropdown.
+   *
+   * The derived name is then made unique separately. That second step is not
+   * redundant: two DIFFERENT labels can slug to the same string, and the
+   * database index is on the slug.
    */
   async create(input: CreateRoleInput, organizationId: string, userId?: string) {
     await this.subscriptionService.enforceFeatureAccess(organizationId, 'custom_roles');
     await this.subscriptionService.enforceResourceLimit(organizationId, 'custom_roles');
 
-    const nameExists = await this.roleRepo.nameExistsInOrg(
-      input.name,
+    const displayLabel = input.displayLabel.trim();
+
+    const labelExists = await this.roleRepo.labelExistsInOrg(
+      displayLabel,
       organizationId
     );
-    if (nameExists) {
-      throw new Error("Role name already exists");
+    if (labelExists) {
+      throw new Error(`A role called "${displayLabel}" already exists`);
+    }
+
+    const name = uniqueRoleName(
+      displayLabel,
+      await this.roleRepo.takenNamesInOrg(organizationId)
+    );
+    // Validation refuses a label with no letters or digits, so an empty slug
+    // here means the label was all punctuation or the collision loop ran out.
+    // Either way it is a refusal, not something to paper over with a random id.
+    if (!name) {
+      throw new Error("Role name needs at least one letter or number");
     }
 
     const role = await this.roleRepo.create({
-      name: input.name,
-      displayLabel: input.displayLabel,
+      name,
+      displayLabel,
       description: input.description,
       organizationId,
       permissionIds: input.permissionIds,
@@ -47,7 +82,7 @@ export class RoleService {
       action: ACTIONS.ROLE_CREATED,
       entityType: "role",
       entityId: role.id,
-      details: { name: input.name, permissionCount: input.permissionIds.length },
+      details: { name, displayLabel, permissionCount: input.permissionIds.length },
     });
 
     return role;
@@ -82,8 +117,30 @@ export class RoleService {
       throw new Error("Cannot modify system roles");
     }
 
+    /*
+     * Renaming has to respect the same uniqueness the create path does, or the
+     * rule only holds for roles nobody has edited since.
+     *
+     * The stored `name` deliberately does NOT follow a rename. It is an
+     * internal identifier that appears in audit-log entries already written,
+     * and re-slugging it would make yesterday's log refer to a name that no
+     * longer exists. Nothing reads it, so letting it drift from the label costs
+     * nothing — which is the same reason the form stopped asking for it.
+     */
+    if (input.displayLabel !== undefined) {
+      const label = input.displayLabel.trim();
+      const clash = await this.roleRepo.labelExistsInOrg(
+        label,
+        organizationId,
+        roleId
+      );
+      if (clash) {
+        throw new Error(`A role called "${label}" already exists`);
+      }
+    }
+
     const updated = await this.roleRepo.update(roleId, {
-      displayLabel: input.displayLabel,
+      displayLabel: input.displayLabel?.trim(),
       description: input.description,
       permissionIds: input.permissionIds,
     });
@@ -104,6 +161,30 @@ export class RoleService {
    * Deletes a custom role.
    * System roles cannot be deleted.
    */
+
+  /**
+   * Refuses the delete while work rules still target this role.
+   *
+   * The database now enforces it too — the FK is `onDelete: Restrict` — but a
+   * constraint violation reaches the caller as an opaque 500. This runs first
+   * so the admin gets a sentence they can act on, and the constraint is the
+   * backstop rather than the error anybody sees.
+   *
+   * Names, not a count: "3 work rules target this role" says there is a
+   * problem and nothing about how to solve it.
+   */
+  private async assertNoWorkRulesTargetRole(id: string) {
+    const rules = await this.workRuleRepo.findTargeting({ roleId: id });
+    if (rules.length === 0) return;
+
+    const names = rules.map((r) => r.name).join(", ");
+    throw new Error(
+      `Cannot delete: ${rules.length} work rule${rules.length === 1 ? "" : "s"} ` +
+        `target${rules.length === 1 ? "s" : ""} this role (${names}). ` +
+        `Retarget or delete ${rules.length === 1 ? "it" : "them"} first.`
+    );
+  }
+
   async delete(roleId: string, organizationId: string, userId?: string) {
     const role = await this.roleRepo.findById(roleId);
     if (!role || role.organizationId !== organizationId) {
@@ -113,6 +194,8 @@ export class RoleService {
     if (role.isSystemRole) {
       throw new Error("Cannot delete system roles");
     }
+
+    await this.assertNoWorkRulesTargetRole(roleId);
 
     const deleted = await this.roleRepo.delete(roleId);
 

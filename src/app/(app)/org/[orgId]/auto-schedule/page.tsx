@@ -41,6 +41,7 @@ import {
 } from "@/lib/schedule-week";
 import { Panel } from "@/components/ui/panel";
 import { PRIMARY_BUTTON, SECONDARY_BUTTON } from "@/components/ui/button-styles";
+import { usePermissions } from "@/components/layout/permission-provider";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -84,6 +85,8 @@ interface DraftSchedule {
 /* ------------------------------------------------------------------ */
 
 export default function AutoSchedulePage() {
+  const { can } = usePermissions();
+
   const params = useParams();
   const orgId = params.orgId as string;
 
@@ -210,6 +213,22 @@ export default function AutoSchedulePage() {
 
   const reviewing = draft !== null;
   const hasAssignments = (draft?.assignments.length ?? 0) > 0;
+
+  /*
+   * The sidebar no longer links here without `allocation:auto_schedule`, but the URL still
+   * resolved — and this page had no check of its own, so it rendered its
+   * full surface and every action returned 403.
+   *
+   * Not a security boundary. The routes enforce this independently; this
+   * is so the product does not offer what it will refuse.
+   */
+  if (!can("allocation:auto_schedule")) {
+    return (
+      <div className="w-full">
+        <EmptyState title="Whole-week scheduling is a company admin action" description="You can still assign shifts individually from the Tasks page." />
+      </div>
+    );
+  }
 
   return (
     <div className="w-full">

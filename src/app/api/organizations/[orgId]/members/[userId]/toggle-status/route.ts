@@ -8,10 +8,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { UserManagementService } from "@/services/user-management.service";
 import { getAuthenticatedUser, unauthorizedResponse, checkOrgSuspended } from "@/lib/auth-guard";
-import { AccessService } from "@/services/access.service";
+import { requirePermission } from "@/lib/permission-guard";
 
 const userMgmtService = new UserManagementService();
-const accessService = new AccessService();
 
 export async function POST(
   request: NextRequest,
@@ -25,10 +24,8 @@ export async function POST(
     const suspended = await checkOrgSuspended(orgId);
     if (suspended) return suspended;
 
-    const membership = await accessService.getMembership(user.id, orgId);
-    if (!membership || membership.role !== "company_admin") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const gate = await requirePermission(user.id, orgId, "members:deactivate");
+    if (!gate.ok) return gate.response;
 
     const updated = await userMgmtService.toggleMemberStatus(userId, orgId, user.id);
     return NextResponse.json(updated);
@@ -39,6 +36,15 @@ export async function POST(
       }
       if (error.message.includes("Cannot deactivate")) {
         return NextResponse.json({ error: error.message }, { status: 400 });
+      }
+      // Authorisation refusals, not bad input — the request is well-formed and
+      // the caller simply may not make it against this member.
+      if (
+        error.message === "You cannot change your own status" ||
+        error.message === "You cannot change the status of a member above your own" ||
+        error.message === "Not authorized to change roles"
+      ) {
+        return NextResponse.json({ error: error.message }, { status: 403 });
       }
     }
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

@@ -2,7 +2,7 @@
  * Tests for Work Rule Repository (Entity Layer)
  *
  * Verifies CRUD, name uniqueness, applicable rules lookup,
- * org-scoped isolation, and role deletion cascade behavior.
+ * org-scoped isolation, and what happens to a rule when its target is deleted.
  */
 import { describe, it, expect, beforeEach } from "vitest";
 import { WorkRuleRepository } from "@/repositories/work-rule.repository";
@@ -310,8 +310,21 @@ describe("WorkRuleRepository", () => {
     });
   });
 
-  describe("role deletion cascade", () => {
-    it("sets roleId to null when referenced Role is deleted", async () => {
+  /*
+   * This block asserted the OPPOSITE until 2026-08-05.
+   *
+   * The foreign keys were `onDelete: SetNull`, and a rule with neither target
+   * set reads as GLOBAL — so nulling the reference silently promoted a rule
+   * written for one role to the whole organisation. The old test pinned that as
+   * correct ("sets roleId to null when referenced Role is deleted"), which is
+   * how the behaviour survived: it had a green test describing it.
+   *
+   * Both keys are `Restrict` now. `WorkRuleService` and the role/department
+   * delete guards refuse first with a message naming the rules; this is the
+   * database backstop underneath them.
+   */
+  describe("deleting a role a rule targets", () => {
+    it("is refused, rather than orphaning the rule", async () => {
       const role = await prisma.role.create({
         data: { organizationId: orgId, name: "chef", displayLabel: "Chef" },
       });
@@ -325,17 +338,37 @@ describe("WorkRuleRepository", () => {
       });
       expect(rule.roleId).toBe(role.id);
 
-      // Delete the role — onDelete: SetNull should null out the reference
+      await prisma.rolePermission.deleteMany({ where: { roleId: role.id } });
+      await expect(
+        prisma.role.delete({ where: { id: role.id } })
+      ).rejects.toThrow();
+
+      // And the rule still points where it was written to point.
+      const rules = await workRuleRepo.findByOrganizationId(orgId);
+      expect(rules.find((r) => r.id === rule.id)!.roleId).toBe(role.id);
+    });
+
+    it("succeeds once nothing targets the role", async () => {
+      const role = await prisma.role.create({
+        data: { organizationId: orgId, name: "chef", displayLabel: "Chef" },
+      });
+      const rule = await workRuleRepo.create({
+        organizationId: orgId,
+        name: "Chef daily limit",
+        type: "max_hours_daily",
+        maxHours: 10,
+        roleId: role.id,
+      });
+
+      await workRuleRepo.delete(rule.id);
       await prisma.rolePermission.deleteMany({ where: { roleId: role.id } });
       await prisma.role.delete({ where: { id: role.id } });
 
-      // Work rule should still exist but with null roleId
-      const rules = await workRuleRepo.findByOrganizationId(orgId);
-      const updatedRule = rules.find((r) => r.id === rule.id);
-      expect(updatedRule).toBeDefined();
-      expect(updatedRule!.roleId).toBeNull();
+      expect(await prisma.role.findUnique({ where: { id: role.id } })).toBeNull();
     });
 
+    // A global rule targets nothing, so no role deletion can concern it — and
+    // it must not be blocked by the Restrict either.
     it("global rules are unaffected by role deletion", async () => {
       const role = await prisma.role.create({
         data: { organizationId: orgId, name: "temp", displayLabel: "Temp" },

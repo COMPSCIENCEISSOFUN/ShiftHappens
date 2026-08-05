@@ -104,10 +104,42 @@ export class OrganizationRepository {
       },
       include: {
         memberships: {
-          where: { userId },
+          // Active only, matching the outer filter. Without it a member who
+          // was deactivated from an org they had also been re-added to could
+          // have the dead row read first, and `memberships[0].role` — which
+          // the dashboard uses to choose which dashboard to render — would be
+          // the role they no longer hold.
+          where: { userId, status: "active" },
           select: { role: true },
         },
       },
+      /*
+       * Oldest first, and a TOTAL order.
+       *
+       * Callers that need a default organisation take `[0]`. With no ordering
+       * at all Postgres may return a different row on successive requests, so
+       * for anyone in more than one organisation the sidebar's org name, role
+       * badge and menu could change between two loads of the same page — and,
+       * before the org layout existed, so could the permission set every page
+       * gated on.
+       *
+       * `createdAt` ALONE is only a PARTIAL order. Prisma maps `DateTime` to
+       * `timestamp(3)`, so two organisations created in the same millisecond
+       * tie, and Postgres guarantees nothing about ties — a sort that looks
+       * deterministic and is not. The `id` tiebreak makes it total; cuid's
+       * base36 timestamp and per-process counter mean it also agrees with
+       * creation order.
+       *
+       * Honest note on evidence: this fix is by CONSTRUCTION, not by observed
+       * failure. `IndustryTemplateRepository.OLDEST_FIRST` is the same fault and
+       * there it is demonstrable — a tie plus a heap rewrite flips the list, and
+       * `industry-template.repository.test.ts` pins exactly that. The equivalent
+       * could not be provoked for this query shape: Postgres's sort happened to
+       * be stable for it at every row count tried. So there is no test here that
+       * fails without the tiebreak, and one was deliberately NOT written rather
+       * than leave a green assertion that measures nothing.
+       */
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     });
   }
 

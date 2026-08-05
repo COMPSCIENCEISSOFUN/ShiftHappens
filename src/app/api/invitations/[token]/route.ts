@@ -7,6 +7,8 @@
  * have an account yet. Token itself serves as authentication.
  */
 import { NextRequest, NextResponse } from "next/server";
+import { acceptInvitationSchema } from "@/lib/validations";
+import { validationErrorResponse } from "@/lib/api-utils";
 import { InvitationService } from "@/services/invitation.service";
 
 const invitationService = new InvitationService();
@@ -45,9 +47,19 @@ export async function POST(
     const { token } = await params;
     const body = await request.json().catch(() => null);
 
-    const registrationData = body?.name && body?.password
-      ? { name: body.name, password: body.password }
-      : null;
+    /*
+     * An existing user accepting an invitation sends no credentials — the
+     * membership is simply added — so a body with neither field is valid and
+     * `null` is the right registration data. A body that carries EITHER field
+     * is a new-account request and must satisfy the same rules as registration.
+     * It previously satisfied none: the password went to bcrypt unvalidated.
+     */
+    let registrationData: { name: string; password: string } | null = null;
+    if (body?.name || body?.password) {
+      const parsed = acceptInvitationSchema.safeParse(body);
+      if (!parsed.success) return validationErrorResponse(parsed.error);
+      registrationData = parsed.data;
+    }
 
     const result = await invitationService.acceptInvitation(
       token,

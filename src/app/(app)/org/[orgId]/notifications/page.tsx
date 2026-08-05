@@ -90,11 +90,17 @@ const CATEGORY_LABELS: Record<string, string> = {
   withdrawal_requested: "Assignment",
   withdrawal_approved: "Assignment",
   withdrawal_denied: "Assignment",
+  // The decline lifecycle — `notification-icon.tsx` picked all three up when
+  // they were added; this map did not, so they rendered as "Update".
+  decline_requested: "Assignment",
+  decline_approved: "Assignment",
+  decline_denied: "Assignment",
   cert_verified: "Certification",
   cert_rejected: "Certification",
   hour_limit_warning: "Alert",
   staff_ineligible: "Alert",
   shift_rated_low: "Alert",
+  availability_review_requested: "Assignment",
   org_suspended: "Alert",
 };
 

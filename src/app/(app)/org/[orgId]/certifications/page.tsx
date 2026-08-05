@@ -18,7 +18,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { FileX2, SearchX, ShieldCheck } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { PageLoading } from "@/components/ui/page-loading";
@@ -39,6 +39,7 @@ import {
   relativeTime,
   type CertificationDisplayState,
 } from "@/lib/certification-display";
+import { usePermissions } from "@/components/layout/permission-provider";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -83,6 +84,16 @@ type FilterKey =
   | "rejected"
   | "revoked"
   | "uncertified";
+
+/**
+ * Narrows an arbitrary `?status=` value to a filter this page knows.
+ *
+ * Derived from FILTERS rather than a second hand-written list, so a pill added
+ * there is deep-linkable without anyone remembering to update a guard.
+ */
+function isFilterKey(value: string): value is FilterKey {
+  return FILTERS.some((f) => f.key === value);
+}
 
 const FILTERS: { key: FilterKey; label: string }[] = [
   { key: "all", label: "All" },
@@ -314,6 +325,7 @@ function ReasonDialog({
 /* ------------------------------------------------------------------ */
 
 export default function CertificationsPage() {
+  const { can } = usePermissions();
   const params = useParams();
   const orgId = params.orgId as string;
 
@@ -322,7 +334,24 @@ export default function CertificationsPage() {
   // empty one — the difference decides whether the Uncertified badge shows a
   // number or a dash. Reporting 0 for a failed request would be a lie.
   const [members, setMembers] = useState<Member[] | null>(null);
-  const [filter, setFilter] = useState<FilterKey>("all");
+  /**
+   * Initial filter, honouring `?status=` on the way in.
+   *
+   * The dashboard's "3 certifications awaiting verification" alert used to
+   * land here on "All", so the reader arrived at a review queue and then had
+   * to find the pending ones themselves — the alert named a subset and the
+   * page showed everything.
+   *
+   * Read once as the initial state rather than kept in sync with the URL:
+   * filtering is client-side by design (expiring and expired are derived from
+   * dates, not stored) and a manager who then clicks another pill should not
+   * have the deep link argue with them.
+   */
+  const searchParams = useSearchParams();
+  const [filter, setFilter] = useState<FilterKey>(() => {
+    const requested = searchParams.get("status");
+    return requested && isFilterKey(requested) ? requested : "all";
+  });
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
@@ -474,7 +503,27 @@ export default function CertificationsPage() {
     }
   }
 
+
   if (loading) return <PageLoading label="Loading certifications" />;
+
+  /*
+   * The sidebar no longer links here without `certifications:review`, but the URL
+   * still resolved — and this page had no check of its own, so it
+   * rendered its full surface and every action returned 403.
+   *
+   * Not a security boundary. The routes enforce this independently;
+   * this is so the product does not offer what it will refuse.
+   */
+  if (!can("certifications:review")) {
+    return (
+      <div className="w-full">
+        <EmptyState
+          title="Certification review is for managers and admins"
+          description="Your own certificates are under My Certifications."
+        />
+      </div>
+    );
+  }
 
   /* ---------------------------------------------------------------- */
   /*  Derive states, counts, filtered set                              */

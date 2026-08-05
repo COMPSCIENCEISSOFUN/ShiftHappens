@@ -18,23 +18,29 @@ import { NextRequest, NextResponse } from "next/server";
 import { DepartmentService } from "@/services/department.service";
 import { updateDepartmentSchema } from "@/lib/validations";
 import { getAuthenticatedUser, unauthorizedResponse, checkOrgSuspended } from "@/lib/auth-guard";
-import { AccessService } from "@/services/access.service";
+import { requirePermission } from "@/lib/permission-guard";
 
 const deptService = new DepartmentService();
-const accessService = new AccessService();
 
 /** Shared auth + admin guard for all handlers */
-async function authorizeAdmin(orgId: string) {
+/**
+ * Shared session + suspension + permission gate.
+ *
+ * Takes the permission rather than assuming one. It was hard-coded to
+ * `departments:update` and shared by PATCH *and* DELETE, so `departments:delete`
+ * could be ticked in the picker and was never consulted, while
+ * `departments:update` silently carried the power to delete a department and
+ * everything filed under it.
+ */
+async function authorize(orgId: string, permission: string) {
   const user = await getAuthenticatedUser();
   if (!user) return { error: unauthorizedResponse() };
 
   const suspended = await checkOrgSuspended(orgId);
   if (suspended) return { error: suspended };
 
-  const membership = await accessService.getMembership(user.id, orgId);
-  if (!membership || membership.role !== "company_admin") {
-    return { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) };
-  }
+  const gate = await requirePermission(user.id, orgId, permission);
+  if (!gate.ok) return { error: gate.response };
 
   return { user };
 }
@@ -49,10 +55,15 @@ export async function GET(
 
     const { orgId, deptId } = await params;
 
-    const membership = await accessService.getMembership(user.id, orgId);
-    if (!membership || membership.role !== "company_admin") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    /*
+     * `departments:update`, not `departments:read`.
+     *
+     * This endpoint is the admin edit surface — it returns the impact summary
+     * a destructive action is confirmed against. The member-facing list is
+     * `GET /departments`, which is what `departments:read` covers.
+     */
+    const gate = await requirePermission(user.id, orgId, "departments:update");
+    if (!gate.ok) return gate.response;
 
     const isImpact = request.nextUrl.searchParams.get("impact") === "true";
 
@@ -80,7 +91,7 @@ export async function PATCH(
 ) {
   try {
     const { orgId, deptId } = await params;
-    const auth = await authorizeAdmin(orgId);
+    const auth = await authorize(orgId, "departments:update");
     if (auth.error) return auth.error;
 
     const body = await request.json();
@@ -132,7 +143,7 @@ export async function DELETE(
 ) {
   try {
     const { orgId, deptId } = await params;
-    const auth = await authorizeAdmin(orgId);
+    const auth = await authorize(orgId, "departments:delete");
     if (auth.error) return auth.error;
 
     await deptService.delete(deptId, orgId, auth.user!.id);

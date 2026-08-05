@@ -315,7 +315,9 @@ export default function ManagerDashboard({
                     <div
                       className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] text-sm font-bold ${iconBg} ${iconText}`}
                     >
-                      {item.isAiInsight ? "AI" : getActionIcon(item.severity)}
+                      {/* This read "AI" for four alert types, none of which
+                          came from a model. */}
+                      {getActionIcon(item.severity)}
                     </div>
 
                     {/* Content */}

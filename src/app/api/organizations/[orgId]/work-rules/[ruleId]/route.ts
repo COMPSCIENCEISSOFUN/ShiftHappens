@@ -9,12 +9,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { WorkRuleService } from "@/services/work-rule.service";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
-import { AccessService } from "@/services/access.service";
+import { requirePermission } from "@/lib/permission-guard";
 import { updateWorkRuleSchema } from "@/lib/validations";
 import { checkOrgActive } from "@/lib/org-guard";
 
 const workRuleService = new WorkRuleService();
-const accessService = new AccessService();
 
 export async function PATCH(
   request: NextRequest,
@@ -34,10 +33,8 @@ export async function PATCH(
       );
     }
 
-    const membership = await accessService.getMembership(user.id, orgId);
-    if (!membership || membership.role !== "company_admin") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const gate = await requirePermission(user.id, orgId, "work_rules:manage");
+    if (!gate.ok) return gate.response;
 
     const body = await request.json();
     const parsed = updateWorkRuleSchema.safeParse(body);
@@ -59,6 +56,10 @@ export async function PATCH(
     const message = error instanceof Error ? error.message : "Internal server error";
 
     if (message === "Work rule not found") {
+      return NextResponse.json({ error: message }, { status: 404 });
+    }
+    // Foreign targets read as missing — see WorkRuleService.assertTargetsOwned.
+    if (message === "Department not found" || message === "Role not found") {
       return NextResponse.json({ error: message }, { status: 404 });
     }
     if (message.includes("already exists")) {
@@ -94,10 +95,8 @@ export async function DELETE(
       );
     }
 
-    const membership = await accessService.getMembership(user.id, orgId);
-    if (!membership || membership.role !== "company_admin") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const gate = await requirePermission(user.id, orgId, "work_rules:manage");
+    if (!gate.ok) return gate.response;
 
     await workRuleService.delete(ruleId, orgId, user.id);
     return NextResponse.json({ success: true });

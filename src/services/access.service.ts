@@ -24,9 +24,10 @@
  * ## What this deliberately does NOT do
  *
  * It does not decide *policy* — it answers questions, it does not return HTTP
- * responses. Routes keep their own role checks and status codes, because those
- * differ per endpoint and belong at the Boundary. This service tells a route
- * who the caller is; the route decides what that means.
+ * responses. Routes name the permission they need and choose their own status
+ * codes, because those differ per endpoint and belong at the Boundary. This
+ * service tells a route who the caller is and what they hold; the route decides
+ * what that means.
  */
 import { MembershipRepository } from "@/repositories/membership.repository";
 import { OrganizationRepository } from "@/repositories/organization.repository";
@@ -37,6 +38,18 @@ import {
   isDepartmentInScope,
   type ScopableMembership,
 } from "@/lib/department-scope";
+import { effectivePermissions } from "@/lib/permissions";
+
+/**
+ * The shape `permissionsFor` reads. Structural rather than the Prisma type, so
+ * a test can hand it a literal without constructing a whole membership row.
+ */
+export interface PermissionedMembership {
+  role: string;
+  customRole?: {
+    rolePermissions: { permission: { name: string } }[];
+  } | null;
+}
 
 export class AccessService {
   private membershipRepo = new MembershipRepository();
@@ -58,6 +71,46 @@ export class AccessService {
    */
   async getMembership(userId: string, organizationId: string) {
     return this.membershipRepo.findByUserAndOrg(userId, organizationId);
+  }
+
+  /**
+   * What this member is actually allowed to do.
+   *
+   * Derived from the membership already loaded by `getMembership`, which
+   * resolves the custom role's permissions in the same query — so this costs
+   * nothing and, more importantly, cannot read a different membership from the
+   * one the route authorised.
+   *
+   * Note the distinction the null carries: a member with NO custom role falls
+   * back to their system role's bundle, while a member holding a custom role
+   * with no permissions gets nothing. Collapsing those two would make an empty
+   * role silently behave like no role at all, and an admin who deliberately
+   * composed a role that grants nothing would find it granted everything their
+   * system role did.
+   */
+  permissionsFor(membership: PermissionedMembership): Set<string> {
+    const custom = membership.customRole
+      ? membership.customRole.rolePermissions.map((rp) => rp.permission.name)
+      : null;
+    return effectivePermissions(membership.role, custom);
+  }
+
+  /**
+   * May this user sign in, as far as organisation suspension is concerned?
+   *
+   * True when they belong to no organisation yet — onboarding, or invited but
+   * not yet placed — and true when at least one of theirs is active. False only
+   * when they belong to organisations and every one of them is suspended.
+   *
+   * Here rather than in `lib/auth.ts`, which was querying the membership table
+   * directly. That file sits on the Boundary path for every route in the
+   * application, so the query was a Boundary→Entity access in the busiest
+   * possible place.
+   */
+  async maySignIn(userId: string): Promise<boolean> {
+    const statuses = await this.membershipRepo.findActiveOrgStatuses(userId);
+    if (statuses.length === 0) return true;
+    return statuses.some((status) => status === "active");
   }
 
   /**

@@ -16,6 +16,7 @@
  * accept, reject, clockIn, and clockOut actions.
  */
 import { reasonLabel } from "@/lib/decline-reasons";
+import { isFullTime } from "@/lib/role-config";
 import { TaskAssignmentRepository } from "@/repositories/task-assignment.repository";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 import { NotificationService, NOTIFICATION_TYPES } from "@/services/notification.service";
@@ -83,6 +84,25 @@ export class TaskAssignmentService {
 
     if (assignment.status !== "pending") {
       throw new Error("Can only reject pending assignments");
+    }
+
+    /*
+     * A full-time member declining a rostered shift is not the same act as a
+     * casual turning down an offer, and until now the system could not tell
+     * them apart — anyone could empty a slot instantly.
+     *
+     * Blocking it outright was the other option and it is worse: people still
+     * get ill and buses still do not run, so the decline simply happens by
+     * phone instead, and the reason, the timestamp and the audit entry are all
+     * lost. Routing it through a manager keeps the event on the system and
+     * keeps the slot filled while the answer is pending.
+     *
+     * Casual staff are unchanged. They are under no obligation to take an
+     * offered shift, and making them ask permission to decline one would be
+     * asserting a contractual relationship that does not exist.
+     */
+    if (isFullTime(assignment.membership.employmentType)) {
+      return this.requestDecline(assignment, assignmentId, reason, notes);
     }
 
     const result = await this.assignmentRepo.reject(assignmentId, reason, notes);
@@ -318,6 +338,147 @@ export class TaskAssignmentService {
   }
 
   /**
+   * A full-time member's decline, held for a manager's decision.
+   *
+   * Private and reached only from `reject`, so the branch cannot be bypassed by
+   * calling a different entry point. Takes the already-loaded assignment rather
+   * than re-reading it — `reject` has verified ownership and status, and a
+   * second read would be a second chance for them to disagree.
+   */
+  private async requestDecline(
+    assignment: NonNullable<
+      Awaited<ReturnType<TaskAssignmentRepository["findById"]>>
+    >,
+    assignmentId: string,
+    reason: string,
+    notes?: string
+  ) {
+    const result = await this.assignmentRepo.requestDecline(
+      assignmentId,
+      reason,
+      notes
+    );
+
+    await this.auditService.log({
+      organizationId: assignment.task.organizationId,
+      userId: assignment.membership.userId,
+      action: ACTIONS.ASSIGNMENT_DECLINE_REQUESTED,
+      entityType: "assignment",
+      entityId: assignmentId,
+      details: { reason, notes, taskTitle: assignment.task.title },
+    });
+
+    const staffName = assignment.membership.user?.name || "A staff member";
+    void this.notificationService.notify(
+      assignment.task.organizationId,
+      assignment.assignedById,
+      NOTIFICATION_TYPES.DECLINE_REQUESTED,
+      "Decline needs your approval",
+      `${staffName} (full-time) asked to be taken off "${assignment.task.title}" — ${reasonLabel(reason)}${notes ? `: ${notes}` : ""}`,
+      "task",
+      assignment.task.id
+    );
+
+    return result;
+  }
+
+  /**
+   * Manager approves or denies a full-time member's decline request.
+   *
+   * Approve frees the slot and records the rejection with the reason the member
+   * already gave. Deny returns the row to PENDING — not to accepted: a manager
+   * refusing the request has not thereby accepted the shift on the member's
+   * behalf, and the member still owes an answer.
+   *
+   * Authorization (manager/admin, department scope) is enforced at the route.
+   */
+  async resolveDecline(
+    assignmentId: string,
+    decision: "approve" | "deny",
+    actorUserId: string,
+    organizationId: string
+  ) {
+    const assignment = await this.assignmentRepo.findById(assignmentId);
+    // A manager may only resolve declines for their own org's assignments.
+    if (!assignment || assignment.task.organizationId !== organizationId) {
+      throw new Error("Assignment not found");
+    }
+
+    if (assignment.status !== "decline_requested") {
+      throw new Error("No pending decline request for this assignment");
+    }
+
+    /*
+     * Not your own.
+     *
+     * Full-time declines exist because a full-time member's shift is an
+     * obligation somebody else has to agree to release them from. A manager is
+     * both rosterable (`canBeRostered` includes them) and holds `tasks:assign`
+     * by default, so without this the whole approval step collapses for the
+     * people most likely to be full-time: request the decline, approve it, no
+     * second human involved. The route's permission check cannot catch it —
+     * they legitimately hold the permission, just not over this row.
+     */
+    if (assignment.membership.userId === actorUserId) {
+      throw new Error("You cannot resolve your own decline request");
+    }
+
+    const staffUserId = assignment.membership.userId;
+    const taskTitle = assignment.task.title;
+    const reason = assignment.rejectionReason;
+
+    if (decision === "approve") {
+      const result = await this.assignmentRepo.approveDecline(assignmentId);
+
+      await this.auditService.log({
+        organizationId,
+        userId: actorUserId,
+        action: ACTIONS.ASSIGNMENT_DECLINE_APPROVED,
+        entityType: "assignment",
+        entityId: assignmentId,
+        details: { taskTitle, reason },
+      });
+
+      void this.notificationService.notify(
+        organizationId,
+        staffUserId,
+        NOTIFICATION_TYPES.DECLINE_APPROVED,
+        "Decline approved",
+        `You have been taken off "${taskTitle}"`,
+        "task",
+        assignment.task.id
+      );
+
+      return result;
+    }
+
+    const result = await this.assignmentRepo.denyDecline(assignmentId);
+
+    await this.auditService.log({
+      organizationId,
+      userId: actorUserId,
+      action: ACTIONS.ASSIGNMENT_DECLINE_DENIED,
+      entityType: "assignment",
+      entityId: assignmentId,
+      details: { taskTitle, reason },
+    });
+
+    void this.notificationService.notify(
+      organizationId,
+      staffUserId,
+      NOTIFICATION_TYPES.DECLINE_DENIED,
+      "Decline not approved",
+      // Says what is now true rather than only what was refused: the row has
+      // gone back to pending, so the member has something to do about it.
+      `You are still rostered on "${taskTitle}" — please accept or speak to your manager`,
+      "task",
+      assignment.task.id
+    );
+
+    return result;
+  }
+
+  /**
    * Staff requests to withdraw/abort an accepted assignment with a reason (US-76).
    * The slot stays reserved (status "withdrawal_requested") until a manager
    * approves or denies. Notifies the assigning manager.
@@ -387,6 +548,12 @@ export class TaskAssignmentService {
 
     if (assignment.status !== "withdrawal_requested") {
       throw new Error("No pending withdrawal request for this assignment");
+    }
+
+    // Same rule as `resolveDecline` — a request for someone else's agreement
+    // is not a request if you can answer it yourself.
+    if (assignment.membership.userId === actorUserId) {
+      throw new Error("You cannot resolve your own withdrawal request");
     }
 
     const staffUserId = assignment.membership.userId;

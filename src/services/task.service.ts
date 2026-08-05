@@ -12,6 +12,7 @@ import { TaskRepository } from "@/repositories/task.repository";
 import { TaskAssignmentRepository } from "@/repositories/task-assignment.repository";
 import { SettingsRepository } from "@/repositories/settings.repository";
 import { MembershipRepository } from "@/repositories/membership.repository";
+import { DepartmentRepository } from "@/repositories/department.repository";
 import { EligibilityService } from "@/services/eligibility.service";
 import type { CreateTaskInput, UpdateTaskInput } from "@/lib/validations";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
@@ -31,6 +32,8 @@ import {
   parseCompositionRules,
   serialiseCompositionRules,
 } from "@/lib/composition-rules";
+import { occupiesSlot } from "@/lib/assignment-status";
+import { canBeRostered } from "@/lib/role-config";
 
 export class TaskService {
   private taskRepo = new TaskRepository();
@@ -44,9 +47,43 @@ export class TaskService {
   private overrideRepo = new EligibilityOverrideRepository();
   private subscriptionService = new SubscriptionService();
   private compositionService = new CompositionService();
+  private deptRepo = new DepartmentRepository();
+
+
+  /**
+   * Refuses a department id that belongs to another tenant.
+   *
+   * `departmentId` arrives from the request body and was written straight
+   * through. A scoped manager is stopped at the route by `isDepartmentInScope`,
+   * but a company admin's scope is null, so any admin who knew a cuid from
+   * another organisation could create a task in their own org whose department
+   * FK pointed into someone else's.
+   *
+   * The consequences are not theoretical: every task read select includes
+   * `department: { id, name, color }`, so the FOREIGN department's name and
+   * colour came back inside this org's task payloads. The task also fell out of
+   * every department-scoped view — it matches no local department — and was
+   * evaluated against the wrong department's work rules.
+   *
+   * `EligibilityService.createOverride` already does exactly this for
+   * `membershipId`; the task paths were the ones still missing it.
+   */
+  private async assertDepartmentOwned(
+    departmentId: string,
+    organizationId: string
+  ) {
+    const dept = await this.deptRepo.findById(departmentId);
+    if (!dept || dept.organizationId !== organizationId) {
+      throw new Error("Department not found");
+    }
+  }
 
   async create(input: CreateTaskInput, orgId: string, userId: string) {
     await this.subscriptionService.enforceResourceLimit(orgId, 'active_tasks');
+
+    if (input.departmentId) {
+      await this.assertDepartmentOwned(input.departmentId, orgId);
+    }
     
     if ((input.scheduledStart && !input.scheduledEnd) || (!input.scheduledStart && input.scheduledEnd)) {
       throw new Error("Must provide both start and end time, or neither");
@@ -179,6 +216,13 @@ export class TaskService {
     const task = await this.taskRepo.findById(taskId);
     // Treat a cross-tenant task as non-existent — no read or write across orgs.
     if (!task || task.organizationId !== orgId) throw new Error("Task not found");
+
+    // Same reason as create — a moved task must not land in another tenant's
+    // department. `"departmentId" in input` with a falsy value clears it, which
+    // needs no ownership check.
+    if (input.departmentId) {
+      await this.assertDepartmentOwned(input.departmentId, orgId);
+    }
 
     const startProvided = "scheduledStart" in input;
     const endProvided = "scheduledEnd" in input;
@@ -323,7 +367,7 @@ export class TaskService {
       const assignedIds = new Set(
         task.assignments
           .filter((a) =>
-            ["pending", "accepted", "withdrawal_requested"].includes(a.status)
+            occupiesSlot(a.status)
           )
           .map((a) => a.membershipId)
       );
@@ -399,9 +443,8 @@ export class TaskService {
       membership: { userId: string } | null;
     }[];
   }): string[] {
-    const ACTIVE = ["pending", "accepted", "withdrawal_requested"];
     return task.assignments
-      .filter((a) => ACTIVE.includes(a.status) && a.membership?.userId)
+      .filter((a) => occupiesSlot(a.status) && a.membership?.userId)
       .map((a) => a.membership!.userId);
   }
 
@@ -426,14 +469,46 @@ export class TaskService {
     const task = await this.taskRepo.findById(taskId);
     if (!task || task.organizationId !== organizationId) throw new Error("Task not found");
 
+    /*
+     * De-duplicated before anything is counted.
+     *
+     * `membershipIds` arrives from the request body as a bare array of strings,
+     * so `["m1","m1"]` is a well-formed request. It used to charge two against
+     * the headcount and then create one row and fail on the second, leaving the
+     * caller a 500 and the task half-assigned.
+     */
+    const uniqueIds = [...new Set(membershipIds)];
+
+    /*
+     * A released row still occupies the unique key.
+     *
+     * `TaskAssignment` is unique on `(taskId, membershipId)` and rejecting a
+     * shift does not delete the row — it sets `status: "rejected"`. So the slot
+     * is free, the eligibility engine still lists the person, the UI offers
+     * them, and `create` throws P2002. The route had no branch for it, so
+     * re-offering a shift to whoever turned it down answered "Internal server
+     * error". Named here instead, where the reason is known.
+     */
+    const existingRows = await this.assignmentRepo.findByTaskId(taskId);
+    const alreadyOnTask = new Set(existingRows.map((a) => a.membershipId));
+    const duplicate = uniqueIds.find((id) => alreadyOnTask.has(id));
+    if (duplicate) {
+      const name =
+        existingRows.find((a) => a.membershipId === duplicate)?.membership.user
+          ?.name ?? "That staff member";
+      throw new Error(
+        `${name} already has a record on this task — remove it before assigning them again`
+      );
+    }
+
     const currentCount = await this.assignmentRepo.countActiveByTaskId(taskId);
-    if (currentCount + membershipIds.length > task.requiredHeadcount) {
+    if (currentCount + uniqueIds.length > task.requiredHeadcount) {
       throw new Error(
         `Assignment exceeds required headcount of ${task.requiredHeadcount}`
       );
     }
 
-    for (const membId of membershipIds) {
+    for (const membId of uniqueIds) {
       const membership = await this.membershipRepo.findById(membId);
       // A membership from another tenant must never be assignable to this
       // org's task — validate ownership before any role check.
@@ -449,13 +524,13 @@ export class TaskService {
       if (membership.status !== "active") {
         throw new Error("Staff member is deactivated");
       }
-      if (membership.role === "company_admin") {
+      if (!canBeRostered(membership.role)) {
         throw new Error("Company Admins cannot be assigned to tasks");
       }
     }
 
     if (task.scheduledStart && task.scheduledEnd) {
-      for (const membId of membershipIds) {
+      for (const membId of uniqueIds) {
         const conflicts = await this.taskRepo.findConflictingTasks(
           membId,
           task.scheduledStart,
@@ -490,7 +565,7 @@ export class TaskService {
     if (parseCompositionRules(task.compositionRules).length > 0) {
       const evaluation = await this.compositionService.evaluateForTask(
         taskId,
-        membershipIds
+        uniqueIds
       );
 
       if (!evaluation.feasible) {
@@ -501,7 +576,7 @@ export class TaskService {
         // first time it is inconvenient.
         const overridden = (
           await Promise.all(
-            membershipIds.flatMap((membId) => [
+            uniqueIds.flatMap((membId) => [
               this.overrideRepo.hasOverride(taskId, membId, "composition"),
               this.overrideRepo.hasOverride(taskId, membId, "all"),
             ])
@@ -520,7 +595,7 @@ export class TaskService {
     const assignmentStatus = settings.taskAcceptanceMode === "auto_accept" ? "accepted" : "pending";
 
     const assignments = [];
-    for (const membId of membershipIds) {
+    for (const membId of uniqueIds) {
       const engine = provenance?.byMembership?.[membId];
       const assignment = await this.assignmentRepo.create({
         taskId,
@@ -542,14 +617,14 @@ export class TaskService {
       entityType: "task",
       entityId: taskId,
       details: {
-        membershipIds,
+        membershipIds: uniqueIds,
         status: assignmentStatus,
         allocationSource: provenance?.source ?? null,
         allocationProvider: provenance?.provider ?? null,
       },
     });
 
-    for (const membId of membershipIds) {
+    for (const membId of uniqueIds) {
       const membership = await this.membershipRepo.findById(membId);
       if (membership) {
         void this.notificationService.notifyIfEnabled(

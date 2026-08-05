@@ -46,6 +46,12 @@ const ASSIGNMENT_STATUS_STYLES: Record<string, string> = {
     "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400",
   completed:
     "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300",
+  // Both "awaiting a manager's decision" states share the orange. They are the
+  // same thing to a reader — someone wants off this shift and nobody has said
+  // yes yet — and the difference between them is only where in the lifecycle
+  // it happened.
+  decline_requested:
+    "bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300",
   withdrawal_requested:
     "bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300",
   withdrawn:

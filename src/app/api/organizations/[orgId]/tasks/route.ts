@@ -7,15 +7,15 @@
  * List is accessible to all org members.
  */
 import { NextRequest, NextResponse } from "next/server";
+import { TASK_LIST_READERS } from "@/lib/permissions";
 import { TaskService } from "@/services/task.service";
 import { createTaskSchema } from "@/lib/validations";
 import { getAuthenticatedUser, unauthorizedResponse, checkOrgSuspended } from "@/lib/auth-guard";
-import { AccessService } from "@/services/access.service";
+import { requirePermission, requireAnyPermission } from "@/lib/permission-guard";
 import { SubscriptionLimitError, FeatureNotAvailableError } from "@/lib/subscription-tiers";
 import { departmentScopeFor, isDepartmentInScope } from "@/lib/department-scope";
 
 const taskService = new TaskService();
-const accessService = new AccessService();
 
 export async function POST(
   request: NextRequest,
@@ -29,10 +29,9 @@ export async function POST(
     const suspended = await checkOrgSuspended(orgId);
     if (suspended) return suspended;
 
-    const membership = await accessService.getMembership(user.id, orgId);
-    if (!membership || !["company_admin", "manager"].includes(membership.role)) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const gate = await requirePermission(user.id, orgId, "tasks:create");
+    if (!gate.ok) return gate.response;
+    const membership = gate.membership;
 
     const body = await request.json();
     const parsed = createTaskSchema.safeParse(body);
@@ -68,6 +67,15 @@ export async function POST(
     // Source: task.service.ts create() — lines 43, 50, 58, 61.
     if (
       error instanceof Error &&
+      // A department from another tenant is reported as missing, not as
+      // forbidden — the two must be indistinguishable, or the endpoint becomes
+      // a way to test whether a foreign id exists.
+      error.message === "Department not found"
+    ) {
+      return NextResponse.json({ error: error.message }, { status: 404 });
+    }
+    if (
+      error instanceof Error &&
       (error.message === "End time must be after start time" ||
         error.message === "Must provide both start and end time, or neither" ||
         error.message === "A recurring task must have a start and end time" ||
@@ -89,10 +97,15 @@ export async function GET(
 
     const { orgId } = await params;
 
-    const membership = await accessService.getMembership(user.id, orgId);
-    if (!membership) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    /*
+     * Membership alone was the whole check, so any staff member who typed the
+     * URL got this list in full — while the sidebar hid the link. The menu was
+     * right; the route was the half that had not been tightened. The readers
+     * are the task board and the calendar.
+     */
+    const gate = await requireAnyPermission(user.id, orgId, TASK_LIST_READERS);
+    if (!gate.ok) return gate.response;
+    const membership = gate.membership;
 
     const { searchParams } = new URL(request.url);
     const filters = {

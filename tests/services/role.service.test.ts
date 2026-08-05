@@ -46,7 +46,6 @@ describe("RoleService", () => {
     it("creates a custom role", async () => {
       const role = await roleService.create(
         {
-          name: "shift_lead",
           displayLabel: "Shift Lead",
           description: "Leads a shift",
           permissionIds: permissionIds.slice(0, 3),
@@ -60,10 +59,16 @@ describe("RoleService", () => {
       expect(role.rolePermissions).toHaveLength(3);
     });
 
-    it("throws if role name already exists in org", async () => {
+    /*
+     * This used to pass two DIFFERENT labels with the same internal name and
+     * assert the name collision. The form no longer asks for a name — it is
+     * derived — so the rule it was protecting moved onto the label, which is
+     * the field a duplicate is actually visible in. `role-naming.test.ts`
+     * covers the case-insensitive and whitespace variants.
+     */
+    it("throws if a role with the same label already exists in org", async () => {
       await roleService.create(
         {
-          name: "shift_lead",
           displayLabel: "Shift Lead",
           permissionIds: [permissionIds[0]],
         },
@@ -73,13 +78,12 @@ describe("RoleService", () => {
       await expect(
         roleService.create(
           {
-            name: "shift_lead",
-            displayLabel: "Another Shift Lead",
+            displayLabel: "Shift Lead",
             permissionIds: [permissionIds[1]],
           },
           orgId
         )
-      ).rejects.toThrow("Role name already exists");
+      ).rejects.toThrow(/already exists/);
     });
 
     it("blocks custom role creation on free tier", async () => {
@@ -91,7 +95,6 @@ describe("RoleService", () => {
       await expect(
         roleService.create(
           {
-            name: "shift_lead",
             displayLabel: "Shift Lead",
             permissionIds: [permissionIds[0]],
           },
@@ -105,7 +108,6 @@ describe("RoleService", () => {
       for (let i = 0; i < 10; i++) {
         await roleService.create(
           {
-            name: `role_${i}`,
             displayLabel: `Role ${i}`,
             permissionIds: [permissionIds[0]],
           },
@@ -116,7 +118,6 @@ describe("RoleService", () => {
       await expect(
         roleService.create(
           {
-            name: "role_11",
             displayLabel: "Role 11",
             permissionIds: [permissionIds[0]],
           },
@@ -130,7 +131,6 @@ describe("RoleService", () => {
     it("returns all roles for an org", async () => {
       await roleService.create(
         {
-          name: "shift_lead",
           displayLabel: "Shift Lead",
           permissionIds: [permissionIds[0]],
         },
@@ -138,7 +138,6 @@ describe("RoleService", () => {
       );
       await roleService.create(
         {
-          name: "senior_staff",
           displayLabel: "Senior Staff",
           permissionIds: [permissionIds[1]],
         },
@@ -154,7 +153,6 @@ describe("RoleService", () => {
     it("returns a role with permissions", async () => {
       const created = await roleService.create(
         {
-          name: "shift_lead",
           displayLabel: "Shift Lead",
           permissionIds: permissionIds.slice(0, 3),
         },
@@ -171,7 +169,6 @@ describe("RoleService", () => {
     it("updates display label", async () => {
       const role = await roleService.create(
         {
-          name: "shift_lead",
           displayLabel: "Shift Lead",
           permissionIds: [permissionIds[0]],
         },
@@ -187,7 +184,6 @@ describe("RoleService", () => {
     it("updates permissions", async () => {
       const role = await roleService.create(
         {
-          name: "shift_lead",
           displayLabel: "Shift Lead",
           permissionIds: permissionIds.slice(0, 2),
         },
@@ -222,7 +218,6 @@ describe("RoleService", () => {
     it("deletes a custom role", async () => {
       const role = await roleService.create(
         {
-          name: "shift_lead",
           displayLabel: "Shift Lead",
           permissionIds: [permissionIds[0]],
         },
@@ -254,7 +249,7 @@ describe("RoleService", () => {
   describe("getAllPermissions", () => {
     it("returns all seeded permissions", async () => {
       const permissions = await roleService.getAllPermissions();
-      expect(permissions.length).toBeGreaterThanOrEqual(34);
+      expect(permissions.length).toBeGreaterThanOrEqual(28);
     });
 
     it("permissions are grouped by category", async () => {

@@ -9,7 +9,6 @@
 "use client";
 
 import Link from "next/link";
-import { Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export interface NeedsAttentionItem {
@@ -19,7 +18,8 @@ export interface NeedsAttentionItem {
   actionLabel: string;
   actionUrl: string;
   entityId?: string;
-  isAiInsight?: boolean;
+  /** True when the action POSTs to `actionUrl` rather than navigating to it. */
+  actionPost?: boolean;
 }
 
 const severityStyles: Record<string, string> = {
@@ -48,18 +48,11 @@ export function NeedsAttention({ items }: { items: NeedsAttentionItem[] }) {
             key={`${item.type}-${item.entityId ?? i}`}
             className={`flex items-center justify-between rounded-lg px-4 py-3 text-sm ${severityStyles[item.severity]}`}
           >
-            <span className="mr-4 leading-snug">
-              {item.isAiInsight && (
-                <span className="mr-1.5 inline-flex items-center gap-1 rounded bg-white/60 px-1.5 py-0.5 text-xs font-medium dark:bg-white/10">
-                  {/* The AI motif — same mark as the admin dashboard and the
-                      assign modal, each of which carried its own four-pointed
-                      star glyph before this. */}
-                  <Sparkles className="h-3 w-3" aria-hidden="true" />
-                  AI Insight
-                </span>
-              )}
-              {item.message}
-            </span>
+            {/* No badge. Every row here is a threshold check over a SQL
+                join; four of them used to wear an "AI Insight" mark and it
+                was decoration. The model's contribution to this page is the
+                priority call, which marks one row and writes none of them. */}
+            <span className="mr-4 leading-snug">{item.message}</span>
             <Link href={item.actionUrl}>
               <Button
                 variant="outline"

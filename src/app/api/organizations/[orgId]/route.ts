@@ -9,6 +9,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
 import { AccessService } from "@/services/access.service";
+import { requirePermission } from "@/lib/permission-guard";
 import { OrganizationService } from "@/services/organization.service";
 import { updateOrganizationSchema } from "@/lib/validations";
 import { checkOrgActive } from "@/lib/org-guard";
@@ -54,15 +55,11 @@ export async function PATCH(
 
     const { orgId } = await params;
 
-    // Verify company_admin role
-    const membership = await accessService.getMembership(user.id, orgId);
-    if (
-      !membership ||
-      membership.status !== "active" ||
-      membership.role !== "company_admin"
-    ) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    // The `status !== "active"` clause this replaced was redundant —
+    // `getMembership` already filters to active memberships — but harmless,
+    // and the guard keeps that behaviour.
+    const gate = await requirePermission(user.id, orgId, "organization:update");
+    if (!gate.ok) return gate.response;
 
     // Block mutations on suspended orgs
     const isActive = await checkOrgActive(orgId);

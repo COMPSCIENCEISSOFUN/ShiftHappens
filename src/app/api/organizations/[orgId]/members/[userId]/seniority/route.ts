@@ -18,10 +18,10 @@ import {
   unauthorizedResponse,
   checkOrgSuspended,
 } from "@/lib/auth-guard";
-import { AccessService } from "@/services/access.service";
+import { requirePermission } from "@/lib/permission-guard";
+import { departmentScopeFor } from "@/lib/department-scope";
 
 const seniorityService = new SeniorityService();
-const accessService = new AccessService();
 
 export async function PATCH(
   request: NextRequest,
@@ -36,10 +36,8 @@ export async function PATCH(
     const suspended = await checkOrgSuspended(orgId);
     if (suspended) return suspended;
 
-    const membership = await accessService.getMembership(user.id, orgId);
-    if (!membership || !["company_admin", "manager"].includes(membership.role)) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const gate = await requirePermission(user.id, orgId, "members:update_seniority");
+    if (!gate.ok) return gate.response;
 
     const body = await request.json();
     const parsed = seniorityOverrideSchema.safeParse(body);
@@ -55,7 +53,8 @@ export async function PATCH(
       orgId,
       userId,
       parsed.data.seniorityOverride,
-      user.id
+      user.id,
+      departmentScopeFor(gate.membership)
     );
 
     return NextResponse.json(updated);

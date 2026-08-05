@@ -23,11 +23,11 @@ import {
   unauthorizedResponse,
   checkOrgSuspended,
 } from "@/lib/auth-guard";
-import { AccessService } from "@/services/access.service";
+import { requirePermission } from "@/lib/permission-guard";
+import { departmentScopeFor } from "@/lib/department-scope";
 import { z } from "zod";
 
 const recurringTaskService = new RecurringTaskService();
-const accessService = new AccessService();
 
 const bodySchema = z.object({
   horizonDays: z.number().int().min(1).max(365).optional(),
@@ -45,10 +45,8 @@ export async function POST(
     const suspended = await checkOrgSuspended(orgId);
     if (suspended) return suspended;
 
-    const membership = await accessService.getMembership(user.id, orgId);
-    if (!membership || !["company_admin", "manager"].includes(membership.role)) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const gate = await requirePermission(user.id, orgId, "tasks:create");
+    if (!gate.ok) return gate.response;
 
     // Body is optional — an empty POST uses the default horizon.
     let horizonDays = DEFAULT_HORIZON_DAYS;
@@ -69,7 +67,8 @@ export async function POST(
     const result = await recurringTaskService.generateForOrganization(
       orgId,
       horizonDays,
-      user.id
+      user.id,
+      departmentScopeFor(gate.membership)
     );
 
     return NextResponse.json(result);

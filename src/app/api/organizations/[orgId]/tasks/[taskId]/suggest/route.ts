@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { AllocationService } from "@/services/allocation.service";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
 import { AccessService } from "@/services/access.service";
+import { requirePermission } from "@/lib/permission-guard";
 
 const allocationService = new AllocationService();
 const accessService = new AccessService();
@@ -23,10 +24,9 @@ export async function GET(
 
     const { orgId, taskId } = await params;
 
-    const membership = await accessService.getMembership(user.id, orgId);
-    if (!membership || !["company_admin", "manager"].includes(membership.role)) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const gate = await requirePermission(user.id, orgId, "allocation:use_suggestions");
+    if (!gate.ok) return gate.response;
+    const membership = gate.membership;
 
     if (!(await accessService.isTaskInScope(taskId, membership))) {
       return NextResponse.json({ error: "Task not found" }, { status: 404 });

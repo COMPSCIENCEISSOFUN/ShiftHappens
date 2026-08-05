@@ -190,7 +190,7 @@ export default function OnboardingPage() {
   useEffect(() => {
     async function fetchTemplates() {
       try {
-        const res = await fetch("/api/platform/templates");
+        const res = await fetch("/api/industry-templates");
         if (res.ok) {
           const data = await res.json();
           setTemplates(data);

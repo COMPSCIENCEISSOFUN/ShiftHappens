@@ -20,11 +20,10 @@ import {
   unauthorizedResponse,
   checkOrgSuspended,
 } from "@/lib/auth-guard";
-import { AccessService } from "@/services/access.service";
+import { requirePermission } from "@/lib/permission-guard";
 import { departmentScopeFor } from "@/lib/department-scope";
 
 const hourAlertService = new HourAlertService();
-const accessService = new AccessService();
 
 /**
  * Verifies the caller is an admin/manager of the org.
@@ -34,14 +33,9 @@ const accessService = new AccessService();
  * the gate and the scope drift apart.
  */
 async function requireManager(userId: string, orgId: string) {
-  const membership = await accessService.getMembership(userId, orgId);
-  if (!membership || !["company_admin", "manager"].includes(membership.role)) {
-    return {
-      forbidden: NextResponse.json({ error: "Forbidden" }, { status: 403 }),
-      membership: null,
-    };
-  }
-  return { forbidden: null, membership };
+  const gate = await requirePermission(userId, orgId, "reports:view");
+  if (!gate.ok) return { forbidden: gate.response, membership: null };
+  return { forbidden: null, membership: gate.membership };
 }
 
 export async function GET(

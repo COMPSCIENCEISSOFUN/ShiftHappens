@@ -89,7 +89,15 @@ export const ROUTES: RouteSpec[] = [
   org("checkout", "POST", ADMIN),
   org("invitations", "GET", ADMIN),
   org("invitations", "POST", ADMIN, { suspension: true }),
-  org("members", "GET", MEMBER),
+  /*
+   * MANAGER, not MEMBER. These four reference lists required only membership,
+   * so any staff member who typed the URL got the org's whole task board,
+   * member directory (names, emails, roles), department list and custom-role
+   * map — while the sidebar hid every one of those links. The menu was right.
+   * The permission sets are `*_LIST_READERS` in src/lib/permissions.ts, each
+   * naming the screens that consume the endpoint.
+   */
+  org("members", "GET", MANAGER),
   org("members/[userId]", "PATCH", ADMIN, { suspension: true, extraParams: ["userId"] }),
   org("members/[userId]/toggle-status", "POST", ADMIN, { suspension: true, extraParams: ["userId"] }),
   // MANAGER where its siblings are ADMIN, deliberately. Seniority is a
@@ -97,17 +105,23 @@ export const ROUTES: RouteSpec[] = [
   // blocked by a composition rule they cannot resolve will delete the rule.
   org("members/seniority", "GET", MANAGER),
   org("members/[userId]/seniority", "PATCH", MANAGER, { suspension: true, extraParams: ["userId"] }),
+  // A nudge, not an edit — there is deliberately no endpoint for writing
+  // another member's availability. See the route's own docblock.
+  org("members/[userId]/request-availability", "POST", MANAGER, {
+    suspension: true,
+    extraParams: ["userId"],
+  }),
   org("members/import", "POST", ADMIN, { suspension: true }),
 
   // ── Departments ─────────────────────────────────────────────────────
-  org("departments", "GET", MEMBER),
+  org("departments", "GET", MANAGER),
   org("departments", "POST", ADMIN, { suspension: true }),
   org("departments/[deptId]", "GET", ADMIN, { extraParams: ["deptId"] }),
   org("departments/[deptId]", "PATCH", ADMIN, { suspension: true, extraParams: ["deptId"] }),
   org("departments/[deptId]", "DELETE", ADMIN, { suspension: true, extraParams: ["deptId"] }),
 
   // ── Roles ───────────────────────────────────────────────────────────
-  org("roles", "GET", MEMBER),
+  org("roles", "GET", MANAGER),
   org("roles", "POST", ADMIN, { suspension: true }),
   org("roles/[roleId]", "GET", MEMBER, { extraParams: ["roleId"] }),
   org("roles/[roleId]", "PATCH", ADMIN, { suspension: true, extraParams: ["roleId"] }),
@@ -120,18 +134,18 @@ export const ROUTES: RouteSpec[] = [
   org("work-rules/[ruleId]", "DELETE", ADMIN, { suspension: true, extraParams: ["ruleId"] }),
 
   // ── Tasks ───────────────────────────────────────────────────────────
-  org("tasks", "GET", MEMBER),
+  org("tasks", "GET", MANAGER),
   org("tasks", "POST", MANAGER, { suspension: true }),
   org("tasks/[taskId]", "GET", MEMBER, { extraParams: ["taskId"] }),
   org("tasks/[taskId]", "PATCH", MANAGER, { suspension: true, extraParams: ["taskId"] }),
   org("tasks/[taskId]", "DELETE", MANAGER, { suspension: true, extraParams: ["taskId"] }),
   org("tasks/[taskId]/assign", "POST", MANAGER, { suspension: true, extraParams: ["taskId"] }),
-  org("tasks/[taskId]/auto-allocate", "POST", MANAGER, { extraParams: ["taskId"] }),
+  org("tasks/[taskId]/auto-allocate", "POST", MANAGER, { suspension: true, extraParams: ["taskId"] }),
   org("tasks/[taskId]/eligibility", "GET", MANAGER, { extraParams: ["taskId"] }),
-  org("tasks/[taskId]/eligibility/override", "POST", MANAGER, { extraParams: ["taskId"] }),
+  org("tasks/[taskId]/eligibility/override", "POST", MANAGER, { suspension: true, extraParams: ["taskId"] }),
   org("tasks/[taskId]/suggest", "GET", MANAGER, { extraParams: ["taskId"] }),
-  org("tasks/assignments/[assignmentId]", "DELETE", MANAGER, { extraParams: ["assignmentId"] }),
-  org("tasks/parse", "POST", MANAGER),
+  org("tasks/assignments/[assignmentId]", "DELETE", MANAGER, { suspension: true, extraParams: ["assignmentId"] }),
+  org("tasks/parse", "POST", MANAGER, { suspension: true }),
   org("recurring-tasks/generate", "POST", MANAGER, { suspension: true }),
 
   // ── Scheduling & availability ───────────────────────────────────────
@@ -148,9 +162,9 @@ export const ROUTES: RouteSpec[] = [
   org("certifications", "GET", MANAGER),
   org("certifications", "POST", MEMBER, { suspension: true }),
   org("certifications/[certId]", "GET", MEMBER, { extraParams: ["certId"] }),
-  org("certifications/[certId]", "PATCH", MANAGER, { extraParams: ["certId"] }),
-  org("certifications/[certId]", "POST", MANAGER, { extraParams: ["certId"] }),
-  org("certifications/[certId]", "DELETE", MEMBER, { extraParams: ["certId"] }),
+  org("certifications/[certId]", "PATCH", MANAGER, { suspension: true, extraParams: ["certId"] }),
+  org("certifications/[certId]", "POST", MANAGER, { suspension: true, extraParams: ["certId"] }),
+  org("certifications/[certId]", "DELETE", MEMBER, { suspension: true, extraParams: ["certId"] }),
   org("my-certifications", "GET", MEMBER),
 
   // ── Personal views ──────────────────────────────────────────────────
@@ -163,7 +177,7 @@ export const ROUTES: RouteSpec[] = [
   // ── Reporting & insight ─────────────────────────────────────────────
   org("dashboard", "GET", MEMBER),
   org("dashboard/ai-recommendations", "GET", MANAGER),
-  org("dashboard-insights", "GET", MANAGER),
+  org("dashboard/feedback-themes", "GET", MANAGER),
   org("hour-alerts", "GET", MANAGER),
   org("hour-alerts", "POST", MANAGER, { suspension: true }),
   org("reports", "GET", MANAGER),
@@ -212,6 +226,16 @@ export const ROUTES: RouteSpec[] = [
     suspension: true,
     extraParams: ["assignmentId"],
   },
+  {
+    path: "assignments/[assignmentId]/decline",
+    method: "POST",
+    auth: "session",
+    roles: MANAGER,
+    orgScoped: true,
+    orgIdInQuery: true,
+    suspension: true,
+    extraParams: ["assignmentId"],
+  },
 
   // ── Authenticated but not org-scoped ────────────────────────────────
   { path: "organizations", method: "GET", auth: "session" },
@@ -233,16 +257,21 @@ export const ROUTES: RouteSpec[] = [
   { path: "platform/organizations", method: "GET", auth: "platform" },
   { path: "platform/organizations/[orgId]", method: "GET", auth: "platform", extraParams: ["orgId"] },
   { path: "platform/organizations/[orgId]", method: "PATCH", auth: "platform", extraParams: ["orgId"] },
-  {
-    path: "platform/templates",
-    method: "GET",
-    auth: "session",
-    note: "KNOWN GAP: the isPlatformAdmin lookup only branches the response, it never denies. Any authenticated user can list active templates. Sibling [templateId] GET does deny.",
-  },
+  { path: "platform/templates", method: "GET", auth: "session" },
   { path: "platform/templates", method: "POST", auth: "session" },
   { path: "platform/templates/[templateId]", method: "GET", auth: "session", extraParams: ["templateId"] },
   { path: "platform/templates/[templateId]", method: "PATCH", auth: "session", extraParams: ["templateId"] },
   { path: "platform/templates/[templateId]", method: "DELETE", auth: "session", extraParams: ["templateId"] },
+
+  /*
+   * The member-facing half of what `platform/templates` GET used to serve.
+   *
+   * Session only, and deliberately NO membership requirement: a user
+   * mid-onboarding has no organisation yet, and this is the list they choose
+   * one from. It returns active templates and nothing else — the usage counts
+   * stayed behind the platform guard, being a cross-tenant aggregate.
+   */
+  { path: "industry-templates", method: "GET", auth: "session" },
 
   // ── Public by design ────────────────────────────────────────────────
   { path: "register", method: "POST", auth: "public" },

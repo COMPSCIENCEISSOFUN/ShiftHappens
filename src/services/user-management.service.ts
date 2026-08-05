@@ -19,6 +19,8 @@ import { UserRepository } from "@/repositories/user.repository";
 import { OrganizationRepository } from "@/repositories/organization.repository";
 import { RoleRepository } from "@/repositories/role.repository";
 import { DepartmentRepository } from "@/repositories/department.repository";
+import { AccessService } from "@/services/access.service";
+import { roleRank } from "@/lib/role-config";
 import { EmailService } from "@/services/email.service";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 import { SubscriptionService } from "@/services/subscription.service";
@@ -34,6 +36,7 @@ export class UserManagementService {
   private emailService = new EmailService();
   private auditService = new AuditLogService();
   private subscriptionService = new SubscriptionService();
+  private accessService = new AccessService();
 
   /**
    * Lists an org's members, optionally limited to a department scope.
@@ -79,6 +82,9 @@ export class UserManagementService {
     organizationId: string,
     invitedById: string
   ) {
+    const inviter = await this.requireActor(organizationId, invitedById);
+    this.assertMayGrantRole(roleRank(inviter.role), input.role);
+
     await this.subscriptionService.enforceResourceLimit(organizationId, 'members');
 
     // Check if the email already belongs to a member of this org
@@ -175,6 +181,105 @@ export class UserManagementService {
    * Auto-clears custom role when promoting to company_admin
    * (admins have full access — custom roles are redundant).
    */
+  /**
+   * Refuses a role change that would reach above the person making it.
+   *
+   * ## Why this exists
+   *
+   * `members:update_role` used to be reachable only by a company_admin, so
+   * these checks would have been dead code — an admin promoting themselves
+   * changes nothing. Once permissions became enforceable, an org admin could
+   * grant that permission to a custom role, and the picker describes it as
+   * "Update member roles". An admin reading that reasonably expects "this
+   * person can move staff between Staff and Manager".
+   *
+   * What it actually allowed was one request:
+   *
+   *     PATCH /organizations/{org}/members/{their own id}  { role: "company_admin" }
+   *
+   * `userId` comes from the URL and was never compared against the caller, and
+   * `company_admin` was an accepted value. The holder made themselves the owner
+   * of the organisation — billing, audit log, and the roles system itself.
+   *
+   * ## The rule
+   *
+   * Nobody may change their own role, and nobody may reach above their own
+   * level in either direction. The third clause matters as much as the first
+   * two: without it a manager could not promote anyone to admin, but could
+   * DEMOTE one, which is the same authority pointed the other way.
+   *
+   * Enforced here rather than in the route so that every caller is covered —
+   * the escalation was possible precisely because a check lived somewhere a new
+   * code path did not have to pass through.
+   */
+  private async assertMayChangeRole(
+    organizationId: string,
+    target: { id: string; role: string },
+    newRole: string,
+    performedById?: string
+  ) {
+    // No identified actor means an internal call with no session behind it —
+    // there is no "own role" to protect and no privilege to exceed, so there is
+    // nothing to compare. Every route-reachable caller passes one.
+    if (!performedById) return;
+
+    const actor = await this.requireActor(organizationId, performedById);
+
+    if (actor.id === target.id) {
+      throw new Error("You cannot change your own role");
+    }
+
+    const actorRank = roleRank(actor.role);
+    if (roleRank(newRole) > actorRank) {
+      throw new Error("You cannot grant a role above your own");
+    }
+    if (roleRank(target.role) > actorRank) {
+      throw new Error("You cannot change the role of a member above your own");
+    }
+  }
+
+  /**
+   * The acting member, or a refusal.
+   *
+   * Every authority comparison in this service starts here. An actor with no
+   * active membership should never have passed the route gate, so reaching
+   * this with nothing found means something is wrong upstream — refusing is
+   * the only safe reading.
+   */
+  private async requireActor(organizationId: string, performedById: string) {
+    const actor = await this.membershipRepo.findByUserAndOrg(
+      performedById,
+      organizationId
+    );
+    if (!actor) throw new Error("Not authorized to change roles");
+    return actor;
+  }
+
+  /**
+   * Refuses CREATING a membership at a role above the creator's own.
+   *
+   * `assertMayChangeRole` guards the edit path and was, for a while, the only
+   * guard — which left the two paths that mint a membership rather than amend
+   * one wide open. Both are reachable with `members:invite` alone:
+   *
+   *     POST /organizations/{org}/invitations   { email, role: "manager" }
+   *     POST /organizations/{org}/members/import  [{ …, role: "manager" }]
+   *
+   * A staff member holding a "Recruiter" custom role could invite an address
+   * they control as a manager, accept it, and arrive at an authority their own
+   * account was never granted — the same escalation as the role picker, one
+   * door along. The rule is the edit path's second clause: you cannot hand out
+   * what you do not hold.
+   *
+   * Takes the resolved actor rather than an id so the batch importer can look
+   * it up once for a hundred rows instead of once per row.
+   */
+  private assertMayGrantRole(actorRank: number, newRole: string) {
+    if (roleRank(newRole) > actorRank) {
+      throw new Error("You cannot grant a role above your own");
+    }
+  }
+
   async updateMemberRole(
     userId: string,
     organizationId: string,
@@ -193,6 +298,35 @@ export class UserManagementService {
     }
 
     const previousRole = membership.role;
+
+    await this.assertMayChangeRole(
+      organizationId,
+      membership,
+      input.role,
+      performedById
+    );
+
+    /*
+     * Validated here, though it is written by `assignCustomRole` afterwards.
+     *
+     * The route applies the two halves in sequence, and this half used to be
+     * checked only once the first had already committed. A request naming a
+     * custom role from another organisation returned 404 — after the system
+     * role, employment type and departments had been written and audit-logged.
+     * The screen said it failed; the database said the member was promoted.
+     *
+     * Checking up front costs one lookup and makes the pair behave as one
+     * decision: either every refusal lands before any write, or none of them
+     * do.
+     */
+    if (input.customRoleId) {
+      await this.assertCustomRoleAssignable(
+        organizationId,
+        input.customRoleId,
+        input.role,
+        performedById
+      );
+    }
 
     // Prevent demoting the last company_admin
     if (membership.role === "company_admin" && input.role !== "company_admin") {
@@ -251,6 +385,65 @@ export class UserManagementService {
   }
 
   /**
+   * Refuses a custom role that must not be assigned, before anything is written.
+   *
+   * Three separate refusals, all of them about the role rather than the member:
+   * it must belong to this organisation, it must not be one of the system
+   * roles masquerading as a custom one, and — the one added last — it must not
+   * carry a permission the person assigning it does not hold.
+   *
+   * That last rule is the second escalation door. Blocking self-assignment
+   * closes the direct route; this closes the one that goes through somebody
+   * else. A manager holding only `members:update_role` could otherwise pick
+   * any staff member, give them a role carrying `billing:manage`,
+   * `roles:manage` and `audit:view`, and have every one of those exercised on
+   * request — authority delegated by proxy, by someone who never had it.
+   *
+   * A subset test rather than an admin-only rule, because delegating a
+   * NARROWER role is exactly what the permission is for. A company admin holds
+   * the whole catalogue, so this never constrains one.
+   *
+   * `effectiveRole` is the role the member will hold once the request
+   * finishes, not necessarily the one they hold now — a request that promotes
+   * someone to admin and assigns a custom role in the same breath has to be
+   * judged on where it lands.
+   */
+  private async assertCustomRoleAssignable(
+    organizationId: string,
+    customRoleId: string | null,
+    effectiveRole: string,
+    performedById?: string,
+    resolvedActor?: Awaited<ReturnType<typeof this.requireActor>> | null
+  ) {
+    if (effectiveRole === "company_admin" && customRoleId !== null) {
+      throw new Error("Company Admins cannot be assigned custom roles");
+    }
+    if (!customRoleId) return;
+
+    const role = await this.roleRepo.findById(customRoleId);
+    if (!role || role.organizationId !== organizationId) {
+      throw new Error("Custom role not found");
+    }
+    if (role.isSystemRole) {
+      throw new Error("Cannot assign system roles as custom roles");
+    }
+
+    if (!performedById) return;
+    const actor =
+      resolvedActor ?? (await this.requireActor(organizationId, performedById));
+
+    const held = this.accessService.permissionsFor(actor);
+    const excess = role.rolePermissions
+      .map((rp) => rp.permission.name)
+      .filter((name) => !held.has(name));
+    if (excess.length > 0) {
+      throw new Error(
+        `You cannot grant permissions you do not hold: ${excess.join(", ")}`
+      );
+    }
+  }
+
+  /**
    * Assigns a custom role to a member.
    * Company admins cannot have custom roles (they have full access).
    * Pass null to clear the custom role.
@@ -262,7 +455,7 @@ export class UserManagementService {
     performedById?: string
   ) {
     // Including inactive: administering the target member, not authorising the
-    // caller. The route has already checked the caller is a company admin.
+    // caller.
     const membership =
       await this.membershipRepo.findByUserAndOrgIncludingInactive(
         userId,
@@ -272,20 +465,37 @@ export class UserManagementService {
       throw new Error("Membership not found");
     }
 
-    if (membership.role === "company_admin" && customRoleId !== null) {
-      throw new Error("Company Admins cannot be assigned custom roles");
+    /*
+     * The same escalation by a different door.
+     *
+     * Guarding only the SYSTEM role would leave this open: a holder of
+     * `members:update_role` who cannot promote themselves could instead give
+     * themselves an existing custom role carrying every permission, which is
+     * the same authority without the title. Both routes into this service run
+     * off one permission, so both need the same rule.
+     *
+     * Assigning a custom role to someone ELSE stays allowed — that is the
+     * delegation the permission is for.
+     */
+    let actor: Awaited<ReturnType<typeof this.requireActor>> | null = null;
+    if (performedById) {
+      actor = await this.requireActor(organizationId, performedById);
+      if (actor.id === membership.id) {
+        throw new Error("You cannot change your own role");
+      }
+      if (roleRank(membership.role) > roleRank(actor.role)) {
+        throw new Error("You cannot change the role of a member above your own");
+      }
     }
 
     // Validate custom role exists in the org if assigning (not clearing)
-    if (customRoleId) {
-      const role = await this.roleRepo.findById(customRoleId);
-      if (!role || role.organizationId !== organizationId) {
-        throw new Error("Custom role not found");
-      }
-      if (role.isSystemRole) {
-        throw new Error("Cannot assign system roles as custom roles");
-      }
-    }
+    await this.assertCustomRoleAssignable(
+      organizationId,
+      customRoleId,
+      membership.role,
+      performedById,
+      actor
+    );
 
     await this.membershipRepo.updateCustomRole(membership.id, customRoleId);
 
@@ -317,6 +527,32 @@ export class UserManagementService {
       );
     if (!membership) {
       throw new Error("Membership not found");
+    }
+
+    /*
+     * Deactivation is a role change with no role picker.
+     *
+     * `findByUserAndOrg` filters on `status: "active"`, so an inactive
+     * membership resolves to nothing and every guard in the product refuses
+     * the person — which makes `members:deactivate` an authority switch, not
+     * an administrative convenience. Without a rank check a staff member
+     * holding that one permission could deactivate every company admin and
+     * every manager in turn and lock the organisation out of itself.
+     *
+     * The self-check is not vanity: an admin deactivating themselves while
+     * other admins remain passes the last-admin guard below and leaves them
+     * unable to undo it.
+     */
+    if (performedById) {
+      const actor = await this.requireActor(organizationId, performedById);
+      if (actor.id === membership.id) {
+        throw new Error("You cannot change your own status");
+      }
+      if (roleRank(membership.role) > roleRank(actor.role)) {
+        throw new Error(
+          "You cannot change the status of a member above your own"
+        );
+      }
     }
 
     // Prevent deactivating the last active admin
@@ -370,6 +606,12 @@ export class UserManagementService {
     }[],
     performedById: string
   ): Promise<{ created: number; failed: number; errors: string[] }> {
+    // Resolved once for the whole batch — the rank is the same for every row,
+    // and a hundred rows should not mean a hundred authorisation lookups.
+    const importerRank = roleRank(
+      (await this.requireActor(organizationId, performedById)).role
+    );
+
     // Pre-fetch org departments for name → ID lookup
     const departments = await this.deptRepo.findByOrganizationId(organizationId);
     const deptMap = new Map(
@@ -404,6 +646,18 @@ export class UserManagementService {
         // Check existing membership
         if (existingEmails.has(email)) {
           errors.push(`Row ${email}: Already a member`);
+          failed++;
+          continue;
+        }
+
+        // Refused per row rather than for the whole file: a spreadsheet with
+        // one row typed above the importer's authority should not discard the
+        // ninety-nine that were fine, and the error names the row so it can be
+        // corrected and re-uploaded.
+        if (roleRank(member.role) > importerRank) {
+          errors.push(
+            `Row ${email}: Cannot import a member at a role above your own`
+          );
           failed++;
           continue;
         }

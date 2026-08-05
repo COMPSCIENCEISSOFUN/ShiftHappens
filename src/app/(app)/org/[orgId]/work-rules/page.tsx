@@ -57,6 +57,7 @@ import {
   SECONDARY_BUTTON,
   DANGER_GHOST_BUTTON,
 } from "@/components/ui/button-styles";
+import { usePermissions } from "@/components/layout/permission-provider";
 
 /* ------------------------------------------------------------------ */
 /*  Types and constants                                                */
@@ -91,7 +92,7 @@ const RULE_TYPES = [
   {
     value: "break_interval",
     label: "Break interval",
-    description: "Require a break after X hours worked",
+    description: "Require time off between shifts, after a long one",
   },
   {
     value: "max_hours_daily",
@@ -129,6 +130,7 @@ const SELECT_CLASS =
 /* ------------------------------------------------------------------ */
 
 export default function WorkRulesPage() {
+  const { can } = usePermissions();
   const params = useParams();
   const orgId = params.orgId as string;
 
@@ -353,7 +355,27 @@ export default function WorkRulesPage() {
     return parts.length > 0 ? parts.join(" · ") : "All staff";
   }
 
+
   if (loading) return <PageLoading />;
+
+  /*
+   * The sidebar no longer links here without `work_rules:manage`, but the URL
+   * still resolved — and this page had no check of its own, so it
+   * rendered its full surface and every action returned 403.
+   *
+   * Not a security boundary. The routes enforce this independently;
+   * this is so the product does not offer what it will refuse.
+   */
+  if (!can("work_rules:manage")) {
+    return (
+      <div className="w-full">
+        <EmptyState
+          title="Work rules are managed by company admins"
+          description="Ask an admin to add or change an hour limit or rest rule."
+        />
+      </div>
+    );
+  }
 
   /**
    * System roles are excluded at the point of USE, not when fetching.
@@ -478,8 +500,16 @@ export default function WorkRulesPage() {
               {formType === "break_interval" ? (
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="space-y-1.5">
+                    {/*
+                      "After every N hours" described the rule this replaced,
+                      and it means something quite different now: N gates which
+                      shifts DEMAND the rest, it is not an interval at which a
+                      break is inserted. Since `breakHours` is enforced for the
+                      first time, an admin reading the old label would have
+                      configured a rule that behaves nothing like they intend.
+                    */}
                     <Label htmlFor="rule-threshold" className="text-xs">
-                      After every (hours)
+                      Shifts of at least (hours)
                     </Label>
                     <Input
                       id="rule-threshold"
@@ -494,14 +524,14 @@ export default function WorkRulesPage() {
                   </div>
                   <div className="space-y-1.5">
                     <Label htmlFor="rule-break" className="text-xs">
-                      Require break (hours)
+                      Rest required (hours)
                     </Label>
                     <Input
                       id="rule-break"
                       type="number"
                       value={formBreakHours}
                       onChange={(e) => setFormBreakHours(e.target.value)}
-                      placeholder="e.g. 1"
+                      placeholder="e.g. 11"
                       min="0.5"
                       step="0.5"
                       className="h-9 text-sm"
@@ -650,7 +680,7 @@ export default function WorkRulesPage() {
                         </p>
                         <p className="mt-0.5 text-[12px] text-muted-foreground">
                           {rule.type === "break_interval"
-                            ? `Every ${rule.hoursThreshold}h → ${rule.breakHours}h break`
+                            ? `Shifts ≥ ${rule.hoursThreshold}h → ${rule.breakHours}h rest either side`
                             : `Max ${rule.maxHours}h per ${
                                 rule.type === "max_hours_daily" ? "day" : "week"
                               }`}

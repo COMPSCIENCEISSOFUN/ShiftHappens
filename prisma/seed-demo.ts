@@ -13,9 +13,16 @@
  * - 2 Managers (with department assignments)
  * - 8 Staff members (with department assignments + employment types)
  * - 3 Departments (with colors)
- * - 5 upcoming tasks (tomorrow)
- * - 15+ historical completed tasks (past 7 days)
+ * - 5 upcoming tasks (tomorrow), two carrying composition rules
+ * - 90 days of historical completed tasks, department-scoped
  * - Completed assignments with clock in/out data
+ * - A deliberate seniority spread — each department has a senior, an
+ *   experienced and a junior member, so composition rules can be shown
+ *   refusing and permitting rather than described
+ * - Satisfaction ratings correlated with the engine's rank, so the
+ *   "did the top pick enjoy it more?" comparison has something to say
+ * - Response timestamps, including rows deliberately left unanswered so the
+ *   "no reply recorded" bucket is visible rather than theoretical
  * - Rejected assignments (for AI rejection pattern detection)
  * - Availability schedules
  * - Certifications across the whole lifecycle — awaiting review, verified,
@@ -80,6 +87,231 @@ function allocationProvenanceFor(seed: number): {
   };
 }
 
+
+/**
+ * How far back the shift history runs.
+ *
+ * Long enough that a member working every other day clears the 40-shift senior
+ * threshold in every department, not just the one that opens on Sundays. At 90
+ * days the bar and front-of-house leads landed on 37 — under the line, so two
+ * of the three departments had no senior at all and the rules referring to one
+ * could not be shown working.
+ *
+ * A week of history, which is what this seed used to create, leaves every
+ * member on zero and every panel on its empty state.
+ */
+const HISTORY_DAYS = 105;
+
+/**
+ * How often each staff member works, in days.
+ *
+ * This is the whole point of the history: it manufactures a seniority spread.
+ * Every department ends up with someone well past the senior threshold,
+ * someone comfortably experienced, and someone still junior — which is exactly
+ * the roster a rule like "at most 1 junior on this shift" needs in order to
+ * refuse one assignment and permit the next.
+ *
+ * Keyed by email because membership ids are generated and differ per database,
+ * while these addresses are fixed by this file.
+ */
+const SHIFT_CADENCE: Record<string, number> = {
+  // Managers work the floor too. Without history they read "Junior — 0
+  // completed shifts", which is both odd on screen and wrong for the rules:
+  // a manager is not the junior a composition constraint is guarding against.
+  "sarah@oceangrill.com": 4,
+  "marcus@oceangrill.com": 4,
+  // Kitchen — Alex and Jamie carry the department, Taylor is solid, Morgan is new.
+  "alex@oceangrill.com": 2,
+  "jamie@oceangrill.com": 2,
+  "taylor@oceangrill.com": 5,
+  "morgan@oceangrill.com": 14,
+  // Bar
+  "jordan@oceangrill.com": 2,
+  "sam@oceangrill.com": 13,
+  // Front of House
+  "casey@oceangrill.com": 2,
+  "riley@oceangrill.com": 15,
+};
+
+/** Anyone not named above still appears occasionally rather than never. */
+const DEFAULT_CADENCE = 9;
+
+/**
+ * A staff member's own rating of a worked shift, or null for "not rated".
+ *
+ * Deliberately correlated with the engine's rank: shifts where the engine's
+ * top pick took the job score higher than shifts filled further down the list.
+ * That correlation is the demo — it is what makes the satisfaction panel's
+ * rank-1-versus-the-rest comparison show a gap instead of two identical
+ * numbers. It is seeded data making a plausible claim, not evidence, and the
+ * panel says as much on screen.
+ *
+ * Around 40% are left unrated, because in practice most people do not fill in
+ * an optional box, and a 100% response rate would be the least believable
+ * number on the page.
+ */
+function ratingFor(seed: number, rank: number | undefined): number | null {
+  if (seed % 5 >= 3) return null;
+
+  if (rank === 1) return seed % 4 === 0 ? 4 : 5;
+
+  if (rank !== undefined) {
+    // A visible gap below the top pick, but not a chasm. An earlier version
+    // put lower-ranked picks on 2s and 3s, which produced 4.8 against 2.9 on
+    // the panel — a difference so large it reads as invented rather than
+    // observed, and invites exactly the question the panel is meant to
+    // survive. One 1 and a scattering of 2s keep the low-rating notification
+    // path visible without claiming the engine is transformative.
+    if (seed % 23 === 0) return 1;
+    if (seed % 7 === 0) return 2;
+    return seed % 3 === 0 ? 3 : 4;
+  }
+
+  return seed % 7 === 0 ? 3 : 4;
+}
+
+/**
+ * Free text staff leave on a shift, pooled by rating.
+ *
+ * Several phrasings per rating, not one, and the pools overlap on three
+ * subjects on purpose: nobody handing over at the start, the evening pass
+ * running short once it fills, and deliveries landing mid-service.
+ *
+ * This is what the feedback-themes panel reads. A single canned line per rating
+ * would let it report a "theme" that is really one sentence repeated verbatim —
+ * the panel would look like it worked while demonstrating nothing, because
+ * grouping identical strings needs no model at all. Different words about the
+ * same problem is the case worth showing.
+ */
+const RATING_COMMENTS: Record<number, string[]> = {
+  1: [
+    "Nobody briefed me and I was on my own for the first hour.",
+    "Turned up and no one knew I was rostered — waited around for ages.",
+    "No handover at all, had to work out the section myself.",
+  ],
+  2: [
+    "Short-staffed after eight, could have used one more on the pass.",
+    "Evening got away from us once it filled up, not enough hands.",
+    "Ran the pass on my own for most of the second half.",
+  ],
+  3: [
+    "Fine, but the delivery arrived mid-service again.",
+    "Went alright. Stock drop landed right in the middle of the rush.",
+    "No complaints, though the delivery timing is still awkward.",
+    "Busy but manageable, though we were light on the pass after eight.",
+  ],
+  /*
+   * Deliberately the largest pool. `ratingFor` makes 4 by far the most common
+   * rating, so with two phrasings roughly a quarter of every comment in the
+   * database was one identical sentence — the model would have found a
+   * "theme" that was a single string repeated, which is the failure the pools
+   * were introduced to prevent. Pool size follows how often the rating occurs.
+   */
+  4: [
+    "Steady enough, nothing to report.",
+    "Good shift, but I picked up the section with no handover again.",
+    "Fine overall. Delivery came in while we were plating, as usual.",
+    "Went well, though we were a hand short on the pass after eight.",
+    "No issues worth writing up.",
+    "Solid shift — bit of a scramble when the stock drop landed.",
+  ],
+  5: [
+    "Good shift — everyone knew what they were doing.",
+    "Smooth all the way through, and the handover was clear for once.",
+    "Best one in a while. Proper brief at the start made the difference.",
+    "Well run from open to close, no complaints at all.",
+  ],
+};
+
+/**
+ * Deterministic pick from a rating's pool.
+ *
+ * ## Why it is not `seed % pool.length`
+ *
+ * The caller only writes a comment when the rating is low or `seed % 3 === 0`,
+ * so a plain modulus on a three-entry pool always returns index 0 — the first
+ * version of this seeded 17 comments drawn from four distinct sentences, which
+ * is exactly the "grouping identical strings" case the pools exist to avoid.
+ *
+ * `Math.floor(seed / 3) % length` fixed most of it but not all. `ratingFor`
+ * and `allocationProvenanceFor` key off the SAME seed, so which rating a shift
+ * gets and which index it lands on stayed correlated — and any arithmetic that
+ * is a simple function of the seed inherits that. Simulating the full
+ * generator over all 105 days x 3 departments x 7 members found pool entries
+ * that never appeared at all, and one sentence carrying a quarter of every
+ * comment in the database.
+ *
+ * A mixing hash rather than more division: it destroys the structure the seed
+ * carries instead of dividing it out, and folding the rating in means two
+ * shifts with the same seed but different ratings no longer share an offset.
+ * `Math.imul` because these products overflow 32 bits and plain `*` would lose
+ * the low bits doing the work. Still deterministic — the same database every
+ * run, which is the point of a seed.
+ *
+ * Verified by simulation, not by reading: every entry in every pool is
+ * reachable, and no single sentence exceeds a tenth of the corpus.
+ */
+function commentFor(rating: number, seed: number): string | null {
+  const pool = RATING_COMMENTS[rating];
+  if (!pool || pool.length === 0) return null;
+  return pool[mixIndex(rating, seed) % pool.length];
+}
+
+/** Deterministic 32-bit mix of a seed and a rating. See `commentFor`. */
+function mixIndex(rating: number, seed: number): number {
+  let h = Math.imul(seed ^ 0x9e3779b9, 2654435761);
+  h = Math.imul(h ^ (h >>> 15), 2246822519);
+  h ^= Math.imul(rating, 3266489917);
+  return (h ^ (h >>> 13)) >>> 0;
+}
+
+/** Free text alongside a withdrawal, echoing the reason in the member's words. */
+const WITHDRAWAL_NOTES: Record<string, string[]> = {
+  feeling_unwell: [
+    "Came down with something overnight, sorry for the short notice.",
+    "Not well enough to be near food today.",
+  ],
+  transport_issues: [
+    "Last bus does not run late enough to get me home from this one.",
+    "No way back after the close, the service stops before we finish.",
+  ],
+};
+
+/** Which reason a withdrawal carries. Seed parity, so both appear. */
+function withdrawalReasonFor(seed: number): string {
+  return seed % 2 === 0 ? "feeling_unwell" : "transport_issues";
+}
+
+/**
+ * The note beside that reason.
+ *
+ * Same trap as `commentFor`: the reason is chosen on seed parity, so indexing
+ * the pool by that parity again would pin every row to one entry. Divided
+ * first, and taken modulo the pool's own length rather than a hardcoded 2 —
+ * with the constant, adding a third phrasing would have made it unreachable
+ * and nothing would have said so.
+ */
+function withdrawalNoteFor(seed: number): string {
+  const pool = WITHDRAWAL_NOTES[withdrawalReasonFor(seed)];
+  return pool[Math.floor(seed / 2) % pool.length];
+}
+
+/**
+ * Hours between an assignment being offered and answered, or null for
+ * "never answered".
+ *
+ * The null case matters more than the numbers. An organisation running
+ * auto-accept produces rows nobody ever responded to, and the response panel
+ * has to hold them apart from fast responses rather than averaging them in as
+ * zeroes. Seeding a slice of them is the only way to see that on screen.
+ */
+function responseLagHoursFor(seed: number): number | null {
+  const bucket = seed % 20;
+  if (bucket < 3) return null;
+  if (bucket < 12) return 0.2 + (bucket % 5) * 0.4;
+  if (bucket < 18) return 3 + (bucket % 4) * 2;
+  return 26 + (bucket % 3) * 9;
+}
 
 type Tx = Prisma.TransactionClient;
 
@@ -392,6 +624,61 @@ async function seedAll(tx: Tx) {
   console.log("Created 3 extra demo staff");
 
   // ============================================================
+  // The roster, read back from the database
+  // ============================================================
+  // Read rather than accumulated, because staff are created in two places
+  // above — the five with availability schedules, then the three extras — and
+  // only the first five were ever collected. Every historical shift was
+  // therefore worked by the same five people, which is also why the extras had
+  // no history at all.
+  //
+  // Sorted by email so the generator below is deterministic regardless of what
+  // order the database returns rows in.
+  const rosterRows = await tx.membership.findMany({
+    where: {
+      organizationId: orgId,
+      // Managers included: they are assignable to shifts, so leaving them out
+      // gave them no history and a derived level of Junior on zero shifts.
+      // Only company admins are excluded, and they cannot be assigned at all.
+      role: { in: ["staff", "manager"] },
+      status: "active",
+    },
+    select: {
+      id: true,
+      user: { select: { email: true } },
+      departmentMemberships: { select: { departmentId: true } },
+    },
+  });
+
+  const roster = rosterRows
+    .map((m) => ({
+      membershipId: m.id,
+      email: m.user.email,
+      departmentId: m.departmentMemberships[0]?.departmentId ?? null,
+      cadence: SHIFT_CADENCE[m.user.email] ?? DEFAULT_CADENCE,
+    }))
+    .sort((a, b) => a.email.localeCompare(b.email));
+
+  console.log(`Roster: ${roster.length} assignable members across ${departments.length} departments`);
+
+  // ============================================================
+  // Seniority override — the case derivation cannot solve alone
+  // ============================================================
+  // Riley has barely worked here, so every count says junior. In the story
+  // this seed tells, Riley ran front of house somewhere else for years, and a
+  // manager has said so explicitly. It is on the demo because it is the reason
+  // the column exists: without it an experienced hire is locked out of the
+  // shifts that would build the history that would qualify them.
+  const riley = roster.find((r) => r.email === "riley@oceangrill.com");
+  if (riley) {
+    await tx.membership.update({
+      where: { id: riley.membershipId },
+      data: { seniorityOverride: "experienced" },
+    });
+    console.log("Pinned Riley to Experienced (external hire, no local history)");
+  }
+
+  // ============================================================
   // Certifications
   // ============================================================
   //
@@ -659,6 +946,8 @@ async function seedAll(tx: Tx) {
     startHour: number;
     endHour: number;
     requiredCertifications?: string[];
+    /** Serialised JSON — see src/lib/composition-rules.ts. */
+    compositionRules?: string;
   }
 
   const taskData: SeedTask[] = [
@@ -685,6 +974,13 @@ async function seedAll(tx: Tx) {
       requiredHeadcount: 3,
       startHour: 11,
       endHour: 15,
+      // The busiest shift of the day needs someone who has run one before.
+      // Kitchen has two members past the senior threshold, so this is
+      // satisfiable — and refuses the third assignment if a manager fills the
+      // shift entirely with juniors and the newly experienced.
+      compositionRules: JSON.stringify([
+        { kind: "seniority", value: "senior", comparator: "at_least", count: 1 },
+      ]),
     },
     {
       title: "Bar Setup & Inventory",
@@ -712,6 +1008,12 @@ async function seedAll(tx: Tx) {
       requiredHeadcount: 2,
       startHour: 15,
       endHour: 17,
+      // The supervisor's own example, in the product: two people, and they
+      // cannot both be junior. Demonstrable rather than described — assigning
+      // a second junior is refused with the rule quoted back.
+      compositionRules: JSON.stringify([
+        { kind: "seniority", value: "junior", comparator: "at_most", count: 1 },
+      ]),
     },
   ];
 
@@ -730,6 +1032,7 @@ async function seedAll(tx: Tx) {
         priority: t.priority,
         requiredHeadcount: t.requiredHeadcount,
         requiredCertifications: t.requiredCertifications ?? [],
+        compositionRules: t.compositionRules ?? null,
         scheduledStart: start,
         scheduledEnd: end,
         createdById: adminUser.id,
@@ -804,87 +1107,165 @@ async function seedAll(tx: Tx) {
   console.log("Created 3 work rules");
 
   // ============================================================
-  // Historical completed tasks (for reporting charts)
+  // Shift history — 90 days
   // ============================================================
-  console.log("Creating historical task data for charts...");
+  // Built in memory and written with two createMany calls rather than ~900
+  // sequential creates. Against Supabase every round trip costs real network
+  // latency, and the whole seed runs inside one interactive transaction with a
+  // 120-second ceiling; the row-at-a-time version would have spent most of it
+  // waiting.
+  //
+  // Ids are deterministic rather than generated, so running the seed twice
+  // produces a byte-identical database — the same reason the allocation
+  // provenance above is derived from counters instead of random. The task
+  // wipe higher up means they can never collide with an earlier run.
+  console.log(`Creating ${HISTORY_DAYS} days of shift history...`);
 
   const now = new Date();
+  const historyTasks: Prisma.TaskCreateManyInput[] = [];
+  const historyAssignments: Prisma.TaskAssignmentCreateManyInput[] = [];
 
-  for (let daysAgo = 1; daysAgo <= 7; daysAgo++) {
-    const taskDate = new Date(now);
-    taskDate.setDate(taskDate.getDate() - daysAgo);
-    taskDate.setHours(0, 0, 0, 0);
+  for (let daysAgo = 1; daysAgo <= HISTORY_DAYS; daysAgo++) {
+    const dayStart = new Date(now);
+    dayStart.setDate(dayStart.getDate() - daysAgo);
+    dayStart.setHours(0, 0, 0, 0);
 
-    const dayOfWeek = taskDate.getDay();
-    const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5;
-    const taskCount = isWeekday ? 2 + (daysAgo % 2) : 1;
+    // Sundays the kitchen runs and the rest of the building does not, so the
+    // coverage heatmap and the weekly charts have a shape rather than a
+    // uniform block.
+    const isSunday = dayStart.getDay() === 0;
 
-    for (let t = 0; t < taskCount; t++) {
-      const startHour = 7 + t * 3;
-      const endHour = startHour + 2 + (t % 2);
-      const deptIndex = t % departments.length;
+    departments.forEach((dept, deptIndex) => {
+      if (isSunday && deptIndex !== 0) return;
 
-      const startTime = new Date(taskDate);
-      startTime.setHours(startHour);
-      const endTime = new Date(taskDate);
-      endTime.setHours(endHour);
+      const working = roster.filter(
+        (r) => r.departmentId === dept.id && daysAgo % r.cadence === 0
+      );
+      if (working.length === 0) return;
 
-      const dateLabel = taskDate.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-      const taskTitle = `${departments[deptIndex].name} - ${dateLabel} #${t + 1}`;
+      const startHour = 8 + deptIndex * 4;
+      const start = new Date(dayStart);
+      start.setHours(startHour);
+      const end = new Date(dayStart);
+      end.setHours(startHour + 6);
 
-      const task = await tx.task.create({
-        data: {
-          title: taskTitle,
-          description: "Historical task for reporting data",
-          organizationId: orgId,
-          departmentId: departments[deptIndex].id,
-          priority: t === 0 ? "high" : "medium",
-          requiredHeadcount: 1 + (t % 2),
-          scheduledStart: startTime,
-          scheduledEnd: endTime,
-          status: "completed",
-          createdById: adminUser.id,
-        },
+      // Offered five days before the shift. Response time is measured from
+      // this moment, so it has to be a real instant rather than the default
+      // now() every seeded row would otherwise share.
+      const offeredAt = new Date(start.getTime() - 5 * 24 * 60 * 60 * 1000);
+      const taskId = `seed-hist-${daysAgo}-${deptIndex}`;
+
+      historyTasks.push({
+        id: taskId,
+        title: `${dept.name} shift — ${dayStart.toLocaleDateString("en-GB", {
+          day: "numeric",
+          month: "short",
+        })}`,
+        description: "Worked shift, retained for reporting history",
+        organizationId: orgId,
+        departmentId: dept.id,
+        priority: "medium",
+        requiredHeadcount: working.length,
+        scheduledStart: start,
+        scheduledEnd: end,
+        status: "completed",
+        createdById: adminUser.id,
+        createdAt: offeredAt,
       });
 
-      const assignCount = Math.min(task.requiredHeadcount, staffMembershipIds.length);
-      for (let a = 0; a < assignCount; a++) {
-        const staffIndex = (daysAgo + t + a) % staffMembershipIds.length;
-        const membershipId = staffMembershipIds[staffIndex];
+      working.forEach((member, i) => {
+        const seed = daysAgo * 7 + deptIndex * 3 + i;
+        const provenance = allocationProvenanceFor(seed);
 
-        const clockIn = new Date(startTime);
-        clockIn.setMinutes(clockIn.getMinutes() + 5 + a * 2);
-        const clockOut = new Date(endTime);
-        clockOut.setMinutes(clockOut.getMinutes() - 10 + a * 3);
+        const lagHours = responseLagHoursFor(seed);
+        const acceptedAt =
+          lagHours === null
+            ? null
+            : new Date(offeredAt.getTime() + lagHours * 60 * 60 * 1000);
 
-        // Allocation provenance. Without this the Engine Insights page opens
-        // on an empty set for a fresh demo database — the columns are nullable
-        // and every seeded row would read as "unrecorded", which is accurate
-        // but useless to demonstrate against.
-        //
-        // The mix is deterministic, not random: seeds must produce the same
-        // database twice or a screenshot stops matching the data behind it.
-        // Roughly half the rows are engine-made, split between the two engine
-        // paths, with a minority left unrecorded on purpose so the page's
-        // handling of that case is visible rather than theoretical.
-        const provenance = allocationProvenanceFor(daysAgo * 10 + t * 3 + a);
-
-        await tx.taskAssignment.create({
-          data: {
-            taskId: task.id,
-            membershipId,
+        // A thin slice of shifts someone accepted and then dropped out of.
+        // Without these the withdrawal-notice figure on the response panel has
+        // no data and renders an em dash.
+        // Every 17th rather than every 41st: at the sparser rate the six
+        // withdrawals that existed all fell outside the 30-day reporting
+        // window, so the notice figure rendered an em dash on a database that
+        // did contain withdrawals.
+        const withdrew = seed % 17 === 0;
+        if (withdrew) {
+          historyAssignments.push({
+            taskId,
+            membershipId: member.membershipId,
             assignedById: adminUser.id,
-            status: "completed",
-            clockInTime: clockIn,
-            clockOutTime: clockOut,
+            status: "withdrawal_requested",
+            withdrawalReason: withdrawalReasonFor(seed),
+            // The notes, not the enum, are what the themes panel can read:
+            // "transport_issues" on eleven rows is a GROUP BY, while the words
+            // beside them are where the late-close problem is visible.
+            withdrawalNotes: withdrawalNoteFor(seed),
+            withdrawalRequestedAt: new Date(
+              start.getTime() - (2 + (seed % 20)) * 60 * 60 * 1000
+            ),
+            createdAt: offeredAt,
+            acceptedAt,
             ...provenance,
-          },
+          });
+          return;
+        }
+
+        const clockIn = new Date(start);
+        clockIn.setMinutes(clockIn.getMinutes() + 5 + i * 2);
+        const clockOut = new Date(end);
+        clockOut.setMinutes(clockOut.getMinutes() - 10 + i * 3);
+
+        // Ratings only inside the 30-day reporting window. Seeding them across
+        // the whole 90 days would put most of them outside every panel that
+        // reads them, which looks like a bug in the panel rather than a
+        // property of the data.
+        const rating = daysAgo <= 30 ? ratingFor(seed, provenance.allocationRank) : null;
+
+        historyAssignments.push({
+          taskId,
+          membershipId: member.membershipId,
+          assignedById: adminUser.id,
+          status: "completed",
+          clockInTime: clockIn,
+          clockOutTime: clockOut,
+          createdAt: offeredAt,
+          acceptedAt,
+          ...(rating !== null
+            ? {
+                satisfactionRating: rating,
+                // Roughly every third rated shift, and always when the
+                // rating is low. Two reasons: people who rate a shift 1 or 2
+                // are the ones who bother to say why, and at a flat one-in-
+                // three the low ratings — which `ratingFor` makes rare on
+                // purpose — produced no comments at all, so the only themes
+                // findable in the demo were mild ones about deliveries.
+                //
+                // At every sixth, the 60-day window also held too few comments
+                // to clear the panel's minimum, and it rendered nothing on a
+                // database that plainly had feedback in it.
+                satisfactionComment:
+                  rating <= 2 || seed % 3 === 0 ? commentFor(rating, seed) : null,
+                // Rated shortly after clocking out, which is when the control
+                // actually appears on the staff member's task list.
+                ratedAt: new Date(clockOut.getTime() + 20 * 60 * 1000),
+              }
+            : {}),
+          ...provenance,
         });
-      }
-    }
+      });
+    });
   }
 
-  console.log("Created historical tasks with clock data");
+  await tx.task.createMany({ data: historyTasks });
+  await tx.taskAssignment.createMany({ data: historyAssignments });
+
+  const ratedCount = historyAssignments.filter((a) => a.satisfactionRating).length;
+  console.log(
+    `Created ${historyTasks.length} historical shifts, ` +
+      `${historyAssignments.length} assignments, ${ratedCount} rated`
+  );
 
   // ============================================================
   // Rejected assignments (for AI rejection pattern detection)
@@ -926,6 +1307,11 @@ async function seedAll(tx: Tx) {
         status: "rejected",
         rejectionReason: rej.reason,
         rejectionNotes: rej.notes,
+        // Declined a few hours after being offered. Without this the response
+        // panel counts these as offers nobody ever answered, when in fact they
+        // were answered promptly and the answer was no — which is a different
+        // fact about the same organisation.
+        rejectedAt: new Date(Date.now() - (2 + rej.rank) * 60 * 60 * 1000),
         allocationSource: "ai_suggested",
         allocationProvider: "groq",
         allocationRank: rej.rank,

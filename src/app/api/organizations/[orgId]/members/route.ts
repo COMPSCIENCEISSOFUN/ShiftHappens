@@ -7,13 +7,13 @@
  * For now, all org members can view the member list.
  */
 import { NextRequest, NextResponse } from "next/server";
+import { MEMBER_LIST_READERS } from "@/lib/permissions";
+import { requireAnyPermission } from "@/lib/permission-guard";
 import { UserManagementService } from "@/services/user-management.service";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
-import { AccessService } from "@/services/access.service";
 import { departmentScopeFor } from "@/lib/department-scope";
 
 const userMgmtService = new UserManagementService();
-const accessService = new AccessService();
 
 export async function GET(
   request: NextRequest,
@@ -25,10 +25,15 @@ export async function GET(
 
     const { orgId } = await params;
 
-    const membership = await accessService.getMembership(user.id, orgId);
-    if (!membership) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    /*
+     * Membership alone was the whole check, so any staff member who typed the
+     * URL got this list in full — while the sidebar hid the link. The menu was
+     * right; the route was the half that had not been tightened. The readers
+     * are the member directory, the assign panel and the certification queue.
+     */
+    const gate = await requireAnyPermission(user.id, orgId, MEMBER_LIST_READERS);
+    if (!gate.ok) return gate.response;
+    const membership = gate.membership;
 
     // Managers see only members in their department(s); admins see everyone.
     const members = await userMgmtService.getOrgMembers(

@@ -46,6 +46,10 @@ export class CertificationRepository {
         membership: {
           include: {
             user: { select: { id: true, name: true, email: true } },
+            // The owner's departments, because deciding a certification is a
+            // department-scoped action and the service has to be able to
+            // refuse a manager acting outside their own.
+            departmentMemberships: { select: { departmentId: true } },
           },
         },
         verifiedBy: { select: { id: true, name: true } },
