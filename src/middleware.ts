@@ -33,6 +33,10 @@ const MODERATE_PATTERNS = [
   "/ai-recommendations",
   "/tasks/parse",
   "/auto-schedule",
+  // Spends Groq and, on a parse failure, Gemini too — and needs only a session,
+  // no membership and no subscription tier. It was the one AI endpoint left in
+  // the relaxed 100/min bucket while every sibling sat at 20.
+  "/organizations/generate-template",
 ];
 
 const TIER_LIMITS = {

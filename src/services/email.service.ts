@@ -27,7 +27,11 @@ function getResend(): Resend {
 }
 
 /** Which email failed. Appears in the log line; not shown to any user. */
-type EmailKind = "verification" | "password reset" | "invitation";
+type EmailKind =
+  | "verification"
+  | "password reset"
+  | "invitation"
+  | "duplicate registration";
 
 /**
  * Sends one email and makes any failure visible.
@@ -220,7 +224,42 @@ export class EmailService {
     );
   }
 
-  /** Sends organization invitation link */
+  /**
+   * Tells an existing account holder that somebody tried to register with
+   * their address.
+   *
+   * Exists so registration can stop distinguishing a taken address from a free
+   * one. It used to answer `409 "Email already registered"`, which handed an
+   * unauthenticated caller exactly the fact that `requestPasswordReset` goes to
+   * deliberate lengths to hide — constant response text, and the send left
+   * unawaited to close the timing channel. An enumeration defence is worth
+   * nothing while a sibling endpoint answers the same question directly.
+   *
+   * Deliberately carries no link and no token. The person did not ask for
+   * anything, so there is nothing to action; naming sign-in and password reset
+   * is enough for the case where it really was them.
+   */
+  async sendDuplicateRegistrationEmail(email: string) {
+    const signInUrl = `${process.env.NEXTAUTH_URL}/login`;
+
+    const content = `
+      <h2 style="color: #18181b; font-size: 20px; font-weight: 600; margin: 0 0 8px;">You already have an account 👋</h2>
+      <p style="color: #52525b; font-size: 15px; line-height: 1.6; margin: 0 0 4px;">
+        Someone just tried to create an account with this email address. You already have one, so we did not create another.
+      </p>
+      ${actionButton("Sign in", signInUrl)}
+      ${infoBox("If this was you and you have forgotten your password, use <strong>Forgot password</strong> on the sign-in page. If it was not you, no action is needed — nothing about your account has changed.")}
+    `;
+
+    return dispatch(
+      "duplicate registration",
+      email,
+      `About your ${appName} account`,
+      emailTemplate(content)
+    );
+  }
+
+  /** Sends organization invitation link */  /** Sends organization invitation link */
   async sendInvitationEmail(
     email: string,
     token: string,

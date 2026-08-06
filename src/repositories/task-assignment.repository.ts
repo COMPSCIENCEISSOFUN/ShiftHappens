@@ -470,6 +470,41 @@ export class TaskAssignmentRepository {
    * figure. Only assignments that have been clocked into are considered, so
    * the number reflects work under way rather than intentions.
    */
+  /**
+   * Everything a member is COMMITTED to in a window, worked or not.
+   *
+   * Distinct from `findClockedWithinWindow` beside it, which requires a
+   * clock-in and so answers "what have they actually done". That is the right
+   * question for a timesheet and the wrong one for a scheduler: a shift booked
+   * for next Tuesday has no clock-in, so it counted as zero load and the
+   * fully-booked member read as the freshest person available — while the
+   * ranker weights "fewest hours worked" at 30%.
+   *
+   * Returns both the clock times and the scheduled window so the caller can
+   * prefer actuals where they exist and fall back to what was planned.
+   */
+  async findCommitmentsWithinWindow(
+    membershipId: string,
+    windowStart: Date,
+    windowEnd: Date
+  ) {
+    return prisma.taskAssignment.findMany({
+      where: {
+        membershipId,
+        status: { in: occupyingStatusFilter() },
+        task: {
+          scheduledStart: { gte: windowStart },
+          scheduledEnd: { lte: windowEnd },
+        },
+      },
+      select: {
+        clockInTime: true,
+        clockOutTime: true,
+        task: { select: { scheduledStart: true, scheduledEnd: true } },
+      },
+    });
+  }
+
   async findClockedWithinWindow(
     membershipId: string,
     windowStart: Date,

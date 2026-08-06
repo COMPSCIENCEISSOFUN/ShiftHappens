@@ -12,6 +12,7 @@ import { updateTaskSchema } from "@/lib/validations";
 import { getAuthenticatedUser, unauthorizedResponse, checkOrgSuspended } from "@/lib/auth-guard";
 import { AccessService } from "@/services/access.service";
 import { requirePermission } from "@/lib/permission-guard";
+import { departmentScopeFor, isDepartmentInScope } from "@/lib/department-scope";
 
 const taskService = new TaskService();
 const accessService = new AccessService();
@@ -75,6 +76,28 @@ export async function PATCH(
         { error: "Validation failed", details: parsed.error.flatten() },
         { status: 400 }
       );
+    }
+
+    /*
+     * The destination department, not just the current one.
+     *
+     * `isTaskInScope` above proves the caller may REACH this task, which says
+     * nothing about where they may send it. Without this a Kitchen manager
+     * could PATCH `{ departmentId: <security-dept> }` and hand a shift to
+     * another department — or PATCH `{ departmentId: null }`, which
+     * `isDepartmentInScope` treats as out of scope for every non-admin, making
+     * the task invisible and unmanageable to all managers at once.
+     *
+     * The create path next door already does exactly this on the submitted
+     * department; update was the asymmetry.
+     */
+    const scope = departmentScopeFor(membership);
+    if (
+      parsed.data.departmentId !== undefined &&
+      scope !== null &&
+      !isDepartmentInScope(parsed.data.departmentId, scope)
+    ) {
+      return NextResponse.json({ error: "Department not found" }, { status: 404 });
     }
 
     const updated = await taskService.update(taskId, orgId, parsed.data);

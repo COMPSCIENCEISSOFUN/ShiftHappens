@@ -20,10 +20,12 @@ import { OrganizationRepository } from "@/repositories/organization.repository";
 import { RoleRepository } from "@/repositories/role.repository";
 import { DepartmentRepository } from "@/repositories/department.repository";
 import { AccessService } from "@/services/access.service";
-import { roleRank } from "@/lib/role-config";
+import { memberInScope } from "@/lib/department-scope";
+import { roleRank, isFullTime } from "@/lib/role-config";
 import { EmailService } from "@/services/email.service";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 import { SubscriptionService } from "@/services/subscription.service";
+import { AvailabilityService } from "@/services/availability.service";
 import type { InviteUserInput, UpdateUserRoleInput } from "@/lib/validations";
 
 export class UserManagementService {
@@ -33,6 +35,7 @@ export class UserManagementService {
   private orgRepo = new OrganizationRepository();
   private roleRepo = new RoleRepository();
   private deptRepo = new DepartmentRepository();
+  private availabilityService = new AvailabilityService();
   private emailService = new EmailService();
   private auditService = new AuditLogService();
   private subscriptionService = new SubscriptionService();
@@ -77,6 +80,33 @@ export class UserManagementService {
     return this.invitationRepo.findByOrgId(organizationId);
   }
 
+  /**
+   * Refuses department ids that are not this organisation's.
+   *
+   * `MembershipRepository.assignDepartments` writes whatever it is handed —
+   * `departmentMembership` carries a membership id and a department id and
+   * nothing that ties the pair to a tenant, so an id from a request body went
+   * straight into the join table. An admin of org A who was also a member of
+   * org B could read B's department list through an ordinary endpoint, paste an
+   * id here, and attach one of their own members to B's Kitchen. B's admin
+   * could then neither see the row nor delete the department, because the
+   * headcount that blocks deletion counts it.
+   *
+   * Counting rather than fetching: the ids are proved as a set, in one query,
+   * and a short count is enough to know at least one was not ours. Naming which
+   * one would confirm a foreign id exists.
+   */
+  private async assertDepartmentsOwned(
+    departmentIds: string[],
+    organizationId: string
+  ) {
+    if (departmentIds.length === 0) return;
+    const owned = await this.deptRepo.countOwned(departmentIds, organizationId);
+    if (owned !== new Set(departmentIds).size) {
+      throw new Error("Department not found");
+    }
+  }
+
   async inviteUser(
     input: InviteUserInput,
     organizationId: string,
@@ -111,6 +141,13 @@ export class UserManagementService {
     );
     if (pendingInvitation) {
       throw new Error("An invitation has already been sent to this email");
+    }
+
+    // The invitation carries this id to `assignDepartments` on accept, in a flow
+    // no admin reviews again — so it is proved here, at the only point a human
+    // is involved.
+    if (input.departmentId) {
+      await this.assertDepartmentsOwned([input.departmentId], organizationId);
     }
 
     // Generate secure token and create invitation
@@ -284,7 +321,18 @@ export class UserManagementService {
     userId: string,
     organizationId: string,
     input: UpdateUserRoleInput,
-    performedById?: string
+    performedById?: string,
+    /**
+     * The caller's departments, or null for a company admin.
+     *
+     * `members:update_role` is admin-only by default, which is why this was
+     * missing — but an admin can put it in a custom role, and then a Kitchen
+     * manager could strip a Front-of-House member of their departments and make
+     * them silently unrosterable. The three sibling endpoints on the same
+     * member (`/seniority`, `/contracted-days`, `/request-availability`) all
+     * apply it; this one and `/toggle-status` did not.
+     */
+    departmentScope?: string[] | null
   ) {
     // Including inactive: `userId` is the member being administered, not the
     // admin doing it. An inactive member's role must still be changeable.
@@ -294,6 +342,9 @@ export class UserManagementService {
         organizationId
       );
     if (!membership) {
+      throw new Error("Membership not found");
+    }
+    if (!memberInScope(membership, departmentScope)) {
       throw new Error("Membership not found");
     }
 
@@ -362,10 +413,25 @@ export class UserManagementService {
         membership.id,
         input.employmentType
       );
+
+      /*
+       * Becoming contracted also closes the door on setting your own days, so
+       * anything left unsaid would stay unsaid forever — and an unset day reads
+       * as unavailable. A casual converted mid-week would otherwise lose every
+       * day they had never got round to filling in, with no way to get it back
+       * themselves.
+       *
+       * Only the gaps. What they already told us about their week survives the
+       * change of employment type.
+       */
+      if (isFullTime(input.employmentType)) {
+        await this.availabilityService.openUnsetDays(membership.id);
+      }
     }
 
     // Update department assignments if provided
     if (input.departmentIds) {
+      await this.assertDepartmentsOwned(input.departmentIds, organizationId);
       await this.membershipRepo.assignDepartments(
         membership.id,
         input.departmentIds
@@ -515,7 +581,14 @@ export class UserManagementService {
    * Toggles a member's status between active and inactive.
    * Deactivation prevents access to the organization.
    */
-  async toggleMemberStatus(userId: string, organizationId: string, performedById?: string) {
+  async toggleMemberStatus(
+    userId: string,
+    organizationId: string,
+    performedById?: string,
+    /** See `updateMemberRole` — a peer manager could otherwise lock out a
+     * manager in a department they have nothing to do with. */
+    departmentScope?: string[] | null
+  ) {
     // Including inactive is REQUIRED here, not merely preferable: reactivating a
     // member means looking them up while they are inactive. An active-only
     // lookup would throw "Membership not found" and make deactivation
@@ -526,6 +599,9 @@ export class UserManagementService {
         organizationId
       );
     if (!membership) {
+      throw new Error("Membership not found");
+    }
+    if (!memberInScope(membership, departmentScope)) {
       throw new Error("Membership not found");
     }
 

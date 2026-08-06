@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { UserManagementService } from "@/services/user-management.service";
 import { getAuthenticatedUser, unauthorizedResponse, checkOrgSuspended } from "@/lib/auth-guard";
 import { requirePermission } from "@/lib/permission-guard";
+import { departmentScopeFor } from "@/lib/department-scope";
 
 const userMgmtService = new UserManagementService();
 
@@ -27,7 +28,12 @@ export async function POST(
     const gate = await requirePermission(user.id, orgId, "members:deactivate");
     if (!gate.ok) return gate.response;
 
-    const updated = await userMgmtService.toggleMemberStatus(userId, orgId, user.id);
+    const updated = await userMgmtService.toggleMemberStatus(
+      userId,
+      orgId,
+      user.id,
+      departmentScopeFor(gate.membership)
+    );
     return NextResponse.json(updated);
   } catch (error) {
     if (error instanceof Error) {

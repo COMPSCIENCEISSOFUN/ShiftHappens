@@ -208,7 +208,18 @@ export class TaskRepository {
       // those alone. It is one column against a set of ids already being read,
       // and the alternative is a second query per task to discover most of them
       // have no rules.
-      select: { id: true, requiredHeadcount: true, compositionRules: true },
+      // `departmentId` and the scheduled window because a scoped caller must be
+      // refused rows outside their departments, and because the person-level
+      // re-check at confirm needs to know when each shift actually runs.
+      select: {
+        id: true,
+        requiredHeadcount: true,
+        compositionRules: true,
+        departmentId: true,
+        title: true,
+        scheduledStart: true,
+        scheduledEnd: true,
+      },
     });
   }
 

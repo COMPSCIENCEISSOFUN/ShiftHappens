@@ -6,10 +6,16 @@
  * Validates input with Zod before passing to AuthService.
  * 
  * Returns:
- * - 201: Registration successful
+ * - 201: Accepted — the same body whether or not an account was created
  * - 400: Validation failed
- * - 409: Email already registered
  * - 500: Internal server error
+ *
+ * There is deliberately no 409. Answering "Email already registered" told an
+ * unauthenticated caller exactly what `/api/forgot-password` refuses to say,
+ * so a list of a company's addresses posted here sorted the real ones from the
+ * invented ones. The reply is now identical either way, the expensive hash runs
+ * on both paths so the two cannot be told apart by stopwatch, and the account
+ * holder is emailed instead — they are the one person entitled to know.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { AuthService } from "@/services/auth.service";
@@ -32,16 +38,22 @@ export async function POST(request: NextRequest) {
     }
 
     // Delegate to AuthService (Control layer)
-    const { user } = await authService.register(parsed.data);
+    await authService.register(parsed.data);
 
+    /*
+     * No `userId`, and the same wording on both paths. Returning the new user's
+     * id would put the distinction straight back into the body — present for a
+     * free address, absent for a taken one. Nothing consumes it: the form
+     * redirects to /verify-email on any 2xx.
+     */
     return NextResponse.json(
-      { message: "Registration successful. Please check your email to verify your account.", userId: user.id },
+      {
+        message:
+          "Registration successful. Please check your email to verify your account.",
+      },
       { status: 201 }
     );
-  } catch (error) {
-    if (error instanceof Error && error.message === "Email already registered") {
-      return NextResponse.json({ error: error.message }, { status: 409 });
-    }
+  } catch {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

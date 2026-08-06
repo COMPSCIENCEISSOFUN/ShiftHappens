@@ -15,6 +15,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { TaskService } from "@/services/task.service";
 import { TaskAssignmentService } from "@/services/task-assignment.service";
 import { AutoScheduleService } from "@/services/auto-schedule.service";
+import { AvailabilityService } from "@/services/availability.service";
 import { prisma } from "@/lib/prisma";
 import { cleanDatabase } from "../helpers/cleanup";
 import { createTenant, type Tenant } from "../helpers/fixtures";
@@ -29,7 +30,24 @@ let tenant: Tenant;
 beforeEach(async () => {
   await cleanDatabase();
   tenant = await createTenant("lifecycle");
+  // The fixture's members carry no availability, and `confirmSchedule` now
+  // re-checks eligibility against live state — see `makeRosterable`.
+  await makeRosterable(tenant.staff.membershipId);
+  await makeRosterable(tenant.manager.membershipId);
 });
+
+/**
+ * Opens every day for a member, so they are genuinely rosterable.
+ *
+ * `confirmSchedule` re-checks person-level eligibility against live state, and
+ * a member with no availability rows is not eligible for anything — so a draft
+ * naming one is a draft the generator could never have produced. Without this
+ * these fixtures were asserting headcount and duplicate behaviour on rows that
+ * would be refused before reaching either.
+ */
+async function makeRosterable(membershipId: string) {
+  await new AvailabilityService().openUnsetDays(membershipId);
+}
 
 async function makeTask(headcount = 2) {
   return prisma.task.create({
@@ -226,6 +244,7 @@ describe("confirming an auto-schedule draft", () => {
         status: "active",
       },
     });
+    await makeRosterable(extra.id);
 
     const result = await autoSchedule.confirmSchedule(
       tenant.orgId,

@@ -33,11 +33,15 @@ export async function PATCH(
     return NextResponse.json({ message: "Notification marked as read" });
   } catch (error) {
     if (error instanceof Error) {
+      /*
+       * One answer for both refusals. The service used to throw "Not
+       * authorized" for somebody else's notification, mapped here to 403 —
+       * which confirmed the row was real, the very thing the org check beside
+       * it declined to do. Not-found for both, matching the convention
+       * everywhere else.
+       */
       if (error.message === "Notification not found") {
         return NextResponse.json({ error: error.message }, { status: 404 });
-      }
-      if (error.message === "Not authorized") {
-        return NextResponse.json({ error: error.message }, { status: 403 });
       }
     }
     return NextResponse.json(

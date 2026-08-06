@@ -86,9 +86,41 @@ export class OrganizationRepository {
   }
 
   /** Finds an organization by its ID */
+  /**
+   * An organisation as any MEMBER may see it.
+   *
+   * Explicitly selected, because the reachable gate on `GET /organizations/
+   * [orgId]` is bare membership rather than a permission — so this row went to
+   * plain staff, and an unselected `findUnique` handed them `stripeCustomerId`,
+   * `stripeSubscriptionId`, `subscriptionStatus` and the billing address. A
+   * staff member could read that the company's card was failing while being
+   * refused the settings and billing screens that say so on purpose.
+   *
+   * `PlatformRepository.findAllOrganizations` already carried a select and a
+   * comment describing this exact mistake being fixed there; the member-facing
+   * route was left behind. Billing fields are read through `BillingRepository`, which is
+   * reached only from permission-gated paths and the signature-verified Stripe
+   * webhook — nothing that needed them came through here.
+   */
   async findById(id: string) {
-    return prisma.organization.findUnique({ where: { id } });
+    return prisma.organization.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        industry: true,
+        description: true,
+        logo: true,
+        templateId: true,
+        status: true,
+        subscriptionTier: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
   }
+
 
   /**
    * Finds all organizations a user belongs to (with active membership).

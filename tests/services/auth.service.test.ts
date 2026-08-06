@@ -15,6 +15,7 @@ vi.mock("@/services/email.service", () => ({
   EmailService: class {
     sendVerificationEmail = vi.fn().mockResolvedValue(undefined);
     sendPasswordResetEmail = vi.fn().mockResolvedValue(undefined);
+    sendDuplicateRegistrationEmail = vi.fn().mockResolvedValue(undefined);
   },
 }));
 
@@ -32,12 +33,19 @@ describe("AuthService", () => {
         confirmPassword: "SecurePass1!",
       });
 
-      expect(result.user.email).toBe("john@example.com");
-      expect(result.user.name).toBe("John Doe");
-      expect(result.user.emailVerified).toBeNull();
+      expect(result.user!.email).toBe("john@example.com");
+      expect(result.user!.name).toBe("John Doe");
+      expect(result.user!.emailVerified).toBeNull();
     });
 
-    it("throws if email already exists", async () => {
+    /*
+     * It used to throw "Email already registered", which the route turned into
+     * a 409 — handing an unauthenticated caller the fact that
+     * `requestPasswordReset` refuses to disclose. Registration now answers the
+     * same way either way; the difference is only that no second account exists
+     * and the account holder gets told somebody tried.
+     */
+    it("does not say when an email is already taken", async () => {
       await authService.register({
         name: "John Doe",
         email: "john@example.com",
@@ -45,14 +53,36 @@ describe("AuthService", () => {
         confirmPassword: "SecurePass1!",
       });
 
-      await expect(
-        authService.register({
-          name: "Jane Doe",
-          email: "john@example.com",
-          password: "SecurePass1!",
-          confirmPassword: "SecurePass1!",
-        })
-      ).rejects.toThrow("Email already registered");
+      const second = await authService.register({
+        name: "Jane Doe",
+        email: "john@example.com",
+        password: "SecurePass1!",
+        confirmPassword: "SecurePass1!",
+      });
+
+      expect(second.created).toBe(false);
+      expect(second.user).toBeNull();
+    });
+
+    it("creates no second account, and leaves the first one alone", async () => {
+      await authService.register({
+        name: "John Doe",
+        email: "john@example.com",
+        password: "SecurePass1!",
+        confirmPassword: "SecurePass1!",
+      });
+      await authService.register({
+        name: "Jane Doe",
+        email: "john@example.com",
+        password: "SecurePass1!",
+        confirmPassword: "SecurePass1!",
+      });
+
+      const users = await prisma.user.findMany({
+        where: { email: "john@example.com" },
+      });
+      expect(users).toHaveLength(1);
+      expect(users[0].name).toBe("John Doe");
     });
 
     it("hashes the password", async () => {
@@ -63,8 +93,8 @@ describe("AuthService", () => {
         confirmPassword: "SecurePass1!",
       });
 
-      expect(result.user.hashedPassword).not.toBe("SecurePass1!");
-      expect(result.user.hashedPassword.length).toBeGreaterThan(0);
+      expect(result.user!.hashedPassword).not.toBe("SecurePass1!");
+      expect(result.user!.hashedPassword.length).toBeGreaterThan(0);
     });
   });
 

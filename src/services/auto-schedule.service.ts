@@ -40,6 +40,7 @@ import {
   type CompositionRule,
 } from "@/lib/composition-rules";
 import { occupiesSlot } from "@/lib/assignment-status";
+import { isDepartmentInScope } from "@/lib/department-scope";
 
 interface StaffInfo {
   membershipId: string;
@@ -152,7 +153,29 @@ export class AutoScheduleService {
   private auditService = new AuditLogService();
   private notificationService = new NotificationService();
 
-  async collectWeekData(organizationId: string, weekStart: Date): Promise<ScheduleContext> {
+  async collectWeekData(
+    organizationId: string,
+    weekStart: Date,
+    /**
+     * The caller's departments, or null for a company admin.
+     *
+     * Scopes WHAT IT FILLS and WHO IT MAY USE — never what it counts. Hours,
+     * rest gaps and scheduling conflicts are facts about a person, not a
+     * department: a Kitchen manager's draft that ignored Sam's Front-of-House
+     * shifts would roster him into a rest-gap breach. Those all run through
+     * `checkEligibilityForTask`, which is org-wide and stays that way; only the
+     * two lists below narrow.
+     *
+     * A task with NO department is admin-only, matching `isDepartmentInScope`
+     * — a scoped caller cannot see org-wide work, so they must not be able to
+     * roster it either.
+     */
+    departmentScope?: string[] | null
+  ): Promise<ScheduleContext> {
+    const scope =
+      departmentScope === undefined || departmentScope === null
+        ? null
+        : new Set(departmentScope);
     const weekEnd = new Date(weekStart);
     weekEnd.setDate(weekEnd.getDate() + 7);
 
@@ -164,6 +187,13 @@ export class AutoScheduleService {
       const start = new Date(task.scheduledStart);
       const end = new Date(task.scheduledEnd);
       if (start >= weekEnd || end <= weekStart) continue;
+
+      // Out of scope entirely: not a shift this caller may fill. Checked before
+      // the assignment count so a scoped run does not pay for tasks it will
+      // discard.
+      if (scope && !isDepartmentInScope(task.department?.id ?? null, [...scope])) {
+        continue;
+      }
 
       const currentAssignments = await this.assignmentRepo.countActiveByTaskId(task.id);
       if (currentAssignments >= task.requiredHeadcount) continue;
@@ -188,14 +218,37 @@ export class AutoScheduleService {
       });
     }
 
-    const members = await this.membershipRepo.findSchedulableStaff(organizationId);
+    const allMembers = await this.membershipRepo.findSchedulableStaff(organizationId);
+    // Somebody in ANY of the caller's departments is usable — a member of both
+    // Kitchen and Front of House is a legitimate candidate for a Kitchen
+    // manager's draft.
+    const members = scope
+      ? allMembers.filter((m) =>
+          m.departmentMemberships.some((dm) => scope.has(dm.department.id))
+        )
+      : allMembers;
 
     const staff: StaffInfo[] = [];
     for (const member of members) {
       const availability = await this.availRepo.getWeeklySchedule(member.id);
       const certs = await this.certRepo.getValidCertifications(member.id);
 
-      const assignments = await this.assignmentRepo.findClockedWithinWindow(
+      /*
+       * Hours COMMITTED this week, not hours clocked.
+       *
+       * This read `findClockedWithinWindow`, which requires a clock-in — so a
+       * shift booked for next Tuesday counted as zero. Two runs of the
+       * scheduler in the same week therefore piled work onto the same people:
+       * the first run booked them, the second read them as untouched, and
+       * `hoursThisWeek` carries the ranker's largest single weight at 30% for
+       * "fewest hours worked". Every hard rule still passed, so nothing flagged
+       * it — the roster was simply unfair, quietly.
+       *
+       * Actuals where they exist, the planned window otherwise. A finished
+       * shift that overran is worth what it really took; one that has not
+       * happened yet is worth what it is scheduled to take.
+       */
+      const assignments = await this.assignmentRepo.findCommitmentsWithinWindow(
         member.id,
         weekStart,
         weekEnd
@@ -205,6 +258,9 @@ export class AutoScheduleService {
       for (const a of assignments) {
         if (a.clockInTime && a.clockOutTime) {
           hoursThisWeek += (a.clockOutTime.getTime() - a.clockInTime.getTime()) / 3600000;
+        } else if (a.task.scheduledStart && a.task.scheduledEnd) {
+          hoursThisWeek +=
+            (a.task.scheduledEnd.getTime() - a.task.scheduledStart.getTime()) / 3600000;
         }
       }
 
@@ -238,8 +294,17 @@ export class AutoScheduleService {
     };
   }
 
-  async generateSchedule(organizationId: string, weekStart: Date): Promise<DraftSchedule> {
-    const context = await this.collectWeekData(organizationId, weekStart);
+  async generateSchedule(
+    organizationId: string,
+    weekStart: Date,
+    /** See `collectWeekData` — null for an admin, the caller's departments otherwise. */
+    departmentScope?: string[] | null
+  ): Promise<DraftSchedule> {
+    const context = await this.collectWeekData(
+      organizationId,
+      weekStart,
+      departmentScope
+    );
 
     if (context.tasks.length === 0) {
       return { provider: "algorithmic", assignments: [], unfilledTasks: [], summary: { totalTasks: 0, totalAssignments: 0, totalUnfilled: 0, hoursDistribution: [] } };
@@ -751,8 +816,16 @@ export class AutoScheduleService {
    * constraint the model is not told about turns into proposals that are
    * silently discarded. That is testable only by reading what it is sent.
    */
-  async previewPrompt(organizationId: string, weekStart: Date): Promise<string> {
-    const context = await this.collectWeekData(organizationId, weekStart);
+  async previewPrompt(
+    organizationId: string,
+    weekStart: Date,
+    departmentScope?: string[] | null
+  ): Promise<string> {
+    const context = await this.collectWeekData(
+      organizationId,
+      weekStart,
+      departmentScope
+    );
     const index = await this.collectCompositionData(organizationId, context);
     return this.buildAIPrompt(context, index).prompt;
   }
@@ -1063,7 +1136,16 @@ Use the exact task numbers (1, 2, 3...) and staff letters (A, B, C...) from abov
     organizationId: string,
     assignments: DraftAssignment[],
     confirmedById: string,
-    draftProvider?: string
+    draftProvider?: string,
+    /**
+     * The caller's departments, or null for a company admin.
+     *
+     * The draft is client-supplied, so scoping the GENERATE call alone would be
+     * theatre — a scoped manager could post rows for any task in the
+     * organisation. Refused as "rejected" alongside the cross-tenant rows,
+     * which is the same answer for the same reason.
+     */
+    departmentScope?: string[] | null
   ) {
     const provider =
       draftProvider && (AI_PROVIDERS as readonly string[]).includes(draftProvider)
@@ -1085,8 +1167,15 @@ Use the exact task numbers (1, 2, 3...) and staff letters (A, B, C...) from abov
       this.taskRepo.findManyByIdsInOrg(draftTaskIds, organizationId),
       this.membershipRepo.findManyByIdsInOrg(draftMembershipIds, organizationId),
     ]);
-    const ownTaskIds = new Set(ownTasks.map((t) => t.id));
+    const inScopeTasks =
+      departmentScope === undefined || departmentScope === null
+        ? ownTasks
+        : ownTasks.filter((t) =>
+            isDepartmentInScope(t.departmentId, departmentScope)
+          );
+    const ownTaskIds = new Set(inScopeTasks.map((t) => t.id));
     const ownMemberIds = new Set(ownMembers.map((m) => m.id));
+    const taskById = new Map(inScopeTasks.map((t) => [t.id, t]));
 
     /*
      * Headcount, re-checked here rather than trusted from the draft.
@@ -1098,7 +1187,7 @@ Use the exact task numbers (1, 2, 3...) and staff letters (A, B, C...) from abov
      * and decremented as rows land, so concurrent drafts cannot both spend the
      * same slot.
      */
-    const headcount = new Map(ownTasks.map((t) => [t.id, t.requiredHeadcount]));
+    const headcount = new Map(inScopeTasks.map((t) => [t.id, t.requiredHeadcount]));
     const slotsLeft = new Map<string, number>();
     await Promise.all(
       [...ownTaskIds].map(async (taskId) => {
@@ -1123,7 +1212,7 @@ Use the exact task numbers (1, 2, 3...) and staff letters (A, B, C...) from abov
      */
     const gates = new Map<string, CompositionGate>();
     await Promise.all(
-      ownTasks
+      inScopeTasks
         .filter((t) => parseCompositionRules(t.compositionRules).length > 0)
         .map(async (t) => {
           const data = await this.compositionService.buildGateData(t.id, [
@@ -1143,6 +1232,43 @@ Use the exact task numbers (1, 2, 3...) and staff letters (A, B, C...) from abov
         })
     );
 
+    /*
+     * Person-level constraints, re-checked here for the same reason headcount
+     * and composition are.
+     *
+     * Those two were re-read from live state; conflicts, hour limits, rest gaps
+     * and availability were not — they were evaluated once, when the draft was
+     * built. So two drafts made from the same starting state could each put one
+     * person on a different overlapping shift, and both would write: the slots
+     * were different, the composition fine, and the clash invisible because
+     * neither draft knew about the other. Sequential runs had the milder
+     * version of it, where leave approved between generating and confirming no
+     * longer removed anybody.
+     *
+     * One engine call per DISTINCT TASK, not per row, with the memo and the
+     * provisional map threaded exactly as the generate path does — so the cost
+     * matches drafting, and `tests/services/eligibility-query-count.test.ts`
+     * keeps holding.
+     */
+    const hoursCache: CommittedAssignmentsCache = new Map();
+    const provisional: ProvisionalAssignments = new Map();
+    const eligibleByTask = new Map<string, Set<string>>();
+    const eligibleFor = async (taskId: string) => {
+      const cached = eligibleByTask.get(taskId);
+      if (cached) return cached;
+      const verdicts = await this.eligibilityService.checkEligibilityForTask(
+        taskId,
+        organizationId,
+        provisional,
+        hoursCache
+      );
+      const ok = new Set(
+        verdicts.filter((v) => v.eligible).map((v) => v.membershipId)
+      );
+      eligibleByTask.set(taskId, ok);
+      return ok;
+    };
+
     // A draft naming the same person on the same task twice cannot produce two
     // rows — `(taskId, membershipId)` is unique — so the second is dropped
     // here instead of becoming a swallowed constraint error below.
@@ -1152,6 +1278,7 @@ Use the exact task numbers (1, 2, 3...) and staff letters (A, B, C...) from abov
     const rejected: string[] = [];
     const overCapacity: string[] = [];
     const brokeComposition: string[] = [];
+    const noLongerEligible: string[] = [];
     let duplicates = 0;
     let writeErrors = 0;
     for (const draft of assignments) {
@@ -1206,6 +1333,18 @@ Use the exact task numbers (1, 2, 3...) and staff letters (A, B, C...) from abov
         gate.force(draft.membershipId);
       }
 
+      /*
+       * Deliberately AFTER the composition gate, so a row refused by both is
+       * reported under the rule that is easier to act on. An eligibility
+       * override is honoured by `checkEligibilityForTask` itself, so a manager
+       * who documented a reason still gets through here without a second
+       * escape hatch.
+       */
+      if (!(await eligibleFor(draft.taskId)).has(draft.membershipId)) {
+        noLongerEligible.push(draft.taskId);
+        continue;
+      }
+
       try {
         const assignment = await this.assignmentRepo.create({
           taskId: draft.taskId, membershipId: draft.membershipId,
@@ -1215,6 +1354,32 @@ Use the exact task numbers (1, 2, 3...) and staff letters (A, B, C...) from abov
         });
         created.push(assignment);
         slotsLeft.set(draft.taskId, (slotsLeft.get(draft.taskId) ?? 1) - 1);
+
+        /*
+         * This row is now part of the roster the remaining rows are judged
+         * against — without it, a draft naming one person for two overlapping
+         * shifts would pass both checks, because each was evaluated against a
+         * database that did not yet contain the other.
+         *
+         * The memo for OTHER tasks is cleared rather than the whole map,
+         * because a verdict computed before this write no longer accounts for
+         * it. This task's own entry stays: `checkEligibilityForTask` excludes
+         * the task under evaluation from its own conflict and hours checks, so
+         * the remaining rows on this shift are unaffected by it.
+         */
+        const task = taskById.get(draft.taskId);
+        if (task?.scheduledStart && task?.scheduledEnd) {
+          const existing = provisional.get(draft.membershipId) ?? [];
+          existing.push({
+            start: task.scheduledStart,
+            end: task.scheduledEnd,
+            title: task.title ?? draft.taskTitle,
+          });
+          provisional.set(draft.membershipId, existing);
+        }
+        for (const key of [...eligibleByTask.keys()]) {
+          if (key !== draft.taskId) eligibleByTask.delete(key);
+        }
 
         const member = await this.membershipRepo.findById(draft.membershipId);
         if (member) {
@@ -1233,7 +1398,7 @@ Use the exact task numbers (1, 2, 3...) and staff letters (A, B, C...) from abov
     await this.auditService.log({
       organizationId, userId: confirmedById,
       action: ACTIONS.TASK_ASSIGNED, entityType: "auto-schedule",
-      details: { assignmentsCreated: created.length, totalPlanned: assignments.length, status: assignmentStatus, rejectedCrossTenant: rejected.length, skippedOverCapacity: overCapacity.length, skippedComposition: brokeComposition.length, allocationProvider: provider ?? null },
+      details: { assignmentsCreated: created.length, totalPlanned: assignments.length, status: assignmentStatus, rejectedCrossTenant: rejected.length, skippedOverCapacity: overCapacity.length, skippedComposition: brokeComposition.length, skippedIneligible: noLongerEligible.length, allocationProvider: provider ?? null },
     });
 
     /*
@@ -1245,10 +1410,13 @@ Use the exact task numbers (1, 2, 3...) and staff letters (A, B, C...) from abov
      * should never have had.
      *
      * They partition it exactly:
-     *   failed === rejected + overCapacity + brokeComposition + duplicates
-     *             + writeErrors
+     *   failed === rejected + overCapacity + brokeComposition + ineligible
+     *             + duplicates + writeErrors
      * which is worth asserting in a test — a category added later without a
-     * counter would silently disappear into `failed` otherwise.
+     * counter would silently disappear into `failed` otherwise. `ineligible`
+     * is that category: the person-level re-check refuses rows the draft
+     * believed were fine, and without its own counter those would have looked
+     * like unexplained write failures.
      */
     return {
       created: created.length,
@@ -1256,6 +1424,7 @@ Use the exact task numbers (1, 2, 3...) and staff letters (A, B, C...) from abov
       rejected: rejected.length,
       overCapacity: overCapacity.length,
       brokeComposition: brokeComposition.length,
+      ineligible: noLongerEligible.length,
       duplicates,
       writeErrors,
     };

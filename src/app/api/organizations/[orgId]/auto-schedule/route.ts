@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { AutoScheduleService } from "@/services/auto-schedule.service";
 import { getAuthenticatedUser, unauthorizedResponse, checkOrgSuspended } from "@/lib/auth-guard";
 import { requirePermission } from "@/lib/permission-guard";
+import { departmentScopeFor } from "@/lib/department-scope";
 
 const autoScheduleService = new AutoScheduleService();
 
@@ -44,7 +45,20 @@ export async function POST(
       );
     }
 
-    const draft = await autoScheduleService.generateSchedule(orgId, weekStart);
+    /*
+     * A manager drafts their own departments; an admin drafts the organisation.
+     *
+     * This ran org-wide for everyone, so a manager granted
+     * `allocation:auto_schedule` through a custom role drafted — and confirmed —
+     * assignments across departments they have no authority over.
+     * `permission-guard` states that a custom role can never widen a manager's
+     * department scope; here it did.
+     */
+    const draft = await autoScheduleService.generateSchedule(
+      orgId,
+      weekStart,
+      departmentScopeFor(gate.membership)
+    );
     return NextResponse.json(draft);
   } catch (error) {
     console.error("[Auto-Schedule Generate Error]", error);

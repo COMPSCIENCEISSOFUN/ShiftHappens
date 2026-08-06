@@ -10,6 +10,7 @@ import { UserManagementService } from "@/services/user-management.service";
 import { updateUserRoleSchema } from "@/lib/validations";
 import { getAuthenticatedUser, unauthorizedResponse, checkOrgSuspended } from "@/lib/auth-guard";
 import { requirePermission } from "@/lib/permission-guard";
+import { departmentScopeFor } from "@/lib/department-scope";
 
 const userMgmtService = new UserManagementService();
 
@@ -42,7 +43,8 @@ export async function PATCH(
       userId,
       orgId,
       parsed.data,
-      user.id
+      user.id,
+      departmentScopeFor(gate.membership)
     );
 
     // Handle custom role assignment if provided (separate from system role update)

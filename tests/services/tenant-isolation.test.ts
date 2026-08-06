@@ -18,6 +18,7 @@ import { RoleService } from "@/services/role.service";
 import { CertificationService } from "@/services/certification.service";
 import { DepartmentService } from "@/services/department.service";
 import { AutoScheduleService } from "@/services/auto-schedule.service";
+import { AvailabilityService } from "@/services/availability.service";
 import { OrganizationRepository } from "@/repositories/organization.repository";
 import { UserRepository } from "@/repositories/user.repository";
 import { prisma } from "@/lib/prisma";
@@ -101,6 +102,17 @@ beforeEach(async () => {
   emailCounter = 0;
   orgA = await createTenant("org-a");
   orgB = await createTenant("org-b");
+
+  /*
+   * `confirmSchedule` re-checks person-level eligibility against live state,
+   * and a member with no availability rows is eligible for nothing — so the
+   * VALID half of a mixed cross-tenant draft would be refused for the wrong
+   * reason, and the test would pass while proving something else.
+   */
+  const availability = new AvailabilityService();
+  for (const id of [orgA.staffMembershipId, orgB.staffMembershipId]) {
+    await availability.openUnsetDays(id);
+  }
 });
 
 describe("Tenant isolation — TaskService", () => {
@@ -257,6 +269,8 @@ describe("Tenant isolation — RoleService", () => {
   async function makeRole(tenant: Tenant, name: string) {
     const permissions = await prisma.permission.findMany({ take: 2 });
     return roleService.create(
+      // `name` was dropped from CreateRoleInput when roles gained a generated
+      // slug — the label is the only name a caller supplies now.
       { displayLabel: name, permissionIds: permissions.map((p) => p.id) },
       tenant.orgId,
       tenant.adminUserId

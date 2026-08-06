@@ -35,12 +35,35 @@ export class AuthService {
    * 5. Send verification email
    */
   async register(input: RegisterInput) {
+    /*
+     * Hashed BEFORE the lookup, so both outcomes pay for it.
+     *
+     * bcrypt at cost 12 is the expensive step here by an order of magnitude.
+     * Doing it only on the create path would make "already registered" return
+     * measurably faster, which reopens by stopwatch the question the response
+     * body no longer answers.
+     */
+    const hashedPassword = await bcrypt.hash(input.password, 12);
+
     const existing = await this.userRepo.findByEmail(input.email);
     if (existing) {
-      throw new Error("Email already registered");
+      /*
+       * No throw, and no user created.
+       *
+       * This raised "Email already registered", which the route turned into a
+       * 409 — handing an unauthenticated caller exactly the fact that
+       * `requestPasswordReset` below goes to deliberate lengths to hide. A list
+       * of a company's addresses posted here separated the real ones from the
+       * invented ones, and confirmed them for credential stuffing.
+       *
+       * The account holder is told instead, so the attempt is not silent to the
+       * one person entitled to know about it. Fire-and-forget for the same
+       * reason the reset mail is: awaiting it would restore the timing
+       * difference this method just removed.
+       */
+      void this.emailService.sendDuplicateRegistrationEmail(input.email);
+      return { created: false as const, user: null };
     }
-
-    const hashedPassword = await bcrypt.hash(input.password, 12);
 
     const user = await this.userRepo.create({
       name: input.name,
@@ -52,7 +75,7 @@ export class AuthService {
     await this.tokenRepo.createVerificationToken(input.email, token);
     await this.emailService.sendVerificationEmail(input.email, token);
 
-    return { user };
+    return { created: true as const, user };
   }
 
   /**

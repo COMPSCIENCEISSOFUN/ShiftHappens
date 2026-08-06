@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { AutoScheduleService } from "@/services/auto-schedule.service";
 import { getAuthenticatedUser, unauthorizedResponse, checkOrgSuspended } from "@/lib/auth-guard";
 import { requirePermission } from "@/lib/permission-guard";
+import { departmentScopeFor } from "@/lib/department-scope";
 
 const autoScheduleService = new AutoScheduleService();
 
@@ -42,7 +43,10 @@ export async function POST(
       user.id,
       // Echoed from the draft the client was given. The service validates it
       // against the known provider names and drops anything else.
-      typeof body.provider === "string" ? body.provider : undefined
+      typeof body.provider === "string" ? body.provider : undefined,
+      // The draft is client-supplied, so scoping only the generate call would
+      // be theatre — a scoped manager could post rows for any task in the org.
+      departmentScopeFor(gate.membership)
     );
 
     return NextResponse.json(result);

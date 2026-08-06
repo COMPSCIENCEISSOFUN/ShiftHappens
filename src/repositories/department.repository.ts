@@ -52,6 +52,21 @@ export class DepartmentRepository {
    * @param includeArchived  When true, returns archived departments too
    *                         (used by the Departments management page).
    */
+  /**
+   * How many of these department ids belong to this organisation.
+   *
+   * Exists so a caller can prove a LIST of ids without pulling every
+   * department, and without N queries. The comparison against the caller's own
+   * list length is what makes it a proof: fewer means at least one id was not
+   * ours.
+   */
+  async countOwned(departmentIds: string[], organizationId: string): Promise<number> {
+    if (departmentIds.length === 0) return 0;
+    return prisma.department.count({
+      where: { id: { in: departmentIds }, organizationId },
+    });
+  }
+
   async findByOrganizationId(
     organizationId: string,
     includeArchived = false

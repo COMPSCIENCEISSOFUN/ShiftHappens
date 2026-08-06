@@ -43,11 +43,34 @@ export async function PATCH(
     if (!user) return unauthorizedResponse();
 
     const { orgId } = await params;
-    const suspended = await checkOrgSuspended(orgId);
-    if (suspended) return suspended;
 
+    /*
+     * Permission BEFORE suspension, matching `PATCH /organizations/[orgId]`.
+     *
+     * `checkOrgActive` answers false for a suspended org and for one that does
+     * not exist, so running it first made this endpoint answer a question about
+     * an organisation the caller had not been proved to belong to. Three
+     * distinguishable replies — "suspended", "Forbidden", "Validation failed" —
+     * turned a guessed id into an existence-and-status oracle for other
+     * tenants. The gate has to come first for the suspension answer to be one
+     * the caller was entitled to.
+     */
+    /*
+     * Permission BEFORE suspension, matching `PATCH /organizations/[orgId]`.
+     *
+     * `checkOrgActive` answers false for a suspended org and for one that does
+     * not exist, so running it first made this endpoint answer a question about
+     * an organisation the caller had not been proved to belong to. Three
+     * distinguishable replies — "suspended", "Forbidden", "Validation failed" —
+     * turned a guessed id into an existence-and-status oracle for other
+     * tenants. The gate has to come first for the suspension answer to be one
+     * the caller was entitled to.
+     */
     const gate = await requirePermission(user.id, orgId, "settings:update");
     if (!gate.ok) return gate.response;
+
+    const suspended = await checkOrgSuspended(orgId);
+    if (suspended) return suspended;
 
     const body = await request.json();
     const parsed = updateCompanySettingsSchema.safeParse(body);
