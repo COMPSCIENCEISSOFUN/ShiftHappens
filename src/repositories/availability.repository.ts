@@ -108,6 +108,26 @@ export class AvailabilityRepository {
     });
   }
 
+  /**
+   * Pending leave held by any of these members on any of these dates.
+   *
+   * Dates are the normalised keys `overrideDateKey` produces, so the caller
+   * derives them from a task the same way `isAvailableAt` derives them from a
+   * shift — including the SECOND day of an overnight shift, which is a real
+   * date somebody can have booked off.
+   */
+  async findPendingOnDates(membershipIds: string[], dates: Date[]) {
+    if (membershipIds.length === 0 || dates.length === 0) return [];
+    return prisma.availabilityOverride.findMany({
+      where: {
+        membershipId: { in: membershipIds },
+        date: { in: dates },
+        status: "pending",
+      },
+      select: { id: true, membershipId: true, date: true, isAvailable: true, reason: true },
+    });
+  }
+
   /** Records a manager's verdict on a leave request. */
   async reviewOverride(id: string, status: string, reviewedById: string) {
     return prisma.availabilityOverride.update({
@@ -211,14 +231,35 @@ export class AvailabilityRepository {
     membershipId: string,
     date: Date,
     startTime: string,
-    endTime: string
+    endTime: string,
+    /**
+     * What an ABSENT weekday row means for this member.
+     *
+     * Silence means different things for the two employment types, and the
+     * difference is the contract. A CASUAL opts in — they name the hours they
+     * are willing to work, so a day they never mentioned is a day they did not
+     * offer. A FULL-TIMER opts out: they are employed to work and their days
+     * are open unless somebody narrows them, so a day nobody has written down
+     * is open rather than refused.
+     *
+     * `openUnsetDays` writes that default down explicitly wherever it can, so
+     * an admin can see and narrow it. This flag is what keeps the rule true for
+     * the members it never ran for — anyone created before it existed, seeded
+     * directly, or imported — instead of making every one of them ineligible
+     * for everything with no visible cause.
+     *
+     * Overrides are unaffected: they are read BEFORE the weekly fallback, so
+     * approved leave still removes a full-timer no matter what this says.
+     */
+    treatMissingDayAsOpen = false
   ): Promise<{ available: boolean; reason?: string }> {
     if (endTime < startTime) {
       const firstHalf = await this.availableWithinDay(
         membershipId,
         date,
         startTime,
-        END_OF_DAY
+        END_OF_DAY,
+        treatMissingDayAsOpen
       );
       if (!firstHalf.available) return firstHalf;
 
@@ -232,7 +273,8 @@ export class AvailabilityRepository {
         membershipId,
         nextDay,
         "00:00",
-        endTime
+        endTime,
+        treatMissingDayAsOpen
       );
       if (!secondHalf.available) {
         return {
@@ -246,7 +288,13 @@ export class AvailabilityRepository {
       return { available: true };
     }
 
-    return this.availableWithinDay(membershipId, date, startTime, endTime);
+    return this.availableWithinDay(
+      membershipId,
+      date,
+      startTime,
+      endTime,
+      treatMissingDayAsOpen
+    );
   }
 
   /** One calendar day's worth of the question above. */
@@ -254,7 +302,8 @@ export class AvailabilityRepository {
     membershipId: string,
     date: Date,
     startTime: string,
-    endTime: string
+    endTime: string,
+    treatMissingDayAsOpen = false
   ): Promise<{ available: boolean; reason?: string }> {
     // Check for date-specific override first.
     // Overrides are keyed by the LOCAL calendar date, stored as UTC midnight.
@@ -296,7 +345,11 @@ export class AvailabilityRepository {
     });
 
     if (!schedule) {
-      return { available: false, reason: "No availability set for this day" };
+      // A day the member never answered. Open for a contracted member, refused
+      // for one whose availability is an offer — see the parameter's docblock.
+      return treatMissingDayAsOpen
+        ? { available: true }
+        : { available: false, reason: "No availability set for this day" };
     }
 
     if (!schedule.isAvailable) {

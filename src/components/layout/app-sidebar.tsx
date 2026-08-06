@@ -61,6 +61,20 @@ function CalendarIcon() {
   );
 }
 
+/** A calendar with a cross through it — a day struck out. */
+function LeaveIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={iconClass}>
+      <rect x="3" y="4" width="18" height="18" rx="2" />
+      <line x1="16" y1="2" x2="16" y2="6" />
+      <line x1="8" y1="2" x2="8" y2="6" />
+      <line x1="3" y1="10" x2="21" y2="10" />
+      <line x1="10" y1="14" x2="14" y2="18" />
+      <line x1="14" y1="14" x2="10" y2="18" />
+    </svg>
+  );
+}
+
 function MembersIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={iconClass}>
@@ -294,6 +308,7 @@ export function AppSidebar({
   const [features, setFeatures] = useState<Record<string, boolean> | null>(null);
   const [tier, setTier] = useState<{ name: string; displayName: string } | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [pendingLeaveCount, setPendingLeaveCount] = useState(0);
   const [mobileOpen, setMobileOpen] = useState(false);
 
   async function fetchUnreadCount() {
@@ -335,6 +350,25 @@ export function AppSidebar({
     }
   }, [orgId]);
 
+  /*
+   * Poll the count of leave awaiting a decision.
+   *
+   * Gated on the permission before the request is made, not after. The endpoint
+   * is manager-only, so an unconditional poll would give every staff member a
+   * 403 in their console every thirty seconds — and the item is hidden from
+   * them anyway, so the answer could not be used.
+   */
+  async function fetchPendingLeaveCount() {
+    if (!orgId) return;
+    try {
+      const res = await fetch(`/api/organizations/${orgId}/leave`);
+      const data = await res.json();
+      setPendingLeaveCount(res.ok && Array.isArray(data) ? data.length : 0);
+    } catch {
+      /* non-critical — the badge simply does not appear */
+    }
+  }
+
   // Poll unread notification count.
   // Notifications are org-scoped, so there is nothing to poll outside an org.
   useEffect(() => {
@@ -347,6 +381,21 @@ export function AppSidebar({
     const interval = setInterval(fetchUnreadCount, 30000);
     return () => clearInterval(interval);
   }, [orgId]);
+
+  // Same cadence as the notification bell, for the same reason: a badge that
+  // only updates on navigation is a badge somebody has already stopped
+  // believing.
+  useEffect(() => {
+    if (!orgId || !permissions.includes("members:request_availability")) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronising with an external system: resets the badge on leaving an organisation or losing the permission
+      setPendingLeaveCount(0);
+      return;
+    }
+    fetchPendingLeaveCount();
+    const interval = setInterval(fetchPendingLeaveCount, 30000);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orgId, permissions]);
 
 
   /*
@@ -464,6 +513,23 @@ export function AppSidebar({
 
   // --- System section ---
   const systemItems: NavItem[] = [];
+
+  /*
+   * Leave requests, for the people who can answer them.
+   *
+   * A nav item rather than only a dashboard card, because they fail
+   * differently: a card is scrolled past, a badge stays until the work is done.
+   * Hidden entirely without the permission, so staff never see a link to a page
+   * that would refuse them.
+   */
+  if (orgId && can("members:request_availability")) {
+    systemItems.push({
+      href: `/org/${orgId}/leave`,
+      label: "Leave requests",
+      icon: LeaveIcon,
+      badge: pendingLeaveCount > 0 ? pendingLeaveCount : undefined,
+    });
+  }
 
   if (orgId) {
     systemItems.push({

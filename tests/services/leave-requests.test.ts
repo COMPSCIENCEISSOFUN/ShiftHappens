@@ -109,6 +109,122 @@ describe("who has to ask", () => {
   });
 });
 
+/*
+ * The two directions are not symmetrical.
+ *
+ * Asking for time off is an exception to a contract. Asking to work a day you
+ * are not contracted for is asking to CHANGE the contract, and that belongs to
+ * whoever sets the contracted days — not to a form the member fills in.
+ */
+/*
+ * Proving the request belongs to the reviewer used to happen in the ROUTE,
+ * which read AvailabilityRepository and MembershipRepository directly to do it
+ * — Boundary reaching Entity. Moved into the service, so these assert where the
+ * rule now lives rather than at the one endpoint that happened to enforce it.
+ */
+describe("whose leave a reviewer may answer", () => {
+  it("refuses a request belonging to another organisation", async () => {
+    const request = await askForLeave(fullTimer);
+    const other = await createTenant("leave-other");
+
+    await expect(
+      service.reviewLeave(request.id, "approved", other.admin.userId, other.orgId)
+    ).rejects.toThrow("Leave request not found");
+  });
+
+  it("refuses a member outside the reviewer's departments", async () => {
+    const request = await askForLeave(fullTimer);
+    const elsewhere = await prisma.department.create({
+      data: { name: "Elsewhere", organizationId: tenant.orgId },
+    });
+
+    await expect(
+      service.reviewLeave(request.id, "approved", tenant.manager.userId, tenant.orgId, [
+        elsewhere.id,
+      ])
+    ).rejects.toThrow("Leave request not found");
+  });
+
+  it("allows a reviewer whose scope covers them", async () => {
+    const request = await askForLeave(fullTimer);
+
+    const reviewed = await service.reviewLeave(
+      request.id,
+      "approved",
+      tenant.manager.userId,
+      tenant.orgId,
+      [tenant.departmentId]
+    );
+    expect(reviewed.status).toBe("approved");
+  });
+
+  // An unscoped reviewer is a company admin.
+  it("allows an unscoped reviewer", async () => {
+    const request = await askForLeave(fullTimer);
+
+    const reviewed = await service.reviewLeave(
+      request.id,
+      "approved",
+      tenant.admin.userId,
+      tenant.orgId,
+      null
+    );
+    expect(reviewed.status).toBe("approved");
+  });
+
+  it("leaves the request pending when it refuses", async () => {
+    const request = await askForLeave(fullTimer);
+    const other = await createTenant("leave-other2");
+
+    await service
+      .reviewLeave(request.id, "approved", other.admin.userId, other.orgId)
+      .catch(() => {});
+
+    const after = await prisma.availabilityOverride.findUniqueOrThrow({
+      where: { id: request.id },
+    });
+    expect(after.status).toBe("pending");
+  });
+});
+
+describe("which direction a contracted member may ask for", () => {
+  it("refuses a full-time member asking to work a day", async () => {
+    await expect(
+      service.createOverride(fullTimer, {
+        date: DATE,
+        isAvailable: true,
+        reason: "Happy to cover",
+      })
+    ).rejects.toThrow("Contracted days are set by your organisation");
+  });
+
+  it("writes nothing when it refuses", async () => {
+    await service
+      .createOverride(fullTimer, { date: DATE, isAvailable: true })
+      .catch(() => {});
+
+    const rows = await prisma.availabilityOverride.findMany({
+      where: { membershipId: fullTimer },
+    });
+    expect(rows).toHaveLength(0);
+  });
+
+  it("still allows them to ask for the day off", async () => {
+    const created = await askForLeave(fullTimer);
+    expect(created.status).toBe("pending");
+  });
+
+  // A casual's availability is an offer, so widening it is theirs to do.
+  it("lets a casual member widen their own availability", async () => {
+    const created = await service.createOverride(tenant.staff.membershipId, {
+      date: DATE,
+      isAvailable: true,
+      reason: "Free that day",
+    });
+    expect(created.status).toBe("approved");
+  });
+});
+
 describe("what a pending request does to the roster", () => {
   // The assertion the whole feature rests on.
   it("nothing — the member is still available", async () => {
@@ -133,7 +249,7 @@ describe("what a pending request does to the roster", () => {
   it("approving it is what makes them unavailable", async () => {
     const request = await askForLeave(fullTimer);
 
-    await service.reviewLeave(request.id, "approved", tenant.admin.userId);
+    await service.reviewLeave(request.id, "approved", tenant.admin.userId, tenant.orgId);
 
     const check = await repo.isAvailableAt(fullTimer, SHIFT_DAY, "10:00", "14:00");
     expect(check.available).toBe(false);
@@ -144,7 +260,7 @@ describe("what a pending request does to the roster", () => {
   it("rejecting leaves them on the roster", async () => {
     const request = await askForLeave(fullTimer);
 
-    await service.reviewLeave(request.id, "rejected", tenant.admin.userId);
+    await service.reviewLeave(request.id, "rejected", tenant.admin.userId, tenant.orgId);
 
     const check = await repo.isAvailableAt(fullTimer, SHIFT_DAY, "10:00", "14:00");
     expect(check.available).toBe(true);
@@ -154,7 +270,7 @@ describe("what a pending request does to the roster", () => {
 describe("reviewing", () => {
   it("records who decided", async () => {
     const request = await askForLeave(fullTimer);
-    await service.reviewLeave(request.id, "approved", tenant.admin.userId);
+    await service.reviewLeave(request.id, "approved", tenant.admin.userId, tenant.orgId);
 
     const after = await repo.getOverrideById(request.id);
     expect(after?.reviewedById).toBe(tenant.admin.userId);
@@ -167,10 +283,10 @@ describe("reviewing", () => {
    */
   it("refuses a request that has already been decided", async () => {
     const request = await askForLeave(fullTimer);
-    await service.reviewLeave(request.id, "approved", tenant.admin.userId);
+    await service.reviewLeave(request.id, "approved", tenant.admin.userId, tenant.orgId);
 
     await expect(
-      service.reviewLeave(request.id, "rejected", tenant.admin.userId)
+      service.reviewLeave(request.id, "rejected", tenant.admin.userId, tenant.orgId)
     ).rejects.toThrow(/already been reviewed/);
   });
 
@@ -181,7 +297,7 @@ describe("reviewing", () => {
    */
   it("resets a rejected request to pending when it is asked again", async () => {
     const request = await askForLeave(fullTimer);
-    await service.reviewLeave(request.id, "rejected", tenant.admin.userId);
+    await service.reviewLeave(request.id, "rejected", tenant.admin.userId, tenant.orgId);
 
     const resubmitted = await service.createOverride(fullTimer, {
       date: DATE,
@@ -243,6 +359,86 @@ describe("who gets told", () => {
   });
 });
 
+describe("what the assign screen is told", () => {
+  async function shift(startISO: string, endISO: string) {
+    return prisma.task.create({
+      data: {
+        title: "Evening service",
+        organizationId: tenant.orgId,
+        departmentId: tenant.departmentId,
+        createdById: tenant.admin.userId,
+        status: "open",
+        requiredHeadcount: 2,
+        scheduledStart: new Date(startISO),
+        scheduledEnd: new Date(endISO),
+      },
+    });
+  }
+
+  it("reports a pending request covering the shift's day", async () => {
+    await askForLeave(fullTimer);
+    // 14 August 2026, 10:00–14:00 Singapore.
+    const task = await shift("2026-08-14T02:00:00.000Z", "2026-08-14T06:00:00.000Z");
+
+    const flagged = await service.getPendingLeaveForTask(task.id, tenant.orgId);
+    expect(flagged.map((f) => f.membershipId)).toEqual([fullTimer]);
+  });
+
+  it("says nothing about a different day", async () => {
+    await askForLeave(fullTimer);
+    const task = await shift("2026-08-21T02:00:00.000Z", "2026-08-21T06:00:00.000Z");
+
+    expect(await service.getPendingLeaveForTask(task.id, tenant.orgId)).toEqual([]);
+  });
+
+  // Decided requests are not warnings. An approved one already removes the
+  // person from the roster, and a rejected one is inert.
+  it("drops it once it has been decided", async () => {
+    const request = await askForLeave(fullTimer);
+    await service.reviewLeave(request.id, "rejected", tenant.admin.userId, tenant.orgId);
+    const task = await shift("2026-08-14T02:00:00.000Z", "2026-08-14T06:00:00.000Z");
+
+    expect(await service.getPendingLeaveForTask(task.id, tenant.orgId)).toEqual([]);
+  });
+
+  /*
+   * A shift crossing midnight occupies two calendar days and somebody can have
+   * asked for either. The same reasoning as the overnight availability fix —
+   * warning on only the start date would miss exactly the request that matters
+   * for a closing shift.
+   */
+  it("covers the second day of a shift that crosses midnight", async () => {
+    // Leave on the 15th; shift runs 14 Aug 22:00 – 15 Aug 02:00 Singapore.
+    await service.createOverride(fullTimer, {
+      date: "2026-08-15T00:00:00.000Z",
+      isAvailable: false,
+      reason: "Away",
+    });
+    const task = await shift("2026-08-14T14:00:00.000Z", "2026-08-14T18:00:00.000Z");
+
+    const flagged = await service.getPendingLeaveForTask(task.id, tenant.orgId);
+    expect(flagged.map((f) => f.membershipId)).toEqual([fullTimer]);
+  });
+
+  it("refuses another organisation's task", async () => {
+    const other = await createTenant("leave-task-other");
+    const theirs = await prisma.task.create({
+      data: {
+        title: "Theirs",
+        organizationId: other.orgId,
+        createdById: other.admin.userId,
+        status: "open",
+        scheduledStart: new Date("2026-08-14T02:00:00.000Z"),
+        scheduledEnd: new Date("2026-08-14T06:00:00.000Z"),
+      },
+    });
+
+    await expect(
+      service.getPendingLeaveForTask(theirs.id, tenant.orgId)
+    ).rejects.toThrow("Task not found");
+  });
+});
+
 describe("the review endpoint", () => {
   it("lists what is waiting", async () => {
     await askForLeave(fullTimer);
@@ -259,7 +455,7 @@ describe("the review endpoint", () => {
   // would grow forever and stop being a to-do.
   it("stops listing one once it is decided", async () => {
     const request = await askForLeave(fullTimer);
-    await service.reviewLeave(request.id, "approved", tenant.admin.userId);
+    await service.reviewLeave(request.id, "approved", tenant.admin.userId, tenant.orgId);
 
     asUser(tenant.admin.userId);
     const res = await listLeave(req("GET"), ctx({ orgId: tenant.orgId }));

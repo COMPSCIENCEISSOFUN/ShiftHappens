@@ -6,19 +6,15 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { AvailabilityService } from "@/services/availability.service";
-import { AvailabilityRepository } from "@/repositories/availability.repository";
-import { MembershipRepository } from "@/repositories/membership.repository";
 import {
   getAuthenticatedUser,
   unauthorizedResponse,
   checkOrgSuspended,
 } from "@/lib/auth-guard";
 import { requirePermission } from "@/lib/permission-guard";
-import { departmentScopeFor, isDepartmentInScope } from "@/lib/department-scope";
+import { departmentScopeFor } from "@/lib/department-scope";
 
 const availService = new AvailabilityService();
-const availRepo = new AvailabilityRepository();
-const membershipRepo = new MembershipRepository();
 
 export async function PATCH(
   request: NextRequest,
@@ -48,39 +44,23 @@ export async function PATCH(
       );
     }
 
-    const override = await availRepo.getOverrideById(overrideId);
-    if (!override) {
-      return NextResponse.json({ error: "Leave request not found" }, { status: 404 });
-    }
-
     /*
-     * Two guards, both answering 404.
+     * Ownership and department scope are proved in the SERVICE.
      *
-     * The request arrives with an id from a list the caller was shown, but an
-     * id in a URL is a claim: it has to be proved to belong to THIS
-     * organisation, and to a member inside the reviewer's department scope.
-     * Without the second, a Kitchen manager could approve leave for Front of
-     * House by id — the exact class of gap the 2026-08-05 audit found in four
-     * reporting surfaces.
+     * They used to be proved here, which meant this route imported
+     * `AvailabilityRepository` and `MembershipRepository` and read them
+     * directly — Boundary reaching Entity, which the architecture forbids. The
+     * rule about who may review whose leave is a business rule, so it belongs
+     * where the business rules are; leaving it in the route made it a rule this
+     * one endpoint happened to enforce.
      */
-    const subject = await membershipRepo.findById(override.membershipId);
-    if (!subject || subject.organizationId !== orgId) {
-      return NextResponse.json({ error: "Leave request not found" }, { status: 404 });
-    }
-
-    const scope = departmentScopeFor(gate.membership);
-    if (scope !== null) {
-      const subjectDepts = await membershipRepo.findByIdWithDetails(subject.id);
-      const inScope = (subjectDepts?.departmentMemberships ?? []).some(
-        (dm: { department: { id: string } }) =>
-          isDepartmentInScope(dm.department.id, scope)
-      );
-      if (!inScope) {
-        return NextResponse.json({ error: "Leave request not found" }, { status: 404 });
-      }
-    }
-
-    const reviewed = await availService.reviewLeave(overrideId, decision, user.id);
+    const reviewed = await availService.reviewLeave(
+      overrideId,
+      decision,
+      user.id,
+      orgId,
+      departmentScopeFor(gate.membership)
+    );
     return NextResponse.json(reviewed);
   } catch (error) {
     if (error instanceof Error && error.message.includes("already been reviewed")) {

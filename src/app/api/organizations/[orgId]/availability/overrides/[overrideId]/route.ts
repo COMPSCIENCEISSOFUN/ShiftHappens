@@ -20,7 +20,6 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { AvailabilityService } from "@/services/availability.service";
-import { AvailabilityRepository } from "@/repositories/availability.repository";
 import {
   getAuthenticatedUser,
   unauthorizedResponse,
@@ -29,7 +28,6 @@ import {
 import { AccessService } from "@/services/access.service";
 
 const availService = new AvailabilityService();
-const availRepo = new AvailabilityRepository();
 const accessService = new AccessService();
 
 export async function DELETE(
@@ -49,16 +47,18 @@ export async function DELETE(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const override = await availRepo.getOverrideById(overrideId);
-    // Missing and somebody else's are the same answer. Distinguishing them
-    // would confirm an override exists on a membership the caller cannot see.
-    if (!override || override.membershipId !== membership.id) {
-      return NextResponse.json({ error: "Override not found" }, { status: 404 });
-    }
-
-    await availService.deleteOverride(overrideId);
+    /*
+     * Ownership is proved in the SERVICE, which is why this route no longer
+     * reads `AvailabilityRepository`. Missing and somebody else's are the same
+     * answer either way — distinguishing them would confirm an override exists
+     * on a membership the caller cannot see.
+     */
+    await availService.deleteOverride(overrideId, membership.id);
     return NextResponse.json({ success: true });
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.message === "Override not found") {
+      return NextResponse.json({ error: error.message }, { status: 404 });
+    }
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

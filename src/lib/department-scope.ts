@@ -36,6 +36,29 @@ export function departmentScopeFor(membership: ScopableMembership): string[] | n
 }
 
 /**
+ * Is this member inside the caller's department scope?
+ *
+ * `undefined`/`null` is unrestricted — a company admin. An ARRAY is the
+ * caller's own departments, and an EMPTY array therefore means "no
+ * departments", matching nobody. That distinction is the difference between a
+ * manager seeing nothing and a manager seeing the whole organisation.
+ *
+ * Distinct from `isDepartmentInScope`, which asks about a resource's single
+ * department. A member belongs to several, and belonging to ANY of the
+ * caller's is enough.
+ */
+export function memberInScope(
+  membership: { departmentMemberships?: { department: { id: string } }[] },
+  departmentScope?: string[] | null
+): boolean {
+  if (departmentScope === undefined || departmentScope === null) return true;
+  const scope = new Set(departmentScope);
+  return (membership.departmentMemberships ?? []).some((dm) =>
+    scope.has(dm.department.id)
+  );
+}
+
+/**
  * Whether a department is within a scope. `null` scope allows everything;
  * a resource with no department is never in scope for a scoped member.
  */

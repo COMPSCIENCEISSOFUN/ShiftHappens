@@ -69,7 +69,16 @@ export async function POST(
 
     const override = await availService.createOverride(membership.id, parsed.data);
     return NextResponse.json(override, { status: 201 });
-  } catch {
+  } catch (error) {
+    // A full-time member asking to WORK a day they are not contracted for.
+    // 403 rather than 400: the request is well-formed, they are simply not the
+    // one who decides which days those are.
+    if (
+      error instanceof Error &&
+      error.message === "Contracted days are set by your organisation"
+    ) {
+      return NextResponse.json({ error: error.message }, { status: 403 });
+    }
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

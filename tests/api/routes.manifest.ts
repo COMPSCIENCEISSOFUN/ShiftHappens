@@ -105,9 +105,16 @@ export const ROUTES: RouteSpec[] = [
   // blocked by a composition rule they cannot resolve will delete the rule.
   org("members/seniority", "GET", MANAGER),
   org("members/[userId]/seniority", "PATCH", MANAGER, { suspension: true, extraParams: ["userId"] }),
-  // A nudge, not an edit — there is deliberately no endpoint for writing
-  // another member's availability. See the route's own docblock.
+  // A nudge rather than an edit: it asks a CASUAL member to go and set their
+  // own availability, which is still theirs to set. Writing somebody's pattern
+  // outright is contracted-days below, and admin.
   org("members/[userId]/request-availability", "POST", MANAGER, {
+    suspension: true,
+    extraParams: ["userId"],
+  }),
+  // ADMIN, unlike seniority above. What days somebody is employed to work is a
+  // term of employment, not a rostering call.
+  org("members/[userId]/contracted-days", "PUT", ADMIN, {
     suspension: true,
     extraParams: ["userId"],
   }),
@@ -143,6 +150,7 @@ export const ROUTES: RouteSpec[] = [
   org("tasks/[taskId]/auto-allocate", "POST", MANAGER, { suspension: true, extraParams: ["taskId"] }),
   org("tasks/[taskId]/composition", "GET", MANAGER, { extraParams: ["taskId"] }),
   org("tasks/[taskId]/eligibility", "GET", MANAGER, { extraParams: ["taskId"] }),
+  org("tasks/[taskId]/pending-leave", "GET", MANAGER, { extraParams: ["taskId"] }),
   org("tasks/[taskId]/eligibility/override", "POST", MANAGER, { suspension: true, extraParams: ["taskId"] }),
   org("tasks/[taskId]/suggest", "GET", MANAGER, { extraParams: ["taskId"] }),
   org("tasks/assignments/[assignmentId]", "DELETE", MANAGER, { suspension: true, extraParams: ["assignmentId"] }),

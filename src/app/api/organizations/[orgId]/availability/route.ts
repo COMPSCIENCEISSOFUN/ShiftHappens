@@ -87,8 +87,17 @@ export async function PUT(
     );
     return NextResponse.json(schedule);
   } catch (error) {
-    if (error instanceof Error && error.message.includes("End time")) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
+    if (error instanceof Error) {
+      if (error.message.includes("End time")) {
+        return NextResponse.json({ error: error.message }, { status: 400 });
+      }
+      // A full-time member writing their own contracted days. 403 rather than
+      // 400: the request is well-formed, they are simply not the one who
+      // decides. The message is the wording the screen shows, so a hand-written
+      // PUT gets the same explanation the UI gives.
+      if (error.message === "Contracted days are set by your organisation") {
+        return NextResponse.json({ error: error.message }, { status: 403 });
+      }
     }
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }

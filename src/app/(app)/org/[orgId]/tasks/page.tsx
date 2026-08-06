@@ -36,6 +36,7 @@ import { OperatingHoursNotice } from "@/components/tasks/operating-hours-notice"
 import { reasonLabel } from "@/lib/decline-reasons";
 import { countOccupied, remainingSlots as slotsLeft } from "@/lib/assignment-status";
 import { CompositionRulesEditor } from "@/components/tasks/composition-rules-editor";
+import { PendingLeaveFlag } from "@/components/tasks/pending-leave-flag";
 import {
   annotateSelection,
   describeRule,
@@ -174,6 +175,23 @@ interface CompositionInfo {
   members: CompositionCandidate[];
 }
 
+/**
+ * An unanswered leave request covering a day this shift runs on, from
+ * `GET /tasks/[taskId]/pending-leave`.
+ *
+ * A warning rather than a block. Leave binds on approval, so this person is
+ * genuinely still rosterable — the point is that the manager should know they
+ * asked before deciding, instead of finding out when the request is approved
+ * and the shift has to be unpicked.
+ */
+interface PendingLeave {
+  id: string;
+  membershipId: string;
+  date: string;
+  isAvailable: boolean;
+  reason: string | null;
+}
+
 /** One AI-ranked candidate from `GET /tasks/[taskId]/suggest`. */
 interface AISuggestion {
   membershipId: string;
@@ -276,6 +294,7 @@ export default function TasksPage() {
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [eligibility, setEligibility] = useState<Record<string, EligibilityResult>>({});
   const [composition, setComposition] = useState<CompositionInfo | null>(null);
+  const [pendingLeave, setPendingLeave] = useState<PendingLeave[]>([]);
   const [suggestions, setSuggestions] = useState<AISuggestion[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -413,6 +432,26 @@ export default function TasksPage() {
       setEligibility(map);
     } catch {} finally {
       setLoadingEligibility(false);
+    }
+  }
+
+  /**
+   * Unanswered leave covering this shift's day(s).
+   *
+   * Silent on failure and cleared, like the composition fetch: the panel is
+   * usable without it, and a half-loaded warning is worse than none — a
+   * candidate with no flag because the request failed reads as a candidate who
+   * did not ask.
+   */
+  async function fetchPendingLeave(taskId: string) {
+    try {
+      const res = await fetch(
+        `/api/organizations/${orgId}/tasks/${taskId}/pending-leave`
+      );
+      const data = await res.json();
+      setPendingLeave(res.ok && Array.isArray(data) ? data : []);
+    } catch {
+      setPendingLeave([]);
     }
   }
 
@@ -1500,6 +1539,7 @@ export default function TasksPage() {
                             setSuggestions([]);
                             setShowSuggestions(false);
                             setComposition(null);
+                            setPendingLeave([]);
                             if (newId) {
                               // Concurrent: neither answer depends on the
                               // other, and the panel is already open and empty
@@ -1507,6 +1547,7 @@ export default function TasksPage() {
                               await Promise.all([
                                 fetchEligibility(newId),
                                 fetchComposition(newId),
+                                fetchPendingLeave(newId),
                               ]);
                               // In "suggested" mode, auto-fetch AI suggestions
                               if (allocationMode === "suggested") {
@@ -1876,6 +1917,44 @@ export default function TasksPage() {
                             composition?.requiredHeadcount ?? needed,
                         });
 
+                      /*
+                       * Unanswered leave, by member. A shift crossing midnight
+                       * covers two dates and somebody can have asked for either
+                       * — the endpoint returns both, and the first one found is
+                       * the one shown, because two warnings on one candidate is
+                       * noise when the action is identical.
+                       */
+                      const leaveByMember = new Map(
+                        pendingLeave.map((l) => [l.membershipId, l])
+                      );
+
+                      /*
+                       * Who could take the shift instead: eligible, not already
+                       * selected, and — the part that matters — not carrying
+                       * their own unanswered request. Offering a replacement
+                       * who has also asked for the day off is worse than
+                       * offering nobody.
+                       *
+                       * Ordered by the engine's ranking when it has been
+                       * fetched, so "Pick Jamie instead" is the same Jamie the
+                       * AI Suggest panel would have put first.
+                       */
+                      const alternatives = members
+                        .filter((m) => {
+                          const elig = eligibility[m.id];
+                          return (
+                            (elig ? elig.eligible : true) &&
+                            !leaveByMember.has(m.id) &&
+                            !selectedMembers.includes(m.id)
+                          );
+                        })
+                        .map((m) => ({
+                          membershipId: m.id,
+                          name: m.user.name || m.user.email,
+                          rank: suggestions.find((sg) => sg.membershipId === m.id)?.rank,
+                        }))
+                        .sort((a, b) => (a.rank ?? 999) - (b.rank ?? 999));
+
                       // Split members into eligible / ineligible for grouped display
                       const eligibleMembers = members.filter((m) => {
                         const elig = eligibility[m.id];
@@ -2080,6 +2159,17 @@ export default function TasksPage() {
                                                 <p className="mt-0.5 text-[10px] leading-snug text-indigo-600/70 dark:text-indigo-400/60">
                                                   {suggestion.explanation}
                                                 </p>
+                                              )}
+                                              {leaveByMember.has(m.id) && (
+                                                <PendingLeaveFlag
+                                                  leave={leaveByMember.get(m.id)!}
+                                                  alternatives={alternatives}
+                                                  onPick={(id) => {
+                                                    if (!selectedMembers.includes(id)) {
+                                                      toggleMemberSelection(id);
+                                                    }
+                                                  }}
+                                                />
                                               )}
                                               {(() => {
                                                 const effect = compEffects[m.id];

@@ -129,12 +129,17 @@ describe("deleting an override", () => {
   });
 });
 
-describe("the route is what enforces ownership", () => {
+describe("the endpoint carries ownership through", () => {
   /*
    * The security-relevant half. Overrides are personal, so there is no
    * permission to check — the question is whether the row belongs to the
    * caller's own membership. Answering 403 rather than 404 for somebody else's
    * would confirm it exists.
+   *
+   * The check itself now lives in the SERVICE; the route used to read the
+   * repository to do it, which put Boundary in touch with Entity. What these
+   * assert is that the route resolves the caller's membership and hands it
+   * over — a route that forgot the argument would let anyone delete anyone's.
    */
   it("refuses another member's override, and does not delete it", async () => {
     const victim = await makeOverride(tenant.manager.membershipId);
@@ -160,5 +165,57 @@ describe("the route is what enforces ownership", () => {
 
     expect(res.status).toBe(200);
     expect(await repo.getOverrideById(mine.id)).toBeNull();
+  });
+});
+
+/*
+ * Ownership moved out of the route, which used to read the repository to prove
+ * it. Asserted here because that is where the rule lives now.
+ */
+describe("whose override may be deleted", () => {
+  it("refuses one belonging to somebody else", async () => {
+    const created = await service.createOverride(tenant.staff.membershipId, {
+      date: "2026-09-01T00:00:00.000Z",
+      isAvailable: false,
+    });
+
+    await expect(
+      service.deleteOverride(created.id, tenant.manager.membershipId)
+    ).rejects.toThrow("Override not found");
+  });
+
+  it("leaves it in place when it refuses", async () => {
+    const created = await service.createOverride(tenant.staff.membershipId, {
+      date: "2026-09-02T00:00:00.000Z",
+      isAvailable: false,
+    });
+
+    await service
+      .deleteOverride(created.id, tenant.manager.membershipId)
+      .catch(() => {});
+
+    expect(
+      await prisma.availabilityOverride.findUnique({ where: { id: created.id } })
+    ).not.toBeNull();
+  });
+
+  it("allows the owner", async () => {
+    const created = await service.createOverride(tenant.staff.membershipId, {
+      date: "2026-09-03T00:00:00.000Z",
+      isAvailable: false,
+    });
+
+    await service.deleteOverride(created.id, tenant.staff.membershipId);
+    expect(
+      await prisma.availabilityOverride.findUnique({ where: { id: created.id } })
+    ).toBeNull();
+  });
+
+  // A named owner asserts the row is theirs; nothing there is a failed
+  // assertion, not a no-op to swallow.
+  it("throws rather than shrugging when the row is gone", async () => {
+    await expect(
+      service.deleteOverride("does-not-exist", tenant.staff.membershipId)
+    ).rejects.toThrow("Override not found");
   });
 });

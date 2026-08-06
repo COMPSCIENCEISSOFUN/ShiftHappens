@@ -47,6 +47,23 @@ export const NOTIFICATION_TYPES = {
   CERT_REJECTED: "cert_rejected",
   CERT_EXPIRING: "cert_expiring",
   ORG_SUSPENDED: "org_suspended",
+  /*
+   * Approved leave has opened a hole in a shift and nobody is filling it.
+   *
+   * Distinct from STAFF_INELIGIBLE, which says somebody assigned can no longer
+   * work — this says they have already been REMOVED and the shift is short. The
+   * two used to be the same message because approving leave did not unassign
+   * anybody; once it did, "no longer eligible" stopped describing what had
+   * happened.
+   */
+  BACKFILL_NEEDED: "backfill_needed",
+  /*
+   * A replacement has been found and ASKED. Never "assigned" — a backfill is
+   * always an offer, even in auto mode, because the person being offered it
+   * may be a full-timer whose all-week availability was set by default rather
+   * than by them.
+   */
+  BACKFILL_OFFERED: "backfill_offered",
 } as const;
 
 /**
@@ -75,6 +92,7 @@ export const NOTIFICATION_CATEGORIES = {
     NOTIFICATION_TYPES.LEAVE_REQUESTED,
     NOTIFICATION_TYPES.LEAVE_APPROVED,
     NOTIFICATION_TYPES.LEAVE_REJECTED,
+    NOTIFICATION_TYPES.BACKFILL_OFFERED,
   ],
   certification: [
     NOTIFICATION_TYPES.CERT_VERIFIED,
@@ -86,6 +104,7 @@ export const NOTIFICATION_CATEGORIES = {
     NOTIFICATION_TYPES.STAFF_INELIGIBLE,
     NOTIFICATION_TYPES.SHIFT_RATED_LOW,
     NOTIFICATION_TYPES.ORG_SUSPENDED,
+    NOTIFICATION_TYPES.BACKFILL_NEEDED,
   ],
 } as const;
 
@@ -102,6 +121,8 @@ export const NEEDS_ACTION_TYPES: string[] = [
   NOTIFICATION_TYPES.CERT_REJECTED,
   NOTIFICATION_TYPES.WITHDRAWAL_REQUESTED,
   NOTIFICATION_TYPES.STAFF_INELIGIBLE,
+  // An unfilled shift is the definition of something needing action.
+  NOTIFICATION_TYPES.BACKFILL_NEEDED,
 ];
 
 /**
@@ -389,8 +410,17 @@ export class NotificationService {
 
   /**
    * Marks a single notification as read.
+   *
    * Verifies ownership AND organisation — a user may only mark their own
    * notifications, and only from inside the org the notification belongs to.
+   *
+   * Both refusals answer "not found", and the ORDER used to matter: ownership
+   * was checked first and threw "Not authorized", so a caller holding an id
+   * belonging to somebody else learned it was real before the organisation
+   * check could decline to say so. The comment on that check already claimed
+   * the endpoint never confirms a notification exists in an org the caller is
+   * not looking at — the 403 above it had already done exactly that. One
+   * answer for both is the convention everywhere else in this codebase.
    */
   async markAsRead(
     notificationId: string,
@@ -401,12 +431,10 @@ export class NotificationService {
     if (!notification) {
       throw new Error("Notification not found");
     }
-    if (notification.userId !== userId) {
-      throw new Error("Not authorized");
-    }
-    if (notification.organizationId !== organizationId) {
-      // Same message as a missing record: never confirm to a caller that a
-      // notification exists in an org they are not looking at.
+    if (
+      notification.userId !== userId ||
+      notification.organizationId !== organizationId
+    ) {
       throw new Error("Notification not found");
     }
     return this.notificationRepo.markAsRead(notificationId);

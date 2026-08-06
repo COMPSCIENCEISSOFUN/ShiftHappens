@@ -29,26 +29,8 @@ import {
   type SeniorityAssessment,
   type SeniorityThresholds,
 } from "@/lib/seniority";
+import { memberInScope } from "@/lib/department-scope";
 
-
-/**
- * Is this member inside the caller's department scope?
- *
- * `undefined`/`null` is unrestricted — a company admin. An ARRAY is the
- * caller's own departments, and an EMPTY array therefore means "no
- * departments", matching nobody. That distinction is the difference between a
- * manager seeing nothing and a manager seeing the whole organisation.
- */
-function memberInScope(
-  membership: { departmentMemberships?: { department: { id: string } }[] },
-  departmentScope?: string[] | null
-): boolean {
-  if (departmentScope === undefined || departmentScope === null) return true;
-  const scope = new Set(departmentScope);
-  return (membership.departmentMemberships ?? []).some((dm) =>
-    scope.has(dm.department.id)
-  );
-}
 
 export class SeniorityService {
   private membershipRepo = new MembershipRepository();

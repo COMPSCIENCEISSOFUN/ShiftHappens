@@ -245,7 +245,12 @@ describe("NotificationService", () => {
       ).rejects.toThrow("Notification not found");
     });
 
-    it("throws when user tries to mark another user's notification", async () => {
+    /*
+     * "Not found", not "Not authorized". A 403 confirms the row is real, which
+     * is the fact being protected — and the org check below already declined to
+     * say so, making the pair inconsistent.
+     */
+    it("says not found for another user's notification", async () => {
       await notificationService.notify(orgId, otherUserId, "test", "Not mine", "Msg");
 
       const notifications = await notificationService.getNotifications(
@@ -255,7 +260,7 @@ describe("NotificationService", () => {
 
       await expect(
         notificationService.markAsRead(notifications[0].id, userId, orgId)
-      ).rejects.toThrow("Not authorized");
+      ).rejects.toThrow("Notification not found");
     });
 
     it("throws when marking one's own notification from the wrong org", async () => {

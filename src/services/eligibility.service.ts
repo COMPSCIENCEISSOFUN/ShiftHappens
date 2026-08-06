@@ -29,7 +29,7 @@ import { TaskRepository } from "@/repositories/task.repository";
 import { MembershipRepository } from "@/repositories/membership.repository";
 import { WorkRuleRepository } from "@/repositories/work-rule.repository";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
-import { DEFAULT_EMPLOYMENT_TYPE, canBeRostered } from "@/lib/role-config";
+import { DEFAULT_EMPLOYMENT_TYPE, canBeRostered, isFullTime } from "@/lib/role-config";
 import { localDateInTimeZone, timeOfDayInTimeZone } from "@/lib/timezone";
 import {
   DEFAULT_DAY_START_HOUR,
@@ -266,15 +266,28 @@ export class EligibilityService {
         )
       );
 
-      // 2. Availability
-      //    Casual: weekly availability is a hard constraint — fail if not available
-      //    Full-time: always available during operating hours — skip check
+      /*
+       * 2. Availability — a hard constraint for EVERYONE.
+       *
+       * This used to read `memberEmploymentType === "casual"`, on the reasoning
+       * that a full-timer is "always available during operating hours". That
+       * was true while a full-timer had nothing meaningful to say: no
+       * contracted pattern, no way to record an absence.
+       *
+       * It stopped being true, and stopped silently. Leave requests gave a
+       * full-timer an approved absence that `isAvailableAt` honours — and this
+       * branch never asked, so an approved leave request made the member
+       * unavailable at the repository and left them fully eligible here. The
+       * assign screen went on offering them, the auto-scheduler went on
+       * rostering them, and every test of the feature passed because they all
+       * asserted against `isAvailableAt` rather than against eligibility.
+       *
+       * Both employment types now have a real pattern — a casual declares
+       * theirs, a full-timer's is contracted and opened to the whole week by
+       * default — so the same question is meaningful for both.
+       */
       let availCheck: EligibilityCheck = { eligible: true };
-      if (
-        memberEmploymentType === "casual" &&
-        task.scheduledStart &&
-        task.scheduledEnd
-      ) {
+      if (task.scheduledStart && task.scheduledEnd) {
         // Availability windows are stored as local wall-clock strings ("09:00"),
         // so the task must be expressed the same way. getHours() returns the
         // SERVER's hour: on Vercel a 09:00 shift reads as 01:00 and falls
@@ -286,7 +299,9 @@ export class EligibilityService {
           member.id,
           task.scheduledStart,
           startTime,
-          endTime
+          endTime,
+          // A contracted member's unwritten day is open, not refused.
+          isFullTime(memberEmploymentType)
         );
         availCheck = applyOverride(this.OVERRIDE_KEYS.availability, {
           eligible: availResult.available,

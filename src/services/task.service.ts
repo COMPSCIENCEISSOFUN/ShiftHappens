@@ -464,7 +464,22 @@ export class TaskService {
      * claiming a human decided, which would inflate the manual count with
      * every assignment made by a path nobody has instrumented yet.
      */
-    provenance?: AllocationProvenance
+    provenance?: AllocationProvenance,
+    /**
+     * Forces the assignment to be written `pending` — an OFFER the member
+     * accepts or declines — whatever the organisation's `taskAcceptanceMode`
+     * says.
+     *
+     * Exists for the leave backfill. A member picked to cover somebody's
+     * approved leave may be a full-timer whose all-week availability was opened
+     * by default rather than chosen, so "eligible" is a weaker claim about them
+     * than it is about a casual who typed their hours in. Under `auto_accept`
+     * they would otherwise wake up committed to a shift nobody asked them
+     * about.
+     *
+     * Only ever tightens: an org already on `require_acceptance` is unaffected.
+     */
+    options?: { asOffer?: boolean }
   ) {
     const task = await this.taskRepo.findById(taskId);
     if (!task || task.organizationId !== organizationId) throw new Error("Task not found");
@@ -592,7 +607,10 @@ export class TaskService {
     }
 
     const settings = await this.settingsRepo.getOrCreate(organizationId);
-    const assignmentStatus = settings.taskAcceptanceMode === "auto_accept" ? "accepted" : "pending";
+    const assignmentStatus =
+      settings.taskAcceptanceMode === "auto_accept" && !options?.asOffer
+        ? "accepted"
+        : "pending";
 
     const assignments = [];
     for (const membId of uniqueIds) {
@@ -648,7 +666,21 @@ export class TaskService {
    * If understaffed, runs smart-swap: finds eligible replacements
    * and notifies the admin with the top recommendation.
    */
-  async cancelAssignment(assignmentId: string, orgId: string, userId?: string) {
+  async cancelAssignment(
+    assignmentId: string,
+    orgId: string,
+    userId?: string,
+    /**
+     * Suppresses the generic smart-swap notification below.
+     *
+     * The leave path sends its own, because it knows something this one does
+     * not: WHY the shift is short, and what the organisation's allocation mode
+     * says should happen next. Two notifications about the same hole — one
+     * saying "removed, here are three names", one saying "approved leave, offer
+     * sent to Jamie" — is how a manager learns to ignore both.
+     */
+    options?: { suppressSuggestion?: boolean }
+  ) {
     const assignment = await this.assignmentRepo.findById(assignmentId);
     // Scope by the assignment's task org — a manager in one tenant cannot
     // cancel assignments belonging to another tenant.
@@ -684,6 +716,8 @@ export class TaskService {
     }
 
     // Smart-swap: check if task is now understaffed and suggest replacement
+    if (options?.suppressSuggestion) return result;
+
     void this.suggestReplacement(
       assignment.task.id,
       assignment.task.organizationId,

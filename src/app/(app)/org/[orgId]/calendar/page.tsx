@@ -269,6 +269,17 @@ export default function CalendarPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [coverage, setCoverage] = useState<CoverageCell[]>([]);
   const [staffData, setStaffData] = useState<StaffSchedule[]>([]);
+  /**
+   * Unanswered leave, so a manager sees it while building the roster rather
+   * than after approving it.
+   *
+   * The whole org's pending requests rather than a per-date query: the list is
+   * small, the calendar moves between weeks without refetching, and a request
+   * for a date the user has not navigated to yet costs nothing to hold.
+   */
+  const [pendingLeave, setPendingLeave] = useState<
+    { membershipId: string; date: string; isAvailable: boolean }[]
+  >([]);
   const [showCoverage, setShowCoverage] = useState(true);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [filterDept, setFilterDept] = useState("");
@@ -317,6 +328,7 @@ export default function CalendarPage() {
     fetchTasks();
     fetchCoverage();
     fetchStaff();
+    fetchPendingLeave();
     fetchSettings();
   }, [orgId]);
 
@@ -345,6 +357,22 @@ export default function CalendarPage() {
       const res = await fetch(`/api/organizations/${orgId}/calendar/coverage`);
       if (res.ok) setCoverage(await res.json());
     } catch { /* non-critical */ }
+  }
+
+  /**
+   * Silent on failure. The calendar is fully usable without the marks, and a
+   * missing mark is less misleading than a broken page — though it does mean
+   * absence of a mark is not proof of absence of a request, which is why the
+   * assign screen carries the same warning at the moment it actually matters.
+   */
+  async function fetchPendingLeave() {
+    try {
+      const res = await fetch(`/api/organizations/${orgId}/leave`);
+      const data = await res.json();
+      setPendingLeave(res.ok && Array.isArray(data) ? data : []);
+    } catch {
+      /* non-critical */
+    }
   }
 
   async function fetchStaff() {
@@ -509,9 +537,20 @@ export default function CalendarPage() {
     const dow = date.getDay();
     const dayTasks = getTasksForDay(date);
 
+    /*
+     * Overrides are stored at UTC midnight of the calendar day they refer to —
+     * `overrideDateKey` on the server — so the comparison is on the date part
+     * of the ISO string. Comparing Date objects would compare instants, and a
+     * request for the 14th would not match a cell drawn for the 14th.
+     */
+    const dayKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+
     return staffData.map((staff) => {
       const schedule = staff.schedules.find((s) => s.dayOfWeek === dow);
       const isAvailable = schedule?.isAvailable ?? false;
+      const leave = pendingLeave.find(
+        (l) => l.membershipId === staff.membershipId && l.date.slice(0, 10) === dayKey
+      );
       // Through `activeAssignments`, like every other reader on this page. The
       // raw list still holds rejected and withdrawn rows, so this panel was
       // drawing shifts against people who had turned them down.
@@ -521,6 +560,13 @@ export default function CalendarPage() {
       return {
         ...staff,
         isAvailable,
+        /*
+         * Requested, not granted. The person is still available — leave binds
+         * on approval — so this changes nothing the engine does. It is here so
+         * a manager does not build a week around somebody who has asked to be
+         * elsewhere and only find out when the request is answered.
+         */
+        pendingLeave: leave ? { requested: true } : null,
         availableHours: isAvailable ? `${schedule!.startTime}–${schedule!.endTime}` : null,
         assignedTasks: assignments.map((t) => ({
           title: t.title,
@@ -761,7 +807,27 @@ export default function CalendarPage() {
                       {initials(staff.name)}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <p className="text-[13px] font-medium">{staff.name}</p>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <p className="text-[13px] font-medium">{staff.name}</p>
+                        {/*
+                          Amber, not red, and deliberately not greyed out like
+                          an unavailable member: this person IS still rosterable
+                          — leave binds on approval — and colouring them as
+                          absent would tell the manager the opposite of what the
+                          engine will do.
+                        */}
+                        {staff.pendingLeave && (
+                          <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                            {/*
+                              One direction only. A contracted member may ask
+                              for a day OFF and never to work one on, and only a
+                              contracted member's request is ever pending — a
+                              casual's is written approved.
+                            */}
+                            Asked off — pending
+                          </span>
+                        )}
+                      </div>
                       {staff.isAvailable ? (
                         <>
                           <p className="text-[11px] text-muted-foreground">{staff.availableHours}</p>

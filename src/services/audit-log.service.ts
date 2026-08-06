@@ -35,6 +35,7 @@ const ACTIONS = {
   ELIGIBILITY_OVERRIDDEN: "assignment.eligibility_overridden",
   SENIORITY_OVERRIDDEN: "membership.seniority_overridden",
   AVAILABILITY_REVIEW_REQUESTED: "membership.availability_review_requested",
+  CONTRACTED_DAYS_SET: "membership.contracted_days_set",
   // Members
   MEMBER_INVITED: "member.invited",
   MEMBER_ROLE_CHANGED: "member.role_changed",

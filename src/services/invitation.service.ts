@@ -17,11 +17,14 @@ import bcrypt from "bcryptjs";
 import { InvitationRepository } from "@/repositories/invitation.repository";
 import { MembershipRepository } from "@/repositories/membership.repository";
 import { UserRepository } from "@/repositories/user.repository";
+import { AvailabilityService } from "@/services/availability.service";
+import { isFullTime } from "@/lib/role-config";
 
 export class InvitationService {
   private invitationRepo = new InvitationRepository();
   private membershipRepo = new MembershipRepository();
   private userRepo = new UserRepository();
+  private availabilityService = new AvailabilityService();
 
   /**
    * Retrieves invitation details for the acceptance page.
@@ -112,6 +115,17 @@ export class InvitationService {
       role: invitation.role,
       employmentType: invitationEmploymentType ?? undefined,
     });
+
+    /*
+     * A contracted member cannot set their own days, and a day nobody has set
+     * counts as unavailable — so without this a new full-timer joins the
+     * organisation unrostearable on every day of the week. Opened here rather
+     * than left to the admin because "the engine found no candidates" is a very
+     * expensive way to discover a member was never given a pattern.
+     */
+    if (isFullTime(invitationEmploymentType)) {
+      await this.availabilityService.openUnsetDays(membership.id);
+    }
 
     // Assign department if specified in the invitation
     if (invitation.departmentId) {

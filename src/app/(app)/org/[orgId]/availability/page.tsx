@@ -184,6 +184,9 @@ export default function AvailabilityPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           date: new Date(date).toISOString(),
+          // Absent for a contracted member, whose picker is not rendered — and
+          // absent reads as false, which is the only direction they may ask
+          // for. Stated rather than left to be noticed.
           isAvailable: formData.get("overrideAvailable") === "true",
           reason: formData.get("overrideReason") || undefined,
         }),
@@ -377,23 +380,32 @@ export default function AvailabilityPage() {
               className="h-9 text-[13px]"
             />
           </div>
-          <div className="space-y-1">
-            <Label htmlFor="overrideAvailable" className="text-[12px]">
-              {needsApproval ? "Requesting" : "Available?"}
-            </Label>
-            <select
-              id="overrideAvailable"
-              name="overrideAvailable"
-              className="h-9 rounded-lg border border-border bg-background px-3 text-[13px]"
-            >
-              <option value="false">
-                {needsApproval ? "Day off" : "Unavailable"}
-              </option>
-              <option value="true">
-                {needsApproval ? "To work this day" : "Available"}
-              </option>
-            </select>
-          </div>
+          {/*
+            A contracted member gets no direction to choose. They may ask for a
+            day OFF and never to work one on — asking to work a day you are not
+            contracted for is a change to the contract rather than an exception
+            to it, and belongs to whoever sets the contracted days. The service
+            refuses it either way; this is the screen agreeing with the service
+            rather than offering something that would 403 on submit.
+
+            A casual member keeps both. Their availability is an offer, so
+            widening it and narrowing it are equally theirs to do.
+          */}
+          {!needsApproval && (
+            <div className="space-y-1">
+              <Label htmlFor="overrideAvailable" className="text-[12px]">
+                Available?
+              </Label>
+              <select
+                id="overrideAvailable"
+                name="overrideAvailable"
+                className="h-9 rounded-lg border border-border bg-background px-3 text-[13px]"
+              >
+                <option value="false">Unavailable</option>
+                <option value="true">Available</option>
+              </select>
+            </div>
+          )}
           <div className="flex-1 space-y-1">
             <Label htmlFor="overrideReason" className="text-[12px]">
               Reason

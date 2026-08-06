@@ -86,8 +86,15 @@ export function LeaveRequestsPanel({
                 </span>
                 <div className="min-w-0">
                   <p className="text-[13px] font-medium">
-                    {name} — {request.isAvailable ? "asked to work" : "asked off"} on{" "}
-                    {when}
+                    {/*
+                      Always "asked off". A contracted member may ask for a day
+                      OFF and never to work one on — asking to work a day you
+                      are not contracted for is asking to change the contract,
+                      which belongs to whoever sets the contracted days. Casual
+                      members can still widen their own availability, but theirs
+                      is written approved and never reaches this queue.
+                    */}
+                    {name} — asked off on {when}
                   </p>
                   {/*
                     The reason is optional and often the whole decision. Shown

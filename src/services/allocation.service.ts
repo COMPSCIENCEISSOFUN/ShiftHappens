@@ -163,6 +163,80 @@ export class AllocationService {
   }
 
   /**
+   * The same candidate list, ranked WITHOUT calling an AI provider.
+   *
+   * ## Why a second entry point rather than a flag
+   *
+   * `getRankedSuggestions` exists because a human asked for a suggestion and is
+   * sitting there waiting for it — spending an API call is the point. This one
+   * runs off the back of somebody's leave being approved, which is a background
+   * consequence, not a request. Routing that through the providers would put an
+   * AI call on an event the org does not control the rate of: approve eight
+   * requests on a Monday morning and the free tier is gone before anybody opens
+   * the assign panel.
+   *
+   * `FallbackRanker` is not a degraded mode here. It scores hours, availability
+   * fit, certifications and department experience — everything the ranking
+   * actually needs to name a sensible replacement.
+   */
+  async rankWithoutAI(
+    taskId: string,
+    organizationId: string
+  ): Promise<RankingResult> {
+    const candidates = await this.buildCandidatePool(taskId, organizationId);
+    if (candidates.length === 0) {
+      return { rankings: [], provider: "algorithmic" };
+    }
+    return {
+      rankings: FallbackRanker.rank(candidates),
+      provider: "algorithmic",
+    };
+  }
+
+  /**
+   * Everybody eligible for a task who does not already have a row on it,
+   * built into ranker input.
+   *
+   * Shared so the AI path and the algorithmic path cannot disagree about who is
+   * a candidate — the exclusion of already-assigned members in particular is
+   * subtle enough that a second copy would eventually drift.
+   */
+  private async buildCandidatePool(
+    taskId: string,
+    organizationId: string
+  ): Promise<StaffCandidate[]> {
+    const task = await this.taskRepo.findById(taskId);
+    if (!task || task.organizationId !== organizationId) {
+      throw new Error("Task not found");
+    }
+
+    const eligibility = await this.eligibilityService.checkEligibilityForTask(
+      taskId,
+      organizationId
+    );
+    const settled = new Set(task.assignments.map((a) => a.membershipId));
+    const eligibleStaff = eligibility
+      .filter((e) => e.eligible)
+      .filter((e) => !settled.has(e.membershipId));
+
+    if (eligibleStaff.length === 0) return [];
+
+    const settings = await this.settingsRepo.getOrCreate(organizationId);
+    const candidates: StaffCandidate[] = [];
+    for (const staff of eligibleStaff) {
+      candidates.push(
+        await this.buildCandidate(
+          staff.membershipId,
+          staff.memberName,
+          settings.breakRuleHoursWorked,
+          task.departmentId
+        )
+      );
+    }
+    return candidates;
+  }
+
+  /**
    * Auto-allocates staff to a task.
    * Gets AI rankings and assigns top N based on requiredHeadcount.
    */

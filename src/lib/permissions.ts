@@ -123,6 +123,22 @@ export const PERMISSIONS: PermissionDefinition[] = [
   { name: "certifications:review", description: "Verify, reject or revoke others' certifications", category: "certifications" },
   { name: "allocation:auto_schedule", description: "Build and confirm a whole-week draft schedule", category: "allocation" },
   { name: "billing:manage", description: "Change the subscription plan", category: "billing" },
+  /*
+   * Deliberately absent from MANAGER_EXTRA_PERMISSIONS.
+   *
+   * A full-time member's contracted days are a term of their employment, not a
+   * rostering judgement — which is what separates this from
+   * `members:update_seniority` next door, held by managers precisely because it
+   * is a call about running a shift. Admins hold it because
+   * `effectivePermissions` grants them the whole catalogue, so no special case
+   * is needed to say "admin only".
+   *
+   * It is still a catalogue entry rather than a hardcoded role check so that an
+   * admin who wants to delegate it can, through the custom-role machinery that
+   * already exists. Default-admin and admin-only-forever are different claims,
+   * and this is the first.
+   */
+  { name: "members:set_contracted_days", description: "Set a full-time member's contracted working days", category: "members" },
 ];
 
 export const PERMISSION_NAMES = PERMISSIONS.map((p) => p.name);
@@ -253,6 +269,8 @@ export const MEMBER_LIST_READERS = [
   "members:deactivate",
   "members:update_seniority",
   "members:request_availability",
+  // Contracted days are set from the member drawer, which the list opens.
+  "members:set_contracted_days",
   // The assign panel renders candidate names; the review queue renders owners.
   "tasks:assign",
   "certifications:review",

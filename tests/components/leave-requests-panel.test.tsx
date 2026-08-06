@@ -40,16 +40,22 @@ describe("what a reviewer is shown", () => {
     expect(screen.getByText(/14 Aug 2026/)).toBeInTheDocument();
   });
 
-  // Asking to work a day is the other direction, and approving it has the
-  // opposite effect on the roster — the wording has to distinguish them.
-  it("distinguishes a request to work from a request off", () => {
+  /*
+   * There is only one direction now. A contracted member may ask for a day OFF
+   * and never to work one on — asking to work a day you are not contracted for
+   * is a change to the contract rather than an exception to it. Casual members
+   * can still widen their own availability, but theirs is written approved and
+   * never reaches this queue.
+   */
+  it("reads as a day-off request whatever the row says", () => {
     render(
       <LeaveRequestsPanel
         requests={[request({ isAvailable: true })]}
         onDecide={vi.fn()}
       />
     );
-    expect(screen.getByText(/asked to work/)).toBeInTheDocument();
+    expect(screen.getByText(/asked off/)).toBeInTheDocument();
+    expect(screen.queryByText(/asked to work/)).toBeNull();
   });
 
   // The reason is often the whole decision; a manager approving without it is

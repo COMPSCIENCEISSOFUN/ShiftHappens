@@ -7,21 +7,38 @@
  * Used by the eligibility engine to check if staff can work
  * at a specific date/time before assignment.
  */
-import { AvailabilityRepository } from "@/repositories/availability.repository";
+import {
+  AvailabilityRepository,
+  overrideDateKey,
+} from "@/repositories/availability.repository";
+import { TaskRepository } from "@/repositories/task.repository";
 import { TaskAssignmentRepository } from "@/repositories/task-assignment.repository";
 import { EligibilityService } from "@/services/eligibility.service";
 import { NotificationService, NOTIFICATION_TYPES } from "@/services/notification.service";
 import { MembershipRepository } from "@/repositories/membership.repository";
+import { SettingsRepository } from "@/repositories/settings.repository";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 import { taskWatcherUserIds } from "@/services/task-watchers";
 import { isFullTime } from "@/lib/role-config";
+import { memberInScope } from "@/lib/department-scope";
 import type {
   SetAvailabilityInput,
   CreateAvailabilityOverrideInput,
 } from "@/lib/validations";
 
+/**
+ * How close to a shift automation stops being appropriate.
+ *
+ * Two days is enough for somebody to see a notification, decide, and answer;
+ * inside it, filling the gap is a conversation. The exact figure is a judgement
+ * rather than a rule, which is why it is named here instead of inlined.
+ */
+const SHORT_NOTICE_HOURS = 48;
+
 /** A shift the member is still expected to work. */
 interface Commitment {
+  /** The row to cancel — the task id alone cannot identify it. */
+  assignmentId: string;
   taskId: string;
   taskTitle: string;
   organizationId: string;
@@ -31,10 +48,12 @@ interface Commitment {
 
 export class AvailabilityService {
   private availRepo = new AvailabilityRepository();
+  private taskRepo = new TaskRepository();
   private assignmentRepo = new TaskAssignmentRepository();
   private eligibilityService = new EligibilityService();
   private notificationService = new NotificationService();
   private membershipRepo = new MembershipRepository();
+  private settingsRepo = new SettingsRepository();
   private auditService = new AuditLogService();
 
   /**
@@ -128,14 +147,17 @@ export class AvailabilityService {
   }
 
   /**
-   * Sets the full weekly schedule (bulk upsert).
+   * Writes a whole week, whoever asked for it.
    *
    * Wrapped in the ineligibility guard as ONE unit, not per day. Hooking
    * `setDayAvailability` instead would run the check seven times for a single
    * save and could fire an alert off a half-applied week — Monday saved,
    * Tuesday not yet — describing a state that never existed.
+   *
+   * Private because the two callers below differ on WHO may write, and that is
+   * the whole point of them being separate.
    */
-  async setWeeklySchedule(
+  private async writeWeeklySchedule(
     membershipId: string,
     schedule: SetAvailabilityInput[]
   ) {
@@ -149,9 +171,145 @@ export class AvailabilityService {
     });
   }
 
+  /**
+   * A member setting their OWN weekly pattern.
+   *
+   * ## Why a full-time member is refused
+   *
+   * `createOverride` already makes a full-timer's absence a request rather than
+   * a declaration, and that gate is worth nothing on its own: a contracted
+   * member who wanted Wednesday off never had to ask for it. They could open
+   * this endpoint, untick Wednesday, and be off every Wednesday from then on
+   * with nobody told. The approval queue only ever guarded the polite door.
+   *
+   * So the pattern is now the employer's to set. A full-timer changes a single
+   * day by requesting leave, and their contracted days move only when somebody
+   * with `members:set_contracted_days` moves them.
+   *
+   * Refused HERE rather than in the route because the read-only screen is a
+   * courtesy and this is the enforcement — a hand-written PUT reaches the
+   * service either way.
+   */
+  async setWeeklySchedule(
+    membershipId: string,
+    schedule: SetAvailabilityInput[]
+  ) {
+    const membership = await this.membershipRepo.findById(membershipId);
+    if (isFullTime(membership?.employmentType)) {
+      throw new Error("Contracted days are set by your organisation");
+    }
+    return this.writeWeeklySchedule(membershipId, schedule);
+  }
+
+  /**
+   * An admin setting somebody ELSE's contracted days.
+   *
+   * Reached by user id rather than membership id because that is what the
+   * member drawer holds, matching `SeniorityService.setOverrideForUser` next
+   * door.
+   *
+   * Applies to casual members too. Their pattern is normally theirs to give,
+   * but a manager correcting a pattern a member cannot currently be bothered to
+   * fix is a real situation, and refusing it here would mean the drawer's
+   * behaviour changed depending on a field the person editing may not have
+   * looked at. The audit entry records who did it either way.
+   */
+  async setContractedDaysForUser(
+    organizationId: string,
+    userId: string,
+    schedule: SetAvailabilityInput[],
+    actorUserId?: string,
+    /**
+     * The caller's departments, or null for a company admin. Admin-only by
+     * default, but the permission is delegable through a custom role — and a
+     * scoped manager must not be able to rewrite the contract of somebody in a
+     * department they have nothing to do with. Out of scope reports as "not
+     * found", the convention this codebase already uses so a caller cannot
+     * probe for members they may not see.
+     */
+    departmentScope?: string[] | null
+  ) {
+    const membership = await this.membershipRepo.findByUserAndOrgIncludingInactive(
+      userId,
+      organizationId
+    );
+    if (!membership) throw new Error("Member not found");
+    if (!memberInScope(membership, departmentScope)) {
+      throw new Error("Member not found");
+    }
+
+    const results = await this.writeWeeklySchedule(membership.id, schedule);
+
+    void this.auditService.log({
+      organizationId,
+      userId: actorUserId,
+      action: ACTIONS.CONTRACTED_DAYS_SET,
+      entityType: "membership",
+      entityId: membership.id,
+      details: {
+        days: schedule
+          .filter((d) => d.isAvailable)
+          .map((d) => ({ dayOfWeek: d.dayOfWeek, start: d.startTime, end: d.endTime })),
+      },
+    });
+
+    return results;
+  }
+
   /** Gets the weekly schedule for a member */
   async getWeeklySchedule(membershipId: string) {
     return this.availRepo.getWeeklySchedule(membershipId);
+  }
+
+  /**
+   * Opens every day a member has said nothing about.
+   *
+   * ## Why a full-timer needs this at all
+   *
+   * `availableWithinDay` treats a MISSING day as unavailable — silence means
+   * no. Combined with full-timers no longer setting their own pattern, a new
+   * contracted member would be unrostearable on all seven days until somebody
+   * went and filled the week in by hand. Not flexible: absent, and absent in a
+   * way that looks like the engine failing to find anybody.
+   *
+   * ## Why open rather than Monday–Friday
+   *
+   * A full-timer is the person who covers the gap when a casual cannot. Seeding
+   * them Mon–Fri would fence in the only people who are supposed to be
+   * flexible, and the first Saturday somebody called in sick the engine would
+   * report no candidates while a full-time employee sat at home willing to
+   * come in. Narrowing is then a deliberate admin act for the person who
+   * genuinely works weekdays only — visible, and undone as easily as it was
+   * done.
+   *
+   * ## Why only the missing days
+   *
+   * A casual being converted has already said things about their week, and an
+   * explicit "not Sundays" is an answer, not a gap. Overwriting it would use a
+   * change of employment type to quietly discard what they told us. Days they
+   * never mentioned open up; days they did are left exactly as they are.
+   */
+  async openUnsetDays(membershipId: string) {
+    const existing = await this.availRepo.getWeeklySchedule(membershipId);
+    const spokenFor = new Set(existing.map((row) => row.dayOfWeek));
+
+    const created = [];
+    for (let dayOfWeek = 0; dayOfWeek < 7; dayOfWeek++) {
+      if (spokenFor.has(dayOfWeek)) continue;
+      created.push(
+        await this.availRepo.setDayAvailability({
+          membershipId,
+          dayOfWeek,
+          startTime: "00:00",
+          // Matches END_OF_DAY in the repository, which is what the overnight
+          // split compares against. A different value here would make the
+          // first half of a 22:00–02:00 shift fail on a day meant to be open.
+          endTime: "23:59",
+          isAvailable: true,
+        })
+      );
+    }
+    return created;
   }
 
   /**
@@ -181,6 +339,22 @@ export class AvailabilityService {
   ) {
     const membership = await this.membershipRepo.findById(membershipId);
     const needsApproval = isFullTime(membership?.employmentType);
+
+    /*
+     * A contracted member may ask for a day OFF, never to work one on.
+     *
+     * The two directions were symmetrical while both were requests, but they
+     * are not the same kind of thing. Asking for time off is an exception to a
+     * contract. Asking to work a day you are not contracted for is asking to
+     * change the contract, and that belongs to whoever sets the contracted days
+     * — not to a form the member fills in.
+     *
+     * Casual members keep both directions. Their availability is an offer, so
+     * widening it and narrowing it are equally theirs to do.
+     */
+    if (needsApproval && input.isAvailable) {
+      throw new Error("Contracted days are set by your organisation");
+    }
 
     const created = await this.withIneligibilityCheck(membershipId, () =>
       this.availRepo.createOverride({
@@ -268,10 +442,42 @@ export class AvailabilityService {
   async reviewLeave(
     overrideId: string,
     decision: "approved" | "rejected",
-    reviewerUserId: string
+    reviewerUserId: string,
+    /**
+     * The organisation the reviewer is acting in.
+     *
+     * Proving the request belongs here used to happen in the ROUTE, which
+     * reached `AvailabilityRepository` and `MembershipRepository` directly to
+     * do it — Boundary touching Entity, which the architecture forbids for
+     * exactly this reason: the check is a rule about who may review what, and a
+     * rule living in one route is a rule the next route can forget.
+     *
+     * An id in a URL is a claim, not a fact.
+     */
+    organizationId: string,
+    /**
+     * The reviewer's departments, or null for a company admin. Without it a
+     * Kitchen manager could approve Front of House leave by id — the class of
+     * gap the 2026-08-05 audit found in four reporting surfaces.
+     */
+    departmentScope?: string[] | null
   ) {
     const override = await this.availRepo.getOverrideById(overrideId);
     if (!override) throw new Error("Leave request not found");
+
+    // Out of the organisation and out of scope both answer "not found": naming
+    // the difference would confirm a request exists on somebody the caller is
+    // not allowed to see.
+    const subject = await this.membershipRepo.findByIdWithDetails(
+      override.membershipId
+    );
+    if (!subject || subject.organizationId !== organizationId) {
+      throw new Error("Leave request not found");
+    }
+    if (!memberInScope(subject, departmentScope)) {
+      throw new Error("Leave request not found");
+    }
+
     if (override.status !== "pending") {
       throw new Error("This request has already been reviewed");
     }
@@ -279,9 +485,20 @@ export class AvailabilityService {
     const apply = () =>
       this.availRepo.reviewOverride(overrideId, decision, reviewerUserId);
 
+    /*
+     * Approval RELEASES the shifts; rejection changes nothing.
+     *
+     * Deliberately not `withIneligibilityCheck`. That guard warns watchers that
+     * an assigned member has become ineligible and leaves them assigned, which
+     * was the right message while availability edits were the only thing that
+     * could cause it. Approved leave is different in kind: the manager has just
+     * agreed the person is not working, so leaving them on the shift makes the
+     * roster claim cover it does not have, and "no longer eligible" describes a
+     * state that only exists because nobody acted on it.
+     */
     const result =
       decision === "approved"
-        ? await this.withIneligibilityCheck(override.membershipId, apply)
+        ? await this.releaseCommitments(override.membershipId, reviewerUserId, apply)
         : await apply();
 
     const membership = await this.membershipRepo.findById(override.membershipId);
@@ -319,6 +536,63 @@ export class AvailabilityService {
     return result;
   }
 
+  /**
+   * Pending leave from anyone, on the day(s) a task runs.
+   *
+   * ## Why the assign screen needs this
+   *
+   * You chose "leave binds on approval, but warn the manager first". The
+   * binding half shipped in stage 1; without this the warning half did not
+   * exist, so the behaviour was the option you did NOT pick — a manager could
+   * roster somebody straight over a request nobody had answered, and the first
+   * either party heard of it was when the leave was later approved and the
+   * shift had to be unpicked.
+   *
+   * ## Two dates, not one
+   *
+   * A shift crossing midnight occupies two calendar days and somebody can have
+   * booked off either of them. Derived here with the same `overrideDateKey`
+   * the availability check uses, so the warning covers exactly the days the
+   * eligibility engine would have consulted.
+   */
+  async getPendingLeaveForTask(
+    taskId: string,
+    organizationId: string,
+    /**
+     * The caller's departments, or null for a company admin.
+     *
+     * This passed a hardcoded `null` — unrestricted — while its two siblings on
+     * the same panel (`checkEligibilityForTask`, `describeForTask`) both narrow
+     * to the task's population. The rows carry a free-text `reason`, so a
+     * Kitchen manager opening a Kitchen shift was reading why Front-of-House
+     * staff had asked for time off.
+     */
+    departmentScope?: string[] | null
+  ) {
+    const task = await this.taskRepo.findByIdWithoutRelations(taskId);
+    if (!task || task.organizationId !== organizationId) {
+      throw new Error("Task not found");
+    }
+    if (!task.scheduledStart || !task.scheduledEnd) return [];
+
+    const dates = [overrideDateKey(task.scheduledStart)];
+    const endKey = overrideDateKey(task.scheduledEnd);
+    // Compared by time value: two Date objects for the same day are not equal
+    // by identity, and a same-day shift would otherwise query its own date
+    // twice.
+    if (endKey.getTime() !== dates[0].getTime()) dates.push(endKey);
+
+    const members = await this.membershipRepo.findRosterableInScope(
+      organizationId,
+      departmentScope ?? null
+    );
+
+    return this.availRepo.findPendingOnDates(
+      members.map((m) => m.id),
+      dates
+    );
+  }
+
   /** Leave awaiting a decision, within the reviewer's scope. */
   async getPendingLeave(organizationId: string, departmentIds?: string[] | null) {
     const members = await this.membershipRepo.findRosterableInScope(
@@ -341,9 +615,29 @@ export class AvailabilityService {
    * override narrows it, and that reaches the roster exactly like any other
    * change.
    */
-  async deleteOverride(overrideId: string) {
+  async deleteOverride(
+    overrideId: string,
+    /**
+     * The membership the override must belong to.
+     *
+     * Was checked in the route, which read `AvailabilityRepository` directly to
+     * do it. Optional so the existing internal callers are unaffected; when
+     * given, a mismatch reports "not found" rather than "forbidden", since
+     * distinguishing them would confirm an override exists on a membership the
+     * caller cannot see.
+     */
+    ownerMembershipId?: string
+  ) {
     const override = await this.availRepo.getOverrideById(overrideId);
-    if (!override) return this.availRepo.deleteOverride(overrideId);
+    if (!override) {
+      // A caller who named an owner is asserting the row is theirs. Nothing
+      // there is a failed assertion, not a no-op to swallow.
+      if (ownerMembershipId) throw new Error("Override not found");
+      return this.availRepo.deleteOverride(overrideId);
+    }
+    if (ownerMembershipId && override.membershipId !== ownerMembershipId) {
+      throw new Error("Override not found");
+    }
 
     return this.withIneligibilityCheck(override.membershipId, () =>
       this.availRepo.deleteOverride(overrideId)
@@ -420,6 +714,206 @@ export class AvailabilityService {
     return result;
   }
 
+  /**
+   * Applies the approval, then takes the member off everything it just made
+   * them ineligible for — and starts the search for cover.
+   *
+   * Mirrors `withIneligibilityCheck`'s before/after shape on purpose: only
+   * shifts that were fine BEFORE and are not fine after are touched. A member
+   * already ineligible for Thursday for some unrelated reason is not swept up
+   * by approving Friday's leave.
+   *
+   * Everything after the write is wrapped. A leave decision the manager has
+   * made and the member has been told about must not fail because the roster
+   * tidy-up did — the shift being left covered is a problem, an approval that
+   * throws after writing is a worse one.
+   */
+  private async releaseCommitments<T>(
+    membershipId: string,
+    reviewerUserId: string,
+    write: () => Promise<T>
+  ): Promise<T> {
+    let before: Set<string>;
+    try {
+      before = await this.ineligibleUpcomingTaskIds(membershipId);
+    } catch (error) {
+      console.error("[Leave Release Error] baseline failed", error);
+      return write();
+    }
+
+    const result = await write();
+
+    try {
+      const commitments = await this.upcomingCommitments(membershipId);
+      const after = await this.ineligibleUpcomingTaskIds(membershipId);
+      const released = commitments.filter(
+        (c) => after.has(c.taskId) && !before.has(c.taskId)
+      );
+      if (released.length === 0) return result;
+
+      const absentName = await this.memberName(membershipId);
+      const { TaskService } = await import("@/services/task.service");
+      const taskService = new TaskService();
+
+      for (const commitment of released) {
+        await taskService.cancelAssignment(
+          commitment.assignmentId,
+          commitment.organizationId,
+          reviewerUserId,
+          // The generic smart-swap message does not know this was leave, nor
+          // what the org's allocation mode says to do about it. Ours does.
+          { suppressSuggestion: true }
+        );
+        await this.findCover(commitment, absentName, reviewerUserId);
+      }
+    } catch (error) {
+      console.error("[Leave Release Error]", error);
+    }
+
+    return result;
+  }
+
+  /**
+   * Decides what happens to a shift somebody has just been released from.
+   *
+   * Reads the organisation's existing `allocationMode` rather than introducing
+   * a setting of its own — an org that has said it wants the engine to assign
+   * has already answered this question, and asking it twice in two vocabularies
+   * is how two settings come to contradict each other.
+   */
+  private async findCover(
+    commitment: Commitment,
+    absentName: string,
+    reviewerUserId: string
+  ) {
+    const watchers = await taskWatcherUserIds(
+      commitment.organizationId,
+      commitment.departmentId
+    );
+    const tell = (type: string, title: string, body: string) =>
+      watchers.length > 0
+        ? this.notificationService.notifyManyIfEnabled(
+            commitment.organizationId,
+            watchers,
+            type,
+            title,
+            body,
+            "task",
+            commitment.taskId
+          )
+        : Promise.resolve();
+
+    /*
+     * Short notice overrides the mode entirely.
+     *
+     * Filling tomorrow morning's shift is a phone call, and no automation is a
+     * substitute for one. Quietly sending an offer that may sit unread until
+     * after the shift has started would look like the system had handled it.
+     */
+    if (this.isShortNotice(commitment.scheduledStart)) {
+      await tell(
+        NOTIFICATION_TYPES.BACKFILL_NEEDED,
+        "Urgent — shift needs cover",
+        `${absentName}'s leave was approved and they have come off "${commitment.taskTitle}", which starts soon. Too close to fill automatically — please arrange cover directly.`
+      );
+      return;
+    }
+
+    const settings = await this.settingsRepo.getOrCreate(commitment.organizationId);
+
+    if (settings.allocationMode === "manual") {
+      await tell(
+        NOTIFICATION_TYPES.BACKFILL_NEEDED,
+        "Shift needs cover",
+        `${absentName}'s leave was approved and they have come off "${commitment.taskTitle}".`
+      );
+      return;
+    }
+
+    // Algorithmic, never the AI providers: this runs off the back of somebody
+    // else's decision, so the org does not control how often it happens.
+    const { AllocationService } = await import("@/services/allocation.service");
+    const { rankings } = await new AllocationService().rankWithoutAI(
+      commitment.taskId,
+      commitment.organizationId
+    );
+
+    if (rankings.length === 0) {
+      await tell(
+        NOTIFICATION_TYPES.BACKFILL_NEEDED,
+        "Shift needs cover — nobody available",
+        `${absentName}'s leave was approved and they have come off "${commitment.taskTitle}". No eligible replacement was found.`
+      );
+      return;
+    }
+
+    if (settings.allocationMode === "suggested") {
+      const names = (
+        await Promise.all(
+          rankings.slice(0, 3).map((r) => this.memberName(r.membershipId))
+        )
+      ).join(", ");
+      await tell(
+        NOTIFICATION_TYPES.BACKFILL_NEEDED,
+        "Shift needs cover — replacements suggested",
+        `${absentName}'s leave was approved and they have come off "${commitment.taskTitle}". Best fit: ${names}.`
+      );
+      return;
+    }
+
+    // "auto" — the engine finds the person, but the person still chooses.
+    const pick = rankings[0];
+    const { TaskService } = await import("@/services/task.service");
+    await new TaskService().assignStaff(
+      commitment.taskId,
+      commitment.organizationId,
+      [pick.membershipId],
+      reviewerUserId,
+      {
+        // Matches what `autoAllocate` records for the same shape of decision —
+        // the engine's top-ranked candidate for a single task. The provider
+        // says which engine, and here it is always the algorithmic one.
+        source: "ai_suggested",
+        provider: "algorithmic",
+        byMembership: { [pick.membershipId]: { rank: 1, score: pick.score } },
+      },
+      { asOffer: true }
+    );
+
+    const pickName = await this.memberName(pick.membershipId);
+    const replacement = await this.membershipRepo.findById(pick.membershipId);
+    if (replacement) {
+      void this.notificationService.notifyIfEnabled(
+        commitment.organizationId,
+        replacement.userId,
+        NOTIFICATION_TYPES.BACKFILL_OFFERED,
+        "Shift offered to you",
+        `Cover needed on "${commitment.taskTitle}". Accept or decline — you are not booked in until you accept.`,
+        "assignment",
+        commitment.taskId
+      );
+    }
+
+    await tell(
+      NOTIFICATION_TYPES.BACKFILL_OFFERED,
+      "Cover offered — not yet confirmed",
+      `${absentName} has come off "${commitment.taskTitle}". ${pickName} has been offered it and has not answered yet.`
+    );
+  }
+
+  /**
+   * Is this shift too close to hand to automation?
+   *
+   * A shift with no start time is NOT short notice: an undated task is a
+   * backlog item nobody is standing up for at 6am, and treating it as urgent
+   * would route every one of them to a manager as an emergency.
+   */
+  private isShortNotice(scheduledStart: Date | null): boolean {
+    if (!scheduledStart) return false;
+    const hoursAway = (scheduledStart.getTime() - Date.now()) / 3_600_000;
+    return hoursAway < SHORT_NOTICE_HOURS;
+  }
+
   /** Upcoming shifts this member is booked on but no longer eligible for. */
   private async ineligibleUpcomingTaskIds(
     membershipId: string
@@ -452,6 +946,7 @@ export class AvailabilityService {
     );
 
     return rows.map((row) => ({
+      assignmentId: row.id,
       taskId: row.task.id,
       taskTitle: row.task.title,
       organizationId: row.task.organizationId,
