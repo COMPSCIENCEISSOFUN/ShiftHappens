@@ -12,6 +12,16 @@ import { prisma } from "@/lib/prisma";
 import { dayOfWeekInTimeZone, localDateInTimeZone } from "@/lib/timezone";
 
 /**
+ * The end of a calendar day, for the first half of an overnight shift.
+ *
+ * "23:59" rather than "24:00" because a window's end comes from an
+ * `<input type="time">` and can never exceed 23:59 — comparing against "24:00"
+ * would make somebody available "18:00–23:59" fail a shift running to midnight,
+ * which is exactly the person the check should pass.
+ */
+const END_OF_DAY = "23:59";
+
+/**
  * The storage key for a date override.
  *
  * An override is about a CALENDAR DAY, not an instant, so it is stored at UTC
@@ -176,8 +186,71 @@ export class AvailabilityRepository {
   /**
    * Checks if a member is available at a specific date and time.
    * Priority: date override > weekly schedule > default (unavailable)
+   *
+   * ## Shifts that cross midnight
+   *
+   * Times are "HH:mm" strings compared lexically, so an overnight shift used to
+   * slip through every check. A 22:00–02:00 shift against a 09:00–17:00 window
+   * asks `"22:00" < "09:00"` (false) and `"02:00" > "17:00"` (false), neither
+   * fires, and the member comes back AVAILABLE — for any window, on any day.
+   * For a venue that closes after midnight that is the closing shift, not an
+   * edge case.
+   *
+   * A shift ending before it starts occupies two calendar days, so it is split
+   * and each half checked against that day's own override and window. Both must
+   * pass: somebody free until 23:00 on Saturday has said nothing about Sunday
+   * morning, and somebody who booked Sunday off must not be rostered into it
+   * through Saturday's door.
+   *
+   * Availability windows themselves cannot cross midnight —
+   * `setDayAvailability` refuses `startTime >= endTime` — so only the SHIFT can
+   * wrap, never the window. That is a real limitation for genuine night workers
+   * and is recorded in the backlog rather than solved here.
    */
   async isAvailableAt(
+    membershipId: string,
+    date: Date,
+    startTime: string,
+    endTime: string
+  ): Promise<{ available: boolean; reason?: string }> {
+    if (endTime < startTime) {
+      const firstHalf = await this.availableWithinDay(
+        membershipId,
+        date,
+        startTime,
+        END_OF_DAY
+      );
+      if (!firstHalf.available) return firstHalf;
+
+      // setDate rather than adding 24h in milliseconds: a day is not always 24
+      // hours in a zone that observes daylight saving, and this date is used to
+      // pick a weekday and an override key.
+      const nextDay = new Date(date);
+      nextDay.setDate(nextDay.getDate() + 1);
+
+      const secondHalf = await this.availableWithinDay(
+        membershipId,
+        nextDay,
+        "00:00",
+        endTime
+      );
+      if (!secondHalf.available) {
+        return {
+          available: false,
+          // Named, because "available 09:00–17:00 only" against a shift that
+          // starts at 22:00 reads as nonsense until you know which half of it
+          // failed.
+          reason: `After midnight: ${secondHalf.reason ?? "unavailable"}`,
+        };
+      }
+      return { available: true };
+    }
+
+    return this.availableWithinDay(membershipId, date, startTime, endTime);
+  }
+
+  /** One calendar day's worth of the question above. */
+  private async availableWithinDay(
     membershipId: string,
     date: Date,
     startTime: string,

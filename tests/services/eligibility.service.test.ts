@@ -334,8 +334,8 @@ describe("EligibilityService", () => {
         title: "Short shift",
         organizationId: orgId,
         createdById: adminUserId,
-        scheduledStart: new Date("2026-06-15T08:00:00.000Z"),
-        scheduledEnd: new Date("2026-06-15T12:00:00.000Z"),
+        scheduledStart: new Date("2026-06-15T00:00:00.000Z"),
+        scheduledEnd: new Date("2026-06-15T04:00:00.000Z"),
       });
       await prisma.taskAssignment.create({
         data: {
@@ -343,8 +343,8 @@ describe("EligibilityService", () => {
           membershipId: staffMembershipId,
           assignedById: adminUserId,
           status: "completed",
-          clockInTime: new Date("2026-06-15T08:00:00.000Z"),
-          clockOutTime: new Date("2026-06-15T12:00:00.000Z"),
+          clockInTime: new Date("2026-06-15T00:00:00.000Z"),
+          clockOutTime: new Date("2026-06-15T04:00:00.000Z"),
         },
       });
 
@@ -352,8 +352,11 @@ describe("EligibilityService", () => {
         title: "Afternoon shift",
         organizationId: orgId,
         createdById: adminUserId,
-        scheduledStart: new Date("2026-06-15T14:00:00.000Z"),
-        scheduledEnd: new Date("2026-06-15T17:00:00.000Z"),
+        // 14:00–17:00 UTC is 22:00–01:00 in Singapore — an overnight shift, and
+        // it passed only while the availability check ignored midnight. 06:00Z
+        // is 14:00 local: the same afternoon these tests describe.
+        scheduledStart: new Date("2026-06-15T06:00:00.000Z"),
+        scheduledEnd: new Date("2026-06-15T09:00:00.000Z"),
       });
 
       const results = await eligibilityService.checkEligibilityForTask(
@@ -392,8 +395,8 @@ describe("EligibilityService", () => {
         title: "Shift",
         organizationId: orgId,
         createdById: adminUserId,
-        scheduledStart: new Date("2026-06-15T08:00:00.000Z"),
-        scheduledEnd: new Date("2026-06-15T12:00:00.000Z"),
+        scheduledStart: new Date("2026-06-15T00:00:00.000Z"),
+        scheduledEnd: new Date("2026-06-15T04:00:00.000Z"),
       });
       await prisma.taskAssignment.create({
         data: {
@@ -401,8 +404,8 @@ describe("EligibilityService", () => {
           membershipId: staffMembershipId,
           assignedById: adminUserId,
           status: "completed",
-          clockInTime: new Date("2026-06-15T08:00:00.000Z"),
-          clockOutTime: new Date("2026-06-15T12:00:00.000Z"),
+          clockInTime: new Date("2026-06-15T00:00:00.000Z"),
+          clockOutTime: new Date("2026-06-15T04:00:00.000Z"),
         },
       });
 
@@ -410,8 +413,11 @@ describe("EligibilityService", () => {
         title: "Next shift",
         organizationId: orgId,
         createdById: adminUserId,
-        scheduledStart: new Date("2026-06-15T14:00:00.000Z"),
-        scheduledEnd: new Date("2026-06-15T17:00:00.000Z"),
+        // 14:00–17:00 UTC is 22:00–01:00 in Singapore — an overnight shift, and
+        // it passed only while the availability check ignored midnight. 06:00Z
+        // is 14:00 local: the same afternoon these tests describe.
+        scheduledStart: new Date("2026-06-15T06:00:00.000Z"),
+        scheduledEnd: new Date("2026-06-15T09:00:00.000Z"),
       });
 
       const results = await eligibilityService.checkEligibilityForTask(
