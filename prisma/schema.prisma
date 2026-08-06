@@ -27,6 +27,7 @@ model User {
   taskAssignedBy         TaskAssignment[]       @relation("AssignedByUser")
   certificationsVerified Certification[]        @relation("CertificationVerifier")
   eligibilityOverrides   EligibilityOverride[]  @relation("EligibilityOverrider")
+  leaveReviewed          AvailabilityOverride[] @relation("LeaveReviewedBy")
   auditLogs              AuditLog[]
   notifications          Notification[]
 }
@@ -409,13 +410,46 @@ model AvailabilityOverride {
   date         DateTime
   isAvailable  Boolean  @default(false)
   reason       String?
+  /*
+   * "approved" | "pending" | "rejected".
+   *
+   * The row means different things depending on who wrote it, and this is the
+   * field that carries the difference.
+   *
+   * A CASUAL member's availability is an offer — theirs to give and to take
+   * back — so their overrides are created "approved" and take effect at once,
+   * exactly as every override did before this column existed. A FULL-TIME
+   * member is contracted, so an absence is a leave request: created "pending"
+   * and ignored by the roster until a manager approves it.
+   *
+   * Defaulting to "approved" is what makes the change safe on existing data.
+   * Every row written before this column belonged to the old, immediate
+   * behaviour, and backfilling them to "pending" would retroactively put
+   * people back on shifts they had already been excused from.
+   */
+  status       String   @default("approved")
+  reviewedById String?
+  /*
+   * There is deliberately no `reviewedAt`. `updatedAt` already records when the
+   * row last changed, and a reviewed leave request does not change again — so a
+   * separate timestamp would be a second copy of the same fact, free to drift
+   * from the first. Who reviewed it is NOT derivable that way, which is why
+   * `reviewedById` earns its column and the timestamp does not.
+   */
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   membership Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  /*
+   * SetNull, not Cascade. Who approved a leave request is a fact about the
+   * request, and deleting the reviewer's user account must not delete the
+   * leave with it — the absence still happened.
+   */
+  reviewedBy   User?    @relation("LeaveReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
 
   @@unique([membershipId, date])
   @@index([membershipId])
+  @@index([status])
 }
 
 model Certification {

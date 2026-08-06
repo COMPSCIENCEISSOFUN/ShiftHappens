@@ -14,6 +14,7 @@ import { NotificationService, NOTIFICATION_TYPES } from "@/services/notification
 import { MembershipRepository } from "@/repositories/membership.repository";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 import { taskWatcherUserIds } from "@/services/task-watchers";
+import { isFullTime } from "@/lib/role-config";
 import type {
   SetAvailabilityInput,
   CreateAvailabilityOverrideInput,
@@ -153,19 +154,178 @@ export class AvailabilityService {
     return this.availRepo.getWeeklySchedule(membershipId);
   }
 
-  /** Creates a date-specific availability override */
+  /**
+   * Creates a date-specific override — or, for a full-time member, a leave
+   * request.
+   *
+   * ## Two meanings, one row
+   *
+   * A CASUAL member's availability is an offer. They decide when they are
+   * willing to work and the business fits around it, so an override of theirs
+   * takes effect the moment they save it — the behaviour this method has always
+   * had.
+   *
+   * A FULL-TIME member is contracted for their days. An absence is therefore
+   * not something they declare, it is something they request: the row is
+   * written `pending`, `isAvailableAt` ignores it, and it binds only once a
+   * manager approves. Without that split a full-timer could remove themselves
+   * from the roster unilaterally, which is precisely what a contract is not.
+   *
+   * The employment type is read from the membership rather than accepted from
+   * the caller — a client that could name its own status would make the whole
+   * distinction advisory.
+   */
   async createOverride(
     membershipId: string,
     input: CreateAvailabilityOverrideInput
   ) {
-    return this.withIneligibilityCheck(membershipId, () =>
+    const membership = await this.membershipRepo.findById(membershipId);
+    const needsApproval = isFullTime(membership?.employmentType);
+
+    const created = await this.withIneligibilityCheck(membershipId, () =>
       this.availRepo.createOverride({
         membershipId,
         date: new Date(input.date),
         isAvailable: input.isAvailable,
         reason: input.reason,
+        status: needsApproval ? "pending" : "approved",
       })
     );
+
+    if (needsApproval) {
+      void this.notifyReviewers(membershipId, created.date, input.isAvailable);
+    }
+
+    return created;
+  }
+
+  /**
+   * Tells the people who can act on it that leave has been requested.
+   *
+   * Fire-and-forget, like every other notification in the codebase: a member
+   * whose request was saved must not be told it failed because a notification
+   * did.
+   */
+  private async notifyReviewers(
+    membershipId: string,
+    date: Date,
+    isAvailable: boolean
+  ) {
+    try {
+      const membership = await this.membershipRepo.findById(membershipId);
+      if (!membership) return;
+
+      const name = await this.availRepo.getMemberName(membershipId);
+      const when = date.toLocaleDateString("en-GB", {
+        weekday: "short",
+        day: "numeric",
+        month: "short",
+        timeZone: "UTC",
+      });
+
+      // Scoped to the requester's own departments, so the people told about a
+      // request are exactly the people the route will let act on it.
+      const withDepartments = await this.membershipRepo.findByIdWithDetails(
+        membershipId
+      );
+      const departmentIds = (withDepartments?.departmentMemberships ?? []).map(
+        (dm: { department: { id: string } }) => dm.department.id
+      );
+
+      const reviewers = await this.membershipRepo.findLeaveReviewers(
+        membership.organizationId,
+        departmentIds
+      );
+
+      await this.notificationService.notifyManyIfEnabled(
+        membership.organizationId,
+        reviewers.map((r) => r.userId).filter((id) => id !== membership.userId),
+        NOTIFICATION_TYPES.LEAVE_REQUESTED,
+        "Leave requested",
+        `${name ?? "A team member"} requested ${
+          isAvailable ? "to work" : "off"
+        } on ${when}`,
+        "availability",
+        membershipId
+      );
+    } catch (error) {
+      console.error("[Availability] Failed to notify reviewers:", error);
+    }
+  }
+
+  /**
+   * Approves or rejects a leave request.
+   *
+   * Approving is the moment the absence becomes real, so it runs through the
+   * same ineligibility check every other availability change does: a shift the
+   * member already holds on that date now has nobody who can work it, and the
+   * managers watching that task need to hear about it.
+   *
+   * Rejecting cannot make anyone ineligible — the row was inert while pending
+   * and stays inert — so it skips the check rather than paying for a query
+   * whose answer cannot change.
+   */
+  async reviewLeave(
+    overrideId: string,
+    decision: "approved" | "rejected",
+    reviewerUserId: string
+  ) {
+    const override = await this.availRepo.getOverrideById(overrideId);
+    if (!override) throw new Error("Leave request not found");
+    if (override.status !== "pending") {
+      throw new Error("This request has already been reviewed");
+    }
+
+    const apply = () =>
+      this.availRepo.reviewOverride(overrideId, decision, reviewerUserId);
+
+    const result =
+      decision === "approved"
+        ? await this.withIneligibilityCheck(override.membershipId, apply)
+        : await apply();
+
+    const membership = await this.membershipRepo.findById(override.membershipId);
+    if (membership) {
+      await this.auditService.log({
+        organizationId: membership.organizationId,
+        userId: reviewerUserId,
+        action:
+          decision === "approved"
+            ? ACTIONS.LEAVE_APPROVED
+            : ACTIONS.LEAVE_REJECTED,
+        entityType: "availability",
+        entityId: overrideId,
+        details: { date: override.date.toISOString(), membershipId: override.membershipId },
+      });
+
+      void this.notificationService.notifyIfEnabled(
+        membership.organizationId,
+        membership.userId,
+        decision === "approved"
+          ? NOTIFICATION_TYPES.LEAVE_APPROVED
+          : NOTIFICATION_TYPES.LEAVE_REJECTED,
+        decision === "approved" ? "Leave approved" : "Leave not approved",
+        `Your request for ${override.date.toLocaleDateString("en-GB", {
+          weekday: "short",
+          day: "numeric",
+          month: "short",
+          timeZone: "UTC",
+        })} was ${decision === "approved" ? "approved" : "declined"}.`,
+        "availability",
+        override.membershipId
+      );
+    }
+
+    return result;
+  }
+
+  /** Leave awaiting a decision, within the reviewer's scope. */
+  async getPendingLeave(organizationId: string, departmentIds?: string[] | null) {
+    const members = await this.membershipRepo.findRosterableInScope(
+      organizationId,
+      departmentIds
+    );
+    return this.availRepo.findPendingForMembers(members.map((m) => m.id));
   }
 
   /** Gets overrides for a member, optionally within a date range */

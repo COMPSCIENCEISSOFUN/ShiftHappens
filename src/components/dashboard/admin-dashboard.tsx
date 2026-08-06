@@ -34,6 +34,10 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import type { NeedsAttentionItem } from "@/components/dashboard/needs-attention";
+import {
+  LeaveRequestsPanel,
+  type PendingLeave,
+} from "@/components/dashboard/leave-requests-panel";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
 import {
   AllocationEnginePanel,
@@ -438,6 +442,7 @@ export default function AdminDashboard({ orgId, orgName, userName }: AdminDashbo
    * recipient gets three notifications.
    */
   const [nudged, setNudged] = useState<Record<string, "sending" | "sent">>({});
+  const [leave, setLeave] = useState<PendingLeave[]>([]);
 
   async function sendNudge(key: string, url: string) {
     setNudged((prev) => ({ ...prev, [key]: "sending" }));
@@ -460,6 +465,7 @@ export default function AdminDashboard({ orgId, orgName, userName }: AdminDashbo
     fetchDashboard();
     fetchAIRecommendations();
     fetchFeedbackThemes();
+    fetchLeave();
     fetchEngineReport();
   }, [orgId]);
 
@@ -504,6 +510,32 @@ export default function AdminDashboard({ orgId, orgName, userName }: AdminDashbo
     } finally {
       setEngineLoading(false);
     }
+  }
+
+  /**
+   * Leave awaiting a decision. Its own request and its own failure — an
+   * approvals list that cannot load must not take the dashboard with it.
+   */
+  async function fetchLeave() {
+    try {
+      const res = await fetch(`/api/organizations/${orgId}/leave`);
+      const body = await res.json();
+      setLeave(res.ok && Array.isArray(body) ? body : []);
+    } catch {
+      setLeave([]);
+    }
+  }
+
+  async function decideLeave(id: string, decision: "approved" | "rejected") {
+    const res = await fetch(`/api/organizations/${orgId}/leave/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ decision }),
+    });
+    // Refetched rather than spliced out locally: approving changes who is
+    // eligible for shifts on this page, and a list that disagrees with the
+    // server about what was decided is worse than a round trip.
+    if (res.ok) await fetchLeave();
   }
 
   async function fetchAIRecommendations() {
@@ -568,6 +600,15 @@ export default function AdminDashboard({ orgId, orgName, userName }: AdminDashbo
 
   return (
     <div>
+      {/* ════════════════════════════════════════════════════ */}
+      {/* 0. Leave awaiting a decision                        */}
+      {/* ════════════════════════════════════════════════════ */}
+      {leave.length > 0 && (
+        <div className="mb-7">
+          <LeaveRequestsPanel requests={leave} onDecide={decideLeave} />
+        </div>
+      )}
+
       {/* ════════════════════════════════════════════════════ */}
       {/* 1. Greeting + Status Pill                           */}
       {/* ════════════════════════════════════════════════════ */}

@@ -357,6 +357,77 @@ export class MembershipRepository {
    * than appear on it, and auto-filling their week would book the person who
    * is supposed to be reviewing the draft.
    */
+  /**
+   * Who may review a leave request from a member in these departments.
+   *
+   * ## Why the department filter
+   *
+   * The approve route is department-scoped and answers 404 to a manager whose
+   * departments do not include the requester. Notifying every manager therefore
+   * told Kitchen about a Front of House request, which they would click into
+   * and be refused — a boundary presented as a bug. The audience that is told
+   * and the audience that can act have to be the same set.
+   *
+   * Admins are unscoped and always included: `departmentScopeFor` returns null
+   * for company_admin, so they can approve anything.
+   *
+   * A requester with NO departments therefore reaches admins only, which is
+   * correct rather than a gap — no manager has scope over them either.
+   *
+   * This is a notification fan-out, not an authorisation decision; the route
+   * still gates who may actually approve.
+   */
+  async findLeaveReviewers(organizationId: string, departmentIds: string[]) {
+    return prisma.membership.findMany({
+      where: {
+        organizationId,
+        status: "active",
+        OR: [
+          { role: "company_admin" },
+          ...(departmentIds.length > 0
+            ? [
+                {
+                  role: "manager",
+                  departmentMemberships: {
+                    some: { departmentId: { in: departmentIds } },
+                  },
+                },
+              ]
+            : []),
+        ],
+      },
+      select: { id: true, userId: true },
+    });
+  }
+
+  /**
+   * Rosterable members within a department scope.
+   *
+   * `null`/`undefined` means unrestricted — a company admin. An EMPTY ARRAY
+   * means "no departments" and matches nobody, never everybody; that
+   * distinction is the one `departmentScopeFor` relies on everywhere else.
+   */
+  async findRosterableInScope(
+    organizationId: string,
+    departmentIds?: string[] | null
+  ) {
+    return prisma.membership.findMany({
+      where: {
+        organizationId,
+        status: "active",
+        role: { in: [...ROSTERABLE_ROLES] },
+        ...(departmentIds != null
+          ? {
+              departmentMemberships: {
+                some: { departmentId: { in: departmentIds } },
+              },
+            }
+          : {}),
+      },
+      select: { id: true },
+    });
+  }
+
   async findSchedulableStaff(organizationId: string) {
     return prisma.membership.findMany({
       where: {

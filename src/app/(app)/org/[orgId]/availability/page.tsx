@@ -1,27 +1,40 @@
 /**
  * Availability Management Page (Boundary Layer)
- * 
- * Staff can configure their weekly availability schedule
- * and set date-specific overrides (e.g. day off, extra shift).
+ *
+ * A member's own weekly pattern and their date-specific overrides.
+ *
+ * Restyled onto the shared page furniture — `Panel`, `StatTile`, the button
+ * styles — so it matches Work Rules and Members rather than being the one
+ * screen still using raw `Card`s.
  */
 "use client";
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { Button } from "@/components/ui/button";
+import {
+  CalendarClock,
+  CalendarOff,
+  CalendarPlus,
+  Trash2,
+} from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Panel } from "@/components/ui/panel";
+import { StatTile, STAT_ACCENT } from "@/components/ui/stat-tile";
 import { PageLoading } from "@/components/ui/page-loading";
 import { AlertBanner } from "@/components/ui/alert-banner";
+import { EmptyState } from "@/components/ui/empty-state";
+import { PRIMARY_BUTTON, SECONDARY_BUTTON } from "@/components/ui/button-styles";
 
-const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const DAYS = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+];
 
 interface DaySchedule {
   dayOfWeek: number;
@@ -35,6 +48,23 @@ interface Override {
   date: string;
   isAvailable: boolean;
   reason: string | null;
+  /** "approved" | "pending" | "rejected" — see the AvailabilityOverride model. */
+  status: string;
+}
+
+/**
+ * Hours in a "HH:mm"–"HH:mm" window, or 0 if it does not run forwards.
+ *
+ * Deliberately not wrapping past midnight. The availability check compares
+ * these as plain strings, so a window that ends before it starts is not
+ * something the engine understands either — showing it as a positive number
+ * here would claim a capability the roster does not have.
+ */
+function windowHours(start: string, end: string): number {
+  const [sh, sm] = start.split(":").map(Number);
+  const [eh, em] = end.split(":").map(Number);
+  if ([sh, sm, eh, em].some(Number.isNaN)) return 0;
+  return Math.max(0, eh * 60 + em - (sh * 60 + sm)) / 60;
 }
 
 export default function AvailabilityPage() {
@@ -52,6 +82,16 @@ export default function AvailabilityPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  /**
+   * Whether this member's absences are requests rather than declarations.
+   *
+   * Read from the server, not inferred here — the same fact decides the wording
+   * on this page and whether the row binds, and splitting those across client
+   * and server is how a screen comes to promise something the engine does not
+   * do.
+   */
+  const [needsApproval, setNeedsApproval] = useState(false);
 
   useEffect(() => {
     fetchSchedule();
@@ -98,13 +138,13 @@ export default function AvailabilityPage() {
 
   function updateDay(index: number, field: string, value: string | boolean) {
     setSchedule((prev) =>
-      prev.map((day, i) =>
-        i === index ? { ...day, [field]: value } : day
-      )
+      prev.map((day, i) => (i === index ? { ...day, [field]: value } : day))
     );
   }
 
   async function onSaveSchedule() {
+    if (saving) return;
+    setSaving(true);
     setError(null);
     setSuccess(null);
 
@@ -124,6 +164,8 @@ export default function AvailabilityPage() {
       setSuccess("Schedule saved");
     } catch {
       setError("Something went wrong");
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -132,7 +174,8 @@ export default function AvailabilityPage() {
     setError(null);
     setSuccess(null);
 
-    const formData = new FormData(event.currentTarget);
+    const form = event.currentTarget;
+    const formData = new FormData(form);
     const date = formData.get("overrideDate") as string;
 
     try {
@@ -153,7 +196,27 @@ export default function AvailabilityPage() {
       }
 
       setSuccess("Override created");
-      (event.target as HTMLFormElement).reset();
+      form.reset();
+      fetchOverrides();
+    } catch {
+      setError("Something went wrong");
+    }
+  }
+
+  async function onDeleteOverride(id: string) {
+    setError(null);
+    setSuccess(null);
+    try {
+      const res = await fetch(
+        `/api/organizations/${orgId}/availability/overrides/${id}`,
+        { method: "DELETE" }
+      );
+      if (!res.ok) {
+        const result = await res.json().catch(() => ({}));
+        setError(result.error || "Failed to remove override");
+        return;
+      }
+      setSuccess("Override removed");
       fetchOverrides();
     } catch {
       setError("Something went wrong");
@@ -162,113 +225,273 @@ export default function AvailabilityPage() {
 
   if (loading) return <PageLoading />;
 
+  const availableDays = schedule.filter((d) => d.isAvailable);
+  const weeklyHours = availableDays.reduce(
+    (total, d) => total + windowHours(d.startTime, d.endTime),
+    0
+  );
+  // Soonest first. The server returns creation order, which puts an override
+  // added today for December above one for next week.
+  const sortedOverrides = [...overrides].sort(
+    (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+  );
+
   return (
-    <div className="max-w-3xl">
-      <h2 className="mb-6 text-2xl font-bold">My Availability</h2>
+    <div className="w-full">
+      {/* ── Header ── */}
+      <div className="mb-4">
+        <h2 className="text-xl font-bold tracking-tight sm:text-2xl">
+          My Availability
+        </h2>
+        <p className="mt-0.5 text-[13px] text-muted-foreground">
+          {needsApproval
+            ? "Your contracted days, and any leave you've asked for. Leave takes effect once a manager approves it."
+            : "The hours you can be rostered. Anything outside these windows marks you ineligible when a manager assigns work."}
+        </p>
+      </div>
 
       {error && <AlertBanner message={error} variant="error" />}
       {success && <AlertBanner message={success} variant="success" />}
 
-      {/* Weekly schedule */}
-      <Card className="mb-6">
-        <CardHeader>
-          <CardTitle>Weekly Schedule</CardTitle>
-          <CardDescription>Set your regular working hours for each day</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
+      {/* ── Stats ── */}
+      <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <StatTile
+          label="Days available"
+          value={`${availableDays.length} of 7`}
+          detail="in your weekly pattern"
+          accentColour={STAT_ACCENT.indigo}
+        />
+        <StatTile
+          label="Hours per week"
+          value={`${Math.round(weeklyHours)}h`}
+          detail="across those days"
+          accentColour={STAT_ACCENT.green}
+        />
+        <StatTile
+          label="Date overrides"
+          value={overrides.length}
+          detail="one-off exceptions"
+          accentColour={STAT_ACCENT.amber}
+          valueColour={
+            overrides.length > 0 ? "text-amber-600 dark:text-amber-400" : ""
+          }
+        />
+      </div>
+
+      {/* ── Weekly schedule ── */}
+      <Panel
+        title={needsApproval ? "Contracted days" : "Weekly schedule"}
+        icon={CalendarClock}
+        className="mb-4"
+        bodyClassName="p-4"
+      >
+        <p className="mb-3 text-[13px] text-muted-foreground">
+          {needsApproval
+            ? "The days you are contracted to work. A day left unticked means you are not rostered that day at all."
+            : "Your regular pattern. A day left unticked means you cannot be rostered that day at all."}
+        </p>
+
+        <div className="space-y-2">
           {schedule.map((day, index) => (
-            <div key={day.dayOfWeek} className="flex items-center gap-4">
-              <label className="flex w-32 items-center gap-2 text-sm">
+            <div
+              key={day.dayOfWeek}
+              className={`flex flex-col gap-2 rounded-lg border px-3 py-2.5 transition-colors sm:flex-row sm:items-center sm:gap-4 ${
+                day.isAvailable
+                  ? "border-indigo-200 bg-indigo-50/50 dark:border-indigo-800 dark:bg-indigo-950/20"
+                  : "border-border bg-muted/20"
+              }`}
+            >
+              <label className="flex w-full cursor-pointer items-center gap-2.5 text-[13px] font-medium sm:w-36">
                 <input
                   type="checkbox"
                   checked={day.isAvailable}
                   onChange={(e) => updateDay(index, "isAvailable", e.target.checked)}
+                  className="h-4 w-4 shrink-0 rounded border-border accent-indigo-600"
                 />
                 {DAYS[day.dayOfWeek]}
               </label>
-              <Input
-                type="time"
-                value={day.startTime}
-                onChange={(e) => updateDay(index, "startTime", e.target.value)}
-                disabled={!day.isAvailable}
-                className="w-32"
-              />
-              <span className="text-sm text-muted-foreground">to</span>
-              <Input
-                type="time"
-                value={day.endTime}
-                onChange={(e) => updateDay(index, "endTime", e.target.value)}
-                disabled={!day.isAvailable}
-                className="w-32"
-              />
+
+              <div className="flex flex-1 items-center gap-2">
+                <Input
+                  type="time"
+                  aria-label={`${DAYS[day.dayOfWeek]} start time`}
+                  value={day.startTime}
+                  onChange={(e) => updateDay(index, "startTime", e.target.value)}
+                  disabled={!day.isAvailable}
+                  className="h-8 w-32 text-[13px]"
+                />
+                <span className="text-[12px] text-muted-foreground">to</span>
+                <Input
+                  type="time"
+                  aria-label={`${DAYS[day.dayOfWeek]} end time`}
+                  value={day.endTime}
+                  onChange={(e) => updateDay(index, "endTime", e.target.value)}
+                  disabled={!day.isAvailable}
+                  className="h-8 w-32 text-[13px]"
+                />
+                {day.isAvailable && (
+                  <span className="ml-auto text-[12px] text-muted-foreground">
+                    {windowHours(day.startTime, day.endTime).toFixed(1)}h
+                  </span>
+                )}
+              </div>
             </div>
           ))}
-          <Button onClick={onSaveSchedule} className="mt-4">
-            Save Schedule
-          </Button>
-        </CardContent>
-      </Card>
+        </div>
 
-      {/* Date overrides */}
-      <Card className="mb-6">
-        <CardHeader>
-          <CardTitle>Date Overrides</CardTitle>
-          <CardDescription>
-            Override your schedule for specific dates (e.g. day off, extra shift)
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={onCreateOverride} className="mb-4 flex gap-3 items-end">
-            <div className="space-y-1">
-              <Label>Date</Label>
-              <Input type="date" name="overrideDate" required />
-            </div>
-            <div className="space-y-1">
-              <Label>Available?</Label>
-              <select name="overrideAvailable" className="rounded-md border px-3 py-2 text-sm">
-                <option value="false">Unavailable</option>
-                <option value="true">Available</option>
-              </select>
-            </div>
-            <div className="space-y-1">
-              <Label>Reason</Label>
-              <Input name="overrideReason" placeholder="Optional reason" />
-            </div>
-            <Button type="submit">Add</Button>
-          </form>
+        <button
+          onClick={onSaveSchedule}
+          disabled={saving}
+          className={`mt-4 ${PRIMARY_BUTTON}`}
+        >
+          {saving ? "Saving…" : "Save schedule"}
+        </button>
+      </Panel>
 
-          {overrides.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No date overrides set.</p>
-          ) : (
-            <div className="space-y-2">
-              {overrides.map((ov) => (
+      {/* ── Date overrides ── */}
+      <Panel
+        title={needsApproval ? "Leave requests" : "Date overrides"}
+        icon={CalendarOff}
+        count={overrides.length}
+        bodyClassName="p-4"
+      >
+        <p className="mb-3 text-[13px] text-muted-foreground">
+          {needsApproval
+            ? "Ask for a day off, or to work a day you normally would not. A manager reviews each one — until then you stay on the roster as usual."
+            : "One-off exceptions to the pattern above — a day off, or a day you can work that you normally could not. An override wins over the weekly schedule for that date."}
+        </p>
+
+        <form
+          onSubmit={onCreateOverride}
+          className="mb-4 flex flex-col gap-3 rounded-lg border border-border bg-muted/20 p-3 sm:flex-row sm:items-end"
+        >
+          <div className="space-y-1">
+            <Label htmlFor="overrideDate" className="text-[12px]">
+              Date
+            </Label>
+            <Input
+              id="overrideDate"
+              type="date"
+              name="overrideDate"
+              required
+              className="h-9 text-[13px]"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="overrideAvailable" className="text-[12px]">
+              {needsApproval ? "Requesting" : "Available?"}
+            </Label>
+            <select
+              id="overrideAvailable"
+              name="overrideAvailable"
+              className="h-9 rounded-lg border border-border bg-background px-3 text-[13px]"
+            >
+              <option value="false">
+                {needsApproval ? "Day off" : "Unavailable"}
+              </option>
+              <option value="true">
+                {needsApproval ? "To work this day" : "Available"}
+              </option>
+            </select>
+          </div>
+          <div className="flex-1 space-y-1">
+            <Label htmlFor="overrideReason" className="text-[12px]">
+              Reason
+            </Label>
+            <Input
+              id="overrideReason"
+              name="overrideReason"
+              placeholder="Optional — e.g. medical appointment"
+              className="h-9 text-[13px]"
+            />
+          </div>
+          <button type="submit" className={`${SECONDARY_BUTTON} h-9 gap-1.5`}>
+            <CalendarPlus className="h-3.5 w-3.5" aria-hidden="true" />
+            {needsApproval ? "Request" : "Add"}
+          </button>
+        </form>
+
+        {sortedOverrides.length === 0 ? (
+          <EmptyState
+            icon={CalendarOff}
+            title={needsApproval ? "No leave requested" : "No date overrides"}
+            description={
+              needsApproval
+                ? "Your contracted days apply to every date."
+                : "Your weekly schedule applies to every date."
+            }
+          />
+        ) : (
+          <div className="space-y-2">
+            {sortedOverrides.map((ov) => {
+              const date = new Date(ov.date);
+              return (
                 <div
                   key={ov.id}
-                  className="flex items-center justify-between rounded-md border p-3 text-sm"
+                  className="flex items-center gap-3 rounded-lg border border-border px-3 py-2.5"
                 >
-                  <div>
-                    <span className="font-medium">
-                      {new Date(ov.date).toLocaleDateString()}
-                    </span>
+                  <span
+                    className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                      ov.isAvailable
+                        ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
+                        : "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300"
+                    }`}
+                  >
+                    {ov.isAvailable
+                      ? needsApproval
+                        ? "To work"
+                        : "Available"
+                      : needsApproval
+                        ? "Day off"
+                        : "Unavailable"}
+                  </span>
+                  {/*
+                    Pending is the state that matters most here: it is the one
+                    where the row exists and does NOTHING. Leaving it unlabelled
+                    would let somebody book time off, see it listed, and be
+                    rostered anyway with no explanation.
+                  */}
+                  {ov.status !== "approved" && (
                     <span
-                      className={`ml-2 rounded-full px-2 py-0.5 text-xs ${
-                        ov.isAvailable
-                          ? "bg-green-100 text-green-700"
-                          : "bg-red-100 text-red-700"
+                      className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                        ov.status === "pending"
+                          ? "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+                          : "bg-muted text-muted-foreground"
                       }`}
                     >
-                      {ov.isAvailable ? "Available" : "Unavailable"}
+                      {ov.status === "pending" ? "Awaiting approval" : "Declined"}
                     </span>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    {/* The weekday, not just the date — "14 Aug" alone does not
+                        tell you which of your weekly windows it replaces. */}
+                    <p className="truncate text-[13px] font-medium">
+                      {date.toLocaleDateString("en-GB", {
+                        weekday: "short",
+                        day: "numeric",
+                        month: "short",
+                        year: "numeric",
+                      })}
+                    </p>
                     {ov.reason && (
-                      <span className="ml-2 text-muted-foreground">{ov.reason}</span>
+                      <p className="truncate text-[12px] text-muted-foreground">
+                        {ov.reason}
+                      </p>
                     )}
                   </div>
+                  <button
+                    onClick={() => onDeleteOverride(ov.id)}
+                    aria-label={`Remove override for ${date.toLocaleDateString("en-GB")}`}
+                    className="shrink-0 rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950 dark:hover:text-red-400"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                  </button>
                 </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+              );
+            })}
+          </div>
+        )}
+      </Panel>
     </div>
   );
 }

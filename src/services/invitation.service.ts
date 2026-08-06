@@ -86,9 +86,7 @@ export class InvitationService {
     }
 
     // Create org membership (carry employmentType from invitation if set)
-    // TODO: Remove cast after running `npx prisma generate` — employmentType
-    // was added in migration 20260726000000; Prisma types will include it.
-    const invitationEmploymentType = (invitation as typeof invitation & { employmentType?: string | null }).employmentType;
+    const invitationEmploymentType = invitation.employmentType;
 
     // Already a member? Say so, rather than letting Prisma raise a raw P2002 on
     // the (userId, organizationId) unique constraint — that surfaced as an

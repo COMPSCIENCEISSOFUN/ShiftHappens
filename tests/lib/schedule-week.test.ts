@@ -17,6 +17,8 @@ import { describe, it, expect } from "vitest";
 import {
   isMonday,
   mondayOf,
+  shortDateLabel,
+  weekdayName,
   parseDateOnly,
   shiftWeeks,
   thisMondayInOrgTime,
@@ -205,5 +207,35 @@ describe("thisMondayInOrgTime", () => {
       const iso = `2026-06-${String(day).padStart(2, "0")}T12:00:00`;
       expect(isMonday(thisMondayInOrgTime(sgt(iso)))).toBe(true);
     }
+  });
+});
+
+/*
+ * Both of these exist so the auto-schedule page can name a non-Monday week
+ * without doing its own date parsing. `new Date("2026-08-05")` parses as UTC
+ * midnight, so a page west of UTC naming that day gets Tuesday — which is the
+ * whole reason this module owns the parsing.
+ */
+describe("weekdayName", () => {
+  it("names the day the string actually falls on", () => {
+    expect(weekdayName("2026-08-03")).toBe("Monday");
+    expect(weekdayName("2026-08-05")).toBe("Wednesday");
+    expect(weekdayName("2026-08-09")).toBe("Sunday");
+  });
+
+  it("returns null rather than guessing at an unparseable value", () => {
+    for (const value of ["", "2026-08", "not-a-date"]) {
+      expect(weekdayName(value)).toBeNull();
+    }
+  });
+});
+
+describe("shortDateLabel", () => {
+  it("reads as a person would say it", () => {
+    expect(shortDateLabel("2026-08-03")).toBe("Mon 3 Aug");
+  });
+
+  it("returns null for an unparseable value", () => {
+    expect(shortDateLabel("nonsense")).toBeNull();
   });
 });

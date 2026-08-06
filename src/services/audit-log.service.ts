@@ -46,6 +46,8 @@ const ACTIONS = {
   DEPARTMENT_ARCHIVED: "department.archived",
   DEPARTMENT_UNARCHIVED: "department.unarchived",
   DEPARTMENT_DELETED: "department.deleted",
+  LEAVE_APPROVED: "leave.approved",
+  LEAVE_REJECTED: "leave.rejected",
   // Certifications
   CERTIFICATION_SUBMITTED: "certification.submitted",
   CERTIFICATION_VERIFIED: "certification.verified",

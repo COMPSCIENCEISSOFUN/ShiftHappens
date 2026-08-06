@@ -231,10 +231,7 @@ export class EligibilityService {
      */
     const results = await Promise.all(
       eligibleMembers.map(async (member) => {
-      // TODO: Remove cast after running `npx prisma generate` — employmentType
-      // is on the Membership model; Prisma types will include it natively.
-      const memberEmploymentType =
-        (member as typeof member & { employmentType?: string | null }).employmentType || DEFAULT_EMPLOYMENT_TYPE;
+      const memberEmploymentType = member.employmentType || DEFAULT_EMPLOYMENT_TYPE;
 
       const memberOverrides = overridesByMember.get(member.id) ?? new Set<string>();
       // A member is waived on a dimension by a matching key or a blanket "all".

@@ -39,6 +39,7 @@ import {
   thisMondayInOrgTime,
   weekRangeLabel,
 } from "@/lib/schedule-week";
+import { WeekStartNotice } from "@/components/schedule/week-start-notice";
 import { Panel } from "@/components/ui/panel";
 import { PRIMARY_BUTTON, SECONDARY_BUTTON } from "@/components/ui/button-styles";
 import { usePermissions } from "@/components/layout/permission-provider";
@@ -327,6 +328,12 @@ export default function AutoSchedulePage() {
               <p className="text-[13px] text-muted-foreground">
                 {weekRangeLabel(weekStart) || "Pick a date to choose a week"}
               </p>
+
+              <WeekStartNotice
+                weekStart={weekStart}
+                onUseMonday={setWeekStart}
+                disabled={generating}
+              />
 
               <button
                 onClick={handleGenerate}

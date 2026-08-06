@@ -64,12 +64,22 @@ export class AvailabilityRepository {
     });
   }
 
-  /** Creates a date-specific override (e.g. day off, extra shift) */
+  /**
+   * Creates a date-specific override (e.g. day off, extra shift).
+   *
+   * `status` is the caller's decision, not this layer's: a casual member's
+   * override is written "approved" and binds at once, a full-time member's is
+   * written "pending" and binds only when a manager approves it. The upsert
+   * RESETS the review on every write — editing a rejected request makes it
+   * pending again rather than leaving it carrying an old verdict about
+   * different dates or a different reason.
+   */
   async createOverride(data: {
     membershipId: string;
     date: Date;
     isAvailable: boolean;
     reason?: string;
+    status: string;
   }) {
     // Normalised, so the key written here is the key `isAvailableAt` reads.
     const date = overrideDateKey(data.date);
@@ -81,8 +91,41 @@ export class AvailabilityRepository {
       update: {
         isAvailable: data.isAvailable,
         reason: data.reason,
+        status: data.status,
+        reviewedById: null,
       },
       create: { ...data, date },
+    });
+  }
+
+  /** Records a manager's verdict on a leave request. */
+  async reviewOverride(id: string, status: string, reviewedById: string) {
+    return prisma.availabilityOverride.update({
+      where: { id },
+      data: { status, reviewedById },
+    });
+  }
+
+  /**
+   * Leave awaiting a decision, for the members given.
+   *
+   * Scoped by the caller rather than filtered here: a department manager sees
+   * their own members' requests and an admin sees everyone's, and which of
+   * those applies is an authorisation question the service answers.
+   */
+  async findPendingForMembers(membershipIds: string[]) {
+    if (membershipIds.length === 0) return [];
+    return prisma.availabilityOverride.findMany({
+      where: { membershipId: { in: membershipIds }, status: "pending" },
+      include: {
+        membership: {
+          select: {
+            id: true,
+            user: { select: { id: true, name: true, email: true } },
+          },
+        },
+      },
+      orderBy: [{ date: "asc" }, { id: "asc" }],
     });
   }
 
@@ -150,7 +193,17 @@ export class AvailabilityRepository {
       overrideDateKey(date)
     );
 
-    if (override) {
+    /*
+     * Only an APPROVED override binds.
+     *
+     * A casual member's override is written approved, so this is the behaviour
+     * it has always had. A full-time member's is a leave request, and a request
+     * nobody has answered must not remove them from the roster — that is the
+     * whole point of the approval step, and reading a pending row here would
+     * silently give every full-timer the unilateral opt-out the model exists to
+     * prevent. A rejected row is likewise inert.
+     */
+    if (override && override.status === "approved") {
       return {
         available: override.isAvailable,
         reason: override.isAvailable

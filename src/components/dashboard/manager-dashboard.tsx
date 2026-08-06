@@ -22,6 +22,10 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import type { NeedsAttentionItem } from "@/components/dashboard/needs-attention";
+import {
+  LeaveRequestsPanel,
+  type PendingLeave,
+} from "@/components/dashboard/leave-requests-panel";
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { EmptyState } from "@/components/ui/empty-state";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -148,6 +152,7 @@ export default function ManagerDashboard({
   userName,
 }: ManagerDashboardProps) {
   const [data, setData] = useState<ManagerDashboardData | null>(null);
+  const [leave, setLeave] = useState<PendingLeave[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -172,6 +177,43 @@ export default function ManagerDashboard({
     // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronising with an external system, which is what effects are for: loads the dashboard payload from the server on mount
     fetchDashboard();
   }, [orgId]);
+
+  /**
+   * Leave awaiting this manager's decision.
+   *
+   * Its own request and its own failure: an approvals list that cannot load
+   * must not take the dashboard down with it, and a manager with no scope over
+   * anybody simply gets an empty array.
+   */
+  useEffect(() => {
+    async function fetchLeave() {
+      try {
+        const res = await fetch(`/api/organizations/${orgId}/leave`);
+        const body = await res.json();
+        setLeave(res.ok && Array.isArray(body) ? body : []);
+      } catch {
+        setLeave([]);
+      }
+    }
+    fetchLeave();
+  }, [orgId]);
+
+  async function decideLeave(id: string, decision: "approved" | "rejected") {
+    const res = await fetch(`/api/organizations/${orgId}/leave/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ decision }),
+    });
+    // Refetched rather than spliced out locally: approving changes who is
+    // eligible for shifts this manager may be looking at, and a list that
+    // disagrees with the server about what was decided is worse than a
+    // round trip.
+    if (res.ok) {
+      const refreshed = await fetch(`/api/organizations/${orgId}/leave`);
+      const body = await refreshed.json();
+      setLeave(refreshed.ok && Array.isArray(body) ? body : []);
+    }
+  }
 
 
   // ----------------------------------------------------------
@@ -277,6 +319,9 @@ export default function ManagerDashboard({
           {statusPill.label}
         </div>
       </div>
+
+      {/* ---- Leave awaiting a decision ---- */}
+      <LeaveRequestsPanel requests={leave} onDecide={decideLeave} />
 
       {/* ---- Action items ---- */}
       {attentionItems.length > 0 && (

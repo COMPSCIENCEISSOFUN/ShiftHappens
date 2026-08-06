@@ -101,6 +101,7 @@ describe("AvailabilityRepository", () => {
         date: new Date("2026-06-15T00:00:00.000Z"),
         isAvailable: false,
         reason: "Personal day",
+        status: "approved",
       });
 
       expect(override.isAvailable).toBe(false);
@@ -113,6 +114,7 @@ describe("AvailabilityRepository", () => {
         date: new Date("2026-06-15T00:00:00.000Z"),
         isAvailable: false,
         reason: "Sick",
+        status: "approved",
       });
 
       const updated = await availRepo.createOverride({
@@ -120,6 +122,7 @@ describe("AvailabilityRepository", () => {
         date: new Date("2026-06-15T00:00:00.000Z"),
         isAvailable: true,
         reason: "Recovered",
+        status: "approved",
       });
 
       expect(updated.isAvailable).toBe(true);
@@ -131,16 +134,19 @@ describe("AvailabilityRepository", () => {
         membershipId,
         date: new Date("2026-06-10T00:00:00.000Z"),
         isAvailable: false,
+        status: "approved",
       });
       await availRepo.createOverride({
         membershipId,
         date: new Date("2026-06-15T00:00:00.000Z"),
         isAvailable: false,
+        status: "approved",
       });
       await availRepo.createOverride({
         membershipId,
         date: new Date("2026-06-25T00:00:00.000Z"),
         isAvailable: false,
+        status: "approved",
       });
 
       const overrides = await availRepo.getOverrides(
@@ -156,6 +162,7 @@ describe("AvailabilityRepository", () => {
         membershipId,
         date: new Date("2026-06-15T00:00:00.000Z"),
         isAvailable: false,
+        status: "approved",
       });
 
       await availRepo.deleteOverride(override.id);
@@ -227,6 +234,7 @@ describe("AvailabilityRepository", () => {
         date: new Date("2026-06-15T00:00:00.000Z"), // Monday
         isAvailable: false,
         reason: "Sick day",
+        status: "approved",
       });
 
       const result = await availRepo.isAvailableAt(

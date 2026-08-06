@@ -14,6 +14,7 @@ import {
   checkOrgSuspended,
 } from "@/lib/auth-guard";
 import { AccessService } from "@/services/access.service";
+import { isFullTime } from "@/lib/role-config";
 
 const availService = new AvailabilityService();
 const accessService = new AccessService();
@@ -33,8 +34,21 @@ export async function GET(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
+    /*
+     * An object rather than the bare array this used to return.
+     *
+     * The page has to know whether the caller is full-time before it can label
+     * anything: for a casual member this screen is "my availability" and edits
+     * bind at once, for a full-time member it is "my contracted days" and an
+     * absence is a leave request. Deriving that on the client from a role or a
+     * guess would put the labelling and the enforcement on different facts.
+     */
     const schedule = await availService.getWeeklySchedule(membership.id);
-    return NextResponse.json(schedule);
+    return NextResponse.json({
+      schedule,
+      employmentType: membership.employmentType ?? null,
+      needsApproval: isFullTime(membership.employmentType),
+    });
   } catch {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }

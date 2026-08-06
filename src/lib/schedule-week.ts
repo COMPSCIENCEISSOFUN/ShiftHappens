@@ -114,6 +114,30 @@ export function mondayOf(dateStr: string): string {
   return formatDateOnly(addDays(date, diff));
 }
 
+/**
+ * The weekday a `YYYY-MM-DD` falls on — "Wednesday" — or null if unparseable.
+ *
+ * Here rather than in the page because it needs `parseDateOnly`: the bare ISO
+ * form parses as UTC midnight, so naming the day with `new Date(dateStr)` gets
+ * it wrong by one for every zone behind UTC. That is the trap this whole module
+ * exists to keep in one place.
+ */
+export function weekdayName(dateStr: string): string | null {
+  const date = parseDateOnly(dateStr);
+  return date ? date.toLocaleDateString("en-US", { weekday: "long" }) : null;
+}
+
+/** A `YYYY-MM-DD` as "Mon 3 Aug", or null if unparseable. */
+export function shortDateLabel(dateStr: string): string | null {
+  const date = parseDateOnly(dateStr);
+  if (!date) return null;
+  return date.toLocaleDateString("en-GB", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  });
+}
+
 /** Shifts a `YYYY-MM-DD` by whole weeks, preserving the local calendar date. */
 export function shiftWeeks(dateStr: string, weeks: number): string {
   const date = parseDateOnly(dateStr);

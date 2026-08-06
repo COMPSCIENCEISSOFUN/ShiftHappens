@@ -156,6 +156,15 @@ export const ROUTES: RouteSpec[] = [
   org("availability", "PUT", MEMBER, { suspension: true }),
   org("availability/overrides", "GET", MEMBER),
   org("availability/overrides", "POST", MEMBER, { suspension: true }),
+  org("availability/overrides/[overrideId]", "DELETE", MEMBER, {
+    suspension: true,
+    extraParams: ["overrideId"],
+  }),
+  org("leave", "GET", MANAGER),
+  org("leave/[overrideId]", "PATCH", MANAGER, {
+    suspension: true,
+    extraParams: ["overrideId"],
+  }),
   org("calendar/coverage", "GET", MANAGER),
   org("calendar/staff", "GET", MANAGER),
 

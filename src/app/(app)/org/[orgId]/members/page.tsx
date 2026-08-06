@@ -27,13 +27,13 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { StatTile } from "@/components/ui/stat-tile";
 import { SYSTEM_ROLE_LABELS, EMPLOYMENT_TYPE_LABELS, DEFAULT_EMPLOYMENT_TYPE } from "@/lib/role-config";
 import {
-  SENIORITY_LEVELS,
   SENIORITY_LABEL,
   type SeniorityAssessment,
 } from "@/lib/seniority";
 import { filterMembers, hasActiveFilters as checkActiveFilters } from "@/lib/member-filters";
 import { usePermissions } from "@/components/layout/permission-provider";
 import { MEMBER_LIST_READERS } from "@/lib/permissions";
+import { MemberEditDrawer } from "@/components/members/member-edit-drawer";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -136,29 +136,25 @@ export default function MembersPage() {
   // the three above — this is the one control on the page a manager is meant
   // to use. It was the one control left ungated.
   const canUpdateSeniority = can("members:update_seniority");
+  /**
+   * Whether this viewer can change anything about a member at all.
+   *
+   * `MEMBER_LIST_READERS` lets several roles reach this page to READ it — a
+   * member with only `tasks:assign` needs the list and can change nothing on
+   * it. Offering them an Edit button that opens a panel of disabled controls
+   * would be worse than not offering one.
+   */
+  const canEditAnything = canUpdateRole || canUpdateSeniority || canDeactivate;
 
   const [showInvite, setShowInvite] = useState(false);
+  /** Membership id of the row whose edit panel is open, or null. */
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [inviteRole, setInviteRole] = useState("staff");
   const [inviting, setInviting] = useState(false);
-  const [rolePopoverFor, setRolePopoverFor] = useState<string | null>(null);
-
-  // Close custom-role popover on outside click
-  useEffect(() => {
-    if (!rolePopoverFor) return;
-    function handleClick(e: MouseEvent) {
-      const target = e.target as HTMLElement;
-      if (!target.closest("[data-role-popover]")) {
-        setRolePopoverFor(null);
-      }
-    }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [rolePopoverFor]);
-
   // Search & filter state
   const [search, setSearch] = useState("");
   const [filterRole, setFilterRole] = useState("");
@@ -383,7 +379,6 @@ export default function MembersPage() {
         body: JSON.stringify({ role: member.role, customRoleId }),
       });
       if (!res.ok) { const r = await res.json(); setError(r.error || "Failed to update custom role"); return; }
-      setRolePopoverFor(null);
       fetchMembers();
     } catch { setError("Something went wrong"); }
   }
@@ -625,7 +620,11 @@ export default function MembersPage() {
                 );
                 const isSelf = member.user.id === currentUserId;
                 return (
-                  <tr key={member.id} className={`border-b border-border last:border-b-0 transition-colors hover:bg-muted/20 ${member.status !== "active" ? "opacity-50" : ""}`}>
+                  <tr
+                    key={member.id}
+                    onClick={canEditAnything ? () => setEditingId(member.id) : undefined}
+                    className={`border-b border-border last:border-b-0 transition-colors hover:bg-muted/20 ${canEditAnything ? "cursor-pointer" : ""} ${member.status !== "active" ? "opacity-50" : ""}`}
+                  >
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-3">
                         <div className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full text-xs font-bold text-white ${avatarColour(member.user.name)}`}>
@@ -643,173 +642,76 @@ export default function MembersPage() {
                       </div>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex flex-col gap-1">
-                        <select
-                          className="rounded-lg border border-border bg-background px-2 py-1 text-xs"
-                          value={member.role}
-                          onChange={(e) => onUpdateRole(member.user.id, e.target.value)}
-                          disabled={isSelf || !canUpdateRole}
-                          title={isSelf ? "Cannot change your own role" : undefined}
-                        >
-                          <option value="staff">Staff</option>
-                          <option value="manager">Manager</option>
-                          <option value="company_admin">Admin</option>
-                        </select>
-                        {/* Custom role tag — only for non-admins */}
-                        {member.role !== "company_admin" && (
-                          member.customRole ? (
-                            <span className="group inline-flex w-fit items-center gap-1 rounded-full bg-purple-100 dark:bg-purple-900/40 px-2 py-0.5 text-[10px] font-medium text-purple-700 dark:text-purple-300">
-                              <Sparkles className="h-3 w-3 shrink-0 text-purple-500 dark:text-purple-400" aria-hidden="true" />
-                              {member.customRole.displayLabel}
-                              {!isSelf && (
-                                <button
-                                  onClick={() => onUpdateCustomRole(member.user.id, null)}
-                                  className="ml-0.5 hidden rounded-full text-purple-400 transition-colors hover:text-purple-600 dark:hover:text-purple-200 group-hover:inline"
-                                  title="Remove custom role"
-                                >
-                                  ×
-                                </button>
-                              )}
-                            </span>
-                          ) : customRoles.length > 0 && !isSelf ? (
-                            <div className="relative" data-role-popover>
-                              <button
-                                onClick={() => setRolePopoverFor(rolePopoverFor === member.id ? null : member.id)}
-                                className="text-[10px] font-medium text-purple-500 hover:text-purple-700 dark:text-purple-400 dark:hover:text-purple-200"
-                              >
-                                + assign role
-                              </button>
-                              {rolePopoverFor === member.id && (
-                                <div className="absolute left-0 top-full z-20 mt-1 min-w-[160px] overflow-hidden rounded-lg border border-border bg-card shadow-lg">
-                                  <div className="px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b border-border">
-                                    Custom Roles
-                                  </div>
-                                  {customRoles.map((cr) => (
-                                    <button
-                                      key={cr.id}
-                                      onClick={() => onUpdateCustomRole(member.user.id, cr.id)}
-                                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs transition-colors hover:bg-muted/50"
-                                    >
-                                      <Sparkles className="h-3 w-3 shrink-0 text-purple-500" aria-hidden="true" />
-                                      {cr.displayLabel}
-                                    </button>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                          ) : null
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <StatusBadge value={member.role} palette="role" />
+                        {member.customRole && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-purple-100 px-2 py-0.5 text-[10px] font-medium text-purple-700 dark:bg-purple-900/40 dark:text-purple-300">
+                            <Sparkles className="h-3 w-3 shrink-0" aria-hidden="true" />
+                            {member.customRole.displayLabel}
+                          </span>
                         )}
                       </div>
                     </td>
                     <td className="px-4 py-3">
-                      {member.role === "staff" ? (
-                        <select
-                          className="rounded-lg border border-border bg-background px-2 py-1 text-xs"
-                          value={member.employmentType || DEFAULT_EMPLOYMENT_TYPE}
-                          onChange={(e) => onUpdateEmploymentType(member.user.id, e.target.value)}
-                          disabled={!canUpdateRole}
-                        >
-                          {Object.entries(EMPLOYMENT_TYPE_LABELS).map(([value, label]) => (
-                            <option key={value} value={value}>{label}</option>
-                          ))}
-                        </select>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">—</span>
-                      )}
+                      <span className="text-[12px] text-muted-foreground">
+                        {member.role === "staff"
+                          ? EMPLOYMENT_TYPE_LABELS[member.employmentType || DEFAULT_EMPLOYMENT_TYPE]
+                          : "—"}
+                      </span>
                     </td>
                     <td className="px-4 py-3">
                       {/*
                         Admins are not rostered, so a level for them would be a
                         number with nothing behind it and nothing reading it.
                       */}
-                      {member.role === "company_admin" ? (
-                        <span className="text-xs text-muted-foreground">—</span>
+                      {member.role === "company_admin" || !seniority[member.id] ? (
+                        <span className="text-[12px] text-muted-foreground">—</span>
                       ) : (
-                        <div className="space-y-0.5">
-                          <select
-                            aria-label={`Seniority for ${member.user.name ?? member.user.email}`}
-                            className="rounded-lg border border-border bg-background px-2 py-1 text-xs"
-                            value={
-                              seniority[member.id]?.overridden
-                                ? seniority[member.id].level
-                                : ""
-                            }
-                            disabled={!canUpdateSeniority}
-                            onChange={(e) => onUpdateSeniority(member.user.id, e.target.value)}
-                          >
-                            {/* The empty option is the DEFAULT, not a blank —
-                                it names what happens when nobody overrides. */}
-                            <option value="">
-                              Auto{seniority[member.id]
-                                ? ` — ${SENIORITY_LABEL[seniority[member.id].level] ?? ""}`
-                                : ""}
-                            </option>
-                            {SENIORITY_LEVELS.map((level) => (
-                              <option key={level} value={level}>
-                                Pin to {SENIORITY_LABEL[level]}
-                              </option>
-                            ))}
-                          </select>
+                        <div>
+                          <p className="text-[12px]">
+                            {SENIORITY_LABEL[seniority[member.id].level] ?? ""}
+                          </p>
                           {/*
-                            The explanation is the point. A level that decides
-                            who gets rostered must never be an unexplained
-                            assertion, so the count behind it is always shown.
+                            The evidence stays on the table rather than moving
+                            into the drawer with the control. A level that
+                            decides who gets rostered must never be an
+                            unexplained assertion, and hiding the count behind a
+                            click would make it one.
                           */}
-                          {seniority[member.id] && (
-                            <p className="text-[10px] text-muted-foreground">
-                              {seniority[member.id].explanation}
-                            </p>
-                          )}
+                          <p className="text-[10px] text-muted-foreground">
+                            {seniority[member.id].explanation}
+                          </p>
                         </div>
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      {/*
-                        A checkbox per department, not a select. A member can
-                        belong to several — the engine has always taken the
-                        union — and a select could only ever express one.
-                      */}
-                      <div className="flex flex-col gap-0.5">
-                        {departments.length === 0 && (
-                          <span className="text-[11px] text-muted-foreground">None</span>
-                        )}
-                        {departments.map((d) => (
-                          <label
-                            key={d.id}
-                            className="flex cursor-pointer items-center gap-1.5 text-[11px]"
-                          >
-                            <input
-                              type="checkbox"
-                              className="h-3 w-3 rounded border-border accent-indigo-600 disabled:opacity-40"
-                              disabled={!canUpdateRole}
-                              checked={memberDeptIds.includes(d.id)}
-                              onChange={() =>
-                                onToggleDepartment(
-                                  member.user.id,
-                                  member.role,
-                                  d.id,
-                                  memberDeptIds
-                                )
-                              }
-                            />
-                            <span className="truncate">{d.name}</span>
-                          </label>
-                        ))}
-                      </div>
+                      {/* Every department, not just the first — see onToggleDepartment. */}
+                      <span className="text-[12px] text-muted-foreground">
+                        {memberDeptIds.length === 0
+                          ? "None"
+                          : member.departmentMemberships
+                              .map((dm) => dm.department.name)
+                              .join(", ")}
+                      </span>
                     </td>
                     <td className="px-4 py-3">
                       <StatusBadge value={member.status} palette="membershipStatus" />
                     </td>
                     <td className="px-4 py-3 text-right">
-                      {canDeactivate && (
-                      <button
-                        onClick={() => onToggleStatus(member.user.id)}
-                        disabled={isSelf}
-                        title={isSelf ? "Cannot deactivate yourself" : undefined}
-                        className={`rounded-lg border px-2.5 py-1 text-[11px] font-medium transition-colors ${member.status === "active" ? "border-red-200 dark:border-red-900 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950" : "border-green-200 dark:border-green-900 text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-950"} disabled:cursor-not-allowed disabled:opacity-40`}
-                      >
-                        {member.status === "active" ? "Deactivate" : "Activate"}
-                      </button>
+                      {/*
+                        The row is clickable for convenience, but this button is
+                        the real control: a <tr> with an onClick cannot be
+                        reached by keyboard, and "make the row focusable" turns
+                        every cell into a tab stop.
+                      */}
+                      {canEditAnything && (
+                        <button
+                          onClick={() => setEditingId(member.id)}
+                          aria-label={`Edit ${member.user.name || member.user.email}`}
+                          className="rounded-lg border border-border px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:border-indigo-400 hover:text-indigo-600 dark:hover:border-indigo-500 dark:hover:text-indigo-400"
+                        >
+                          Edit
+                        </button>
                       )}
                     </td>
                   </tr>
@@ -957,6 +859,35 @@ export default function MembersPage() {
           </div>
         </div>
       )}
+
+      {/*
+        Resolved from `members` on every render rather than held in state, so
+        the panel shows what the last refetch returned. Holding a copy would
+        leave it displaying the value from before the change it just made.
+      */}
+      {(() => {
+        const editing = members.find((m) => m.id === editingId);
+        if (!editing || !canEditAnything) return null;
+        return (
+          <MemberEditDrawer
+            member={editing}
+            departments={departments}
+            customRoles={customRoles}
+            seniority={seniority[editing.id]}
+            isSelf={editing.user.id === currentUserId}
+            canUpdateRole={canUpdateRole}
+            canUpdateSeniority={canUpdateSeniority}
+            canDeactivate={canDeactivate}
+            onUpdateRole={onUpdateRole}
+            onUpdateEmploymentType={onUpdateEmploymentType}
+            onUpdateCustomRole={onUpdateCustomRole}
+            onUpdateSeniority={onUpdateSeniority}
+            onToggleDepartment={onToggleDepartment}
+            onToggleStatus={onToggleStatus}
+            onClose={() => setEditingId(null)}
+          />
+        );
+      })()}
     </div>
   );
 }
