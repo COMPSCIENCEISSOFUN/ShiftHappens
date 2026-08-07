@@ -20,6 +20,11 @@
  * Any pair of hours is now accepted and `end <= start` means the window wraps.
  * `@/lib/business-day` is the single place that interprets the pair.
  */
+import {
+  parseWeights,
+  weightsProblem,
+  WEIGHTS_ERROR_PREFIX,
+} from "@/lib/ranking-weights";
 import { SettingsRepository } from "@/repositories/settings.repository";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 import type { UpdateCompanySettingsInput } from "@/lib/validations";
@@ -30,7 +35,18 @@ export class SettingsService {
 
   /** Gets settings for an org, creating defaults if none exist */
   async getSettings(organizationId: string) {
-    return this.settingsRepo.getOrCreate(organizationId);
+    const settings = await this.settingsRepo.getOrCreate(organizationId);
+    /*
+     * `smartAllocationWeights` is a JSON STRING in the column, and returning it
+     * raw would make every caller parse it — including the settings screen,
+     * which would then need its own opinion about a malformed or absent value.
+     * `parseWeights` already has that opinion and falls back to the defaults,
+     * so the shape a caller receives is always complete.
+     */
+    return {
+      ...settings,
+      smartAllocationWeights: parseWeights(settings.smartAllocationWeights),
+    };
   }
 
   /**
@@ -80,6 +96,7 @@ export class SettingsService {
       operatingHoursStart?: number;
       operatingHoursEnd?: number;
       notificationPreferences?: string;
+      smartAllocationWeights?: string;
     } = {};
 
     if (input.allocationMode !== undefined) updateData.allocationMode = input.allocationMode;
@@ -96,6 +113,24 @@ export class SettingsService {
     }
     if (input.notificationPreferences !== undefined) {
       updateData.notificationPreferences = JSON.stringify(input.notificationPreferences);
+    }
+
+    /*
+     * Ranking priorities, checked as a SET rather than per field.
+     *
+     * The two rules that matter can only be judged on the whole object: all
+     * zeroes gives every candidate the same score and makes the order
+     * arbitrary, and one dimension above 70% of the total collapses the
+     * ranking onto a single factor. Both are states somebody reaches by
+     * dragging one slider to the end, and neither is visible from the field
+     * being dragged.
+     */
+    if (input.smartAllocationWeights !== undefined) {
+      const problem = weightsProblem(input.smartAllocationWeights);
+      if (problem) throw new Error(`${WEIGHTS_ERROR_PREFIX} ${problem}`);
+      updateData.smartAllocationWeights = JSON.stringify(
+        input.smartAllocationWeights
+      );
     }
 
     // The seniority thresholds are the one pair here with a cross-field rule.

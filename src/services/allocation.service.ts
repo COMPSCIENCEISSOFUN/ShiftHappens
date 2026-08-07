@@ -12,6 +12,13 @@
  * them to the AI provider for intelligent ranking.
  */
 import { FallbackRanker } from "./fallback-ranker";
+import { availabilityFit, certificationRelevance } from "@/lib/ranking-inputs";
+import {
+  DEFAULT_WEIGHTS,
+  describeWeightsForPrompt,
+  parseWeights,
+  type RankingWeights,
+} from "@/lib/ranking-weights";
 import type {
   AIProvider,
   StaffCandidate,
@@ -60,7 +67,13 @@ export class AllocationService {
    */
   private async rankWithFailover(
     task: Parameters<AIProvider["rankStaff"]>[0],
-    candidates: Parameters<AIProvider["rankStaff"]>[1]
+    candidates: Parameters<AIProvider["rankStaff"]>[1],
+    /**
+     * The organisation's priorities. Reaches the providers as a sentence in the
+     * prompt and the fallback as arithmetic — the same intent applied by the
+     * two mechanisms each is capable of.
+     */
+    weights: RankingWeights = DEFAULT_WEIGHTS
   ): Promise<RankingResult> {
     for (const provider of this.providers) {
       try {
@@ -72,7 +85,10 @@ export class AllocationService {
     }
 
     console.error("[AI Failover] All providers failed, using algorithmic ranking");
-    return { rankings: FallbackRanker.rank(candidates), provider: "algorithmic" };
+    return {
+      rankings: FallbackRanker.rank(candidates, weights),
+      provider: "algorithmic",
+    };
   }
 
   /**
@@ -149,16 +165,19 @@ export class AllocationService {
       candidates.push(candidate);
     }
 
+    const weights = parseWeights(settings.smartAllocationWeights);
     return this.rankWithFailover(
       {
         title: task.title,
         department: task.department?.name || null,
         priority: task.priority,
+        priorities: describeWeightsForPrompt(weights),
         scheduledStart: task.scheduledStart?.toISOString() || null,
         scheduledEnd: task.scheduledEnd?.toISOString() || null,
         requiredHeadcount: task.requiredHeadcount,
       },
-      candidates
+      candidates,
+      weights
     );
   }
 
@@ -187,8 +206,12 @@ export class AllocationService {
     if (candidates.length === 0) {
       return { rankings: [], provider: "algorithmic" };
     }
+    const settings = await this.settingsRepo.getOrCreate(organizationId);
     return {
-      rankings: FallbackRanker.rank(candidates),
+      rankings: FallbackRanker.rank(
+        candidates,
+        parseWeights(settings.smartAllocationWeights)
+      ),
       provider: "algorithmic",
     };
   }
@@ -222,6 +245,22 @@ export class AllocationService {
     if (eligibleStaff.length === 0) return [];
 
     const settings = await this.settingsRepo.getOrCreate(organizationId);
+
+    /*
+     * Loaded ONCE for the pool, not per candidate. It is the same answer for
+     * everybody being ranked, and asking per member would put a query on the
+     * size of the organisation for a value that cannot differ between them.
+     */
+    const departmentCerts = await this.taskRepo.requiredCertificationsInDepartment(
+      organizationId,
+      task.departmentId
+    );
+
+    const shift =
+      task.scheduledStart && task.scheduledEnd
+        ? { start: task.scheduledStart, end: task.scheduledEnd }
+        : null;
+
     const candidates: StaffCandidate[] = [];
     for (const staff of eligibleStaff) {
       candidates.push(
@@ -229,7 +268,9 @@ export class AllocationService {
           staff.membershipId,
           staff.memberName,
           settings.breakRuleHoursWorked,
-          task.departmentId
+          task.departmentId,
+          departmentCerts,
+          shift
         )
       );
     }
@@ -291,7 +332,11 @@ export class AllocationService {
     membershipId: string,
     name: string,
     maxHours: number,
-    departmentId: string | null
+    departmentId: string | null,
+    /** Certifications any task in this department asks for. Empty = none. */
+    departmentCerts: string[] = [],
+    /** The shift being filled, or null when it has no scheduled time. */
+    shift: { start: Date; end: Date } | null = null
   ): Promise<StaffCandidate> {
     // Get hours worked in last 24h
     const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
@@ -336,6 +381,8 @@ export class AllocationService {
       certifications: certNames,
       availableHours,
       departmentHistory,
+      availabilityFit: availabilityFit(availability, shift),
+      certificationRelevance: certificationRelevance(certNames, departmentCerts),
     };
   }
 }

@@ -11,6 +11,7 @@ import { SettingsService } from "@/services/settings.service";
 import { updateCompanySettingsSchema } from "@/lib/validations";
 import { getAuthenticatedUser, unauthorizedResponse, checkOrgSuspended } from "@/lib/auth-guard";
 import { requirePermission } from "@/lib/permission-guard";
+import { WEIGHTS_ERROR_PREFIX } from "@/lib/ranking-weights";
 
 const settingsService = new SettingsService();
 
@@ -84,7 +85,19 @@ export async function PATCH(
 
     const updated = await settingsService.updateSettings(orgId, parsed.data, user.id);
     return NextResponse.json(updated);
-  } catch {
+  } catch (error) {
+    /*
+     * The ranking-priority rules are cross-field, so Zod cannot express them —
+     * "not all zero" and "no dimension above 70% of the total" are properties
+     * of the whole object. The service throws with the message the screen
+     * should show, and this is a rejected input, not a server fault.
+     */
+    if (
+      error instanceof Error &&
+      error.message.startsWith(WEIGHTS_ERROR_PREFIX)
+    ) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
     // The "Operating hours end must be after start" mapping that used to live
     // here has been removed along with the rule itself: `end <= start` now
     // means the window wraps past midnight, which is a legal window and not an

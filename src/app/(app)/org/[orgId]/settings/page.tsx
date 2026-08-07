@@ -20,6 +20,15 @@
  */
 "use client";
 
+import {
+  asPercentages,
+  DEFAULT_WEIGHTS,
+  WEIGHT_DESCRIPTIONS,
+  WEIGHT_KEYS,
+  WEIGHT_LABELS,
+  weightsProblem,
+  type RankingWeights,
+} from "@/lib/ranking-weights";
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -72,6 +81,10 @@ interface Settings {
   operatingHoursStart: number;
   operatingHoursEnd: number;
   notificationPreferences: string | null;
+  /** Already parsed by the service — never a JSON string on the wire. */
+  smartAllocationWeights: RankingWeights;
+  breakRuleHoursWorked: number;
+  breakRuleBreakHours: number;
 }
 
 interface ResourceUsage {
@@ -211,11 +224,14 @@ export default function SettingsPage() {
   );
   const [allocationMode, setAllocationMode] = useState("manual");
   const [taskAcceptanceMode, setTaskAcceptanceMode] = useState("auto_accept");
+  const [weights, setWeights] = useState<RankingWeights>(DEFAULT_WEIGHTS);
   // Completed-shift counts at which a member is treated as experienced, then
   // senior. Held as strings so the field can be emptied while typing without
   // becoming NaN and blanking the input.
   const [experiencedThreshold, setExperiencedThreshold] = useState("10");
   const [seniorThreshold, setSeniorThreshold] = useState("40");
+  const [breakAfterHours, setBreakAfterHours] = useState("8");
+  const [breakLengthHours, setBreakLengthHours] = useState("1");
   // Defaults mirror the database defaults, so the controls show the truth for
   // the moment before the fetch resolves rather than an arbitrary 00:00–00:00.
   const [opStart, setOpStart] = useState(6);
@@ -361,6 +377,11 @@ export default function SettingsPage() {
       setSettings(data);
       setAllocationMode(data.allocationMode);
       setTaskAcceptanceMode(data.taskAcceptanceMode);
+      // The service hands these back already parsed, so the screen never has an
+      // opinion about a malformed column.
+      if (data.smartAllocationWeights) setWeights(data.smartAllocationWeights);
+      setBreakAfterHours(String(data.breakRuleHoursWorked));
+      setBreakLengthHours(String(data.breakRuleBreakHours));
       setExperiencedThreshold(String(data.experiencedShiftThreshold ?? 10));
       setSeniorThreshold(String(data.seniorShiftThreshold ?? 40));
       // Guarded rather than assigned blindly: these are the only numeric
@@ -485,6 +506,16 @@ export default function SettingsPage() {
     }
   }
 
+  /*
+   * Derived, not stored. The percentage beside each slider is that dimension's
+   * SHARE of the total rather than its raw value, so the four always add to 100
+   * on screen however the user has set them — which is what lets the raw values
+   * be free.
+   */
+  const weightShares = asPercentages(weights);
+  const weightTotal = WEIGHT_KEYS.reduce((sum, k) => sum + weights[k], 0);
+  const weightWarning = weightsProblem(weights);
+
   function onSaveTaskConfig(e: React.FormEvent) {
     e.preventDefault();
     saveSettings(
@@ -493,6 +524,9 @@ export default function SettingsPage() {
         taskAcceptanceMode,
         experiencedShiftThreshold: Number(experiencedThreshold),
         seniorShiftThreshold: Number(seniorThreshold),
+        smartAllocationWeights: weights,
+        breakRuleHoursWorked: Number(breakAfterHours),
+        breakRuleBreakHours: Number(breakLengthHours),
       },
       setTaskMessage,
       setTaskLoading,
@@ -976,6 +1010,80 @@ export default function SettingsPage() {
 
                 <Separator />
 
+                {/* Ranking Priorities */}
+                {/*
+                  What the engine weighs when it ranks candidates. These reach
+                  BOTH the algorithmic ranker, which multiplies by them, and the
+                  AI providers, which are told the ordering in the prompt — the
+                  note below says which is which, because a model cannot
+                  multiply by 0.30 and a screen that implied otherwise would be
+                  making a claim the engine does not keep.
+                */}
+                <div className="space-y-2">
+                  <div className="flex items-baseline justify-between">
+                    <Label>Ranking Priorities</Label>
+                    <span className="text-[12px] text-muted-foreground">
+                      Total {weightTotal}%
+                    </span>
+                  </div>
+                  <p className="text-[13px] text-muted-foreground">
+                    Applied exactly by the built-in ranker, and given to the AI
+                    as guidance. They do not need to add up to 100 — only the
+                    balance between them matters.
+                  </p>
+
+                  <div className="space-y-3 pt-1">
+                    {WEIGHT_KEYS.map((key) => (
+                      <div key={key} className="space-y-1">
+                        <div className="flex items-baseline justify-between">
+                          <Label
+                            htmlFor={`weight-${key}`}
+                            className="text-[13px] font-medium"
+                          >
+                            {WEIGHT_LABELS[key]}
+                          </Label>
+                          <span className="text-[12px] tabular-nums text-muted-foreground">
+                            {weightShares[key]}%
+                          </span>
+                        </div>
+                        <input
+                          id={`weight-${key}`}
+                          type="range"
+                          min={0}
+                          max={100}
+                          step={5}
+                          value={weights[key]}
+                          onChange={(e) =>
+                            setWeights((prev) => ({
+                              ...prev,
+                              [key]: Number(e.target.value),
+                            }))
+                          }
+                          aria-label={WEIGHT_LABELS[key]}
+                          className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-muted accent-indigo-600"
+                        />
+                        <p className="text-[12px] text-muted-foreground">
+                          {WEIGHT_DESCRIPTIONS[key]}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/*
+                    Shown before saving rather than after a 400. The two refusals
+                    are both states somebody reaches by dragging one slider to
+                    the end, and finding out on submit means undoing a change
+                    whose consequence was never visible.
+                  */}
+                  {weightWarning && (
+                    <p className="text-[12px] text-amber-600 dark:text-amber-400">
+                      {weightWarning}
+                    </p>
+                  )}
+                </div>
+
+                <Separator />
+
                 {/* Task Acceptance */}
                 <div className="space-y-2">
                   <Label>Task Acceptance</Label>
@@ -1063,6 +1171,84 @@ export default function SettingsPage() {
                     <p className="text-[11px] text-red-600 dark:text-red-400">
                       Senior must be higher than experienced, or the senior level
                       can never be reached.
+                    </p>
+                  )}
+                </div>
+
+                <Separator />
+
+                {/*
+                  The two most load-bearing numbers on this page, and until now
+                  the only ones with no control anywhere.
+
+                  They feed the eligibility break check, the hour alerts, the
+                  allocation ranker's workload dimension, and — the reason this
+                  was promoted out of "small" — FOUR separate
+                  `staffCount * breakRuleHoursWorked * 7` capacity calculations
+                  in reporting. An organisation working twelve-hour shifts saw
+                  wrong capacity on every report and got refusals it could not
+                  configure away, because the defaults assume an eight-hour day.
+
+                  Not to be confused with the `break_interval` WORK RULES, which
+                  have their own full UI and are per-rule and targetable. These
+                  are the org-wide defaults. Two mechanisms; this was the
+                  unreachable one.
+                */}
+                <div className="space-y-2">
+                  <Label>Break rule</Label>
+                  <p className="text-[11px] text-muted-foreground">
+                    The organisation-wide working day: how long someone may work
+                    before a break is due, and how long that break is. Used for
+                    eligibility, hour warnings, and every capacity figure in
+                    reporting.
+                  </p>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <Label
+                        htmlFor="breakRuleHoursWorked"
+                        className="text-xs font-semibold text-muted-foreground"
+                      >
+                        Break due after (hours)
+                      </Label>
+                      <Input
+                        id="breakRuleHoursWorked"
+                        type="number"
+                        min={1}
+                        max={24}
+                        value={breakAfterHours}
+                        onChange={(e) => setBreakAfterHours(e.target.value)}
+                        disabled={!canUpdateSettings}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label
+                        htmlFor="breakRuleBreakHours"
+                        className="text-xs font-semibold text-muted-foreground"
+                      >
+                        Break length (hours)
+                      </Label>
+                      <Input
+                        id="breakRuleBreakHours"
+                        type="number"
+                        min={1}
+                        max={24}
+                        value={breakLengthHours}
+                        onChange={(e) => setBreakLengthHours(e.target.value)}
+                        disabled={!canUpdateSettings}
+                      />
+                    </div>
+                  </div>
+                  {/*
+                    Shown rather than refused. A break at least as long as the
+                    shift that earns it is arithmetically legal and almost
+                    certainly a typo, and the capacity figures it produces are
+                    the ones nobody would question.
+                  */}
+                  {Number(breakLengthHours) >= Number(breakAfterHours) && (
+                    <p className="text-[11px] text-amber-600 dark:text-amber-400">
+                      A break as long as the working period it follows will make
+                      every capacity figure read close to zero. Check these are
+                      the right way round.
                     </p>
                   )}
                 </div>

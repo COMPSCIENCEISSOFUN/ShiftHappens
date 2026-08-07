@@ -41,6 +41,11 @@ import {
 } from "@/lib/composition-rules";
 import { occupiesSlot } from "@/lib/assignment-status";
 import { isDepartmentInScope } from "@/lib/department-scope";
+import { aiTimeoutSignal, hasApiKey } from "@/lib/ai-limits";
+import { FallbackRanker } from "@/services/fallback-ranker";
+import { availabilityFit, certificationRelevance } from "@/lib/ranking-inputs";
+import { parseWeights, type RankingWeights } from "@/lib/ranking-weights";
+import type { RankedStaff } from "@/services/ai-provider";
 
 interface StaffInfo {
   membershipId: string;
@@ -131,6 +136,24 @@ interface ScheduleContext {
   tasks: TaskInfo[];
   staff: StaffInfo[];
   workRules: { name: string; type: string; maxHours?: number | null; hoursThreshold?: number | null; breakHours?: number | null }[];
+  /** The organisation's ranking priorities, applied by `FallbackRanker`. */
+  weights: RankingWeights;
+  /**
+   * Certifications each department's tasks call for, keyed by department id
+   * ("" for org-wide work).
+   *
+   * Collected once for the week rather than per task: it is the same answer for
+   * every shift in a department, and the builder walks dozens of them.
+   */
+  departmentCerts: Map<string, string[]>;
+  /**
+   * The weekly hour ceiling the workload dimension measures against.
+   *
+   * Taken from a `max_hours_weekly` work rule where one exists, so "how loaded
+   * is this person" is answered against the organisation's own limit rather
+   * than an invented constant.
+   */
+  maxWeeklyHours: number;
 }
 
 const PRIORITY_ORDER: Record<string, number> = {
@@ -283,6 +306,33 @@ export class AutoScheduleService {
     }
 
     const rules = await this.workRuleRepo.findApplicableRules(organizationId);
+    const settings = await this.settingsRepo.getOrCreate(organizationId);
+
+    /*
+     * One lookup per DEPARTMENT present in the week, not per task. The
+     * requirement set is identical for every shift in a department, and a week
+     * can carry dozens of them.
+     */
+    const departmentCerts = new Map<string, string[]>();
+    for (const departmentId of new Set(tasks.map((t) => t.departmentId ?? ""))) {
+      departmentCerts.set(
+        departmentId,
+        await this.taskRepo.requiredCertificationsInDepartment(
+          organizationId,
+          departmentId || null
+        )
+      );
+    }
+
+    /*
+     * The organisation's own weekly ceiling where it has one. Falling back to
+     * 40 rather than inventing a bigger number: the workload dimension measures
+     * a RATIO, so an inflated cap would make everybody look equally unloaded
+     * and quietly flatten the dimension.
+     */
+    const weeklyRule = rules.find(
+      (r) => r.type === "max_hours_weekly" && r.maxHours
+    );
 
     return {
       tasks: tasks.sort((a, b) => (PRIORITY_ORDER[a.priority] ?? 2) - (PRIORITY_ORDER[b.priority] ?? 2)),
@@ -291,6 +341,9 @@ export class AutoScheduleService {
         name: r.name, type: r.type, maxHours: r.maxHours,
         hoursThreshold: r.hoursThreshold, breakHours: r.breakHours,
       })),
+      weights: parseWeights(settings.smartAllocationWeights),
+      departmentCerts,
+      maxWeeklyHours: weeklyRule?.maxHours ?? 40,
     };
   }
 
@@ -639,21 +692,63 @@ export class AutoScheduleService {
         hoursCache
       );
 
-      const candidates = context.staff
-        .filter((s) => eligible.has(s.membershipId))
-        .map((s) => {
-          const hours = cumulativeHours.get(s.membershipId) || 0;
-          const inDepartment = task.departmentName
+      /*
+       * Ranked by `FallbackRanker`, the same engine the single-task paths use.
+       *
+       * This had its own formula — `100 - hours + (inDepartment ? 25 : 0) + 25`
+       * — so the organisation got a different answer depending on which SCREEN
+       * asked: fill one shift and certifications and availability counted, one
+       * of them wrongly; generate the week and neither existed, plus a constant
+       * 25 that was identical for everybody and therefore did nothing at all.
+       * Nothing explained the difference because nothing intended it.
+       *
+       * It also meant the configurable priorities could never reach the
+       * flagship feature: weights the ranker reads are worth little if the
+       * whole-week builder scores by a private rule.
+       */
+      const eligibleStaff = context.staff.filter((s) =>
+        eligible.has(s.membershipId)
+      );
+      const ranked = FallbackRanker.rank(
+        eligibleStaff.map((s) => ({
+          membershipId: s.membershipId,
+          name: s.name,
+          // Hours accumulated by THIS draft, not the week's starting figure —
+          // a person placed on Monday must look busier by Tuesday.
+          hoursWorkedToday: cumulativeHours.get(s.membershipId) || 0,
+          maxHours: context.maxWeeklyHours,
+          certifications: s.certifications,
+          availableHours: "",
+          departmentHistory: task.departmentName
             ? s.departments.includes(task.departmentName)
-            : false;
+              ? 1
+              : 0
+            : 0,
+          availabilityFit: availabilityFit(s.availability, {
+            start: task.scheduledStart,
+            end: task.scheduledEnd,
+          }),
+          certificationRelevance: certificationRelevance(
+            s.certifications,
+            context.departmentCerts.get(task.departmentId ?? "") ?? []
+          ),
+        })),
+        context.weights
+      );
+      const byMembership = new Map(eligibleStaff.map((s) => [s.membershipId, s]));
+      const candidates = ranked
+        .map((r: RankedStaff) => {
+          const staff = byMembership.get(r.membershipId)!;
+          const hours = cumulativeHours.get(r.membershipId) || 0;
           return {
-            ...s,
-            score: 100 - Math.min(hours, 100) + (inDepartment ? 25 : 0) + 25,
+            ...staff,
+            score: r.score,
             hours,
-            inDepartment,
+            inDepartment: task.departmentName
+              ? staff.departments.includes(task.departmentName)
+              : false,
           };
-        })
-        .sort((a, b) => b.score - a.score);
+        });
 
       const assignedToThisTask: DraftAssignment[] = [];
       for (let i = 0; i < candidates.length && assignedToThisTask.length < slotsNeeded; i++) {
@@ -1098,8 +1193,21 @@ Use the exact task numbers (1, 2, 3...) and staff letters (A, B, C...) from abov
   }
 
   private async callGroq(prompt: string): Promise<string> {
+    /*
+     * Guarded and bounded, matching every other provider call in the codebase.
+     *
+     * This one checked nothing: with no key configured it sent `Bearer
+     * undefined` to Groq and then `?key=undefined` to Gemini — two real
+     * outbound round-trips before the deterministic scheduler ran. And with no
+     * timeout, a hung connection meant `generateAlgorithmic` — a complete
+     * working scheduler sitting right there — was never reached at all.
+     */
+    if (!hasApiKey(process.env.GROQ_API_KEY)) {
+      throw new Error("Groq API key not configured");
+    }
     const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
+      signal: aiTimeoutSignal(),
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${process.env.GROQ_API_KEY}` },
       body: JSON.stringify({ model: "llama-3.1-8b-instant", messages: [{ role: "user", content: prompt }], temperature: 0, max_tokens: 2000 }),
     });
@@ -1109,10 +1217,15 @@ Use the exact task numbers (1, 2, 3...) and staff letters (A, B, C...) from abov
   }
 
   private async callGemini(prompt: string): Promise<string> {
+    // See `callGroq` above — same guard, same bound, same reason.
+    if (!hasApiKey(process.env.GEMINI_API_KEY)) {
+      throw new Error("Gemini API key not configured");
+    }
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
       {
         method: "POST",
+        signal: aiTimeoutSignal(),
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0, maxOutputTokens: 2000 } }),
       }
