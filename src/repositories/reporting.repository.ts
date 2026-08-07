@@ -205,6 +205,7 @@ export interface StaffAssignmentStatRecord {
   clockInTime: Date | null;
   scheduledStart: Date | null;
   createdAt: Date;
+  taskId: string;
 }
 
 /**
@@ -992,6 +993,10 @@ export class ReportingRepository {
         status: true,
         clockInTime: true,
         createdAt: true,
+        // Carried so the acceptance rate can drop shifts the member was asked
+        // to work despite declaring themselves unavailable — see
+        // ReportingService.
+        taskId: true,
         task: { select: { scheduledStart: true } },
       },
     });
@@ -1001,6 +1006,7 @@ export class ReportingRepository {
       clockInTime: r.clockInTime,
       scheduledStart: r.task.scheduledStart,
       createdAt: r.createdAt,
+      taskId: r.taskId,
     }));
   }
 

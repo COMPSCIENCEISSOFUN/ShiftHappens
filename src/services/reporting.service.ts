@@ -15,6 +15,7 @@
  */
 import { ReportingRepository } from "@/repositories/reporting.repository";
 import { SettingsRepository } from "@/repositories/settings.repository";
+import { EligibilityOverrideRepository } from "@/repositories/eligibility-override.repository";
 import { REASON_PHRASE, type DeclineReason } from "@/lib/decline-reasons";
 import { occupiesSlot } from "@/lib/assignment-status";
 import {
@@ -369,6 +370,7 @@ export interface SatisfactionStats {
 
 export class ReportingService {
   private reportingRepo = new ReportingRepository();
+  private overrideRepo = new EligibilityOverrideRepository();
   private settingsRepo = new SettingsRepository();
 
   // ===== Member Scoping =====
@@ -1111,10 +1113,32 @@ export class ReportingService {
 
     // Personal stats from assignment history
     const totalAssignments = assignmentHistory.length;
-    const acceptedOrCompleted = assignmentHistory.filter(
+    /*
+     * Shifts they were asked to work despite saying they were unavailable are
+     * excluded from the acceptance rate entirely — the decline AND the accept.
+     *
+     * A manager may waive an availability block with a reason, and the
+     * assignment is then written as an offer rather than a booking. That
+     * only means something if saying no is free. If a decline dented the
+     * member's own acceptance rate, the "offer" would carry a penalty for
+     * refusing it, and a figure on their dashboard would be quietly punishing
+     * them for a boundary they had already stated. That is the difference
+     * between asking somebody and pressuring them.
+     *
+     * The accept is dropped as well, not just the decline. Keeping it would
+     * let a manager improve someone's rate by asking them to work days off,
+     * which is the same lever pointing the other way.
+     */
+    const excused = await this.overrideRepo.consentOverriddenTaskIds(
+      membershipId,
+      monthStart
+    );
+    const counted = assignmentHistory.filter((a) => !excused.has(a.taskId));
+
+    const acceptedOrCompleted = counted.filter(
       (a) => ["accepted", "clocked_out", "completed"].includes(a.status)
     ).length;
-    const rejectedCount = assignmentHistory.filter(
+    const rejectedCount = counted.filter(
       (a) => a.status === "rejected"
     ).length;
     const decidedCount = acceptedOrCompleted + rejectedCount;

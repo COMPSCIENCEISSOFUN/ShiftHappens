@@ -156,7 +156,28 @@ interface EligibilityResult {
   eligible: boolean;
   checks: Record<string, EligibilityCheck>;
   overrides: string[];
+  /** How often this member has been waved past their own availability lately. */
+  askedDespiteUnavailable?: number;
 }
+
+/**
+ * Maps a failed check to the `ruleOverridden` key recorded for waiving it.
+ *
+ * This screen used to post `ruleOverridden: "all"` for every waiver, whatever
+ * had actually blocked the member. Two things went wrong with that. The audit
+ * could not answer "waved past WHAT", which is most of the value of recording
+ * it. And waiving somebody's stated unavailability — a question about consent —
+ * became indistinguishable from waiving a missing certificate, which is a
+ * question about competence and involves no consent at all. Only the first
+ * should turn an assignment into an ask.
+ */
+const RULE_KEY: Record<string, string> = {
+  availability: "availability",
+  scheduling: "scheduling",
+  workRules: "work_rules",
+  hoursLimit: "hours_limit",
+  certifications: "certification",
+};
 
 /**
  * The task's composition rules plus each candidate's attributes, from
@@ -749,20 +770,33 @@ export default function TasksPage() {
 
     try {
       // Record eligibility overrides for flagged members before assigning.
+      // One row per rule actually broken, so the audit says what was waived and
+      // `assignStaff` can tell a consent waiver from a competence one.
       for (const membId of selectedMembers) {
         const elig = eligibility[membId];
         const reason = overrideReasons[membId]?.trim();
-        if (elig && !elig.eligible && reason) {
+        if (!elig || elig.eligible || !reason) continue;
+
+        const broken = Object.keys(RULE_KEY).filter(
+          (k) => elig.checks[k] && !elig.checks[k].eligible
+        );
+
+        /*
+         * A member flagged with no identifiable failed check still gets a row.
+         * Composition and other whole-roster rules block from outside `checks`,
+         * and dropping the override would leave the assignment unauthorised —
+         * `assignStaff` refuses it, so the manager would see a rejection with no
+         * way to act on it.
+         */
+        const rules = broken.length > 0 ? broken.map((k) => RULE_KEY[k]) : ["all"];
+
+        for (const ruleOverridden of rules) {
           const ovRes = await fetch(
             `/api/organizations/${orgId}/tasks/${taskId}/eligibility/override`,
             {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                membershipId: membId,
-                reason,
-                ruleOverridden: "all",
-              }),
+              body: JSON.stringify({ membershipId: membId, reason, ruleOverridden }),
             }
           );
           if (!ovRes.ok) {
@@ -2224,11 +2258,52 @@ export default function TasksPage() {
                                             .filter((k) => elig?.checks[k] && !elig.checks[k].eligible)
                                             .map((k) => elig.checks[k].reason || k);
 
+                                        /*
+                                          Two facts a manager needs before waiving
+                                          somebody's stated unavailability, shown
+                                          at the moment they are about to do it.
+
+                                          That it will be an ASK — the shift is
+                                          offered, not booked, whatever the
+                                          organisation's acceptance mode says —
+                                          so nobody expects a confirmed body on
+                                          the roster and finds a pending row.
+
+                                          And how often this person has been asked
+                                          lately. A count in the audit log is a
+                                          record; a count here is a check. "You
+                                          have done this to Priya four times in
+                                          three months" is only useful before the
+                                          fifth.
+                                        */
+                                        const unavailable =
+                                          elig?.checks.availability &&
+                                          !elig.checks.availability.eligible;
+                                        const askedBefore = elig?.askedDespiteUnavailable ?? 0;
+
                                         return (
                                           <div
                                             key={m.id}
                                             className="rounded-lg border border-amber-200 bg-amber-50/50 p-2.5 dark:border-amber-900 dark:bg-amber-950/20"
                                           >
+                                            {unavailable && (
+                                              <p className="mb-2 rounded-md bg-amber-100/70 px-2 py-1.5 text-[11px] leading-relaxed text-amber-900 dark:bg-amber-900/30 dark:text-amber-200">
+                                                They said they are not available.
+                                                This will be offered, not booked —
+                                                they choose whether to take it.
+                                                {askedBefore > 0 && (
+                                                  <>
+                                                    {" "}
+                                                    Asked despite being unavailable{" "}
+                                                    <strong>
+                                                      {askedBefore}{" "}
+                                                      {askedBefore === 1 ? "time" : "times"}
+                                                    </strong>{" "}
+                                                    in the last 90 days.
+                                                  </>
+                                                )}
+                                              </p>
+                                            )}
                                             <label
                                               className={`flex cursor-pointer items-center gap-2 text-[13px] ${
                                                 !canSelect || atLimit ? "opacity-50" : ""

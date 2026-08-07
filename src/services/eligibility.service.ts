@@ -49,6 +49,16 @@ interface StaffEligibility {
   memberName: string;
   employmentType: string;
   eligible: boolean;
+  /**
+   * How often this member has been asked to work despite declaring themselves
+   * unavailable, in the last 90 days.
+   *
+   * Shown on the assign panel rather than buried in the audit log, because the
+   * question it answers — "am I doing this to this person every week?" — is
+   * only useful at the moment somebody is about to do it again. A number in a
+   * report nobody opens is a record, not a check.
+   */
+  askedDespiteUnavailable: number;
   checks: {
     hoursLimit: EligibilityCheck;
     availability: EligibilityCheck;
@@ -104,6 +114,14 @@ export type CommittedAssignmentsCache = Map<
   string,
   ReturnType<TaskAssignmentRepository["findCommittedWithSchedule"]>
 >;
+
+/**
+ * How far back the "asked despite unavailable" count looks.
+ *
+ * Ninety days rather than all time: the question is whether this is a habit
+ * now, and a number that only ever grows stops being a signal once it is large.
+ */
+const CONSENT_LOOKBACK_DAYS = 90;
 
 export class EligibilityService {
   private availRepo = new AvailabilityRepository();
@@ -209,6 +227,17 @@ export class EligibilityService {
 
     // Load all overrides for this task once, grouped by member.
     const overridesByMember = await this.getOverrideMap(taskId);
+
+    /*
+     * And, separately, how often each candidate has been waved past their own
+     * availability lately — across ALL tasks, not just this one. One grouped
+     * query; a count per candidate would be an N+1 on the panel a manager opens
+     * most.
+     */
+    const consentCounts = await this.overrideRepo.countConsentOverrides(
+      eligibleMembers.map((m) => m.id),
+      new Date(Date.now() - CONSENT_LOOKBACK_DAYS * 24 * 60 * 60 * 1000)
+    );
 
     // One memo for the whole evaluation. Every member is checked against the
     // break rule, the daily cap and the weekly cap, and all three read the same
@@ -366,6 +395,7 @@ export class EligibilityService {
           certifications: certCheck,
         },
         overrides: Array.from(memberOverrides),
+        askedDespiteUnavailable: consentCounts.get(member.id) ?? 0,
       };
       })
     );

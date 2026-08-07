@@ -647,14 +647,48 @@ export class TaskService {
     }
 
     const settings = await this.settingsRepo.getOrCreate(organizationId);
-    const assignmentStatus =
-      settings.taskAcceptanceMode === "auto_accept" && !options?.asOffer
-        ? "accepted"
-        : "pending";
+    const autoAccept =
+      settings.taskAcceptanceMode === "auto_accept" && !options?.asOffer;
+
+    /*
+     * Who is being asked to work a time they said they could not.
+     *
+     * A manager may waive an availability block, with a reason — that is a
+     * legitimate and necessary thing to do, because a venue short on Saturday
+     * WILL ring the person who said no. What it must not become is a booking.
+     *
+     * So the waiver is an ask: the assignment is written `pending` for that
+     * member however the organisation has `taskAcceptanceMode` set. Availability
+     * that somebody explicitly closed is a stronger statement than availability
+     * merely left open by default — and `asOffer` already refuses to auto-book
+     * on the weaker one, for the leave backfill. Auto-booking someone over their
+     * own stated unavailability would be the system overruling a person, which
+     * no setting should be able to express.
+     *
+     * Per member, not per call: one assignment may mix a waived candidate with
+     * three ordinary ones, and the ordinary three should still auto-accept where
+     * the organisation asked for that.
+     */
+    const asked = new Set<string>();
+    if (autoAccept) {
+      const flags = await Promise.all(
+        uniqueIds.map(async (membId) => {
+          const hits = await Promise.all(
+            EligibilityOverrideRepository.CONSENT_RULES.map((rule) =>
+              this.overrideRepo.hasOverride(taskId, membId, rule)
+            )
+          );
+          return [membId, hits.some(Boolean)] as const;
+        })
+      );
+      for (const [membId, waived] of flags) if (waived) asked.add(membId);
+    }
 
     const assignments = [];
     for (const membId of uniqueIds) {
       const engine = provenance?.byMembership?.[membId];
+      const assignmentStatus =
+        autoAccept && !asked.has(membId) ? "accepted" : "pending";
       const assignment = await this.assignmentRepo.create({
         taskId,
         membershipId: membId,
@@ -676,7 +710,11 @@ export class TaskService {
       entityId: taskId,
       details: {
         membershipIds: uniqueIds,
-        status: assignmentStatus,
+        // The status the organisation's setting called for. Members whose
+        // availability was waived were written `pending` regardless; the
+        // override rows are the record of which and why.
+        status: autoAccept ? "accepted" : "pending",
+        askedDespiteUnavailable: [...asked],
         allocationSource: provenance?.source ?? null,
         allocationProvider: provenance?.provider ?? null,
       },
