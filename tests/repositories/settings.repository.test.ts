@@ -54,7 +54,6 @@ describe("SettingsRepository", () => {
       expect(settings.allocationMode).toBe("manual");
       expect(settings.taskAcceptanceMode).toBe("auto_accept");
       expect(settings.breakRuleHoursWorked).toBe(8);
-      expect(settings.breakRuleBreakHours).toBe(1);
     });
   });
 
@@ -88,10 +87,8 @@ describe("SettingsRepository", () => {
 
       const updated = await settingsRepo.update(orgId, {
         breakRuleHoursWorked: 6,
-        breakRuleBreakHours: 10,
       });
       expect(updated.breakRuleHoursWorked).toBe(6);
-      expect(updated.breakRuleBreakHours).toBe(10);
     });
 
     it("updates notification preferences as JSON", async () => {

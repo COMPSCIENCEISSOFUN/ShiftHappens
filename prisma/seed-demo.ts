@@ -1068,7 +1068,6 @@ async function seedAll(tx: Tx) {
         allocationMode: "suggested",
         taskAcceptanceMode: "require_acceptance",
         breakRuleHoursWorked: 8,
-        breakRuleBreakHours: 1,
       },
     });
   }

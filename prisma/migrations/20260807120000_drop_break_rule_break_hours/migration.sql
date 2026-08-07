@@ -1,0 +1,20 @@
+-- Drop `breakRuleBreakHours` from CompanySettings.
+--
+-- The column was written by the settings service, validated by Zod, seeded by
+-- the demo script and asserted to round-trip by two test suites — and read by
+-- nothing. No eligibility check, no report, no AI prompt. The break LENGTH that
+-- is actually enforced lives on a `break_interval` WorkRule, per rule and
+-- targetable; this was an org-wide copy of it that never reached a decision.
+--
+-- `breakRuleHoursWorked` stays. Despite the name it is not a break rule either:
+-- it is the daily hours cap used by the eligibility check and the denominator
+-- for every capacity figure in reporting. Renaming it is a separate change and
+-- is not worth a migration on three databases on its own.
+--
+-- DEPLOYMENT ORDER MATTERS. Deploy the application first, then run this. The
+-- generated Prisma client lists every column in the model, so a client that
+-- still knows about this one will fail its reads the moment the column is gone.
+--
+-- IF EXISTS so the file is safe to run twice, and safe on a database where it
+-- has already been applied by hand.
+ALTER TABLE "CompanySettings" DROP COLUMN IF EXISTS "breakRuleBreakHours";

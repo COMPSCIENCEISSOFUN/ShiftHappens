@@ -84,7 +84,6 @@ interface Settings {
   /** Already parsed by the service — never a JSON string on the wire. */
   smartAllocationWeights: RankingWeights;
   breakRuleHoursWorked: number;
-  breakRuleBreakHours: number;
 }
 
 interface ResourceUsage {
@@ -231,7 +230,6 @@ export default function SettingsPage() {
   const [experiencedThreshold, setExperiencedThreshold] = useState("10");
   const [seniorThreshold, setSeniorThreshold] = useState("40");
   const [breakAfterHours, setBreakAfterHours] = useState("8");
-  const [breakLengthHours, setBreakLengthHours] = useState("1");
   // Defaults mirror the database defaults, so the controls show the truth for
   // the moment before the fetch resolves rather than an arbitrary 00:00–00:00.
   const [opStart, setOpStart] = useState(6);
@@ -381,7 +379,6 @@ export default function SettingsPage() {
       // opinion about a malformed column.
       if (data.smartAllocationWeights) setWeights(data.smartAllocationWeights);
       setBreakAfterHours(String(data.breakRuleHoursWorked));
-      setBreakLengthHours(String(data.breakRuleBreakHours));
       setExperiencedThreshold(String(data.experiencedShiftThreshold ?? 10));
       setSeniorThreshold(String(data.seniorShiftThreshold ?? 40));
       // Guarded rather than assigned blindly: these are the only numeric
@@ -526,7 +523,6 @@ export default function SettingsPage() {
         seniorShiftThreshold: Number(seniorThreshold),
         smartAllocationWeights: weights,
         breakRuleHoursWorked: Number(breakAfterHours),
-        breakRuleBreakHours: Number(breakLengthHours),
       },
       setTaskMessage,
       setTaskLoading,
@@ -1195,62 +1191,51 @@ export default function SettingsPage() {
                   unreachable one.
                 */}
                 <div className="space-y-2">
-                  <Label>Break rule</Label>
+                  <Label>Working day</Label>
                   <p className="text-[11px] text-muted-foreground">
-                    The organisation-wide working day: how long someone may work
-                    before a break is due, and how long that break is. Used for
-                    eligibility, hour warnings, and every capacity figure in
-                    reporting.
+                    How long one person may work in a day. Used for the
+                    eligibility hours check, hour warnings, and every capacity
+                    figure in reporting — a team of six on an eight-hour day
+                    reads as 336 hours of capacity a week.
                   </p>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="space-y-1.5">
-                      <Label
-                        htmlFor="breakRuleHoursWorked"
-                        className="text-xs font-semibold text-muted-foreground"
-                      >
-                        Break due after (hours)
-                      </Label>
-                      <Input
-                        id="breakRuleHoursWorked"
-                        type="number"
-                        min={1}
-                        max={24}
-                        value={breakAfterHours}
-                        onChange={(e) => setBreakAfterHours(e.target.value)}
-                        disabled={!canUpdateSettings}
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label
-                        htmlFor="breakRuleBreakHours"
-                        className="text-xs font-semibold text-muted-foreground"
-                      >
-                        Break length (hours)
-                      </Label>
-                      <Input
-                        id="breakRuleBreakHours"
-                        type="number"
-                        min={1}
-                        max={24}
-                        value={breakLengthHours}
-                        onChange={(e) => setBreakLengthHours(e.target.value)}
-                        disabled={!canUpdateSettings}
-                      />
-                    </div>
-                  </div>
                   {/*
-                    Shown rather than refused. A break at least as long as the
-                    shift that earns it is arithmetically legal and almost
-                    certainly a typo, and the capacity figures it produces are
-                    the ones nobody would question.
+                    Labelled "Working day", not "Break rule", although the column
+                    behind it is still `breakRuleHoursWorked`.
+
+                    Nothing here enforces a BREAK. This number is a daily hours
+                    cap and the denominator for capacity, and calling it a break
+                    rule sent an admin looking for a rest period it does not
+                    control. Rest between shifts is a `break_interval` work rule,
+                    targetable per department and carrying its own break length.
+
+                    The org-wide copy of that length — `breakRuleBreakHours` —
+                    was stored, validated, seeded and round-trip tested while
+                    being read by no eligibility check, no report and no prompt.
+                    It is gone. A second input that changed nothing was worse
+                    than no input, because it invited an admin to set it and
+                    believe something had happened.
+
+                    The column keeps its misleading name until a rename is worth
+                    a migration on three databases. The label is what an admin
+                    reads, and it is now true.
                   */}
-                  {Number(breakLengthHours) >= Number(breakAfterHours) && (
-                    <p className="text-[11px] text-amber-600 dark:text-amber-400">
-                      A break as long as the working period it follows will make
-                      every capacity figure read close to zero. Check these are
-                      the right way round.
-                    </p>
-                  )}
+                  <div className="max-w-xs space-y-1.5">
+                    <Label
+                      htmlFor="breakRuleHoursWorked"
+                      className="text-xs font-semibold text-muted-foreground"
+                    >
+                      Hours in a working day
+                    </Label>
+                    <Input
+                      id="breakRuleHoursWorked"
+                      type="number"
+                      min={1}
+                      max={24}
+                      value={breakAfterHours}
+                      onChange={(e) => setBreakAfterHours(e.target.value)}
+                      disabled={!canUpdateSettings}
+                    />
+                  </div>
                 </div>
               </CardContent>
               {canUpdateSettings && (

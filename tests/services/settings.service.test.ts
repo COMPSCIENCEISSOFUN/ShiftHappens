@@ -48,7 +48,6 @@ describe("SettingsService", () => {
       expect(settings.allocationMode).toBe("manual");
       expect(settings.taskAcceptanceMode).toBe("auto_accept");
       expect(settings.breakRuleHoursWorked).toBe(8);
-      expect(settings.breakRuleBreakHours).toBe(1);
     });
 
     it("returns default operating hours for new org", async () => {
@@ -87,13 +86,18 @@ describe("SettingsService", () => {
         expect(updated.taskAcceptanceMode).toBe("require_acceptance");
       });
 
-      it("updates break rules", async () => {
+      /*
+       * One field, not two. `breakRuleBreakHours` was removed: it was stored,
+       * validated, seeded and asserted here to round-trip, while no eligibility
+       * check, report or prompt ever read it. A test that a setting saves is
+       * not a test that it does anything, and this one had been passing for
+       * months over a field with no effect.
+       */
+      it("updates the working day", async () => {
         const updated = await settingsService.updateSettings(orgId, {
           breakRuleHoursWorked: 6,
-          breakRuleBreakHours: 12,
         });
         expect(updated.breakRuleHoursWorked).toBe(6);
-        expect(updated.breakRuleBreakHours).toBe(12);
       });
 
       it("updates notification preferences", async () => {
@@ -283,7 +287,6 @@ describe("SettingsService", () => {
           allocationMode: "suggested",
           taskAcceptanceMode: "require_acceptance",
           breakRuleHoursWorked: 10,
-          breakRuleBreakHours: 2,
           operatingHoursStart: 7,
           operatingHoursEnd: 23,
         });
@@ -297,7 +300,6 @@ describe("SettingsService", () => {
         expect(updated.allocationMode).toBe("auto");
         expect(updated.taskAcceptanceMode).toBe("require_acceptance");
         expect(updated.breakRuleHoursWorked).toBe(10);
-        expect(updated.breakRuleBreakHours).toBe(2);
         expect(updated.operatingHoursStart).toBe(7);
         expect(updated.operatingHoursEnd).toBe(23);
       });

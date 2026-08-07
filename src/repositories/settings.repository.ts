@@ -43,7 +43,6 @@ export class SettingsRepository {
       allocationMode?: string;
       taskAcceptanceMode?: string;
       breakRuleHoursWorked?: number;
-      breakRuleBreakHours?: number;
       smartAllocationWeights?: string;
       notificationPreferences?: string;
       experiencedShiftThreshold?: number;

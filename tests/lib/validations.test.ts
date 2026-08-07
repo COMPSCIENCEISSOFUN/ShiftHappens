@@ -337,7 +337,7 @@ describe("updateCompanySettingsSchema", () => {
   it("accepts valid settings", () => {
     const result = updateCompanySettingsSchema.safeParse({
       allocationMode: "suggested", taskAcceptanceMode: "require_acceptance",
-      breakRuleHoursWorked: 6, breakRuleBreakHours: 10,
+      breakRuleHoursWorked: 6,
     });
     expect(result.success).toBe(true);
   });
