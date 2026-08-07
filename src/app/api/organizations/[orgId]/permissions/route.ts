@@ -26,7 +26,8 @@ export async function GET(
     const gate = await requirePermission(user.id, orgId, "roles:manage");
     if (!gate.ok) return gate.response;
 
-    const permissions = await roleService.getAllPermissions();
+    // Org-scoped, because the answer depends on this organisation's plan.
+    const permissions = await roleService.getAllPermissions(orgId);
     return NextResponse.json(permissions);
   } catch {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

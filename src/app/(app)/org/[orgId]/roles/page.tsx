@@ -55,6 +55,15 @@ interface Permission {
   name: string;
   description: string;
   category: string;
+  /**
+   * Present only on permissions the subscription plan gates.
+   *
+   * Absent means "no plan question here", which is a different statement from
+   * "your plan allows it" — so the two must not collapse into one boolean.
+   */
+  available?: boolean;
+  /** The lowest plan that honours it. Named, because "Enterprise" is actionable. */
+  requiredTier?: string;
 }
 
 interface RolePermission {
@@ -139,20 +148,41 @@ function PermissionPicker({
                 {category}
               </p>
               <div className="space-y-1">
-                {grouped[category].map((perm) => (
-                  <label
-                    key={perm.id}
-                    className="flex cursor-pointer items-start gap-2 text-[12px]"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selected.includes(perm.id)}
-                      onChange={() => onToggle(perm.id)}
-                      className="mt-0.5 accent-indigo-600"
-                    />
-                    <span>{perm.description}</span>
-                  </label>
-                ))}
+                {grouped[category].map((perm) => {
+                  /*
+                    Plan-gated and unavailable. The route guard checks the plan
+                    BEFORE the permission, so ticking this box opens nothing —
+                    and since custom roles are Pro-and-above while the audit log
+                    is Enterprise-only, it was a guaranteed no-op for every
+                    organisation able to see it. Enforcement was always correct;
+                    the builder just did not say so.
+                  */
+                  const locked = perm.available === false;
+                  return (
+                    <label
+                      key={perm.id}
+                      className={`flex items-start gap-2 text-[12px] ${
+                        locked ? "cursor-not-allowed opacity-60" : "cursor-pointer"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selected.includes(perm.id)}
+                        onChange={() => onToggle(perm.id)}
+                        disabled={locked}
+                        className="mt-0.5 accent-indigo-600"
+                      />
+                      <span>
+                        {perm.description}
+                        {locked && (
+                          <span className="ml-1.5 inline-flex items-center rounded-[4px] bg-muted px-1.5 py-0.5 align-middle text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                            {perm.requiredTier ?? "upgrade"} plan
+                          </span>
+                        )}
+                      </span>
+                    </label>
+                  );
+                })}
               </div>
             </div>
           ))}

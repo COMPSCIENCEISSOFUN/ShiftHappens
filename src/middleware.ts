@@ -31,6 +31,10 @@ const MODERATE_PATTERNS = [
   "/tasks/suggest",
   "/tasks/auto-allocate",
   "/ai-recommendations",
+  // Reads every comment in the window and sends them to a model. Its docblock
+  // claimed the moderate tier; the pattern list did not carry it, so it sat in
+  // the relaxed 100/min bucket while its sibling next door was capped at 20.
+  "/feedback-themes",
   "/tasks/parse",
   "/auto-schedule",
   // Spends Groq and, on a parse failure, Gemini too — and needs only a session,

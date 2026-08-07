@@ -141,8 +141,19 @@ export async function DELETE(
     await taskService.delete(taskId, orgId);
     return NextResponse.json({ message: "Task deleted" });
   } catch (error) {
-    if (error instanceof Error && error.message === "Task not found") {
-      return NextResponse.json({ error: error.message }, { status: 404 });
+    if (error instanceof Error) {
+      if (error.message === "Task not found") {
+        return NextResponse.json({ error: error.message }, { status: 404 });
+      }
+      /*
+       * 409, not 400. The request is well-formed and the caller is permitted;
+       * the shift's own history is what refuses it, and the message names the
+       * action that does work. A 500 here would read as a bug in the product
+       * rather than a rule protecting the record.
+       */
+      if (error.message.includes("cancel it instead")) {
+        return NextResponse.json({ error: error.message }, { status: 409 });
+      }
     }
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }

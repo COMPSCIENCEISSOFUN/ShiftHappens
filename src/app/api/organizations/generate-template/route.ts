@@ -20,6 +20,7 @@
  * Requires authentication (any logged-in user).
  */
 import { NextRequest, NextResponse } from "next/server";
+import { aiTimeoutSignal, hasApiKey } from "@/lib/ai-limits";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
 
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
@@ -77,13 +78,21 @@ Rules:
 - Department names should be concise (1-3 words)
 - Respond ONLY with the JSON object`;
 
-async function callGroq(description: string): Promise<string | null> {
+/** What a provider gave back, and whether it refused rather than answered. */
+interface ProviderReply {
+  text: string | null;
+  refused: boolean;
+}
+
+async function callGroq(description: string): Promise<ProviderReply> {
   const apiKey = process.env.GROQ_API_KEY;
-  if (!apiKey) return null;
+  // Unconfigured is a refusal too: the user cannot fix it by rewriting.
+  if (!hasApiKey(apiKey)) return { text: null, refused: true };
 
   try {
     const response = await fetch(GROQ_API_URL, {
       method: "POST",
+      signal: aiTimeoutSignal(),
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`,
@@ -99,21 +108,29 @@ async function callGroq(description: string): Promise<string | null> {
       }),
     });
 
-    if (!response.ok) return null;
+    // A non-ok status is the provider refusing — a rate limit or a revoked key
+    // — not the description being unusable. Distinguished so the message can
+    // stop telling the user to rewrite prose that was never the problem.
+    if (!response.ok) {
+      console.error(`[Generate Template] Groq ${response.status}`);
+      return { text: null, refused: true };
+    }
     const data = await response.json();
-    return data.choices?.[0]?.message?.content || null;
-  } catch {
-    return null;
+    return { text: data.choices?.[0]?.message?.content || null, refused: false };
+  } catch (error) {
+    console.error("[Generate Template] Groq failed:", error);
+    return { text: null, refused: true };
   }
 }
 
-async function callGemini(description: string): Promise<string | null> {
+async function callGemini(description: string): Promise<ProviderReply> {
   const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return null;
+  if (!hasApiKey(apiKey)) return { text: null, refused: true };
 
   try {
     const response = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
       method: "POST",
+      signal: aiTimeoutSignal(),
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         contents: [
@@ -129,11 +146,18 @@ async function callGemini(description: string): Promise<string | null> {
       }),
     });
 
-    if (!response.ok) return null;
+    if (!response.ok) {
+      console.error(`[Generate Template] Gemini ${response.status}`);
+      return { text: null, refused: true };
+    }
     const data = await response.json();
-    return data.candidates?.[0]?.content?.parts?.[0]?.text || null;
-  } catch {
-    return null;
+    return {
+      text: data.candidates?.[0]?.content?.parts?.[0]?.text || null,
+      refused: false,
+    };
+  } catch (error) {
+    console.error("[Generate Template] Gemini failed:", error);
+    return { text: null, refused: true };
   }
 }
 
@@ -243,19 +267,32 @@ export async function POST(request: NextRequest) {
     }
 
     // Try Groq first, then Gemini
-    let raw = await callGroq(description);
-    let result = parseAndValidate(raw);
+    const groq = await callGroq(description);
+    let result = parseAndValidate(groq.text);
+    let bothRefused = groq.refused;
 
     if (!result) {
-      raw = await callGemini(description);
-      result = parseAndValidate(raw);
+      const gemini = await callGemini(description);
+      result = parseAndValidate(gemini.text);
+      bothRefused = bothRefused && gemini.refused;
     }
 
     if (!result) {
+      /*
+       * Two different failures, two different messages.
+       *
+       * This said "try describing your business differently" for both — so a
+       * rate limit, a revoked key or an unconfigured environment sent the user
+       * away to rewrite prose that was never the problem, and rewriting it
+       * would fail identically. The preset templates remain available either
+       * way, which is why this stays a 422 the caller can act on rather than a
+       * 500.
+       */
       return NextResponse.json(
         {
-          error:
-            "Couldn't generate suggestions. Try describing your business differently, or use a preset template.",
+          error: bothRefused
+            ? "The assistant is unavailable right now — try again shortly, or use a preset template."
+            : "Couldn't turn that into a template. Try describing your business differently, or use a preset template.",
         },
         { status: 422 }
       );

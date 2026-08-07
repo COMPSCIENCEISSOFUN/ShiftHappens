@@ -136,6 +136,8 @@ export default function MembersPage() {
   // the three above — this is the one control on the page a manager is meant
   // to use. It was the one control left ungated.
   const canUpdateSeniority = can("members:update_seniority");
+  const canSetContractedDays = can("members:set_contracted_days");
+  const canRequestAvailability = can("members:request_availability");
   /**
    * Whether this viewer can change anything about a member at all.
    *
@@ -144,7 +146,8 @@ export default function MembersPage() {
    * it. Offering them an Edit button that opens a panel of disabled controls
    * would be worse than not offering one.
    */
-  const canEditAnything = canUpdateRole || canUpdateSeniority || canDeactivate;
+  const canEditAnything =
+    canUpdateRole || canUpdateSeniority || canDeactivate || canSetContractedDays;
 
   const [showInvite, setShowInvite] = useState(false);
   /** Membership id of the row whose edit panel is open, or null. */
@@ -211,6 +214,33 @@ export default function MembersPage() {
       const data = await res.json();
       if (res.ok && data?.assessments) setSeniority(data.assessments);
     } catch { /* non-critical — the column falls back to "—" */ }
+  }
+
+  /**
+   * Asks a casual member to check their own availability.
+   *
+   * `POST .../request-availability` has existed since Phase 7 with no caller
+   * anywhere in the UI — the endpoint, its service method, its audit entry and
+   * its notification were all reachable only by curl. It is the right action
+   * for a casual whose pattern looks stale, precisely because their
+   * availability is theirs to set and an admin edit is one they could undo the
+   * same evening.
+   */
+  async function onRequestAvailabilityReview(userId: string) {
+    try {
+      const res = await fetch(
+        `/api/organizations/${orgId}/members/${userId}/request-availability`,
+        { method: "POST" }
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setError(body.error || "Could not send the request");
+        return;
+      }
+      setSuccess("Asked them to review their availability");
+    } catch {
+      setError("Could not send the request");
+    }
   }
 
   async function onUpdateSeniority(userId: string, value: string) {
@@ -870,6 +900,7 @@ export default function MembersPage() {
         if (!editing || !canEditAnything) return null;
         return (
           <MemberEditDrawer
+            orgId={orgId}
             member={editing}
             departments={departments}
             customRoles={customRoles}
@@ -878,6 +909,10 @@ export default function MembersPage() {
             canUpdateRole={canUpdateRole}
             canUpdateSeniority={canUpdateSeniority}
             canDeactivate={canDeactivate}
+            canSetContractedDays={canSetContractedDays}
+            onRequestAvailabilityReview={
+              canRequestAvailability ? onRequestAvailabilityReview : undefined
+            }
             onUpdateRole={onUpdateRole}
             onUpdateEmploymentType={onUpdateEmploymentType}
             onUpdateCustomRole={onUpdateCustomRole}

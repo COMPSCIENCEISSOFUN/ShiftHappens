@@ -7,6 +7,13 @@
  * - System roles (company_admin, manager, staff) cannot be modified or deleted
  * - Every custom role must have at least one permission
  */
+import { OrganizationRepository } from "@/repositories/organization.repository";
+import { PERMISSION_FEATURE } from "@/lib/permissions";
+import {
+  getMinimumTierForFeature,
+  isFeatureAvailable,
+  type SubscriptionTier,
+} from "@/lib/subscription-tiers";
 import { RoleRepository } from "@/repositories/role.repository";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 import { WorkRuleRepository } from "@/repositories/work-rule.repository";
@@ -16,6 +23,7 @@ import { SubscriptionService } from "@/services/subscription.service";
 
 export class RoleService {
   private workRuleRepo = new WorkRuleRepository();
+  private orgRepo = new OrganizationRepository();
   private roleRepo = new RoleRepository();
   private auditService = new AuditLogService();
   private subscriptionService = new SubscriptionService();
@@ -212,7 +220,47 @@ export class RoleService {
   }
 
   /** Returns all available permissions for the role creation/edit UI */
-  async getAllPermissions() {
-    return this.roleRepo.getAllPermissions();
+  /**
+   * The permission catalogue, each entry saying whether this organisation's
+   * plan can actually honour it.
+   *
+   * ## Why the plan has to travel with the catalogue
+   *
+   * `PERMISSION_FEATURE` maps a permission onto a gated feature and the route
+   * guard checks the plan BEFORE the permission, so granting `audit:view` to a
+   * Pro organisation opens nothing. That enforcement is correct; the role
+   * builder just did not know about it and rendered the entry as an ordinary
+   * checkbox.
+   *
+   * The result was a control that could never work for anybody able to see it:
+   * custom roles are Pro-and-above, `audit_log` is Enterprise-only, so every
+   * organisation with a role builder is one for which that box is a guaranteed
+   * no-op. An interface implying something the system will not do — the same
+   * shape as the AI badge over algorithmic output, and the "Internal name"
+   * field read by nothing.
+   *
+   * `requiredTier` is returned rather than a bare boolean so the screen can say
+   * WHICH plan is needed. "Enterprise" is actionable; "unavailable" invites a
+   * support ticket.
+   */
+  async getAllPermissions(organizationId?: string) {
+    const permissions = await this.roleRepo.getAllPermissions();
+    if (!organizationId) return permissions;
+
+    const org = await this.orgRepo.findById(organizationId);
+    const tier = (org?.subscriptionTier ?? "free") as SubscriptionTier;
+
+    return permissions.map((permission) => {
+      const feature = PERMISSION_FEATURE[permission.name];
+      // Ungated permissions are returned untouched rather than carrying
+      // `available: true`. Absent means "no plan question here", which is a
+      // different statement from "your plan allows it".
+      if (!feature) return permission;
+      return {
+        ...permission,
+        available: isFeatureAvailable(tier, feature),
+        requiredTier: getMinimumTierForFeature(feature),
+      };
+    });
   }
 }
