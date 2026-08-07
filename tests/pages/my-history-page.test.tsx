@@ -175,6 +175,28 @@ describe("drawing what the route returns", () => {
 });
 
 describe("the totals", () => {
+  /*
+   * "41" over "44 in this period" read as a contradiction, because the detail
+   * never said what 44 counted. Two numbers answering different questions have
+   * to say which question each is answering.
+   */
+  it("says what the second number counts", async () => {
+    mockApi(payload());
+    render(<MyHistoryPage />);
+
+    expect(await screen.findByText("of 3 shifts in this period")).toBeInTheDocument();
+  });
+
+  // No "of 3 of 3". When every shift was worked there is no second number worth
+  // printing, and the comparison invites a reader to look for a difference.
+  it("does not compare when there is nothing to compare", async () => {
+    mockApi(payload({ summary: { ...SUMMARY, shiftsWorked: 3, shiftsInRange: 3 } }));
+    render(<MyHistoryPage />);
+
+    expect(await screen.findByText("Every shift in this period")).toBeInTheDocument();
+    expect(screen.queryByText(/of 3 shifts/)).not.toBeInTheDocument();
+  });
+
   it("prints the hours worked", async () => {
     mockApi(payload());
     render(<MyHistoryPage />);
@@ -218,6 +240,50 @@ describe("the totals", () => {
 
     await screen.findByText("Saturday close");
     expect(screen.queryByText(/not counted/i)).not.toBeInTheDocument();
+  });
+});
+
+describe("rating from the record", () => {
+  /*
+   * Rating moved here from My Tasks, which showed the last three finished
+   * shifts behind a toggle — so "34 left to rate" pointed at a screen that
+   * would show three of them.
+   */
+  it("offers the stars on a worked shift", async () => {
+    mockApi(payload());
+    render(<MyHistoryPage />);
+
+    await screen.findByText("Saturday close");
+    expect(screen.getByRole("radio", { name: /1 out of 5/i })).toBeInTheDocument();
+  });
+
+  /*
+   * `rate()` refuses anything not worked, so offering the control on a declined
+   * shift would invite an error the service is going to produce anyway.
+   */
+  it("does not offer them on a shift that was declined", async () => {
+    mockApi(payload({ rows: [row({ outcome: "declined", hoursWorked: null })] }));
+    render(<MyHistoryPage />);
+
+    await screen.findByText("Saturday close");
+    expect(screen.queryByRole("radio", { name: /1 out of 5/i })).not.toBeInTheDocument();
+  });
+
+  /*
+   * A saved rating changes "your average rating" and "left to rate", both
+   * computed server-side over the whole range. Updating the row in place would
+   * leave the tiles disagreeing with the list directly beneath them.
+   */
+  it("reloads so the totals follow the new rating", async () => {
+    mockApi(payload({ rows: [row({ satisfactionRating: null })] }));
+    render(<MyHistoryPage />);
+    await screen.findByText("Saturday close");
+
+    const before = requested.length;
+    await userEvent.click(screen.getByRole("radio", { name: /4 out of 5/i }));
+    await userEvent.click(screen.getByRole("button", { name: /submit rating/i }));
+
+    await waitFor(() => expect(requested.length).toBeGreaterThan(before + 1));
   });
 });
 

@@ -23,12 +23,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import {
   CalendarClock,
   CircleCheck,
   CircleX,
   Clock,
+  History,
   Hourglass,
   Inbox,
   LogIn,
@@ -53,7 +55,6 @@ import {
   BUTTON_STRETCH_MOBILE,
 } from "@/components/ui/button-styles";
 import { cn } from "@/lib/utils";
-import { ShiftRating } from "@/components/tasks/shift-rating";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -86,9 +87,6 @@ interface Assignment {
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
 /* ------------------------------------------------------------------ */
-
-/** How many finished items to show before the "show all" toggle. */
-const HISTORY_PREVIEW = 3;
 
 /**
  * "Fri 3 Oct, 17:00 — 21:00", or just the start when there is no end.
@@ -136,20 +134,6 @@ function clockedWhen(inAt: string | null, outAt: string | null): string | null {
   const to = new Date(outAt);
   const hours = (to.getTime() - from.getTime()) / 3_600_000;
   return `${stamp} — ${to.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} · ${hours.toFixed(1)}h`;
-}
-
-/**
- * When a finished assignment last mattered, for ordering history.
- *
- * Clock-out is the truest answer for work actually done; a declined shift never
- * had one, so it falls back to when it was scheduled. Anything with no date at
- * all sorts last rather than jumping to the top, which is what `0` would do
- * under a descending sort.
- */
-function historyTime(a: Assignment): number {
-  const stamp =
-    a.clockOutTime ?? a.clockInTime ?? a.task.scheduledEnd ?? a.task.scheduledStart;
-  return stamp ? new Date(stamp).getTime() : Number.NEGATIVE_INFINITY;
 }
 
 
@@ -216,7 +200,6 @@ export default function MyTasksPage() {
   const [success, setSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busyIds, setBusyIds] = useState<string[]>([]);
-  const [showAllHistory, setShowAllHistory] = useState(false);
 
   useEffect(() => {
     fetchAssignments();
@@ -388,24 +371,26 @@ export default function MyTasksPage() {
     (a) => a.status === "accepted" || a.status === "withdrawal_requested"
   );
   const awaitingCompletion = assignments.filter((a) => a.status === "clocked_out");
-  const completed = assignments.filter((a) => a.status === "completed");
-  const rejected = assignments.filter((a) => a.status === "rejected");
 
   const onShift = active.filter((a) => a.clockInTime && !a.clockOutTime).length;
 
-  /**
-   * Finished work is previewed, not dumped — see HISTORY_PREVIEW.
+  /*
+   * Everything still on the member's plate.
    *
-   * Sorted most-recent-first ACROSS both kinds. Concatenating completed then
-   * rejected put every completed shift ahead of every declined one, so anyone
-   * with more than a few completed shifts would never see a declined one in the
-   * preview no matter how recent it was — and "show all" would be the only way
-   * to find something that happened yesterday.
+   * This page used to end with a "Finished" panel showing the last three
+   * completed and declined shifts behind a "show all" toggle — a second,
+   * smaller implementation of My History, on the one screen in the product read
+   * standing up on a phone. The question here is "am I on tonight"; finished
+   * work is noise against it, and the record it was approximating now has a
+   * page with date ranges, totals and every row.
+   *
+   * The endpoint still returns everything, so the filtering is here rather than
+   * in the query. At FYP data volumes that costs nothing worth a second route
+   * parameter; if a member ever accumulates thousands of shifts it becomes one.
    */
-  const history = [...completed, ...rejected].sort(
-    (a, b) => historyTime(b) - historyTime(a)
+  const live = assignments.filter(
+    (a) => !["completed", "rejected", "withdrawn"].includes(a.status)
   );
-  const shownHistory = showAllHistory ? history : history.slice(0, HISTORY_PREVIEW);
 
   return (
     <div className="w-full">
@@ -416,13 +401,25 @@ export default function MyTasksPage() {
           Your shifts — respond to what you&apos;ve been offered, and clock in
           when you start
         </p>
+        {/*
+          The only route to the record now that this page no longer carries one.
+          A member who finished a shift yesterday and wants to check it would
+          otherwise have to find it in the sidebar without being told it exists.
+        */}
+        <Link
+          href={`/org/${orgId}/my-history`}
+          className="mt-2 inline-flex items-center gap-1.5 text-[13px] font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+        >
+          <History className="h-3.5 w-3.5" aria-hidden="true" />
+          See everything you have finished with
+        </Link>
       </div>
 
       {error && <AlertBanner message={error} variant="error" />}
       {success && <AlertBanner message={success} variant="success" />}
 
       {/* ── Stat tiles ── */}
-      <div className="mb-4 grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">
+      <div className="mb-4 grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-3">
         <StatTile
           label="To respond"
           value={pending.length}
@@ -443,19 +440,24 @@ export default function MyTasksPage() {
           accentColour={STAT_ACCENT.green}
           valueColour={onShift > 0 ? "text-green-600 dark:text-green-400" : ""}
         />
-        <StatTile
-          label="Completed"
-          value={completed.length}
-          detail="finished shifts"
-          accentColour={STAT_ACCENT.blue}
-        />
+
       </div>
 
       {/* A failed load leaves the list empty too — don't claim there are no tasks. */}
-      {!error && assignments.length === 0 && (
+      {/*
+        Keyed on LIVE work, not on every row the endpoint returned. Someone with
+        forty finished shifts and nothing outstanding has an empty plate, and
+        that is what this page is about — the old check would have told them
+        otherwise while showing them nothing.
+      */}
+      {!error && live.length === 0 && (
         <EmptyState
-          title="No tasks assigned to you yet"
-          description="When a manager assigns you a shift it will appear here, and you'll get a notification."
+          title="Nothing on your plate"
+          description={
+            assignments.length > 0
+              ? "No shifts waiting on you right now. Everything you have finished with is in My History."
+              : "When a manager assigns you a shift it will appear here, and you'll get a notification."
+          }
           icon={Inbox}
         />
       )}
@@ -693,70 +695,18 @@ export default function MyTasksPage() {
                       {busy ? "Working…" : "Mark as complete"}
                     </button>
                   </div>
-                  <ShiftRating
-                    assignmentId={a.id}
-                    orgId={orgId}
-                    rating={a.satisfactionRating}
-                    comment={a.satisfactionComment}
-                    onSaved={fetchAssignments}
-                  />
+                  {/*
+                    Rating moved to My History, and deliberately does not appear
+                    here as well. One row would otherwise offer the control in
+                    two places — this panel and the record — and the "left to
+                    rate" tile can only point at one of them.
+                  */}
                 </div>
               );
             })}
           </Panel>
         )}
 
-        {/* ── History ── */}
-        {history.length > 0 && (
-          <Panel
-            title="Finished"
-            count={history.length}
-            icon={CircleCheck}
-            bodyClassName="divide-y divide-border"
-          >
-            {shownHistory.map((a) => {
-              const clocked = clockedWhen(a.clockInTime, a.clockOutTime);
-              return (
-                <div key={a.id} className="p-4">
-                  <AssignmentHeader a={a} />
-                  {clocked && (
-                    <p className="mt-1 text-[12px] text-muted-foreground">{clocked}</p>
-                  )}
-                  {a.status === "rejected" && (
-                    <p className="mt-1 text-[12px] text-muted-foreground">
-                      You declined — {reasonLabel(a.rejectionReason)}
-                      {a.rejectionNotes && `: ${a.rejectionNotes}`}
-                    </p>
-                  )}
-                  {/* Only worked shifts can be rated. A declined one was never
-                      experienced, and the decline reason already records why. */}
-                  {a.status === "completed" && (
-                    <ShiftRating
-                      assignmentId={a.id}
-                      orgId={orgId}
-                      rating={a.satisfactionRating}
-                      comment={a.satisfactionComment}
-                      onSaved={fetchAssignments}
-                    />
-                  )}
-                </div>
-              );
-            })}
-
-            {history.length > HISTORY_PREVIEW && (
-              <div className="p-3">
-                <button
-                  onClick={() => setShowAllHistory(!showAllHistory)}
-                  className="w-full rounded-lg border border-border bg-card px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:border-indigo-400 hover:text-foreground"
-                >
-                  {showAllHistory
-                    ? "Show less"
-                    : `Show all ${history.length} finished shifts`}
-                </button>
-              </div>
-            )}
-          </Panel>
-        )}
       </div>
     </div>
   );

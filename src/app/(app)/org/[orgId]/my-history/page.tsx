@@ -48,6 +48,7 @@ import { StatTile, STAT_ACCENT } from "@/components/ui/stat-tile";
 import { SECONDARY_BUTTON } from "@/components/ui/button-styles";
 import { OUTCOME_LABEL, OUTCOME_NOTE, type ShiftOutcome } from "@/lib/shift-outcome";
 import { reasonLabel } from "@/lib/decline-reasons";
+import { ShiftRating } from "@/components/tasks/shift-rating";
 import { cn } from "@/lib/utils";
 
 /* ------------------------------------------------------------------ */
@@ -159,7 +160,15 @@ function ownReason(row: HistoryRow): string | null {
 /*  Row                                                                */
 /* ------------------------------------------------------------------ */
 
-function HistoryEntry({ row }: { row: HistoryRow }) {
+function HistoryEntry({
+  row,
+  orgId,
+  onRated,
+}: {
+  row: HistoryRow;
+  orgId: string;
+  onRated: () => void;
+}) {
   const note = OUTCOME_NOTE[row.outcome];
   const reason = ownReason(row);
 
@@ -205,12 +214,34 @@ function HistoryEntry({ row }: { row: HistoryRow }) {
           Your reason: {reason}
         </p>
       )}
-      {row.satisfactionRating !== null && (
-        <p className="mt-1 flex items-center gap-1 text-[12px] text-muted-foreground">
-          <Star className="h-3.5 w-3.5 text-amber-500" aria-hidden="true" />
-          You rated this {row.satisfactionRating}/5
-          {row.satisfactionComment ? ` — ${row.satisfactionComment}` : ""}
-        </p>
+      {/*
+        Rating lives here now, not on My Tasks.
+        
+        It was on the to-do page, which shows a member the last three finished
+        shifts behind a toggle — so "34 left to rate" pointed at a screen that
+        would show three of them. Reflection on a shift belongs beside the
+        record of it, with the date and the hours in view.
+
+        Only worked shifts: `rate()` refuses anything else, and offering the
+        stars on a shift somebody declined would invite an error the service is
+        going to reject.
+      */}
+      {row.outcome === "worked" ? (
+        <ShiftRating
+          assignmentId={row.id}
+          orgId={orgId}
+          rating={row.satisfactionRating}
+          comment={row.satisfactionComment}
+          onSaved={onRated}
+        />
+      ) : (
+        row.satisfactionRating !== null && (
+          <p className="mt-1 flex items-center gap-1 text-[12px] text-muted-foreground">
+            <Star className="h-3.5 w-3.5 text-amber-500" aria-hidden="true" />
+            You rated this {row.satisfactionRating}/5
+            {row.satisfactionComment ? ` — ${row.satisfactionComment}` : ""}
+          </p>
+        )
       )}
     </div>
   );
@@ -229,6 +260,13 @@ export default function MyHistoryPage() {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  /*
+   * Bumped when a rating is saved. The summary tiles are derived server-side
+   * over the whole range, so a rating changes "your average rating" and "left
+   * to rate" — updating the row in place would leave both tiles disagreeing
+   * with the list directly beneath them.
+   */
+  const [reloadKey, setReloadKey] = useState(0);
 
   /*
    * The spinner is switched on by whatever CAUSED the reload — the range and
@@ -276,7 +314,7 @@ export default function MyHistoryPage() {
     return () => {
       cancelled = true;
     };
-  }, [orgId, range, page]);
+  }, [orgId, range, page, reloadKey]);
 
   if (loading && !data) return <PageLoading />;
 
@@ -322,10 +360,21 @@ export default function MyHistoryPage() {
 
       {summary && (
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          {/*
+            "41" over "44 in this period" read as a contradiction — the detail
+            line never said what the 44 counted, so the two numbers looked like
+            two answers to the same question. They are not: 44 shifts entered
+            this member's history, 41 of which were worked and the rest declined,
+            cancelled or never clocked into.
+          */}
           <StatTile
             label="Shifts worked"
             value={summary.shiftsWorked}
-            detail={`${summary.shiftsInRange} in this period`}
+            detail={
+              summary.shiftsInRange === summary.shiftsWorked
+                ? "Every shift in this period"
+                : `of ${summary.shiftsInRange} shifts in this period`
+            }
             accentColour={STAT_ACCENT.green}
           />
           <StatTile
@@ -384,7 +433,14 @@ export default function MyHistoryPage() {
         }
       >
         {data && data.rows.length > 0 ? (
-          data.rows.map((row) => <HistoryEntry key={row.id} row={row} />)
+          data.rows.map((row) => (
+            <HistoryEntry
+              key={row.id}
+              row={row}
+              orgId={orgId}
+              onRated={() => setReloadKey((k) => k + 1)}
+            />
+          ))
         ) : (
           <EmptyState
             icon={Inbox}
