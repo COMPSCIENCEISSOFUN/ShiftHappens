@@ -181,6 +181,21 @@ function MyTasksIcon() {
 }
 
 /**
+ * A clock with an arrow turning back — the conventional "history" glyph, and
+ * deliberately not the plain clock used elsewhere in this file for scheduling.
+ * The two sit in the same menu and must not read as the same idea.
+ */
+function MyHistoryIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={iconClass}>
+      <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+      <polyline points="3 3 3 8 8 8" />
+      <polyline points="12 7 12 12 15 14" />
+    </svg>
+  );
+}
+
+/**
  * An award/medal, deliberately different from the shield used by the org-wide
  * Certifications page. A manager sees both entries, and giving them the same
  * glyph would make the personal list look like a duplicate of the review queue.
@@ -452,6 +467,10 @@ export function AppSidebar({
      */
     if (canBeRostered(role)) {
       overviewItems.push({ href: `/org/${orgId}/my-tasks`, label: "My Tasks", icon: MyTasksIcon });
+      // The record of finished shifts, which My Tasks deliberately keeps short:
+      // that page answers "am I on tonight", this one answers "what have I
+      // worked". Same `canBeRostered` gate as the rest of this group.
+      overviewItems.push({ href: `/org/${orgId}/my-history`, label: "My History", icon: MyHistoryIcon });
       overviewItems.push({ href: `/org/${orgId}/availability`, label: "My Availability", icon: AvailabilityIcon });
       // The org-wide Certifications page is a review queue for other people's;
       // it has no way to submit one of your own.

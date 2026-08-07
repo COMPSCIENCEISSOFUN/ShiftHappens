@@ -35,6 +35,7 @@ import { ctx, requestFor, bodyOf } from "../helpers/route";
 import {
   ORG_ROUTES,
   ROLE_GATED_ROUTES,
+  ROSTERABLE_ROUTES,
   SUSPENSION_ROUTES,
   SESSION_ROUTES,
   type RouteSpec,
@@ -188,6 +189,45 @@ describe("members below the required role are refused", () => {
     const res = await call(spec, tenant.orgId);
     expect(res!.status).toBe(403);
   });
+});
+
+/*
+ * The inverted gate. Every other role check in this file asks "is this member
+ * high enough"; these ask "will this member ever be on a shift", which an admin
+ * fails from above. Both directions are asserted, because a route that simply
+ * forgot the check would pass the first half on its own.
+ */
+describe("routes for rosterable members only", () => {
+  it("declares at least one", () => {
+    expect(ROSTERABLE_ROUTES.length).toBeGreaterThan(0);
+  });
+
+  it.each(ROSTERABLE_ROUTES.map((s) => [label(s), s] as const))(
+    "%s → 403 for an admin",
+    async (_name, spec) => {
+      asUser(tenant.admin.userId);
+      const res = await call(spec, tenant.orgId);
+      expect(res!.status).toBe(403);
+    }
+  );
+
+  it.each(ROSTERABLE_ROUTES.map((s) => [label(s), s] as const))(
+    "%s → allowed for staff",
+    async (_name, spec) => {
+      asUser(tenant.staff.userId);
+      const res = await call(spec, tenant.orgId);
+      expect(res!.status).toBe(200);
+    }
+  );
+
+  it.each(ROSTERABLE_ROUTES.map((s) => [label(s), s] as const))(
+    "%s → allowed for a manager",
+    async (_name, spec) => {
+      asUser(tenant.manager.userId);
+      const res = await call(spec, tenant.orgId);
+      expect(res!.status).toBe(200);
+    }
+  );
 });
 
 describe("suspended organisations are refused", () => {

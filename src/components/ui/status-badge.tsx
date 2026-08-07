@@ -110,6 +110,28 @@ const TEAM_STATUS_STYLES: Record<string, string> = {
     "bg-gray-50 text-gray-400 dark:bg-gray-900 dark:text-gray-500",
 };
 
+/**
+ * What became of a shift, on the member's own history page.
+ *
+ * Separate from ASSIGNMENT_STATUS_STYLES because it is answering a different
+ * question — see src/lib/shift-outcome.ts. The colours follow the tones stated
+ * there, which is why `cancelled` and `declined` are grey rather than red: a
+ * member's own record should not be tinted like a list of their failures for a
+ * shift a manager called off, or one they were entitled to turn down.
+ */
+const SHIFT_OUTCOME_STYLES: Record<string, string> = {
+  worked: "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300",
+  declined: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400",
+  withdrawn: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400",
+  cancelled: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400",
+  not_clocked_out:
+    "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300",
+  no_clock_in:
+    "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300",
+  unanswered:
+    "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300",
+};
+
 /* ------------------------------------------------------------------ */
 /*  Palette registry                                                   */
 /* ------------------------------------------------------------------ */
@@ -122,7 +144,8 @@ export type BadgePalette =
   | "tier"
   | "certification"
   | "membershipStatus"
-  | "teamStatus";
+  | "teamStatus"
+  | "shiftOutcome";
 
 const PALETTE_MAP: Record<BadgePalette, Record<string, string>> = {
   taskStatus: TASK_STATUS_STYLES,
@@ -133,6 +156,7 @@ const PALETTE_MAP: Record<BadgePalette, Record<string, string>> = {
   certification: CERTIFICATION_STYLES,
   membershipStatus: MEMBERSHIP_STATUS_STYLES,
   teamStatus: TEAM_STATUS_STYLES,
+  shiftOutcome: SHIFT_OUTCOME_STYLES,
 };
 
 const DEFAULT_STYLE =

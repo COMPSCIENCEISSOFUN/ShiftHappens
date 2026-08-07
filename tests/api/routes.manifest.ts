@@ -15,9 +15,17 @@
  * drifts from the code.
  *
  * ROLE VOCABULARY
- *   ADMIN    — company_admin only
- *   MANAGER  — company_admin or manager
- *   MEMBER   — any active membership, no role restriction
+ *   ADMIN      — company_admin only
+ *   MANAGER    — company_admin or manager
+ *   MEMBER     — any active membership, no role restriction
+ *   ROSTERABLE — staff or manager, and NOT company_admin
+ *
+ * ROSTERABLE is the one that does not fit the ladder. The other three widen as
+ * you go down it, so "is this role at least X" answers every one of them.
+ * Rostering is not a level of authority — an admin outranks a manager and is
+ * still excluded, because the question is whether the engine will ever put this
+ * person on a shift. `canBeRostered` in src/lib/role-config.ts is the same
+ * predicate the eligibility engine and the sidebar use.
  */
 
 export type AuthMode =
@@ -33,6 +41,14 @@ export type AuthMode =
 export const ADMIN = ["company_admin"] as const;
 export const MANAGER = ["company_admin", "manager"] as const;
 export const MEMBER = null;
+/**
+ * Staff and managers, excluding admins. Mirrors ROSTERABLE_ROLES.
+ *
+ * Not imported from src/lib/role-config so the manifest states the contract
+ * rather than restating the implementation — a change to the roster rule should
+ * make this file fail, not follow along silently.
+ */
+export const ROSTERABLE = ["staff", "manager"] as const;
 
 export interface RouteSpec {
   /** Path relative to src/app/api, without the trailing /route.ts */
@@ -114,6 +130,7 @@ export const ROUTES: RouteSpec[] = [
   }),
   // ADMIN, unlike seniority above. What days somebody is employed to work is a
   // term of employment, not a rostering call.
+  org("members/[userId]/contracted-days", "GET", ADMIN, { extraParams: ["userId"] }),
   org("members/[userId]/contracted-days", "PUT", ADMIN, {
     suspension: true,
     extraParams: ["userId"],
@@ -187,6 +204,13 @@ export const ROUTES: RouteSpec[] = [
 
   // ── Personal views ──────────────────────────────────────────────────
   org("my-tasks", "GET", MEMBER),
+  /*
+   * ROSTERABLE, not MEMBER. An admin's history is permanently empty — they are
+   * excluded from the eligibility engine, from assignStaff and from
+   * findSchedulableStaff — and an empty page saying "you have worked no shifts"
+   * gives the wrong reason for it.
+   */
+  org("my-history", "GET", ROSTERABLE),
   org("notifications", "GET", MEMBER),
   org("notifications/[id]/read", "PATCH", MEMBER, { extraParams: ["id"] }),
   org("notifications/mark-all-read", "POST", MEMBER),
@@ -312,7 +336,22 @@ export const DECLARED_PATHS = new Set(ROUTES.map((r) => r.path));
 /** Entries whose gates the contract sweep can drive. */
 export const SESSION_ROUTES = ROUTES.filter((r) => r.auth === "session");
 export const ORG_ROUTES = SESSION_ROUTES.filter((r) => r.orgScoped);
+/**
+ * Routes that refuse a plain staff member.
+ *
+ * Excludes ROSTERABLE routes, which name two roles and allow staff — running
+ * them through the "403 for staff" sweep would assert the opposite of their
+ * contract. They have their own sweep below.
+ */
 export const ROLE_GATED_ROUTES = ORG_ROUTES.filter(
-  (r) => Array.isArray(r.roles) && r.roles.length > 0
+  (r) =>
+    Array.isArray(r.roles) &&
+    r.roles.length > 0 &&
+    !r.roles.includes("staff")
+);
+
+/** Routes open to anyone who can be put on a shift, and closed to admins. */
+export const ROSTERABLE_ROUTES = ORG_ROUTES.filter(
+  (r) => Array.isArray(r.roles) && r.roles.includes("staff") && !r.roles.includes("company_admin")
 );
 export const SUSPENSION_ROUTES = ORG_ROUTES.filter((r) => r.suspension);

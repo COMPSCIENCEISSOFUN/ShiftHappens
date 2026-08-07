@@ -17,6 +17,7 @@
  */
 import { reasonLabel } from "@/lib/decline-reasons";
 import { isFullTime } from "@/lib/role-config";
+import { shiftOutcome, workedHours } from "@/lib/shift-outcome";
 import { TaskAssignmentRepository } from "@/repositories/task-assignment.repository";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 import { NotificationService, NOTIFICATION_TYPES } from "@/services/notification.service";
@@ -608,5 +609,114 @@ export class TaskAssignmentService {
     );
 
     return result;
+  }
+
+  /**
+   * A member's own shift history — one page of rows, plus totals for the range.
+   *
+   * ## Whose history
+   *
+   * Their own, always. `membershipId` comes from the session at the boundary
+   * and is never read from the query string, so there is no shape of this
+   * request that returns somebody else's record. A manager wanting to see a
+   * team member's history is a different feature with a different permission,
+   * and building it as a parameter here would have made the two one URL apart.
+   *
+   * ## Why the totals are computed here
+   *
+   * They are derived facts, not stored ones, and Control is where derivation
+   * belongs — the same figures are wanted by the page, and would be wanted by
+   * an export or a payslip check, and three copies of "which statuses count as
+   * worked" is how the headcount definitions drifted.
+   *
+   * ## Hours that are not counted
+   *
+   * `hoursWorked` sums complete clock pairs and nothing else. A shift clocked
+   * into and never out of contributes nothing, and `shiftsMissingHours` says
+   * how many did that, so the total can be short without being unexplained.
+   * The alternative — falling back to the scheduled span — would produce a
+   * number that looks like measured time and is not, on exactly the rows where
+   * the difference matters.
+   */
+  async getHistory(
+    membershipId: string,
+    options: { from?: Date; to?: Date; page?: number; pageSize?: number } = {}
+  ) {
+    const pageSize = Math.min(Math.max(options.pageSize ?? 20, 1), 100);
+    const page = Math.max(options.page ?? 1, 1);
+
+    if (options.from && options.to && options.from > options.to) {
+      throw new Error("The start of the range must come before the end");
+    }
+
+    const range = { from: options.from, to: options.to };
+
+    const [{ rows, total }, all] = await Promise.all([
+      this.assignmentRepo.findHistoryForMember(membershipId, {
+        ...range,
+        take: pageSize,
+        skip: (page - 1) * pageSize,
+      }),
+      this.assignmentRepo.summariseHistoryForMember(membershipId, range),
+    ]);
+
+    let hoursWorked = 0;
+    let shiftsWorked = 0;
+    let shiftsMissingHours = 0;
+    let ratingTotal = 0;
+    let ratedShifts = 0;
+
+    for (const row of all) {
+      const outcome = shiftOutcome({ ...row, task: { status: "" } });
+      /*
+       * `task.status` is not selected by the summary query, so the cancelled
+       * branch cannot fire here — which is deliberate rather than an oversight
+       * being papered over. Every figure below is about work done or not done,
+       * and `worked` is decided before cancellation is even consulted, so the
+       * one branch the summary cannot reach is the one it does not need.
+       */
+      if (outcome === "worked") {
+        shiftsWorked++;
+        const hours = workedHours(row);
+        if (hours === null) shiftsMissingHours++;
+        else hoursWorked += hours;
+      } else if (outcome === "not_clocked_out") {
+        shiftsMissingHours++;
+      }
+
+      if (row.satisfactionRating !== null) {
+        ratingTotal += row.satisfactionRating;
+        ratedShifts++;
+      }
+    }
+
+    return {
+      rows: rows.map((row) => ({
+        ...row,
+        outcome: shiftOutcome(row),
+        hoursWorked: workedHours(row),
+      })),
+      page,
+      pageSize,
+      total,
+      totalPages: Math.max(1, Math.ceil(total / pageSize)),
+      summary: {
+        shiftsInRange: all.length,
+        shiftsWorked,
+        // One decimal. Payroll-grade precision on a figure derived from a
+        // button somebody presses on the way out of the door would be a
+        // precision the underlying data does not have.
+        hoursWorked: Math.round(hoursWorked * 10) / 10,
+        shiftsMissingHours,
+        ratedShifts,
+        // Null, not 0. An unrated history has no average, and printing 0.0 out
+        // of 5 would read as "you rate every shift terribly".
+        averageRating:
+          ratedShifts > 0 ? Math.round((ratingTotal / ratedShifts) * 10) / 10 : null,
+        // Clamped. Ratings are only accepted on worked shifts, but a row
+        // predating that rule would otherwise show "-1 shifts left to rate".
+        unratedWorkedShifts: Math.max(0, shiftsWorked - ratedShifts),
+      },
+    };
   }
 }

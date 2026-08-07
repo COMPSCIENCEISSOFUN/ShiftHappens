@@ -9,7 +9,10 @@
  * Security: Prisma parameterized queries prevent SQL injection.
  */
 import { prisma } from "@/lib/prisma";
-import { occupyingStatusFilter } from "@/lib/assignment-status";
+import {
+  occupyingStatusFilter,
+  RELEASED_STATUSES,
+} from "@/lib/assignment-status";
 
 export class TaskAssignmentRepository {
   /** Creates a new task assignment with pending status */
@@ -521,6 +524,148 @@ export class TaskAssignmentRepository {
         },
       },
       select: { clockInTime: true, clockOutTime: true },
+    });
+  }
+
+  /**
+   * Which rows count as a member's history. Shared by the list and the totals.
+   *
+   * ## "Over for this member", not "in the past"
+   *
+   * Three ways a shift leaves their plate, and they are not the same set:
+   *
+   *  - the shift ENDED. Whatever state the row is in — completed, or accepted
+   *    and never clocked out because somebody forgot — it is not upcoming, and
+   *    a history that hid the forgotten ones would hide exactly the rows worth
+   *    looking at;
+   *  - they GAVE THE SLOT BACK. `RELEASED_STATUSES` — rejected or withdrawn.
+   *    That is a past event in their record even when the shift itself is next
+   *    Tuesday, and it is no longer something they have to turn up for;
+   *  - the shift was CANCELLED. The assignment keeps whatever status it had, so
+   *    without this a cancelled future shift would fall in history's blind
+   *    spot: gone from the upcoming list, absent from the record of what
+   *    happened.
+   *
+   * A pending assignment on an unscheduled task satisfies none of the three and
+   * stays out, which is right — nothing about it has happened yet.
+   *
+   * ## Why this is one function
+   *
+   * The list is paged and the totals are not, so they cannot share a query. If
+   * they did not share the DEFINITION, "12 shifts, 47 hours" would eventually
+   * describe a different set of rows than the twelve printed underneath it, and
+   * nothing about either number would look wrong.
+   */
+  private historyWhere(
+    membershipId: string,
+    options: { from?: Date; to?: Date },
+    now: Date
+  ) {
+    /*
+     * The range filters the SHIFT's date, so "last 30 days" means 30 days of
+     * roster rather than 30 days of data entry. It nests under `AND` rather
+     * than a second top-level `task` key, which would overwrite nothing here
+     * today but would silently drop a `task` condition the moment one is added
+     * outside the `OR`.
+     */
+    const range =
+      options.from || options.to
+        ? [
+            {
+              task: {
+                scheduledStart: {
+                  ...(options.from ? { gte: options.from } : {}),
+                  ...(options.to ? { lte: options.to } : {}),
+                },
+              },
+            },
+          ]
+        : [];
+
+    return {
+      membershipId,
+      OR: [
+        { task: { scheduledEnd: { lt: now } } },
+        { status: { in: [...RELEASED_STATUSES] } },
+        { task: { status: "cancelled" } },
+      ],
+      AND: range,
+    };
+  }
+
+  /**
+   * One page of a member's finished shifts, newest first.
+   *
+   * Ordered by the shift's own start rather than `createdAt`: a history is read
+   * as a diary, and rows entered out of order — a manager backfilling last week
+   * — would otherwise interleave with this week's. `createdAt` and `id` break
+   * the tie so the order is total, without which paging can repeat or skip a
+   * row.
+   *
+   * Unscheduled tasks sort last. Postgres puts NULLs first on DESC, which would
+   * open every member's history with the rows that have no date on them.
+   */
+  async findHistoryForMember(
+    membershipId: string,
+    options: { from?: Date; to?: Date; take: number; skip: number },
+    now: Date = new Date()
+  ) {
+    const where = this.historyWhere(membershipId, options, now);
+
+    const [rows, total] = await Promise.all([
+      prisma.taskAssignment.findMany({
+        where,
+        include: {
+          task: {
+            select: {
+              id: true,
+              title: true,
+              status: true,
+              priority: true,
+              scheduledStart: true,
+              scheduledEnd: true,
+              // Colour travels with the name everywhere a task is read — the
+              // department chip cannot be drawn without it.
+              department: { select: { id: true, name: true, color: true } },
+            },
+          },
+        },
+        orderBy: [
+          { task: { scheduledStart: { sort: "desc", nulls: "last" } } },
+          { createdAt: "desc" },
+          { id: "desc" },
+        ],
+        take: options.take,
+        skip: options.skip,
+      }),
+      prisma.taskAssignment.count({ where }),
+    ]);
+
+    return { rows, total };
+  }
+
+  /**
+   * The same rows, reduced to the columns the totals need.
+   *
+   * Unpaged on purpose. Deriving the totals from the page would make "12
+   * shifts, 47 hours" mean "12 shifts on this page" — a figure that changes
+   * when you click next, which is the kind of number a reader trusts precisely
+   * because they assume it cannot.
+   */
+  async summariseHistoryForMember(
+    membershipId: string,
+    options: { from?: Date; to?: Date },
+    now: Date = new Date()
+  ) {
+    return prisma.taskAssignment.findMany({
+      where: this.historyWhere(membershipId, options, now),
+      select: {
+        status: true,
+        clockInTime: true,
+        clockOutTime: true,
+        satisfactionRating: true,
+        task: { select: { scheduledStart: true, scheduledEnd: true } },
+      },
     });
   }
 }

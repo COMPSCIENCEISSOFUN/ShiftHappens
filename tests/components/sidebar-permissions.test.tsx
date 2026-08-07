@@ -109,7 +109,12 @@ describe("every gated link needs its permission", () => {
   );
 });
 
-const PERSONAL_PAGES = ["My Tasks", "My Availability", "My Certifications"];
+const PERSONAL_PAGES = [
+  "My Tasks",
+  "My History",
+  "My Availability",
+  "My Certifications",
+];
 
 describe("personal pages belong to anyone who can be rostered", () => {
   /**
