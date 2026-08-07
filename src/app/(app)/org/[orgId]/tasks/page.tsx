@@ -34,7 +34,7 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { toDateTimeLocalValue } from "@/lib/timezone";
 import { ClipboardList, MapPin } from "lucide-react";
-
+import Link from "next/link";
 // ============================================================
 // Constants
 // ============================================================
@@ -225,23 +225,65 @@ export default function TasksPage() {
   // ── Data fetching ────────────────────────────────
 
   const fetchTasks = useCallback(async (append = false) => {
-    if (append) setLoadingMoreTasks(true);
+    if (append) {
+      setLoadingMoreTasks(true);
+    }
+
     try {
-      const offset = append ? tasksRef.current.length : 0;
-      const res = await fetch(`/api/organizations/${orgId}/tasks?limit=50&offset=${offset}`);
+      const offset = append
+        ? tasksRef.current.length
+        : 0;
+
+      const query = new URLSearchParams({
+        limit: "50",
+        offset: String(offset),
+      });
+
+      if (typeof window !== "undefined") {
+        const pageQuery = new URLSearchParams(
+          window.location.search
+        );
+
+        const projectId =
+          pageQuery.get("projectId");
+
+        if (projectId) {
+          query.set("projectId", projectId);
+        }
+      }
+
+      const res = await fetch(
+        `/api/organizations/${orgId}/tasks?${query.toString()}`
+      );
+
       const data = await res.json();
+
       if (!res.ok || !Array.isArray(data)) {
         setTasks([]);
-        setError(data?.error || "Failed to load tasks");
+        setError(
+          data?.error || "Failed to load tasks"
+        );
         return;
       }
+
       setTasks((current) => {
-        const next = append ? [...current, ...data] : data;
+        const next = append
+          ? [...current, ...data]
+          : data;
+
         tasksRef.current = next;
         return next;
       });
-      setTotalTasks(Number(res.headers.get("X-Total-Count")) || data.length);
-      setHasMoreTasks(res.headers.get("X-Has-More") === "true");
+
+      setTotalTasks(
+        Number(
+          res.headers.get("X-Total-Count")
+        ) || data.length
+      );
+
+      setHasMoreTasks(
+        res.headers.get("X-Has-More") === "true"
+      );
     } catch {
       setError("Failed to load tasks");
     } finally {
@@ -1170,8 +1212,33 @@ export default function TasksPage() {
 
                     {/* ── Badges ──────────────────── */}
                     <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                      <StatusBadge value={task.status} palette="taskStatus" />
-                      <StatusBadge value={task.priority} palette="priority" />
+                      <StatusBadge
+                        value={task.status}
+                        palette="taskStatus"
+                      />
+
+                      <StatusBadge
+                        value={task.priority}
+                        palette="priority"
+                      />
+                      {task.project && (
+                        <Link
+                          href={`/org/${orgId}/projects/${task.project.id}`}
+                          onClick={(event) =>
+                            event.stopPropagation()
+                          }
+                          className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700 transition hover:bg-indigo-100 dark:border-indigo-800 dark:bg-indigo-950 dark:text-indigo-300"
+                        >
+                          Project ·{" "}
+                          {task.project.title}
+                        </Link>
+                      )}
+                      {task.project && (
+                        <span className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700 dark:border-indigo-800 dark:bg-indigo-950 dark:text-indigo-300">
+                          Project: {task.project.title}
+                        </span>
+                      )}
+
                       {task.isRecurring && (
                         <span
                           className="rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[11px] font-medium text-violet-700 dark:border-violet-800 dark:bg-violet-950 dark:text-violet-300"

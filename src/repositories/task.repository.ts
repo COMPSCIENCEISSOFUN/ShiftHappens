@@ -123,16 +123,33 @@ export class TaskRepository {
    */
   async findByOrganizationId(
     organizationId: string,
-    filters?: { status?: string; departmentId?: string; priority?: string; departmentIds?: string[] },
+    filters?: {
+      status?: string;
+      departmentId?: string;
+      priority?: string;
+      projectId?: string;
+      departmentIds?: string[];
+    },
     pagination?: { limit: number; offset: number }
   ) {
     return prisma.task.findMany({
       where: {
         organizationId,
-        ...(filters?.status && { status: filters.status }),
-        ...(filters?.departmentId && { departmentId: filters.departmentId }),
-        ...(filters?.priority && { priority: filters.priority }),
-        ...(filters?.departmentIds && { departmentId: { in: filters.departmentIds } }),
+        ...(filters?.status && {
+          status: filters.status,
+        }),
+        ...(filters?.departmentId && {
+          departmentId: filters.departmentId,
+        }),
+        ...(filters?.priority && {
+          priority: filters.priority,
+        }),
+        ...(filters?.projectId && {
+          projectId: filters.projectId,
+        }),
+        ...(filters?.departmentIds && {
+          departmentId: { in: filters.departmentIds },
+        }),
       },
       include: {
         department: { select: { id: true, name: true, color: true } },
@@ -153,15 +170,32 @@ export class TaskRepository {
 
   async countByOrganizationId(
     organizationId: string,
-    filters?: { status?: string; departmentId?: string; priority?: string; departmentIds?: string[] }
+    filters?: {
+      status?: string;
+      departmentId?: string;
+      priority?: string;
+      projectId?: string;
+      departmentIds?: string[];
+    }
   ) {
     return prisma.task.count({
       where: {
         organizationId,
-        ...(filters?.status && { status: filters.status }),
-        ...(filters?.departmentId && { departmentId: filters.departmentId }),
-        ...(filters?.priority && { priority: filters.priority }),
-        ...(filters?.departmentIds && { departmentId: { in: filters.departmentIds } }),
+        ...(filters?.status && {
+          status: filters.status,
+        }),
+        ...(filters?.departmentId && {
+          departmentId: filters.departmentId,
+        }),
+        ...(filters?.priority && {
+          priority: filters.priority,
+        }),
+        ...(filters?.projectId && {
+          projectId: filters.projectId,
+        }),
+        ...(filters?.departmentIds && {
+          departmentId: { in: filters.departmentIds },
+        }),
       },
     });
   }

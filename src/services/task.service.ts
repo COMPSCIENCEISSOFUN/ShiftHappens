@@ -44,16 +44,30 @@ export class TaskService {
 
     await this.assertDepartmentInOrganization(input.departmentId, orgId);
 
-    let projectDepartmentId: string | null = null;
+    let projectContext: {
+      departmentId: string | null;
+      priority: string;
+      status: string;
+      plannedStart: Date | null;
+      plannedEnd: Date | null;
+    } | null = null;
+
     if (input.projectId) {
-      const project = await prisma.project.findUnique({
-        where: { id: input.projectId },
-        select: { organizationId: true, departmentId: true },
-      });
-      if (!project || project.organizationId !== orgId) throw new Error("Project not found");
-      projectDepartmentId = project.departmentId;
-      if (input.departmentId && projectDepartmentId && input.departmentId !== projectDepartmentId) {
-        throw new Error("Task department must match its project department");
+      projectContext = await this.getProjectContext(
+        input.projectId,
+        orgId
+      );
+
+      this.assertProjectAcceptsWorkItems(projectContext);
+
+      if (
+        input.departmentId &&
+        projectContext.departmentId &&
+        input.departmentId !== projectContext.departmentId
+      ) {
+        throw new Error(
+          "Task department must match its project department"
+        );
       }
     }
     
@@ -64,8 +78,17 @@ export class TaskService {
     if (input.scheduledStart && input.scheduledEnd) {
       const start = new Date(input.scheduledStart);
       const end = new Date(input.scheduledEnd);
+
       if (end <= start) {
         throw new Error("End time must be after start time");
+      }
+
+      if (projectContext) {
+        this.assertWorkItemWithinProjectTimeframe(
+          projectContext,
+          input.scheduledStart,
+          input.scheduledEnd
+        );
       }
     }
 
@@ -86,11 +109,11 @@ export class TaskService {
       location: input.location,
       instructions: input.instructions,
       organizationId: orgId,
-      departmentId: input.departmentId ?? projectDepartmentId ?? undefined,
+      departmentId: input.departmentId ?? projectContext?.departmentId ?? undefined,
       projectId: input.projectId,
       requiredHeadcount: input.requiredHeadcount,
       requiredCertifications: input.requiredCertifications,
-      priority: input.priority,
+      priority: input.priority ?? projectContext?.priority ?? undefined,
       scheduledStart: input.scheduledStart ? new Date(input.scheduledStart) : undefined,
       scheduledEnd: input.scheduledEnd ? new Date(input.scheduledEnd) : undefined,
       isRecurring: input.isRecurring,
@@ -162,7 +185,12 @@ export class TaskService {
    */
   async getByOrganization(
     organizationId: string,
-    filters?: { status?: string; departmentId?: string; priority?: string },
+    filters?: {
+      status?: string;
+      departmentId?: string;
+      priority?: string;
+      projectId?: string;
+    },
     departmentScope?: string[] | null
   ) {
     const tasks = await this.taskRepo.findByOrganizationId(organizationId, filters);
@@ -209,6 +237,38 @@ export class TaskService {
       const end = new Date(newEnd);
       if (end <= start) {
         throw new Error("End time must be after start time");
+      }
+    }
+
+    if (task.projectId) {
+      const projectContext = await this.getProjectContext(
+        task.projectId,
+        orgId
+      );
+
+      this.assertProjectAcceptsWorkItems(projectContext);
+
+      const nextDepartmentId =
+        input.departmentId ??
+        task.departmentId ??
+        undefined;
+
+      if (
+        nextDepartmentId &&
+        projectContext.departmentId &&
+        nextDepartmentId !== projectContext.departmentId
+      ) {
+        throw new Error(
+          "Task department must match its project department"
+        );
+      }
+
+      if (newStart && newEnd) {
+        this.assertWorkItemWithinProjectTimeframe(
+          projectContext,
+          newStart,
+          newEnd
+        );
       }
     }
 
@@ -398,7 +458,12 @@ export class TaskService {
 
   async getPageByOrganization(
     organizationId: string,
-    filters: { status?: string; departmentId?: string; priority?: string },
+    filters: {
+      status?: string;
+      departmentId?: string;
+      priority?: string;
+      projectId?: string;
+    },
     departmentScope: string[] | null,
     limit: number,
     offset: number
@@ -413,7 +478,73 @@ export class TaskService {
     ]);
     return { tasks, total };
   }
+  private async getProjectContext(
+    projectId: string,
+    organizationId: string
+  ) {
+    const project = await prisma.project.findFirst({
+      where: {
+        id: projectId,
+        organizationId,
+      },
+      select: {
+        departmentId: true,
+        priority: true,
+        status: true,
+        plannedStart: true,
+        plannedEnd: true,
+      },
+    });
 
+    if (!project) {
+      throw new Error("Project not found");
+    }
+
+    return project;
+  }
+
+  private assertProjectAcceptsWorkItems(project: {
+    status: string;
+  }) {
+    if (
+      project.status === "completed" ||
+      project.status === "cancelled"
+    ) {
+      throw new Error(
+        "Cannot add or update work items in a completed or cancelled project"
+      );
+    }
+  }
+
+  private assertWorkItemWithinProjectTimeframe(
+    project: {
+      plannedStart: Date | null;
+      plannedEnd: Date | null;
+    },
+    scheduledStart: string,
+    scheduledEnd: string
+  ) {
+    const workStart = new Date(scheduledStart);
+    const workEnd = new Date(scheduledEnd);
+
+    if (
+      project.plannedStart &&
+      workStart < project.plannedStart
+    ) {
+      throw new Error(
+        "Work item schedule must stay within the project timeframe"
+      );
+    }
+
+    if (
+      project.plannedEnd &&
+      workEnd > project.plannedEnd
+    ) {
+      throw new Error(
+        "Work item schedule must stay within the project timeframe"
+      );
+    }
+  }
   private async assertDepartmentInOrganization(
     departmentId: string | undefined,
     organizationId: string

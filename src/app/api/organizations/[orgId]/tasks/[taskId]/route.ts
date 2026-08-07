@@ -84,13 +84,34 @@ export async function PATCH(
   } catch (error) {
     if (error instanceof Error) {
       if (error.message === "Task not found") {
-        return NextResponse.json({ error: error.message }, { status: 404 });
+        return NextResponse.json(
+          { error: error.message },
+          { status: 404 }
+        );
       }
-      if (error.message.includes("start and end time") || error.message.includes("End time must be after")) {
-        return NextResponse.json({ error: error.message }, { status: 400 });
+
+      const badRequestMessages = new Set([
+        "Must provide both start and end time, or clear both",
+        "End time must be after start time",
+        "Department not found",
+        "Project not found",
+        "Task department must match its project department",
+        "Cannot add or update work items in a completed or cancelled project",
+        "Work item schedule must stay within the project timeframe",
+      ]);
+
+      if (badRequestMessages.has(error.message)) {
+        return NextResponse.json(
+          { error: error.message },
+          { status: 400 }
+        );
       }
     }
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 }
+    );
   }
 }
 

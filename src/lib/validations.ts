@@ -270,6 +270,11 @@ export const createProjectSchema = z.object({
   description: z.string().trim().max(4000).optional(),
   departmentId: z.string().optional(),
   priority: z.enum(["low", "medium", "high", "urgent"]).optional(),
+
+  staffingMode: z
+    .enum(["task_based", "project_team"])
+    .default("task_based"),
+
   plannedStart: z.string().datetime().optional(),
   plannedEnd: z.string().datetime().optional(),
 });
@@ -279,9 +284,38 @@ export const updateProjectSchema = z.object({
   description: z.string().trim().max(4000).optional(),
   departmentId: z.string().optional(),
   priority: z.enum(["low", "medium", "high", "urgent"]).optional(),
-  status: z.enum(["planning", "active", "on_hold", "completed", "cancelled"]).optional(),
-  plannedStart: z.string().datetime().optional().or(z.literal("")),
-  plannedEnd: z.string().datetime().optional().or(z.literal("")),
+
+  staffingMode: z
+    .enum(["task_based", "project_team"])
+    .optional(),
+
+  status: z
+    .enum([
+      "planning",
+      "active",
+      "on_hold",
+      "completed",
+      "cancelled",
+    ])
+    .optional(),
+
+  plannedStart: z
+    .string()
+    .datetime()
+    .optional()
+    .or(z.literal("")),
+
+  plannedEnd: z
+    .string()
+    .datetime()
+    .optional()
+    .or(z.literal("")),
+});
+
+export const setProjectTeamSchema = z.object({
+  membershipIds: z
+    .array(z.string().min(1))
+    .max(100, "A project team cannot contain more than 100 members"),
 });
 
 const autoScheduleAssignmentReferenceSchema = z

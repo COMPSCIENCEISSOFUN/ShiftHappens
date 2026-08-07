@@ -99,6 +99,7 @@ model Membership {
   customRole            Role? @relation("MembershipCustomRole", fields: [customRoleId], references: [id], onDelete: SetNull)
   departmentMemberships DepartmentMembership[]
   taskAssignments       TaskAssignment[]
+  projectMemberships    ProjectMember[]
   availabilities        Availability[]
   availabilityOverrides AvailabilityOverride[]
   certifications        Certification[]
@@ -578,18 +579,50 @@ model Project {
   description    String?
   status         String   @default("planning")
   priority       String   @default("medium")
+
+  // task_based:
+  // Every work item is allocated independently from all eligible staff.
+  //
+  // project_team:
+  // A persistent Project Team is maintained and smart allocation for
+  // project work items only considers eligible members of that team.
+  staffingMode   String   @default("task_based")
+
   plannedStart   DateTime?
   plannedEnd     DateTime?
   createdById    String
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  department   Department?  @relation(fields: [departmentId], references: [id], onDelete: SetNull)
-  createdBy    User         @relation("ProjectCreator", fields: [createdById], references: [id])
-  tasks        Task[]
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  department     Department?     @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  createdBy      User            @relation("ProjectCreator", fields: [createdById], references: [id])
+
+  tasks          Task[]
+  projectMembers ProjectMember[]
 
   @@index([organizationId])
   @@index([departmentId])
+  @@index([staffingMode])
   @@index([plannedStart, plannedEnd])
+}
+
+/**
+ * Long-running membership of a Project Team.
+ *
+ * This does NOT reserve the staff member's calendar for the whole project.
+ * Scheduling conflicts continue to come from actual TaskAssignments.
+ */
+model ProjectMember {
+  id           String   @id @default(cuid())
+  projectId    String
+  membershipId String
+  createdAt    DateTime @default(now())
+
+  project      Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  membership   Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, membershipId])
+  @@index([projectId])
+  @@index([membershipId])
 }

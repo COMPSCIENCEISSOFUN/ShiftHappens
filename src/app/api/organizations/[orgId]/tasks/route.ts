@@ -68,14 +68,21 @@ export async function POST(
     //
     // Source: task.service.ts create() — lines 43, 50, 58, 61.
     if (
-      error instanceof Error &&
-      (error.message === "End time must be after start time" ||
-        error.message === "Must provide both start and end time, or neither" ||
-        error.message === "A recurring task must have a start and end time" ||
-        error.message === "Invalid recurrence pattern" ||
-        error.message === "Project not found" ||
-        error.message === "Task department must match its project department")
-    ) {
+    error instanceof Error &&
+    (
+      error.message === "End time must be after start time" ||
+      error.message === "Must provide both start and end time, or neither" ||
+      error.message === "A recurring task must have a start and end time" ||
+      error.message === "Invalid recurrence pattern" ||
+      error.message === "Project not found" ||
+      error.message === "Department not found" ||
+      error.message === "Task department must match its project department" ||
+      error.message ===
+        "Cannot add or update work items in a completed or cancelled project" ||
+      error.message ===
+        "Work item schedule must stay within the project timeframe"
+    )
+  ) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
@@ -99,9 +106,14 @@ export async function GET(
 
     const { searchParams } = new URL(request.url);
     const filters = {
-      status: searchParams.get("status") || undefined,
-      departmentId: searchParams.get("departmentId") || undefined,
-      priority: searchParams.get("priority") || undefined,
+      status:
+        searchParams.get("status") || undefined,
+      departmentId:
+        searchParams.get("departmentId") || undefined,
+      priority:
+        searchParams.get("priority") || undefined,
+      projectId:
+        searchParams.get("projectId") || undefined,
     };
 
     // Managers see only their department(s); company admins see everything.

@@ -67,69 +67,242 @@ export class AllocationService {
   async getSuggestions(
     taskId: string,
     organizationId: string,
-    options?: { excludeMembershipIds?: string[] }
+    options?: {
+      excludeMembershipIds?: string[];
+    }
   ): Promise<RankedStaff[]> {
-    const task = await this.taskRepo.findById(taskId);
-    if (!task || task.organizationId !== organizationId) throw new Error("Task not found");
+    const task =
+      await this.taskRepo.findById(
+        taskId
+      );
 
-    const eligibility = await this.eligibilityService.checkEligibilityForTask(
-      taskId,
-      organizationId
-    );
+    if (
+      !task ||
+      task.organizationId !==
+        organizationId
+    ) {
+      throw new Error(
+        "Task not found"
+      );
+    }
 
-    const excludedMembershipIds = new Set(options?.excludeMembershipIds ?? []);
-    const eligibleStaff = eligibility.filter(
-      (e) => e.eligible && !excludedMembershipIds.has(e.membershipId)
-    );
+    const eligibility =
+      await this.eligibilityService.checkEligibilityForTask(
+        taskId,
+        organizationId
+      );
 
-    if (eligibleStaff.length === 0) {
+    const excludedMembershipIds =
+      new Set(
+        options?.excludeMembershipIds ??
+          []
+      );
+
+    /*
+    * Project Team Mode:
+    *
+    * The Project Team is a persistent
+    * candidate pool.
+    *
+    * Normal eligibility STILL runs first.
+    * Being on the team never bypasses:
+    *
+    * - availability
+    * - schedule conflicts
+    * - hour limits
+    * - certifications
+    * - department rules
+    *
+    * It only narrows WHO may be ranked.
+    */
+    let allowedProjectTeamIds:
+      | Set<string>
+      | null = null;
+
+    if (task.projectId) {
+      const project =
+        await prisma.project.findFirst({
+          where: {
+            id: task.projectId,
+            organizationId,
+          },
+
+          select: {
+            staffingMode: true,
+
+            projectMembers: {
+              select: {
+                membershipId: true,
+              },
+            },
+          },
+        });
+
+      if (
+        project?.staffingMode ===
+        "project_team"
+      ) {
+        allowedProjectTeamIds =
+          new Set(
+            project.projectMembers.map(
+              (member) =>
+                member.membershipId
+            )
+          );
+      }
+    }
+
+    const eligibleStaff =
+      eligibility.filter((entry) => {
+        if (!entry.eligible) {
+          return false;
+        }
+
+        if (
+          excludedMembershipIds.has(
+            entry.membershipId
+          )
+        ) {
+          return false;
+        }
+
+        /*
+        * task_based project:
+        * no restriction.
+        *
+        * project_team project:
+        * only team members survive.
+        */
+        if (
+          allowedProjectTeamIds &&
+          !allowedProjectTeamIds.has(
+            entry.membershipId
+          )
+        ) {
+          return false;
+        }
+
+        return true;
+      });
+
+    if (
+      eligibleStaff.length === 0
+    ) {
       return [];
     }
 
-    const settings = await this.settingsRepo.getOrCreate(organizationId);
-    const weights = parseAllocationWeights(settings.smartAllocationWeights);
-    const candidates = await this.buildCandidates(
-      eligibleStaff.map((staff) => ({
-        membershipId: staff.membershipId,
-        name: staff.memberName,
-      })),
-      settings.breakRuleHoursWorked,
-      task.departmentId
-    );
+    const settings =
+      await this.settingsRepo.getOrCreate(
+        organizationId
+      );
 
-    const rankings = await this.rankWithFailover(
-      {
-        title: task.title,
-        department: task.department?.name || null,
-        priority: task.priority,
-        scheduledStart: task.scheduledStart?.toISOString() || null,
-        scheduledEnd: task.scheduledEnd?.toISOString() || null,
-        requiredHeadcount: task.requiredHeadcount,
-      },
-      candidates,
-      weights
-    );
+    const weights =
+      parseAllocationWeights(
+        settings.smartAllocationWeights
+      );
 
-    // AI output is advisory. Only server-verified candidates may survive, and
-    // a provider cannot duplicate or invent membership IDs.
-    const eligibleIds = new Set(candidates.map((candidate) => candidate.membershipId));
-    const seen = new Set<string>();
-    const factorExplanations = new Map(
-      FallbackRanker.rank(candidates, weights).map((ranking) => [
-        ranking.membershipId,
-        ranking.explanation,
-      ])
-    );
-    return rankings.filter((ranking) => {
-      if (!eligibleIds.has(ranking.membershipId) || seen.has(ranking.membershipId)) {
-        return false;
-      }
-      seen.add(ranking.membershipId);
-      return true;
-    }).map((ranking) => ({
-      ...ranking,
-      explanation: factorExplanations.get(ranking.membershipId) ?? ranking.explanation,
-    }));
+    const candidates =
+      await this.buildCandidates(
+        eligibleStaff.map(
+          (staff) => ({
+            membershipId:
+              staff.membershipId,
+
+            name:
+              staff.memberName,
+          })
+        ),
+
+        settings.breakRuleHoursWorked,
+
+        task.departmentId
+      );
+
+    const rankings =
+      await this.rankWithFailover(
+        {
+          title: task.title,
+
+          department:
+            task.department?.name ||
+            null,
+
+          priority:
+            task.priority,
+
+          scheduledStart:
+            task.scheduledStart?.toISOString() ||
+            null,
+
+          scheduledEnd:
+            task.scheduledEnd?.toISOString() ||
+            null,
+
+          requiredHeadcount:
+            task.requiredHeadcount,
+        },
+
+        candidates,
+        weights
+      );
+
+    /*
+    * AI output remains advisory.
+    *
+    * It cannot invent workers or return
+    * workers excluded by eligibility/team
+    * restrictions.
+    */
+    const eligibleIds =
+      new Set(
+        candidates.map(
+          (candidate) =>
+            candidate.membershipId
+        )
+      );
+
+    const seen =
+      new Set<string>();
+
+    const factorExplanations =
+      new Map(
+        FallbackRanker.rank(
+          candidates,
+          weights
+        ).map((ranking) => [
+          ranking.membershipId,
+          ranking.explanation,
+        ])
+      );
+
+    return rankings
+      .filter((ranking) => {
+        if (
+          !eligibleIds.has(
+            ranking.membershipId
+          ) ||
+          seen.has(
+            ranking.membershipId
+          )
+        ) {
+          return false;
+        }
+
+        seen.add(
+          ranking.membershipId
+        );
+
+        return true;
+      })
+      .map((ranking) => ({
+        ...ranking,
+
+        explanation:
+          factorExplanations.get(
+            ranking.membershipId
+          ) ??
+          ranking.explanation,
+      }));
   }
 
   /**
