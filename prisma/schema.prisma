@@ -370,6 +370,23 @@ model TaskAssignment {
   // otherwise fill with zero-second responses nobody actually made.
   acceptedAt            DateTime?
   rejectedAt            DateTime?
+
+  // --- Clock correction --------------------------------------------------
+  // A missed clock-out loses the hours, and until these existed nobody could
+  // amend it — the member's history said the shift was not counted and offered
+  // no way to fix it.
+  //
+  // The FACT of a correction lives here so the member can see it on their own
+  // history without an audit-log page they may not have a plan for. The BEFORE
+  // and AFTER values live in the audit row, which is where a value nobody
+  // should be able to quietly restate belongs.
+  //
+  // `clockCorrectedAt` rather than reading `updatedAt`: every later transition
+  // overwrites that column, which is exactly why acceptedAt and rejectedAt
+  // exist above.
+  clockCorrectedAt      DateTime?
+  clockCorrectedById    String?
+  clockCorrectionReason String?
   // Notice given before dropping out of an accepted shift. Separate from the
   // two above because it answers a different question — not "how quickly do
   // they reply" but "how much warning do we get", which is the counterpart to

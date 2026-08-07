@@ -36,6 +36,7 @@ import {
   ChevronRight,
   History,
   Inbox,
+  PencilLine,
   Search,
   Star,
 } from "lucide-react";
@@ -75,6 +76,8 @@ interface HistoryRow {
   withdrawalNotes: string | null;
   satisfactionRating: number | null;
   satisfactionComment: string | null;
+  clockCorrectedAt: string | null;
+  clockCorrectionReason: string | null;
   task: {
     id: string;
     title: string;
@@ -218,6 +221,19 @@ function HistoryEntry({
       </div>
 
       {note && <p className="mt-2 text-[12px] text-muted-foreground">{note}</p>}
+
+      {/*
+        Shown on the member's own row, not left to an audit screen their plan
+        may not include. Somebody else changed the hours they are paid against;
+        seeing that on the record is what lets them disagree.
+      */}
+      {row.clockCorrectedAt && (
+        <p className="mt-1 flex items-center gap-1.5 text-[12px] text-muted-foreground">
+          <PencilLine className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          Times corrected by a manager
+          {row.clockCorrectionReason ? ` — ${row.clockCorrectionReason}` : ""}
+        </p>
+      )}
       {reason && (
         <p className="mt-1 text-[12px] text-muted-foreground">
           Your reason: {reason}

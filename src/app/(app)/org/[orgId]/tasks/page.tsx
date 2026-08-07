@@ -20,6 +20,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PRIMARY_BUTTON, SECONDARY_BUTTON } from "@/components/ui/button-styles";
 import { Label } from "@/components/ui/label";
 import {
   parseRecurrencePattern,
@@ -297,6 +298,13 @@ export default function TasksPage() {
   const canUpdate = can("tasks:update");
   const canDelete = can("tasks:delete");
   const canAssign = can("tasks:assign");
+  /*
+   * Its own permission, not part of `tasks:assign`. Rostering somebody decides
+   * the future; amending a clock time rewrites the record of what already
+   * happened, on the field the hours totals are built from.
+   */
+  const canCorrectClock = can("assignments:correct_clock");
+
   const canSuggest = can("allocation:use_suggestions");
   const canAutoAllocate = can("allocation:auto_allocate");
 
@@ -313,6 +321,8 @@ export default function TasksPage() {
   const [success, setSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  /** Which assignment's clock form is open, if any. */
+  const [correctingId, setCorrectingId] = useState<string | null>(null);
   const [eligibility, setEligibility] = useState<Record<string, EligibilityResult>>({});
   const [composition, setComposition] = useState<CompositionInfo | null>(null);
   const [pendingLeave, setPendingLeave] = useState<PendingLeave[]>([]);
@@ -925,6 +935,51 @@ export default function TasksPage() {
       fetchTasks();
     } catch {
       setError("Something went wrong");
+    }
+  }
+
+  /**
+   * Amend a recorded clock pair.
+   *
+   * Times are read from `datetime-local` inputs, which give a wall-clock string
+   * with no zone. `new Date(...)` on that is the BROWSER's zone, which is what
+   * the manager typed and meant — the same treatment the task scheduling form
+   * already uses, and the reason the value is converted here rather than being
+   * posted as text for the server to guess at.
+   */
+  async function onCorrectClock(
+    assignmentId: string,
+    values: { clockIn: string; clockOut: string; reason: string }
+  ) {
+    setError(null);
+
+    try {
+      const res = await fetch(
+        `/api/organizations/${orgId}/tasks/assignments/${assignmentId}/clock`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            clockInTime: values.clockIn
+              ? new Date(values.clockIn).toISOString()
+              : null,
+            clockOutTime: values.clockOut
+              ? new Date(values.clockOut).toISOString()
+              : null,
+            reason: values.reason,
+          }),
+        }
+      );
+
+      if (!res.ok) {
+        setError(await readError(res, "Failed to correct the clock time"));
+        return;
+      }
+
+      setCorrectingId(null);
+      fetchTasks();
+    } catch {
+      setError("Failed to correct the clock time");
     }
   }
 
@@ -1822,6 +1877,21 @@ export default function TasksPage() {
                                     Out: {new Date(a.clockOutTime).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
                                   </span>
                                 )}
+                                {canCorrectClock && (
+                                  <button
+                                    type="button"
+                                    className="text-[11px] text-muted-foreground hover:text-foreground hover:underline"
+                                    onClick={() =>
+                                      setCorrectingId(
+                                        correctingId === a.id ? null : a.id
+                                      )
+                                    }
+                                  >
+                                    {a.clockInTime || a.clockOutTime
+                                      ? "Correct"
+                                      : "Add times"}
+                                  </button>
+                                )}
                                 {canAssign &&
                                   a.status !== "completed" &&
                                   a.status !== "withdrawal_requested" &&
@@ -1840,6 +1910,92 @@ export default function TasksPage() {
                                   </button>
                                 )}
                               </div>
+
+                              {/*
+                                The correction form.
+
+                                Both times are editable, not just the missing
+                                one — a mistyped start is as common as a
+                                forgotten finish, and a form that only let you
+                                add the second would send the manager to the
+                                database for the first.
+
+                                Clearing both is a legitimate correction
+                                (clocked in on the wrong shift), which is why
+                                nothing here is `required`. The service refuses
+                                the combinations that are not.
+                              */}
+                              {correctingId === a.id && (
+                                <form
+                                  className="ml-9 mt-2 space-y-2 rounded-lg border border-border bg-muted/30 p-3"
+                                  onSubmit={(e) => {
+                                    e.preventDefault();
+                                    const form = new FormData(e.currentTarget);
+                                    onCorrectClock(a.id, {
+                                      clockIn: String(form.get("clockIn") ?? ""),
+                                      clockOut: String(form.get("clockOut") ?? ""),
+                                      reason: String(form.get("reason") ?? ""),
+                                    });
+                                  }}
+                                >
+                                  <p className="text-[11px] text-muted-foreground">
+                                    {a.membership.user.name || "This member"} will
+                                    be told their times were changed, and the
+                                    previous values are kept in the audit log.
+                                  </p>
+                                  <div className="grid gap-2 sm:grid-cols-2">
+                                    <label className="space-y-1">
+                                      <span className="text-[11px] font-medium text-muted-foreground">
+                                        Clocked in
+                                      </span>
+                                      <Input
+                                        type="datetime-local"
+                                        name="clockIn"
+                                        defaultValue={
+                                          a.clockInTime
+                                            ? toDateTimeLocalValue(new Date(a.clockInTime))
+                                            : ""
+                                        }
+                                        className="h-9 text-xs"
+                                      />
+                                    </label>
+                                    <label className="space-y-1">
+                                      <span className="text-[11px] font-medium text-muted-foreground">
+                                        Clocked out
+                                      </span>
+                                      <Input
+                                        type="datetime-local"
+                                        name="clockOut"
+                                        defaultValue={
+                                          a.clockOutTime
+                                            ? toDateTimeLocalValue(new Date(a.clockOutTime))
+                                            : ""
+                                        }
+                                        className="h-9 text-xs"
+                                      />
+                                    </label>
+                                  </div>
+                                  <Input
+                                    name="reason"
+                                    required
+                                    maxLength={500}
+                                    placeholder="Why are you changing this?"
+                                    className="h-9 text-xs"
+                                  />
+                                  <div className="flex flex-wrap gap-2">
+                                    <button type="submit" className={PRIMARY_BUTTON}>
+                                      Save correction
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setCorrectingId(null)}
+                                      className={SECONDARY_BUTTON}
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                </form>
+                              )}
 
                               {/* Full-time decline awaiting a decision */}
                               {canAssign && a.status === "decline_requested" && (

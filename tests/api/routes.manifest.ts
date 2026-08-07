@@ -171,6 +171,17 @@ export const ROUTES: RouteSpec[] = [
   org("tasks/[taskId]/eligibility/override", "POST", MANAGER, { suspension: true, extraParams: ["taskId"] }),
   org("tasks/[taskId]/suggest", "GET", MANAGER, { extraParams: ["taskId"] }),
   org("tasks/assignments/[assignmentId]", "DELETE", MANAGER, { suspension: true, extraParams: ["assignmentId"] }),
+  /*
+   * MANAGER, and a DIFFERENT permission from its DELETE sibling.
+   * `assignments:correct_clock` rewrites the record of what already happened,
+   * on the field the hours totals are built from — a separate authority from
+   * rostering, which is why it is a separate route rather than a method on the
+   * file next door.
+   */
+  org("tasks/assignments/[assignmentId]/clock", "PATCH", MANAGER, {
+    suspension: true,
+    extraParams: ["assignmentId"],
+  }),
   org("tasks/parse", "POST", MANAGER, { suspension: true }),
   org("recurring-tasks/generate", "POST", MANAGER, { suspension: true }),
 

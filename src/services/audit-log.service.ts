@@ -32,6 +32,7 @@ const ACTIONS = {
   ASSIGNMENT_WITHDRAWAL_APPROVED: "assignment.withdrawal_approved",
   ASSIGNMENT_WITHDRAWAL_DENIED: "assignment.withdrawal_denied",
   ASSIGNMENT_RATED: "assignment.rated",
+  ASSIGNMENT_CLOCK_CORRECTED: "assignment.clock_corrected",
   ELIGIBILITY_OVERRIDDEN: "assignment.eligibility_overridden",
   SENIORITY_OVERRIDDEN: "membership.seniority_overridden",
   AVAILABILITY_REVIEW_REQUESTED: "membership.availability_review_requested",

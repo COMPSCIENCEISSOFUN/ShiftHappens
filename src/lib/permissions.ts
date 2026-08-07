@@ -87,6 +87,16 @@ export const PERMISSIONS: PermissionDefinition[] = [
   { name: "tasks:update", description: "Update task details", category: "tasks" },
   { name: "tasks:delete", description: "Delete tasks", category: "tasks" },
   { name: "tasks:assign", description: "Assign staff to tasks", category: "tasks" },
+  /*
+   * Its own permission rather than part of `tasks:assign`.
+   *
+   * Rostering somebody decides the future; amending a clock time rewrites the
+   * record of what already happened, on the field the hours totals are built
+   * from. They are different authorities and an organisation may reasonably
+   * grant one without the other — a shift lead who books people should not
+   * necessarily be able to change how long they were paid for.
+   */
+  { name: "assignments:correct_clock", description: "Correct a recorded clock in or out time", category: "tasks" },
 
   // Eligibility & allocation
   { name: "eligibility:view", description: "View eligibility status of staff", category: "eligibility" },
@@ -218,6 +228,9 @@ const MANAGER_EXTRA_PERMISSIONS = [
   "members:update_seniority",
   "members:request_availability",
   "certifications:review",
+  // Managers, not staff. A member correcting their own clock time is the
+  // absence of a control, not a correction.
+  "assignments:correct_clock",
 ] as const;
 
 export const ROLE_PERMISSIONS: Record<string, readonly string[]> = {

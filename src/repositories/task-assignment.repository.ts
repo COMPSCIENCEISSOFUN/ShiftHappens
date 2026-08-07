@@ -212,6 +212,34 @@ export class TaskAssignmentRepository {
     });
   }
 
+  /**
+   * Writes a corrected clock pair, and the record that it was corrected.
+   *
+   * `undefined` is not usable here — Prisma reads it as "leave alone", and
+   * clearing a wrongly-entered clock-in back to nothing is a legitimate
+   * correction. So both times are required and `null` is how you erase one.
+   */
+  async correctClock(
+    id: string,
+    data: {
+      clockInTime: Date | null;
+      clockOutTime: Date | null;
+      correctedById: string;
+      reason: string;
+    }
+  ) {
+    return prisma.taskAssignment.update({
+      where: { id },
+      data: {
+        clockInTime: data.clockInTime,
+        clockOutTime: data.clockOutTime,
+        clockCorrectedAt: new Date(),
+        clockCorrectedById: data.correctedById,
+        clockCorrectionReason: data.reason,
+      },
+    });
+  }
+
   /** Updates an assignment's status */
   async updateStatus(id: string, status: string) {
     return prisma.taskAssignment.update({

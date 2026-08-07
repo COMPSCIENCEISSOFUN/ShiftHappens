@@ -605,3 +605,18 @@ export type UpdateWorkRuleInput = z.infer<typeof updateWorkRuleSchema>;
 export type ImportMemberInput = z.infer<typeof importMemberSchema>;
 export type BatchImportInput = z.infer<typeof batchImportSchema>;
 export type NotificationFeedQuery = z.infer<typeof notificationFeedQuerySchema>;
+
+/**
+ * A clock correction.
+ *
+ * Both times are REQUIRED keys and nullable values, deliberately. Prisma reads
+ * `undefined` as "leave alone", so an optional field would make clearing a
+ * wrongly-entered clock-in impossible to express — the caller would send
+ * nothing and the old value would survive. `null` is how you erase one, and the
+ * schema makes the caller say which they mean.
+ */
+export const correctClockSchema = z.object({
+  clockInTime: z.string().datetime().nullable(),
+  clockOutTime: z.string().datetime().nullable(),
+  reason: z.string().trim().min(1, "A reason is required").max(500),
+});

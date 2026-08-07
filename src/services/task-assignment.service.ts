@@ -739,4 +739,123 @@ export class TaskAssignmentService {
       },
     };
   }
+
+  /**
+   * A manager amends a recorded clock time.
+   *
+   * ## Why this exists
+   *
+   * A shift clocked into and never out of contributes no hours to the member's
+   * totals, and nothing could put it right. Their own history said the shift
+   * was not counted and offered no route to fixing it — a page telling somebody
+   * their pay is short and that nothing can be done about it.
+   *
+   * ## What is refused, and why each
+   *
+   * A clock-out before the clock-in, because that is not a shift. A clock-in
+   * with no clock-out is allowed: it is the state a running shift is genuinely
+   * in, and refusing it would stop a manager fixing a mistyped start time until
+   * the member had finished.
+   *
+   * A reason is required. This is the field the hours totals are built from, so
+   * an amendment with no stated cause is indistinguishable from someone
+   * adjusting what a person gets paid — and the difference between those two is
+   * exactly what an audit is for.
+   *
+   * ## What is kept
+   *
+   * The row records THAT it was corrected, by whom and why, so the member sees
+   * it on their own history without needing an audit screen their plan may not
+   * include. The BEFORE and AFTER values go to the audit log, because a value
+   * somebody can quietly restate is not evidence. The original is not preserved
+   * on the row on purpose: two sets of times on one record invites the question
+   * of which is real, and the answer must be "the current one, and here is the
+   * record of the change".
+   *
+   * Audit is awaited here rather than fired and forgotten. Everywhere else in
+   * this service a lost audit row costs a line of history; here it costs the
+   * only account of who changed somebody's hours, which is the thing that makes
+   * the correction legitimate rather than an edit.
+   */
+  async correctClock(
+    assignmentId: string,
+    organizationId: string,
+    correctedById: string,
+    input: { clockInTime: Date | null; clockOutTime: Date | null; reason: string }
+  ) {
+    const assignment = await this.assignmentRepo.findById(assignmentId);
+    if (!assignment) throw new Error("Assignment not found");
+    if (assignment.task.organizationId !== organizationId) {
+      throw new Error("Assignment not found");
+    }
+
+    const reason = input.reason?.trim();
+    if (!reason) throw new Error("A reason is required to correct a clock time");
+
+    if (
+      input.clockOutTime &&
+      input.clockInTime &&
+      input.clockOutTime <= input.clockInTime
+    ) {
+      throw new Error("Clock out must be after clock in");
+    }
+
+    /*
+     * A clock-out with no clock-in is not a shift anybody worked — it is half a
+     * correction, and it would produce a row the hours calculation reads as
+     * unmeasurable while looking complete on screen.
+     */
+    if (input.clockOutTime && !input.clockInTime) {
+      throw new Error("A clock out needs a clock in");
+    }
+
+    const before = {
+      clockInTime: assignment.clockInTime,
+      clockOutTime: assignment.clockOutTime,
+    };
+
+    const result = await this.assignmentRepo.correctClock(assignmentId, {
+      clockInTime: input.clockInTime,
+      clockOutTime: input.clockOutTime,
+      correctedById,
+      reason,
+    });
+
+    await this.auditService.log({
+      organizationId,
+      userId: correctedById,
+      action: ACTIONS.ASSIGNMENT_CLOCK_CORRECTED,
+      entityType: "assignment",
+      entityId: assignmentId,
+      details: {
+        taskTitle: assignment.task.title,
+        member: assignment.membership.user?.name ?? null,
+        reason,
+        before,
+        after: {
+          clockInTime: input.clockInTime,
+          clockOutTime: input.clockOutTime,
+        },
+      },
+    });
+
+    /*
+     * Told, not just recorded. Somebody else changing the hours you are paid
+     * against is not an administrative detail, and a member who disagrees can
+     * only say so if they know it happened.
+     */
+    if (assignment.membership?.userId) {
+      void this.notificationService.notifyIfEnabled(
+        organizationId,
+        assignment.membership.userId,
+        NOTIFICATION_TYPES.TASK_ASSIGNED,
+        "A clock time was corrected",
+        `Your hours for "${assignment.task.title}" were corrected — ${reason}`,
+        "task",
+        assignment.task.id
+      );
+    }
+
+    return result;
+  }
 }

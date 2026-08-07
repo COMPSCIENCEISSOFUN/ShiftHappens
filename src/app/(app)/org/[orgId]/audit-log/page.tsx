@@ -55,6 +55,7 @@ const ACTION_LABELS: Record<string, string> = {
   "assignment.decline_approved": "Decline approved",
   "assignment.decline_denied": "Decline denied",
   "assignment.rated": "Assignment rated",
+  "assignment.clock_corrected": "Clock time corrected",
   "assignment.eligibility_overridden": "Eligibility overridden",
   "member.invited": "Member invited",
   "member.role_changed": "Role changed",
