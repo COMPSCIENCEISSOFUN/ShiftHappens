@@ -23,6 +23,7 @@ const STRICT_PATTERNS = [
   "/api/register",
   "/api/forgot-password",
   "/api/reset-password",
+  "/api/contact",
 ];
 
 const MODERATE_PATTERNS = [
@@ -55,13 +56,21 @@ export function getTier(pathname: string): keyof typeof TIER_LIMITS {
 
 function getClientIp(request: NextRequest): string {
   return (
+    request.headers.get("x-vercel-forwarded-for")?.split(",")[0]?.trim() ||
     request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
     request.headers.get("x-real-ip") ||
     "unknown"
   );
 }
 
-export function proxy(request: NextRequest) {
+function normalizedRoute(pathname: string): string {
+  return pathname
+    .split("/")
+    .map((segment) => /^[a-z0-9_-]{20,}$/i.test(segment) ? ":id" : segment)
+    .join("/");
+}
+
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Only rate limit API routes
@@ -72,9 +81,9 @@ export function proxy(request: NextRequest) {
   const ip = getClientIp(request);
   const tier = getTier(pathname);
   const limit = TIER_LIMITS[tier];
-  const key = `${ip}:${tier}`;
+  const key = `${ip}:${tier}:${normalizedRoute(pathname)}`;
 
-  const result = rateLimit(key, limit);
+  const result = await rateLimit(key, limit);
 
   if (!result.success) {
     return NextResponse.json(

@@ -5,7 +5,7 @@
  */
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -50,11 +50,7 @@ export default function MyTasksPage() {
   const [success, setSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchAssignments();
-  }, [orgId]);
-
-  async function fetchAssignments() {
+  const fetchAssignments = useCallback(async () => {
     try {
       const res = await fetch(`/api/organizations/${orgId}/my-tasks`);
       const data = await res.json();
@@ -64,7 +60,11 @@ export default function MyTasksPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [orgId]);
+
+  useEffect(() => {
+    void fetchAssignments();
+  }, [fetchAssignments]);
 
   async function postAssignmentAction(
     assignmentId: string,

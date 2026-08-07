@@ -47,15 +47,15 @@ describe("AvailabilityService", () => {
       expect(result.startTime).toBe("09:00");
     });
 
-    it("throws if end time before start time", async () => {
-      await expect(
-        availService.setDayAvailability(membershipId, {
-          dayOfWeek: 1,
-          startTime: "17:00",
-          endTime: "09:00",
-          isAvailable: true,
-        })
-      ).rejects.toThrow("End time must be after start time");
+    it("supports availability windows that cross midnight", async () => {
+      const result = await availService.setDayAvailability(membershipId, {
+        dayOfWeek: 1,
+        startTime: "17:00",
+        endTime: "09:00",
+        isAvailable: true,
+      });
+      expect(result.startTime).toBe("17:00");
+      expect(result.endTime).toBe("09:00");
     });
 
     it("allows unavailable with any times", async () => {

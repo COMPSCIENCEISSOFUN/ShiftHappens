@@ -128,7 +128,7 @@ export class CertificationService {
       status === "rejected" ? reason : undefined
     );
 
-    void this.auditService.log({
+    await this.auditService.log({
       organizationId,
       userId: verifiedById,
       action:
@@ -181,7 +181,7 @@ export class CertificationService {
       reason
     );
 
-    void this.auditService.log({
+    await this.auditService.log({
       organizationId,
       userId: revokedById,
       action: ACTIONS.CERTIFICATION_REVOKED,
@@ -227,7 +227,7 @@ export class CertificationService {
 
     const deleted = await this.certRepo.delete(certId);
 
-    void this.auditService.log({
+    await this.auditService.log({
       organizationId,
       userId: actingUserId,
       action: ACTIONS.CERTIFICATION_WITHDRAWN,

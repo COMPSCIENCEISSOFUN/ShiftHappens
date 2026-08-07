@@ -835,13 +835,16 @@ export class ReportingRepository {
    * Used for calendar heatmap coverage computation.
    * Returns weekly recurring schedules for all active staff/managers.
    */
-  async getAllStaffAvailability(organizationId: string) {
+  async getAllStaffAvailability(organizationId: string, departmentIds?: string[]) {
     return prisma.availability.findMany({
       where: {
         membership: {
           organizationId,
           status: "active",
           role: { in: ["staff", "manager"] },
+          ...(departmentIds?.length
+            ? { departmentMemberships: { some: { departmentId: { in: departmentIds } } } }
+            : {}),
         },
       },
       select: {

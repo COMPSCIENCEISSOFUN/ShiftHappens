@@ -61,7 +61,7 @@ describe("MembershipRepository", () => {
         email: "other@example.com",
         hashedPassword: "hash",
       });
-      const org2 = await orgRepo.create(
+      await orgRepo.create(
         { name: "Other Corp", slug: "other-corp" },
         user2.id
       );

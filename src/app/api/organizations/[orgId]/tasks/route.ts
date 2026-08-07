@@ -105,12 +105,21 @@ export async function GET(
     };
 
     // Managers see only their department(s); company admins see everything.
-    const tasks = await taskService.getByOrganization(
+    const limit = Math.min(Math.max(Number(searchParams.get("limit")) || 50, 1), 100);
+    const offset = Math.max(Number(searchParams.get("offset")) || 0, 0);
+    const { tasks, total } = await taskService.getPageByOrganization(
       orgId,
       filters,
-      departmentScopeFor(membership)
+      departmentScopeFor(membership),
+      limit,
+      offset
     );
-    return NextResponse.json(tasks);
+    return NextResponse.json(tasks, {
+      headers: {
+        "X-Total-Count": String(total),
+        "X-Has-More": String(offset + tasks.length < total),
+      },
+    });
   } catch {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }

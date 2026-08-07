@@ -9,6 +9,7 @@ export class ProjectService {
 
   async create(input: CreateProjectInput, organizationId: string, userId: string) {
     this.validateDates(input.plannedStart, input.plannedEnd);
+    await this.assertDepartment(input.departmentId, organizationId);
     const project = await prisma.project.create({
       data: {
         organizationId,
@@ -56,6 +57,7 @@ export class ProjectService {
   async update(projectId: string, organizationId: string, input: UpdateProjectInput, userId: string) {
     const existing = await this.get(projectId, organizationId);
     if (!existing) throw new Error("Project not found");
+    await this.assertDepartment(input.departmentId, organizationId);
     const plannedStart = input.plannedStart === "" ? null : input.plannedStart ?? existing.plannedStart?.toISOString();
     const plannedEnd = input.plannedEnd === "" ? null : input.plannedEnd ?? existing.plannedEnd?.toISOString();
     this.validateDates(plannedStart ?? undefined, plannedEnd ?? undefined);
@@ -79,6 +81,15 @@ export class ProjectService {
   private validateDates(start?: string, end?: string) {
     const error = projectTimeframeError(start, end);
     if (error) throw new Error(error);
+  }
+
+  private async assertDepartment(departmentId: string | undefined, organizationId: string) {
+    if (!departmentId) return;
+    const department = await prisma.department.findFirst({
+      where: { id: departmentId, organizationId },
+      select: { id: true },
+    });
+    if (!department) throw new Error("Department not found");
   }
 
   private include = {

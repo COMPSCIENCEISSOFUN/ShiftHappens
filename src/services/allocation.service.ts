@@ -149,10 +149,19 @@ export class AllocationService {
       throw new Error("Auto allocation is not enabled");
     }
 
-    const rankings = await this.getSuggestions(taskId, organizationId);
+    const existingAssignments = await prisma.taskAssignment.findMany({
+      where: { taskId, status: { in: ["assigned", "in_progress", "clocked_out", "completed"] } },
+      select: { membershipId: true },
+    });
+    const alreadyAssigned = new Set(existingAssignments.map((assignment) => assignment.membershipId));
+    const remainingHeadcount = Math.max(0, task.requiredHeadcount - existingAssignments.length);
+    if (remainingHeadcount === 0) return [];
+
+    const rankings = (await this.getSuggestions(taskId, organizationId))
+      .filter((ranking) => !alreadyAssigned.has(ranking.membershipId));
 
     // Take top N based on required headcount
-    const topN = rankings.slice(0, task.requiredHeadcount);
+    const topN = rankings.slice(0, remainingHeadcount);
 
     if (topN.length === 0) {
       throw new Error("No eligible staff found for auto allocation");

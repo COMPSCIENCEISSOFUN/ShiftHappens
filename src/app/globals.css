@@ -7,8 +7,8 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: "Segoe UI", Inter, Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: "Cascadia Code", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   --font-heading: var(--font-sans);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
@@ -55,32 +55,32 @@
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
+  --primary: oklch(0.47 0.18 267);
   --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.97 0.01 260);
+  --secondary-foreground: oklch(0.25 0.03 264);
+  --muted: oklch(0.975 0.008 260);
+  --muted-foreground: oklch(0.5 0.025 260);
+  --accent: oklch(0.95 0.025 265);
+  --accent-foreground: oklch(0.33 0.1 267);
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  --border: oklch(0.91 0.012 260);
+  --input: oklch(0.88 0.016 260);
+  --ring: oklch(0.58 0.16 267);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
+  --radius: 0.5rem;
+  --sidebar: oklch(0.2 0.035 264);
+  --sidebar-foreground: oklch(0.95 0.01 260);
+  --sidebar-primary: oklch(0.61 0.18 267);
   --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --sidebar-accent: oklch(0.28 0.05 264);
+  --sidebar-accent-foreground: oklch(0.98 0.005 260);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.67 0.14 267);
 }
 
 .dark {
@@ -145,7 +145,7 @@
   flex-shrink: 0;
   background: linear-gradient(180deg, #4338ca 0%, #5b21b6 100%);
   color: #fff;
-  padding: 28px 16px 20px;
+  padding: 24px 14px 16px;
   display: flex;
   flex-direction: column;
   position: sticky;
@@ -173,9 +173,9 @@
   align-items: center;
   gap: 10px;
   padding: 10px 12px;
-  border-radius: 10px;
+  border-radius: 7px;
   font-size: 14px;
-  color: rgba(255, 255, 255, 0.6);
+  color: rgba(255, 255, 255, 0.72);
   text-decoration: none;
   transition: all 0.15s;
   margin-bottom: 2px;
@@ -187,7 +187,7 @@
 }
 
 .app-sidebar-link-active {
-  background: rgba(255, 255, 255, 0.15);
+  background: rgba(126, 156, 255, 0.22);
   color: #fff;
   font-weight: 600;
 }
@@ -198,7 +198,7 @@
   gap: 10px;
   width: 100%;
   padding: 8px 12px;
-  border-radius: 10px;
+  border-radius: 7px;
   font-size: 13px;
   color: rgba(255, 255, 255, 0.5);
   background: none;
@@ -250,9 +250,16 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-family: var(--font-poppins), ui-sans-serif, system-ui, sans-serif;
   }
   html {
     @apply font-sans;
+  }
+  button, input, select, textarea {
+    font: inherit;
+  }
+  button, a, input, select, textarea {
+    -webkit-tap-highlight-color: transparent;
   }
   /*
    * Native dropdown items don't inherit the <select>'s colours — the browser
@@ -262,5 +269,68 @@
   option,
   optgroup {
     @apply bg-background text-foreground;
+  }
+}
+
+@media (min-width: 768px) {
+  .app-sidebar {
+    transition: width 0.2s ease, padding 0.2s ease;
+  }
+  .app-sidebar-collapse-button {
+    display: inline-flex !important;
+    flex-shrink: 0;
+  }
+  .app-sidebar-collapsed {
+    width: 76px !important;
+    padding-inline: 12px;
+  }
+  .app-sidebar-collapsed .app-sidebar-brand {
+    justify-content: center;
+  }
+  .app-sidebar-collapsed .app-sidebar-brand-copy,
+  .app-sidebar-collapsed .app-sidebar-item-label,
+  .app-sidebar-collapsed .app-sidebar-action-label,
+  .app-sidebar-collapsed .app-sidebar-user-copy,
+  .app-sidebar-collapsed nav > div > div:first-child {
+    display: none;
+  }
+  .app-sidebar-collapsed .app-sidebar-collapse-button {
+    position: absolute;
+    top: 1px;
+    right: -4px;
+  }
+  .app-sidebar-collapsed .app-sidebar-link,
+  .app-sidebar-collapsed .app-sidebar-action-btn {
+    justify-content: center;
+    padding-inline: 0;
+  }
+  .app-sidebar-collapsed .app-sidebar-link {
+    height: 42px;
+  }
+  .app-sidebar-collapsed .app-sidebar-item-badge {
+    position: absolute;
+    right: 5px;
+    top: 4px;
+    min-width: 14px;
+    height: 14px !important;
+    padding: 0;
+    font-size: 8px;
+  }
+  .app-sidebar-collapsed .app-sidebar-link {
+    position: relative;
+  }
+  .app-sidebar-collapsed .app-sidebar-user-card {
+    justify-content: center;
+    padding: 8px;
+  }
+}
+
+@layer components {
+  .app-content {
+    min-height: 100vh;
+    background: oklch(0.985 0.006 260);
+  }
+  .dark .app-content {
+    background: oklch(0.16 0.02 264);
   }
 }

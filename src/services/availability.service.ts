@@ -18,10 +18,6 @@ export class AvailabilityService {
 
   /** Sets availability for a single day of the week */
   async setDayAvailability(membershipId: string, input: SetAvailabilityInput) {
-    if (input.isAvailable && input.startTime >= input.endTime) {
-      throw new Error("End time must be after start time");
-    }
-
     return this.availRepo.setDayAvailability({
       membershipId,
       dayOfWeek: input.dayOfWeek,
@@ -36,12 +32,33 @@ export class AvailabilityService {
     membershipId: string,
     schedule: SetAvailabilityInput[]
   ) {
-    const results = [];
-    for (const day of schedule) {
-      const result = await this.setDayAvailability(membershipId, day);
-      results.push(result);
+    const byDay = new Map<number, Set<string>>();
+    const intervalsByDay = new Map<number, Array<[number, number]>>();
+    for (const window of schedule) {
+      const seen = byDay.get(window.dayOfWeek) ?? new Set<string>();
+      const key = `${window.startTime}-${window.endTime}`;
+      if (seen.has(key)) throw new Error("Duplicate availability window");
+      seen.add(key);
+      byDay.set(window.dayOfWeek, seen);
+
+      const intervals = intervalsByDay.get(window.dayOfWeek) ?? [];
+      if (intervals.length >= 5) {
+        throw new Error("A day can have at most 5 availability windows");
+      }
+      const toMinutes = (value: string) => {
+        const [hours, minutes] = value.split(":").map(Number);
+        return hours * 60 + minutes;
+      };
+      const start = toMinutes(window.startTime);
+      let end = toMinutes(window.endTime);
+      if (end <= start) end += 24 * 60;
+      if (intervals.some(([otherStart, otherEnd]) => start < otherEnd && end > otherStart)) {
+        throw new Error("Availability windows on the same day cannot overlap");
+      }
+      intervals.push([start, end]);
+      intervalsByDay.set(window.dayOfWeek, intervals);
     }
-    return results;
+    return this.availRepo.replaceWeeklySchedule(membershipId, schedule);
   }
 
   /** Gets the weekly schedule for a member */

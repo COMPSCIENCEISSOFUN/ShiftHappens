@@ -38,6 +38,22 @@ export function isBillingInterval(value: unknown): value is BillingInterval {
 }
 
 /**
+ * Checkout redirects must use the configured application origin in deployed
+ * environments, never a user-controlled Host header. Local development keeps
+ * the request origin as a practical fallback.
+ */
+export function getTrustedAppOrigin(requestOrigin: string): string {
+  const configured = process.env.NEXTAUTH_URL;
+  if (configured) return new URL(configured).origin;
+
+  const parsed = new URL(requestOrigin);
+  if (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1") {
+    return parsed.origin;
+  }
+  throw new Error("NEXTAUTH_URL must be configured for Stripe billing.");
+}
+
+/**
  * Build the Checkout line item for the Pro plan at the given interval.
  * Amount is derived from TIER_CONFIG (single source of truth) and converted to cents.
  */

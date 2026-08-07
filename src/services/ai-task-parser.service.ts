@@ -35,6 +35,18 @@ interface ParsedTask {
 }
 
 export class AITaskParserService {
+  // Two providers are attempted in sequence, so this keeps the complete
+  // external-AI wait below seven seconds before the local parser takes over.
+  private async fetchWithTimeout(url: string, init: RequestInit, timeoutMs = 3500) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(url, { ...init, signal: controller.signal });
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
   /** Sanitizes user input to prevent prompt injection */
   private sanitizeInput(text: string): string {
     let sanitized = text.slice(0, 500);
@@ -123,7 +135,7 @@ RULES:
     // Try Groq
     if (groqKey) {
       try {
-        const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        const response = await this.fetchWithTimeout("https://api.groq.com/openai/v1/chat/completions", {
           method: "POST",
           headers: {
             "Authorization": `Bearer ${groqKey}`,
@@ -153,7 +165,7 @@ RULES:
     // Try Gemini
     if (geminiKey) {
       try {
-        const response = await fetch(
+        const response = await this.fetchWithTimeout(
           `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
           {
             method: "POST",

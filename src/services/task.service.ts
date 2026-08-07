@@ -42,6 +42,8 @@ export class TaskService {
   async create(input: CreateTaskInput, orgId: string, userId: string) {
     await this.subscriptionService.enforceResourceLimit(orgId, 'active_tasks');
 
+    await this.assertDepartmentInOrganization(input.departmentId, orgId);
+
     let projectDepartmentId: string | null = null;
     if (input.projectId) {
       const project = await prisma.project.findUnique({
@@ -182,10 +184,16 @@ export class TaskService {
     return task;
   }
 
-  async update(taskId: string, orgId: string, input: UpdateTaskInput) {
+  async update(
+    taskId: string,
+    orgId: string,
+    input: UpdateTaskInput,
+    actorUserId?: string
+  ) {
     const task = await this.taskRepo.findById(taskId);
     // Treat a cross-tenant task as non-existent — no read or write across orgs.
     if (!task || task.organizationId !== orgId) throw new Error("Task not found");
+    await this.assertDepartmentInOrganization(input.departmentId, orgId);
 
     const startProvided = "scheduledStart" in input;
     const endProvided = "scheduledEnd" in input;
@@ -214,7 +222,7 @@ export class TaskService {
       input.status === "cancelled" && task.status !== "cancelled";
     const affectedUserIds = this.stillAssignedUserIds(task);
 
-    const updated = await this.taskRepo.update(taskId, {
+    const updateData = {
       title: input.title,
       description: input.description,
       location: input.location === "" ? null : input.location,
@@ -223,7 +231,7 @@ export class TaskService {
       requiredHeadcount: input.requiredHeadcount,
       requiredCertifications: input.requiredCertifications,
       priority: input.priority,
-      status: input.status,
+      status: nowCancelled ? undefined : input.status,
       ...(startProvided && {
         scheduledStart: input.scheduledStart
           ? new Date(input.scheduledStart)
@@ -232,18 +240,27 @@ export class TaskService {
       ...(endProvided && {
         scheduledEnd: input.scheduledEnd ? new Date(input.scheduledEnd) : null,
       }),
-    });
+    };
+    const updated = nowCancelled
+      ? await this.taskRepo.cancel(
+          taskId,
+          updateData,
+          actorUserId,
+          "Task cancelled by manager"
+        )
+      : await this.taskRepo.update(taskId, updateData);
 
     await this.auditService.log({
       organizationId: orgId,
-      action: ACTIONS.TASK_UPDATED,
+      userId: actorUserId,
+      action: nowCancelled ? ACTIONS.TASK_CANCELLED : ACTIONS.TASK_UPDATED,
       entityType: "task",
       entityId: taskId,
       details: input,
     });
 
     if (nowCancelled) {
-      void this.notificationService.notifyManyIfEnabled(
+      await this.notificationService.notifyManyIfEnabled(
         orgId,
         affectedUserIds,
         NOTIFICATION_TYPES.TASK_CANCELLED,
@@ -253,7 +270,7 @@ export class TaskService {
         taskId
       );
     } else if (scheduleChanged) {
-      void this.notificationService.notifyManyIfEnabled(
+      await this.notificationService.notifyManyIfEnabled(
         orgId,
         affectedUserIds,
         NOTIFICATION_TYPES.TASK_RESCHEDULED,
@@ -326,24 +343,30 @@ export class TaskService {
     }
   }
 
-  async delete(taskId: string, orgId: string) {
+  async delete(taskId: string, orgId: string, actorUserId?: string) {
     const task = await this.taskRepo.findById(taskId);
     if (!task || task.organizationId !== orgId) throw new Error("Task not found");
 
-    // Capture who to tell before the task (and its assignments) are gone.
+    // Capture who to tell before their assignments are cancelled.
     const affectedUserIds = this.stillAssignedUserIds(task);
 
-    await this.taskRepo.delete(taskId);
+    await this.taskRepo.cancel(
+      taskId,
+      {},
+      actorUserId,
+      "Task cancelled by manager"
+    );
 
     await this.auditService.log({
       organizationId: orgId,
-      action: ACTIONS.TASK_DELETED,
+      userId: actorUserId,
+      action: ACTIONS.TASK_CANCELLED,
       entityType: "task",
       entityId: taskId,
-      details: { title: task.title },
+      details: { title: task.title, previousStatus: task.status },
     });
 
-    void this.notificationService.notifyManyIfEnabled(
+      await this.notificationService.notifyManyIfEnabled(
       orgId,
       affectedUserIds,
       NOTIFICATION_TYPES.TASK_CANCELLED,
@@ -371,6 +394,36 @@ export class TaskService {
           a.membership?.userId
       )
       .map((a) => a.membership!.userId);
+  }
+
+  async getPageByOrganization(
+    organizationId: string,
+    filters: { status?: string; departmentId?: string; priority?: string },
+    departmentScope: string[] | null,
+    limit: number,
+    offset: number
+  ) {
+    const scopedFilters = {
+      ...filters,
+      ...(departmentScope === null ? {} : { departmentIds: departmentScope }),
+    };
+    const [tasks, total] = await Promise.all([
+      this.taskRepo.findByOrganizationId(organizationId, scopedFilters, { limit, offset }),
+      this.taskRepo.countByOrganizationId(organizationId, scopedFilters),
+    ]);
+    return { tasks, total };
+  }
+
+  private async assertDepartmentInOrganization(
+    departmentId: string | undefined,
+    organizationId: string
+  ) {
+    if (!departmentId) return;
+    const department = await prisma.department.findFirst({
+      where: { id: departmentId, organizationId },
+      select: { id: true },
+    });
+    if (!department) throw new Error("Department not found");
   }
 
   /**
@@ -446,7 +499,11 @@ export class TaskService {
       throw new Error("Cannot cancel a completed assignment");
     }
 
-    const result = await this.assignmentRepo.cancel(assignmentId);
+    const result = await this.assignmentRepo.cancel(
+      assignmentId,
+      userId,
+      "Removed from task by manager"
+    );
 
     await this.auditService.log({
       organizationId: assignment.task.organizationId,

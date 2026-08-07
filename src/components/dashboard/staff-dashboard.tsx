@@ -99,14 +99,6 @@ interface StaffDashboardResponse {
 
 const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-/** Format an ISO time string (HH:mm:ss or HH:mm) to 12-hour display. */
-function formatTime(time: string): string {
-  const [h, m] = time.split(":").map(Number);
-  const suffix = h >= 12 ? "pm" : "am";
-  const hour12 = h % 12 || 12;
-  return `${hour12}:${String(m).padStart(2, "0")}${suffix}`;
-}
-
 /** Format an ISO datetime string to a short day/time label. */
 function formatDayTime(iso: string): string {
   const d = new Date(iso);
@@ -179,7 +171,6 @@ function DotGrid() {
 
 export default function StaffDashboard({
   orgId,
-  orgName,
   userName,
 }: {
   orgId: string;
@@ -297,8 +288,6 @@ export default function StaffDashboard({
 
   return (
     <div className="space-y-8">
-      <OperationsAssistant orgId={orgId} role="staff" />
-
       {/* ------------------------------------------------------------------ */}
       {/* Greeting                                                           */}
       {/* ------------------------------------------------------------------ */}
@@ -364,6 +353,20 @@ export default function StaffDashboard({
                     </span>
                   );
                 })()}
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <Link
+                    href={`/org/${orgId}/my-calendar`}
+                    className="inline-flex h-8 items-center rounded-lg bg-white px-3 text-xs font-semibold text-indigo-700 transition-colors hover:bg-indigo-50"
+                  >
+                    View schedule
+                  </Link>
+                  <Link
+                    href={`/org/${orgId}/my-tasks`}
+                    className="inline-flex h-8 items-center rounded-lg border border-white/35 px-3 text-xs font-semibold text-white transition-colors hover:bg-white/10"
+                  >
+                    My tasks
+                  </Link>
+                </div>
               </>
             ) : (
               <div className="flex flex-1 flex-col items-center justify-center text-center">
@@ -424,6 +427,8 @@ export default function StaffDashboard({
           </Card>
         </div>
       </div>
+
+      <OperationsAssistant orgId={orgId} role="staff" />
 
       {/* ------------------------------------------------------------------ */}
       {/* Active assignments                                                 */}

@@ -16,7 +16,7 @@
  */
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -225,11 +225,7 @@ export default function DepartmentsPage() {
   // Permanent delete flow state
   const [deleteTarget, setDeleteTarget] = useState<Department | null>(null);
 
-  useEffect(() => {
-    fetchDepartments();
-  }, [orgId]);
-
-  async function fetchDepartments() {
+  const fetchDepartments = useCallback(async () => {
     try {
       const res = await fetch(`/api/organizations/${orgId}/departments?includeArchived=true`);
       const data = await res.json();
@@ -239,7 +235,11 @@ export default function DepartmentsPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [orgId]);
+
+  useEffect(() => {
+    void fetchDepartments();
+  }, [fetchDepartments]);
 
   async function onCreateDepartment(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();

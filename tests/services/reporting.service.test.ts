@@ -19,7 +19,7 @@ import { UserRepository } from "@/repositories/user.repository";
 import { TaskRepository } from "@/repositories/task.repository";
 import { prisma } from "@/lib/prisma";
 import { cleanDatabase } from "../helpers/cleanup";
-import { atHourSgt, startOfTodaySgt, todaySgtAt } from "../helpers/time";
+import { todaySgtAt } from "../helpers/time";
 
 const reportingService = new ReportingService();
 const orgRepo = new OrganizationRepository();
@@ -456,7 +456,7 @@ describe("ReportingService", () => {
 
   describe("getStaffUtilization", () => {
     it("includes all active staff including those with zero hours", async () => {
-      const jamie = await createStaff("Jamie", "jamie@example.com", deptId);
+      await createStaff("Jamie", "jamie@example.com", deptId);
       // Jamie has no assignments — should still appear with 0%
 
       const utilization = await reportingService.getStaffUtilization(orgId);
@@ -481,7 +481,7 @@ describe("ReportingService", () => {
         clockOutTime: now,
       });
 
-      const jamie = await createStaff("Jamie", "jamie@example.com", deptId);
+      await createStaff("Jamie", "jamie@example.com", deptId);
 
       const utilization = await reportingService.getStaffUtilization(orgId);
 

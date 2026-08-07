@@ -8,6 +8,7 @@
 import { auth } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import { checkOrgActive } from "@/lib/org-guard";
+import { prisma } from "@/lib/prisma";
 
 /**
  * Retrieves the authenticated user from the session.
@@ -19,8 +20,26 @@ export async function getAuthenticatedUser() {
   if (!session?.user?.id) {
     return null;
   }
-
-  return session.user;
+  const tokenVersion = Number(
+    (session.user as unknown as Record<string, unknown>).sessionVersion ?? -1
+  );
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { id: true, name: true, email: true, image: true, isPlatformAdmin: true, sessionVersion: true },
+    });
+    if (!user || user.sessionVersion !== tokenVersion) return null;
+    return user;
+  } catch (error) {
+    // Keep the app usable while an older database is being migrated. The
+    // version check is restored automatically once the column exists.
+    if ((error as { code?: string }).code !== "P2022") throw error;
+    const user = await prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { id: true, name: true, email: true, image: true, isPlatformAdmin: true },
+    });
+    return tokenVersion === 0 ? user : null;
+  }
 }
 
 /** Returns a standardized 401 Unauthorized JSON response */

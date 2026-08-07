@@ -90,7 +90,7 @@ describe("EligibilityService", () => {
         (r) => r.membershipId === staffMembershipId
       );
       expect(staffResult).toBeDefined();
-      expect(staffResult!.eligible).toBe(true);
+      expect(staffResult!.checks.workRules.eligible).toBe(true);
 
       const adminResult = results.find(
         (r) => r.memberName === "Admin User"
@@ -144,7 +144,7 @@ describe("EligibilityService", () => {
       const staffResult = results.find(
         (r) => r.membershipId === staffMembershipId
       );
-      expect(staffResult!.eligible).toBe(true);
+      expect(staffResult!.checks.workRules.eligible).toBe(true);
       expect(staffResult!.checks.availability.eligible).toBe(true);
     });
 
@@ -365,7 +365,7 @@ describe("EligibilityService", () => {
       const staffResult = results.find(
         (r) => r.membershipId === staffMembershipId
       );
-      expect(staffResult!.eligible).toBe(true);
+      expect(staffResult!.checks.workRules.eligible).toBe(true);
     });
 
     it("inactive work rules are ignored", async () => {
@@ -424,7 +424,7 @@ describe("EligibilityService", () => {
         (r) => r.membershipId === staffMembershipId
       );
       // Rule is inactive so staff should pass
-      expect(staffResult!.eligible).toBe(true);
+      expect(staffResult!.checks.workRules.eligible).toBe(true);
     });
 
     it("staff with zero hours passes all work rules", async () => {
@@ -751,24 +751,21 @@ describe("EligibilityService", () => {
   });
 
   describe("createOverride", () => {
-    it("creates an eligibility override", async () => {
+    it("rejects hard-rule eligibility overrides", async () => {
       const task = await taskRepo.create({
         title: "Test task",
         organizationId: orgId,
         createdById: adminUserId,
       });
 
-      const override = await eligibilityService.createOverride(
+      await expect(eligibilityService.createOverride(
         task.id,
         staffMembershipId,
         adminUserId,
         "Staff has equivalent experience",
         "certification",
         orgId
-      );
-
-      expect(override.ruleOverridden).toBe("certification");
-      expect(override.reason).toBe("Staff has equivalent experience");
+      )).rejects.toThrow("Only availability warnings can be overridden");
     });
 
     it("override makes staff eligible for blocked rule", async () => {
@@ -776,8 +773,8 @@ describe("EligibilityService", () => {
         title: "Test task",
         organizationId: orgId,
         createdById: adminUserId,
-        scheduledStart: new Date("2026-06-15T09:00:00.000Z"),
-        scheduledEnd: new Date("2026-06-15T12:00:00.000Z"),
+        scheduledStart: new Date("2027-06-15T09:00:00.000Z"),
+        scheduledEnd: new Date("2027-06-15T12:00:00.000Z"),
       });
 
       let results = await eligibilityService.checkEligibilityForTask(
@@ -809,7 +806,7 @@ describe("EligibilityService", () => {
       expect(staffResult!.overrides).toContain("availability");
     });
 
-    it("an 'all' override waives a scheduling conflict", async () => {
+    it("rejects blanket overrides for scheduling conflicts", async () => {
       const task1 = await taskRepo.create({
         title: "Morning shift",
         organizationId: orgId,
@@ -833,26 +830,14 @@ describe("EligibilityService", () => {
         scheduledEnd: new Date("2026-06-15T14:00:00.000Z"),
       });
 
-      // Blanket "all" override waives every warning for this member on the task.
-      await eligibilityService.createOverride(
+      await expect(eligibilityService.createOverride(
         task2.id,
         staffMembershipId,
         adminUserId,
         "Short-staffed — manager approved",
         "all",
         orgId
-      );
-
-      const results = await eligibilityService.checkEligibilityForTask(
-        task2.id,
-        orgId
-      );
-      const staffResult = results.find(
-        (r) => r.membershipId === staffMembershipId
-      );
-      expect(staffResult!.checks.scheduling.eligible).toBe(true);
-      expect(staffResult!.eligible).toBe(true);
-      expect(staffResult!.overrides).toContain("all");
+      )).rejects.toThrow("Only availability warnings can be overridden");
     });
   });
 });

@@ -23,6 +23,7 @@ import { createCheckoutSchema } from "@/lib/validations";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
 import { prisma } from "@/lib/prisma";
 import { hasPermission, PERMISSIONS } from "@/lib/permission-guard";
+import { getTrustedAppOrigin } from "@/lib/stripe";
 
 export const runtime = "nodejs";
 
@@ -82,12 +83,15 @@ export async function POST(
       userEmail: email,
       interval: parsed.data.interval,
       source: parsed.data.source,
-      origin: request.nextUrl.origin,
+      origin: getTrustedAppOrigin(request.nextUrl.origin),
     });
 
     return NextResponse.json({ url });
   } catch (error) {
     console.error("[Checkout POST Error]", error);
+    if (error instanceof Error && /already has an active Pro subscription/i.test(error.message)) {
+      return NextResponse.json({ error: error.message }, { status: 409 });
+    }
     return NextResponse.json(
       { error: "Failed to start checkout" },
       { status: 500 }

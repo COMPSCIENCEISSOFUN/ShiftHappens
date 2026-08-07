@@ -10,7 +10,7 @@
  */
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Card,
   CardContent,
@@ -58,11 +58,7 @@ export function DashboardCharts({ orgId }: { orgId: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchReports();
-  }, [orgId]);
-
-  async function fetchReports() {
+  const fetchReports = useCallback(async () => {
     try {
       const res = await fetch(`/api/organizations/${orgId}/reports`);
       if (!res.ok) {
@@ -77,7 +73,11 @@ export function DashboardCharts({ orgId }: { orgId: string }) {
     } finally {
       setLoading(false);
     }
-  }
+  }, [orgId]);
+
+  useEffect(() => {
+    void fetchReports();
+  }, [fetchReports]);
 
   if (loading) {
     return (

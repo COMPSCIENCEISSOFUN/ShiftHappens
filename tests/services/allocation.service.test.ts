@@ -147,6 +147,9 @@ describe("AllocationService", () => {
 
       expect(assignments).toHaveLength(1);
       expect(assignments[0].status).toBe("assigned");
+
+      await expect(service.autoAllocate(task.id, orgId, adminUserId)).resolves.toEqual([]);
+      await expect(prisma.taskAssignment.count({ where: { taskId: task.id } })).resolves.toBe(1);
     });
   });
 });

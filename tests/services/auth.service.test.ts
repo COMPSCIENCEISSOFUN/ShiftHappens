@@ -13,8 +13,8 @@ const authService = new AuthService();
 
 vi.mock("@/services/email.service", () => ({
   EmailService: class {
-    sendVerificationEmail = vi.fn().mockResolvedValue(undefined);
-    sendPasswordResetEmail = vi.fn().mockResolvedValue(undefined);
+    sendVerificationEmail = vi.fn().mockResolvedValue({ sent: true });
+    sendPasswordResetEmail = vi.fn().mockResolvedValue({ sent: true });
   },
 }));
 
@@ -70,7 +70,7 @@ describe("AuthService", () => {
 
   describe("verifyEmail", () => {
     it("verifies a user with a valid token", async () => {
-      const { user } = await authService.register({
+      await authService.register({
         name: "John Doe",
         email: "john@example.com",
         password: "SecurePass1!",

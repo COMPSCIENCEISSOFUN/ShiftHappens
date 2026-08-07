@@ -9,7 +9,7 @@
  */
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 
 interface EligibilityCheck {
@@ -62,12 +62,7 @@ export function CalendarAssignModal({
 
   const remaining = requiredHeadcount - currentCount;
 
-  useEffect(() => {
-    fetchEligibility();
-    fetchSuggestions();
-  }, [taskId]);
-
-  async function fetchEligibility() {
+  const fetchEligibility = useCallback(async () => {
     setLoadingEligibility(true);
     try {
       const res = await fetch(
@@ -80,9 +75,9 @@ export function CalendarAssignModal({
     } finally {
       setLoadingEligibility(false);
     }
-  }
+  }, [orgId, taskId]);
 
-  async function fetchSuggestions() {
+  const fetchSuggestions = useCallback(async () => {
     setLoadingSuggestions(true);
     try {
       const res = await fetch(
@@ -97,7 +92,12 @@ export function CalendarAssignModal({
     } finally {
       setLoadingSuggestions(false);
     }
-  }
+  }, [orgId, taskId]);
+
+  useEffect(() => {
+    void fetchEligibility();
+    void fetchSuggestions();
+  }, [fetchEligibility, fetchSuggestions]);
 
   async function handleAssign() {
     if (selected.length === 0) return;

@@ -12,7 +12,6 @@
  * Only Company Admin can perform these operations (enforced at Boundary).
  */
 import crypto from "crypto";
-import bcrypt from "bcryptjs";
 import { normalizeEmploymentType } from "@/lib/role-config";
 import { MembershipRepository } from "@/repositories/membership.repository";
 import { InvitationRepository } from "@/repositories/invitation.repository";
@@ -22,8 +21,15 @@ import { RoleRepository } from "@/repositories/role.repository";
 import { DepartmentRepository } from "@/repositories/department.repository";
 import { EmailService } from "@/services/email.service";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
-import { SubscriptionService } from "@/services/subscription.service";
+import { ReplacementAllocationService } from "@/services/replacement-allocation.service";
 import type { InviteUserInput, UpdateUserRoleInput } from "@/lib/validations";
+import { prisma } from "@/lib/prisma";
+import {
+  getResourceLimit,
+  SUBSCRIPTION_TIERS,
+  SubscriptionLimitError,
+  type SubscriptionTier,
+} from "@/lib/subscription-tiers";
 
 export class UserManagementService {
   private membershipRepo = new MembershipRepository();
@@ -34,7 +40,7 @@ export class UserManagementService {
   private deptRepo = new DepartmentRepository();
   private emailService = new EmailService();
   private auditService = new AuditLogService();
-  private subscriptionService = new SubscriptionService();
+  private replacementService = new ReplacementAllocationService();
 
   /**
    * Lists an org's members, optionally limited to a department scope.
@@ -61,17 +67,21 @@ export class UserManagementService {
    * 4. Generate secure invitation token
    * 5. Create invitation record
    * 6. Log audit event
-   * 7. Send invitation email (fire-and-forget)
+   * 7. Send the invitation email and persist its delivery outcome
    */
   async inviteUser(
     input: InviteUserInput,
     organizationId: string,
-    invitedById: string
+    invitedById: string,
+    source: "direct" | "batch_import" = "direct"
   ) {
-    await this.subscriptionService.enforceResourceLimit(organizationId, 'members');
+    const normalizedInput = {
+      ...input,
+      email: input.email.trim().toLowerCase(),
+    };
 
     // Check if the email already belongs to a member of this org
-    const existingUser = await this.userRepo.findByEmail(input.email);
+    const existingUser = await this.userRepo.findByEmail(normalizedInput.email);
     if (existingUser) {
       // Including inactive: a deactivated member is still a member. The
       // (userId, organizationId) pair is unique, so inviting them again would
@@ -89,7 +99,7 @@ export class UserManagementService {
 
     // Check for duplicate pending invitation
     const pendingInvitation = await this.invitationRepo.findPendingByEmail(
-      input.email,
+      normalizedInput.email,
       organizationId
     );
     if (pendingInvitation) {
@@ -99,18 +109,12 @@ export class UserManagementService {
     // Generate secure token and create invitation
     const token = crypto.randomBytes(32).toString("hex");
 
-    const invitation = await this.invitationRepo.create({
+    const invitation = await this.createInvitationAtomic(
+      normalizedInput,
       organizationId,
-      email: input.email,
-      role: input.role,
-      departmentId: input.departmentId,
-      employmentType:
-        input.role === "staff"
-          ? normalizeEmploymentType(input.employmentType)
-          : undefined,
-      token,
       invitedById,
-    });
+      token
+    );
 
     await this.auditService.log({
       organizationId,
@@ -118,18 +122,129 @@ export class UserManagementService {
       action: ACTIONS.MEMBER_INVITED,
       entityType: "invitation",
       entityId: invitation.id,
-      details: { email: input.email, role: input.role },
+      details: { email: normalizedInput.email, role: input.role, method: source },
     });
 
-    // Send invitation email (fire-and-forget — never blocks or fails the invite)
-    this.sendInvitationEmailAsync(
-      input.email,
+    const emailDelivery = await this.sendInvitationEmail(
+      invitation.id,
+      normalizedInput.email,
       token,
       organizationId,
       invitedById
     );
 
-    return invitation;
+    return { ...invitation, emailDelivery };
+  }
+
+  async getOrgMembersPage(
+    organizationId: string,
+    departmentScope: string[] | null,
+    limit: number,
+    offset: number
+  ) {
+    return this.membershipRepo.findPageByOrgId(
+      organizationId,
+      departmentScope,
+      limit,
+      offset
+    );
+  }
+
+  /** Final entitlement, duplicate, and tenant checks under a per-org DB lock. */
+  private async createInvitationAtomic(
+    input: InviteUserInput,
+    organizationId: string,
+    invitedById: string,
+    token: string
+  ) {
+    return prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${organizationId}))`;
+      const organization = await tx.organization.findUnique({
+        where: { id: organizationId },
+        select: { subscriptionTier: true },
+      });
+      if (!organization) throw new Error("Organization not found");
+
+      const now = new Date();
+      await tx.invitationToken.deleteMany({
+        where: {
+          organizationId,
+          email: input.email,
+          acceptedAt: null,
+          expires: { lte: now },
+        },
+      });
+
+      const tier = SUBSCRIPTION_TIERS.includes(
+        organization.subscriptionTier as SubscriptionTier
+      )
+        ? organization.subscriptionTier as SubscriptionTier
+        : "free";
+      const limit = getResourceLimit(tier, "members");
+      const [activeMembers, pendingInvitations] = await Promise.all([
+        tx.membership.count({ where: { organizationId, status: "active" } }),
+        tx.invitationToken.count({
+          where: { organizationId, acceptedAt: null, expires: { gt: now } },
+        }),
+      ]);
+      const current = activeMembers + pendingInvitations;
+      if (limit !== null && current >= limit) {
+        throw new SubscriptionLimitError("members", current, limit, tier);
+      }
+
+      const existingUser = await tx.user.findUnique({
+        where: { email: input.email },
+        select: { id: true },
+      });
+      if (existingUser) {
+        const membership = await tx.membership.findUnique({
+          where: {
+            userId_organizationId: {
+              userId: existingUser.id,
+              organizationId,
+            },
+          },
+          select: { id: true },
+        });
+        if (membership) {
+          throw new Error("User is already a member of this organization");
+        }
+      }
+
+      const pending = await tx.invitationToken.findFirst({
+        where: { organizationId, email: input.email, acceptedAt: null },
+        select: { id: true },
+      });
+      if (pending) {
+        throw new Error("An invitation has already been sent to this email");
+      }
+
+      if (input.departmentId) {
+        const department = await tx.department.findFirst({
+          where: { id: input.departmentId, organizationId },
+          select: { id: true },
+        });
+        if (!department) throw new Error("Department not found");
+      }
+
+      const expires = new Date(now);
+      expires.setDate(expires.getDate() + 7);
+      return tx.invitationToken.create({
+        data: {
+          organizationId,
+          email: input.email,
+          role: input.role,
+          departmentId: input.departmentId,
+          employmentType:
+            input.role === "staff"
+              ? normalizeEmploymentType(input.employmentType)
+              : undefined,
+          token,
+          invitedById,
+          expires,
+        },
+      });
+    }, { isolationLevel: "Serializable" });
   }
 
   /**
@@ -138,7 +253,8 @@ export class UserManagementService {
    * Errors are logged but never propagated — the invitation is
    * already created regardless of email delivery.
    */
-  private async sendInvitationEmailAsync(
+  private async sendInvitationEmail(
+    invitationId: string,
     email: string,
     token: string,
     organizationId: string,
@@ -150,14 +266,35 @@ export class UserManagementService {
         this.userRepo.findById(invitedById),
       ]);
 
-      await this.emailService.sendInvitationEmail(
+      const delivery = await this.emailService.sendInvitationEmail(
         email,
         token,
         org?.name || "your organization",
         inviter?.name || inviter?.email || "A team member"
       );
+      await prisma.invitationToken.update({
+        where: { id: invitationId },
+        data: delivery.sent
+          ? {
+              emailDeliveryStatus: "sent",
+              emailDeliveryError: null,
+              emailSentAt: new Date(),
+            }
+          : {
+              emailDeliveryStatus: "failed",
+              emailDeliveryError: delivery.error ?? "Email delivery failed",
+            },
+      });
+      return delivery;
     } catch (error) {
       console.error("[Invite Email Error]", error);
+      const message =
+        error instanceof Error ? error.message : "Email delivery failed";
+      await prisma.invitationToken.update({
+        where: { id: invitationId },
+        data: { emailDeliveryStatus: "failed", emailDeliveryError: message },
+      });
+      return { sent: false, error: message };
     }
   }
 
@@ -185,6 +322,9 @@ export class UserManagementService {
     }
 
     const previousRole = membership.role;
+    const affectedTaskIds = input.role !== "staff"
+      ? await this.activeTaskIdsForMember(membership.id)
+      : [];
 
     // Prevent demoting the last company_admin
     if (membership.role === "company_admin" && input.role !== "company_admin") {
@@ -203,7 +343,8 @@ export class UserManagementService {
     // Update the role
     const updated = await this.membershipRepo.updateRole(
       membership.id,
-      input.role
+      input.role,
+      performedById
     );
 
     // Auto-clear custom role when promoting to company_admin
@@ -238,6 +379,14 @@ export class UserManagementService {
       entityId: userId,
       details: { previousRole, newRole: input.role, departmentIds: input.departmentIds, employmentType: input.employmentType },
     });
+
+    await this.refillAffectedTasks(
+      affectedTaskIds,
+      organizationId,
+      performedById,
+      membership.id,
+      "Role-changed member"
+    );
 
     return updated;
   }
@@ -326,7 +475,14 @@ export class UserManagementService {
     }
 
     const newStatus = membership.status === "active" ? "inactive" : "active";
-    const updated = await this.membershipRepo.updateStatus(membership.id, newStatus);
+    const affectedTaskIds = newStatus === "inactive"
+      ? await this.activeTaskIdsForMember(membership.id)
+      : [];
+    const updated = await this.membershipRepo.updateStatus(
+      membership.id,
+      newStatus,
+      performedById
+    );
 
     await this.auditService.log({
       organizationId,
@@ -337,16 +493,54 @@ export class UserManagementService {
       details: { previousStatus: membership.status, newStatus },
     });
 
+    await this.refillAffectedTasks(
+      affectedTaskIds,
+      organizationId,
+      performedById,
+      membership.id,
+      "Deactivated member"
+    );
+
     return updated;
+  }
+
+  private async activeTaskIdsForMember(membershipId: string) {
+    const assignments = await prisma.taskAssignment.findMany({
+      where: {
+        membershipId,
+        status: { notIn: ["completed", "withdrawn", "cancelled"] },
+        task: { status: "open" },
+      },
+      select: { taskId: true },
+    });
+    return [...new Set(assignments.map((assignment) => assignment.taskId))];
+  }
+
+  private async refillAffectedTasks(
+    taskIds: string[],
+    organizationId: string,
+    actorUserId: string | undefined,
+    removedMembershipId: string,
+    removedStaffName: string
+  ) {
+    if (!actorUserId) return;
+    for (const taskId of taskIds) {
+      await this.replacementService.fillCoverageGap({
+        taskId,
+        organizationId,
+        actorUserId,
+        excludedMembershipIds: [removedMembershipId],
+        removedStaffName,
+      });
+    }
   }
 
   /**
    * Batch imports members from a spreadsheet upload.
    * For each row:
-   * 1. Find or create user (new users get a random password — they use "Forgot Password" to set their own)
-   * 2. Create membership with role and employment type
-   * 3. Assign department by name lookup
-   * 4. Audit log each creation
+   * Each valid row creates a normal invitation. The recipient chooses their
+   * own password during acceptance; no pre-verified account or hidden random
+   * credential is created by an import.
    *
    * Partial-success pattern — one failed row does not stop the batch.
    * Returns created count, failed count, and per-row error messages.
@@ -368,12 +562,6 @@ export class UserManagementService {
       departments.map((d) => [d.name.toLowerCase(), d.id])
     );
 
-    // Pre-fetch existing members to detect duplicates
-    const existingMembers = await this.membershipRepo.findByOrgId(organizationId);
-    const existingEmails = new Set(
-      existingMembers.map((m) => m.user.email.toLowerCase())
-    );
-
     // Track emails within batch to detect intra-batch duplicates
     const seenEmails = new Set<string>();
 
@@ -393,13 +581,6 @@ export class UserManagementService {
         }
         seenEmails.add(email);
 
-        // Check existing membership
-        if (existingEmails.has(email)) {
-          errors.push(`Row ${email}: Already a member`);
-          failed++;
-          continue;
-        }
-
         // Resolve department
         let departmentId: string | null = null;
         if (member.departmentName) {
@@ -413,48 +594,18 @@ export class UserManagementService {
           }
         }
 
-        // Find or create user
-        let user = await this.userRepo.findByEmail(email);
-        if (!user) {
-          const randomPassword = crypto.randomBytes(32).toString("hex");
-          const hashedPassword = await bcrypt.hash(randomPassword, 12);
-          user = await this.userRepo.create({
-            name: member.name.trim(),
+        await this.inviteUser(
+          {
             email,
-            hashedPassword,
-          });
-          // Mark email as verified — admin is adding them directly
-          await this.userRepo.verifyEmail(user.id);
-        }
-
-        // Create membership
-        const membership = await this.membershipRepo.create({
-          userId: user.id,
-          organizationId,
-          role: member.role,
-          employmentType: member.employmentType,
-        });
-
-        // Assign department
-        if (departmentId) {
-          await this.membershipRepo.assignDepartments(membership.id, [departmentId]);
-        }
-
-        // Audit log (fire-and-forget)
-        void this.auditService.log({
-          organizationId,
-          userId: performedById,
-          action: ACTIONS.MEMBER_INVITED,
-          entityType: "member",
-          entityId: user.id,
-          details: {
-            method: "batch_import",
-            email,
-            role: member.role,
-            employmentType: member.employmentType,
-            departmentName: member.departmentName,
+            role: member.role as InviteUserInput["role"],
+            departmentId: departmentId ?? undefined,
+            employmentType:
+              member.employmentType as InviteUserInput["employmentType"],
           },
-        });
+          organizationId,
+          performedById,
+          "batch_import"
+        );
 
         created++;
       } catch (error) {

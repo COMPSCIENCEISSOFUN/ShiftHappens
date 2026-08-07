@@ -6,7 +6,7 @@
  * verification, mark-all-as-read, preference gating, and the aggregated feed
  * that drives the notifications page.
  */
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import {
   NotificationService,
   NOTIFICATION_TYPES,
@@ -89,52 +89,24 @@ describe("NotificationService", () => {
      * suite's stderr. Expected noise is worth removing precisely so that
      * unexpected noise still stands out.
      */
-    it("does not throw on invalid userId (fire-and-forget)", async () => {
-      const logged = vi.spyOn(console, "error").mockImplementation(() => {});
-
-      try {
-        await expect(
-          notificationService.notify(
-            orgId,
-            "nonexistent-user-id",
-            NOTIFICATION_TYPES.TASK_ASSIGNED,
-            "Test",
-            "Message"
-          )
-        ).resolves.not.toThrow();
-
-        expect(logged).toHaveBeenCalledWith(
-          "[Notification Error]",
-          expect.anything()
-        );
-      } finally {
-        // Explicit: the config does not set `restoreMocks`, so a leaked spy
-        // would silence console.error for every later test in this file.
-        logged.mockRestore();
-      }
+    it("propagates persistence failure for an invalid userId", async () => {
+      await expect(notificationService.notify(
+        orgId,
+        "nonexistent-user-id",
+        NOTIFICATION_TYPES.TASK_ASSIGNED,
+        "Test",
+        "Message"
+      )).rejects.toMatchObject({ code: "P2003" });
     });
 
-    it("does not throw on invalid organizationId (fire-and-forget)", async () => {
-      const logged = vi.spyOn(console, "error").mockImplementation(() => {});
-
-      try {
-        await expect(
-          notificationService.notify(
-            "nonexistent-org-id",
-            userId,
-            NOTIFICATION_TYPES.TASK_ASSIGNED,
-            "Test",
-            "Message"
-          )
-        ).resolves.not.toThrow();
-
-        expect(logged).toHaveBeenCalledWith(
-          "[Notification Error]",
-          expect.anything()
-        );
-      } finally {
-        logged.mockRestore();
-      }
+    it("propagates persistence failure for an invalid organizationId", async () => {
+      await expect(notificationService.notify(
+        "nonexistent-org-id",
+        userId,
+        NOTIFICATION_TYPES.TASK_ASSIGNED,
+        "Test",
+        "Message"
+      )).rejects.toMatchObject({ code: "P2003" });
     });
   });
 

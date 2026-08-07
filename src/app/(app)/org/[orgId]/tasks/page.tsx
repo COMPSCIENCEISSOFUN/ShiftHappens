@@ -16,7 +16,7 @@
  */
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,6 +31,7 @@ import { AlertBanner } from "@/components/ui/alert-banner";
 import { EmptyState } from "@/components/ui/empty-state";
 import { OperationsAssistant } from "@/components/operations/operations-assistant";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { toDateTimeLocalValue } from "@/lib/timezone";
 import { ClipboardList, MapPin } from "lucide-react";
 
@@ -162,6 +163,7 @@ interface EligibilityResult {
   memberName: string;
   eligible: boolean;
   checks: Record<string, EligibilityCheckResult>;
+  overridable: boolean;
 }
 
 interface StaffSuggestion {
@@ -169,11 +171,6 @@ interface StaffSuggestion {
   rank: number;
   score: number;
   explanation?: string;
-}
-
-interface DepartmentOption {
-  id: string;
-  name: string;
 }
 
 // ============================================================
@@ -184,6 +181,10 @@ export default function TasksPage() {
   const params = useParams();
   const orgId = params.orgId as string;
   const [tasks, setTasks] = useState<Task[]>([]);
+  const tasksRef = useRef<Task[]>([]);
+  const [totalTasks, setTotalTasks] = useState(0);
+  const [hasMoreTasks, setHasMoreTasks] = useState(false);
+  const [loadingMoreTasks, setLoadingMoreTasks] = useState(false);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [certificationDefinitions, setCertificationDefinitions] = useState<
     CertificationDefinition[]
@@ -214,59 +215,59 @@ export default function TasksPage() {
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [loadingEligibility, setLoadingEligibility] = useState(false);
-  // Retained for the manual task fallback and its status banner.
-  const [naturalInput, setNaturalInput] = useState("");
-  const [parsing, setParsing] = useState(false);
-  const [clarificationOptions, setClarificationOptions] = useState<DepartmentOption[]>([]);
   // "auto" | "manual" - smart suggestions are available in both modes.
   const [allocationMode, setAllocationMode] = useState<string>("auto");
   const [autoAssigningId, setAutoAssigningId] = useState<string | null>(null);
+  const [confirmAction, setConfirmAction] = useState<
+    { kind: "task" | "assignment"; id: string } | null
+  >(null);
 
   // ── Data fetching ────────────────────────────────
 
-  useEffect(() => {
-    fetchTasks();
-    fetchDepartments();
-    fetchMembers();
-    fetchAllocationMode();
-    fetchCertificationDefinitions();
-  }, [orgId]);
-
-  async function fetchTasks() {
+  const fetchTasks = useCallback(async (append = false) => {
+    if (append) setLoadingMoreTasks(true);
     try {
-      const res = await fetch(`/api/organizations/${orgId}/tasks`);
+      const offset = append ? tasksRef.current.length : 0;
+      const res = await fetch(`/api/organizations/${orgId}/tasks?limit=50&offset=${offset}`);
       const data = await res.json();
       if (!res.ok || !Array.isArray(data)) {
         setTasks([]);
         setError(data?.error || "Failed to load tasks");
         return;
       }
-      setTasks(data);
+      setTasks((current) => {
+        const next = append ? [...current, ...data] : data;
+        tasksRef.current = next;
+        return next;
+      });
+      setTotalTasks(Number(res.headers.get("X-Total-Count")) || data.length);
+      setHasMoreTasks(res.headers.get("X-Has-More") === "true");
     } catch {
       setError("Failed to load tasks");
     } finally {
       setLoading(false);
+      setLoadingMoreTasks(false);
     }
-  }
+  }, [orgId]);
 
-  async function fetchDepartments() {
+  const fetchDepartments = useCallback(async () => {
     try {
       const res = await fetch(`/api/organizations/${orgId}/departments?scope=mine`);
       const data = await res.json();
       setDepartments(Array.isArray(data) ? data : []);
     } catch {}
-  }
+  }, [orgId]);
 
-  async function fetchAllocationMode() {
+  const fetchAllocationMode = useCallback(async () => {
     try {
       const res = await fetch(`/api/organizations/${orgId}/task-allocation-mode`);
       if (!res.ok) return;
       const data = await res.json();
       setAllocationMode(data.allocationMode ?? "auto");
     } catch {}
-  }
+  }, [orgId]);
 
-  async function fetchCertificationDefinitions() {
+  const fetchCertificationDefinitions = useCallback(async () => {
     try {
       const res = await fetch(
         `/api/organizations/${orgId}/certification-definitions`
@@ -278,7 +279,7 @@ export default function TasksPage() {
     } catch {
       setCertificationDefinitions([]);
     }
-  }
+  }, [orgId]);
 
   function selectCreateDepartment(departmentId: string) {
     setCreateDepartmentId(departmentId);
@@ -300,7 +301,7 @@ export default function TasksPage() {
     );
   }
 
-  async function fetchMembers() {
+  const fetchMembers = useCallback(async () => {
     try {
       const res = await fetch(`/api/organizations/${orgId}/members`);
       const data = await res.json();
@@ -310,7 +311,18 @@ export default function TasksPage() {
         )
       );
     } catch {}
-  }
+  }, [orgId]);
+
+  useEffect(() => {
+    void fetchTasks();
+    const timer = window.setTimeout(() => {
+      void fetchDepartments();
+      void fetchMembers();
+      void fetchAllocationMode();
+      void fetchCertificationDefinitions();
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [fetchAllocationMode, fetchCertificationDefinitions, fetchDepartments, fetchMembers, fetchTasks]);
 
   async function fetchEligibility(taskId: string) {
     setLoadingEligibility(true);
@@ -363,7 +375,6 @@ export default function TasksPage() {
   async function onAutoAssign(taskId: string) {
     setError(null);
       setSuccess(null);
-      setClarificationOptions([]);
     setAutoAssigningId(taskId);
 
     try {
@@ -378,9 +389,9 @@ export default function TasksPage() {
       }
 
       const assignments = await res.json().catch(() => []);
-      setSuccess(
-        `Auto-assigned ${Array.isArray(assignments) ? assignments.length : ""} staff`.trim()
-      );
+      setSuccess(Array.isArray(assignments) && assignments.length === 0
+        ? "This task is already fully staffed."
+        : `Auto-assigned ${Array.isArray(assignments) ? assignments.length : ""} staff`.trim());
       fetchTasks();
     } catch {
       setError("Something went wrong");
@@ -389,77 +400,10 @@ export default function TasksPage() {
     }
   }
 
-  async function onParseNaturalLanguage() {
-    if (!naturalInput.trim()) return;
-    setParsing(true);
-    setError(null);
-    setSuccess(null);
-
-    try {
-      const res = await fetch(`/api/organizations/${orgId}/tasks/execute`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: naturalInput }),
-      });
-
-      const result = await res.json().catch(() => null);
-      if (!res.ok) {
-        setError(result?.error || "I could not complete that request");
-        return;
-      }
-
-      if (result.status === "completed") {
-        setNaturalInput("");
-        setClarificationOptions([]);
-        const names = result.assignedStaff?.join(", ") || "qualified staff";
-        setSuccess(`${result.message} Assigned: ${names}`);
-      } else {
-        setError(result.message || "This request needs your review.");
-        setClarificationOptions(Array.isArray(result.departmentOptions) ? result.departmentOptions : []);
-      }
-      await fetchTasks();
-
-      /*
-       * The manual form remains available below as a fallback. Conversational
-       * requests execute here and do not silently open a second form.
-       */
-      if (false) { /* legacy form-prefill path retained in the manual form below */ /*
-
-        const titleInput = form.querySelector('[name="title"]') as HTMLInputElement;
-        const descInput = form.querySelector('[name="description"]') as HTMLTextAreaElement;
-        const locationInput = form.querySelector('[name="location"]') as HTMLInputElement;
-        const instructionsInput = form.querySelector('[name="instructions"]') as HTMLTextAreaElement;
-        const deptSelect = form.querySelector('[name="departmentId"]') as HTMLSelectElement;
-        const prioritySelect = form.querySelector('[name="priority"]') as HTMLSelectElement;
-        const headcountInput = form.querySelector('[name="requiredHeadcount"]') as HTMLInputElement;
-        const startInput = form.querySelector('[name="scheduledStart"]') as HTMLInputElement;
-        const endInput = form.querySelector('[name="scheduledEnd"]') as HTMLInputElement;
-
-        if (titleInput) titleInput.value = parsed.title || "";
-        if (descInput) descInput.value = parsed.description || "";
-        if (locationInput) locationInput.value = parsed.location || "";
-        if (instructionsInput) instructionsInput.value = parsed.instructions || "";
-        if (deptSelect && parsed.departmentId) deptSelect.value = parsed.departmentId;
-        if (prioritySelect) prioritySelect.value = parsed.priority || "medium";
-        if (headcountInput) headcountInput.value = String(parsed.requiredHeadcount || 1);
         // slice(0, 16) used to strip the offset and hand the UTC wall clock to
         // a local input — wrong, but it cancelled the parser emitting local
         // times labelled as UTC. Both sides are now correct: the parser returns
         // a true instant, and this converts it to the viewer's local time.
-        if (startInput && parsed.scheduledStart) {
-          startInput.value = toDateTimeLocalValue(new Date(parsed.scheduledStart));
-        }
-        if (endInput && parsed.scheduledEnd) {
-          endInput.value = toDateTimeLocalValue(new Date(parsed.scheduledEnd));
-        } */
-      }
-    } catch {
-      setError("Something went wrong");
-    } finally {
-      setParsing(false);
-    }
-  }
-
   async function onCreateTask(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
@@ -583,7 +527,7 @@ export default function TasksPage() {
               body: JSON.stringify({
                 membershipId: membId,
                 reason,
-                ruleOverridden: "all",
+                ruleOverridden: "availability",
               }),
             }
           );
@@ -622,7 +566,6 @@ export default function TasksPage() {
   }
 
   async function onDeleteTask(taskId: string) {
-    if (!confirm("Are you sure you want to delete this task?")) return;
     setError(null);
 
     try {
@@ -638,6 +581,7 @@ export default function TasksPage() {
       }
 
       fetchTasks();
+      setConfirmAction(null);
     } catch {
       setError("Something went wrong");
     }
@@ -716,7 +660,6 @@ export default function TasksPage() {
   }
 
   async function onCancelAssignment(assignmentId: string) {
-    if (!confirm("Are you sure you want to unassign this staff member?")) return;
     setError(null);
 
     try {
@@ -732,6 +675,7 @@ export default function TasksPage() {
       }
 
       fetchTasks();
+      setConfirmAction(null);
     } catch {
       setError("Something went wrong");
     }
@@ -821,7 +765,7 @@ export default function TasksPage() {
         <div>
           <h2 className="text-2xl font-bold tracking-tight">Tasks</h2>
           <p className="mt-0.5 text-sm text-muted-foreground">
-            Ask ShiftHappens to coordinate the work, then handle exceptions here.
+            Tell ShiftHappens the outcome you need. Review exceptions only when they need your judgment.
           </p>
           {departments.length > 0 && <p className="mt-1 text-xs text-muted-foreground">Managing: {departments.map((department) => department.name).join(", ")}</p>}
         </div>
@@ -852,7 +796,7 @@ export default function TasksPage() {
         <div className="relative overflow-hidden rounded-xl border border-border bg-card p-4">
           <div className="absolute right-0 top-0 h-12 w-12 rounded-bl-[48px] bg-indigo-500/[0.08]" />
           <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Total Tasks</p>
-          <p className="mt-1 text-2xl font-bold tracking-tight">{tasks.length}</p>
+          <p className="mt-1 text-2xl font-bold tracking-tight">{totalTasks}</p>
           <p className="mt-0.5 text-[12px] text-muted-foreground">
             across {departments.length} department{departments.length !== 1 ? "s" : ""}
           </p>
@@ -894,32 +838,8 @@ export default function TasksPage() {
       {/* ──────────────────────────────────────────────── */}
       {/* Alerts                                           */}
       {/* ──────────────────────────────────────────────── */}
-      {error && clarificationOptions.length === 0 && (
+      {error && (
         <AlertBanner message={error} variant="error" className="mb-4" />
-      )}
-      {error && clarificationOptions.length > 0 && (
-        <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-100">
-          <p className="font-semibold">{error}</p>
-          <p className="mt-1 text-xs text-blue-700 dark:text-blue-300">
-            Choose an authorised department to continue this request.
-          </p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {clarificationOptions.map((department) => (
-              <button
-                key={department.id}
-                type="button"
-                onClick={() => {
-                  setNaturalInput((current) => `${current} for ${department.name}`);
-                  setError(null);
-                  setClarificationOptions([]);
-                }}
-                className="rounded-lg border border-blue-300 bg-white px-3 py-1.5 text-xs font-semibold text-blue-800 transition-colors hover:border-blue-500 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-200 dark:hover:bg-blue-900"
-              >
-                {department.name}
-              </button>
-            ))}
-          </div>
-        </div>
       )}
       {success && <AlertBanner message={success} variant="success" className="mb-4" />}
 
@@ -1226,8 +1146,6 @@ export default function TasksPage() {
                   ? "bg-amber-500"
                   : "bg-red-500";
             const isCompleted = task.status === "completed" || task.status === "cancelled";
-            const hasWithdrawal = task.assignments.some((a) => a.status === "withdrawal_requested");
-
             return (
               <div
                 key={task.id}
@@ -1241,7 +1159,14 @@ export default function TasksPage() {
 
                   <div className="min-w-0 flex-1 px-4 py-4 sm:px-5">
                     {/* ── Title ───────────────────── */}
-                    <h3 className="truncate text-base font-semibold tracking-tight">{task.title}</h3>
+                    <div className="flex items-start justify-between gap-3">
+                      <h3 className="min-w-0 truncate text-base font-semibold tracking-tight">{task.title}</h3>
+                      {assigned < needed && !isCompleted && (
+                        <span className="shrink-0 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700 dark:bg-amber-950/50 dark:text-amber-300">
+                          {needed - assigned} needed
+                        </span>
+                      )}
+                    </div>
 
                     {/* ── Badges ──────────────────── */}
                     <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
@@ -1371,10 +1296,10 @@ export default function TasksPage() {
                             type="button"
                             onClick={() => onAutoAssign(task.id)}
                             disabled={autoAssigningId === task.id}
-                            className="flex h-8 items-center gap-1.5 rounded-lg border border-indigo-300 bg-card px-2.5 text-[12px] font-medium text-indigo-600 transition-colors hover:bg-indigo-50 disabled:opacity-50 dark:border-indigo-600 dark:text-indigo-400 dark:hover:bg-indigo-950"
+                            className="flex h-8 items-center gap-1.5 rounded-lg border border-primary bg-primary px-2.5 text-[12px] font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
                           >
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" /></svg>
-                            {autoAssigningId === task.id ? "Assigning..." : "Auto-assign"}
+                            {autoAssigningId === task.id ? "Assigning..." : "Resolve coverage"}
                           </button>
                         )}
 
@@ -1414,7 +1339,7 @@ export default function TasksPage() {
                       {/* Delete */}
                       <button
                         type="button"
-                        onClick={() => onDeleteTask(task.id)}
+                        onClick={() => setConfirmAction({ kind: "task", id: task.id })}
                         className="flex h-8 items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 text-[12px] font-medium text-muted-foreground transition-colors hover:border-red-300 hover:bg-red-50 hover:text-red-600 dark:hover:border-red-700 dark:hover:bg-red-950 dark:hover:text-red-400"
                       >
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg>
@@ -1526,7 +1451,7 @@ export default function TasksPage() {
                                   <button
                                     type="button"
                                     className="ml-auto text-[11px] text-red-500 hover:underline"
-                                    onClick={() => onCancelAssignment(a.id)}
+                                    onClick={() => setConfirmAction({ kind: "assignment", id: a.id })}
                                   >
                                     Unassign
                                   </button>
@@ -1716,7 +1641,7 @@ export default function TasksPage() {
                                         const hasOverride = overrideReason.trim().length > 0;
                                         const selected = selectedMembers.includes(m.id);
                                         const atLimit = !selected && selectedMembers.length >= task.requiredHeadcount;
-                                        const canSelect = hasOverride;
+                                        const canSelect = Boolean(elig?.overridable && hasOverride);
                                         const suggestion = suggestions.find((s) => s.membershipId === m.id);
 
                                         const warnings: string[] =
@@ -1757,6 +1682,7 @@ export default function TasksPage() {
                                                 <span key={i}>⚠ {w}</span>
                                               ))}
                                             </div>
+                                            {elig?.overridable ? (
                                             <div className="mt-1.5 pl-8">
                                               <Input
                                                 value={overrideReason}
@@ -1775,6 +1701,11 @@ export default function TasksPage() {
                                                 </p>
                                               )}
                                             </div>
+                                            ) : (
+                                              <p className="mt-1.5 pl-8 text-[11px] font-medium text-red-700 dark:text-red-400">
+                                                Hard safety block — resolve the conflict, limit, rule, or certification before assigning.
+                                              </p>
+                                            )}
                                           </div>
                                         );
                                       })}
@@ -1820,8 +1751,28 @@ export default function TasksPage() {
               </div>
             );
           })}
+          {hasMoreTasks && (
+            <Button variant="outline" onClick={() => void fetchTasks(true)} disabled={loadingMoreTasks} className="self-center">
+              {loadingMoreTasks ? "Loading..." : `Load more (${tasks.length} of ${totalTasks})`}
+            </Button>
+          )}
         </div>
       )}
+      <ConfirmDialog
+        open={Boolean(confirmAction)}
+        title={confirmAction?.kind === "task" ? "Cancel this task?" : "Unassign this staff member?"}
+        description={confirmAction?.kind === "task"
+          ? "Assignments and recorded work will be preserved in history."
+          : "The assignment will be cancelled and preserved in history; coverage may be recalculated."}
+        confirmLabel={confirmAction?.kind === "task" ? "Cancel task" : "Unassign staff"}
+        variant="destructive"
+        onCancel={() => setConfirmAction(null)}
+        onConfirm={() => {
+          if (!confirmAction) return;
+          if (confirmAction.kind === "task") void onDeleteTask(confirmAction.id);
+          else void onCancelAssignment(confirmAction.id);
+        }}
+      />
     </div>
   );
 }

@@ -25,7 +25,7 @@ export function EmptyState({
   return (
     <div
       className={cn(
-        "flex flex-col items-center justify-center gap-3 py-12 text-center",
+        "flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border/80 bg-muted/20 px-5 py-12 text-center",
         className,
       )}
     >
@@ -37,7 +37,7 @@ export function EmptyState({
       <div className="space-y-1">
         <h3 className="text-sm font-medium">{title}</h3>
         {description && (
-          <p className="text-sm text-muted-foreground">{description}</p>
+          <p className="mx-auto max-w-md text-sm leading-6 text-muted-foreground">{description}</p>
         )}
       </div>
       {action && <div className="mt-2">{action}</div>}

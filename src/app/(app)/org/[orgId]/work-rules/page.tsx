@@ -7,12 +7,13 @@
  */
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { PageLoading } from "@/components/ui/page-loading";
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 interface WorkRule {
   id: string;
@@ -64,6 +65,7 @@ export default function WorkRulesPage({
   const [editingRule, setEditingRule] = useState<WorkRule | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<WorkRule | null>(null);
 
   const [formName, setFormName] = useState("");
   const [formType, setFormType] = useState("break_interval");
@@ -75,11 +77,7 @@ export default function WorkRulesPage({
 
   useEffect(() => { params.then(({ orgId: id }) => setOrgId(id)); }, [params]);
 
-  useEffect(() => {
-    if (orgId) { fetchRules(); fetchRoles(); fetchDepartments(); }
-  }, [orgId]);
-
-  async function fetchRules() {
+  const fetchRules = useCallback(async () => {
     try {
       setLoading(true);
       const res = await fetch(`/api/organizations/${orgId}/work-rules`);
@@ -88,21 +86,29 @@ export default function WorkRulesPage({
       setError(null);
     } catch { setError("Failed to load work rules"); }
     finally { setLoading(false); }
-  }
+  }, [orgId]);
 
-  async function fetchRoles() {
+  const fetchRoles = useCallback(async () => {
     try {
       const res = await fetch(`/api/organizations/${orgId}/roles`);
       if (res.ok) setRoles(await res.json());
     } catch { /* optional */ }
-  }
+  }, [orgId]);
 
-  async function fetchDepartments() {
+  const fetchDepartments = useCallback(async () => {
     try {
       const res = await fetch(`/api/organizations/${orgId}/departments`);
       if (res.ok) { const d = await res.json(); setDepartments(Array.isArray(d) ? d : []); }
     } catch { /* optional */ }
-  }
+  }, [orgId]);
+
+  useEffect(() => {
+    if (orgId) {
+      void fetchRules();
+      void fetchRoles();
+      void fetchDepartments();
+    }
+  }, [fetchDepartments, fetchRoles, fetchRules, orgId]);
 
   function resetForm() {
     setFormName(""); setFormType("break_interval"); setFormRoleId("");
@@ -172,11 +178,12 @@ export default function WorkRulesPage({
     } catch { /* retry */ }
   }
 
-  async function handleDelete(rule: WorkRule) {
-    if (!confirm(`Delete "${rule.name}"? This cannot be undone.`)) return;
+  async function handleDelete() {
+    if (!deleteTarget) return;
     try {
-      await fetch(`/api/organizations/${orgId}/work-rules/${rule.id}`, { method: "DELETE" });
+      await fetch(`/api/organizations/${orgId}/work-rules/${deleteTarget.id}`, { method: "DELETE" });
       fetchRules();
+      setDeleteTarget(null);
     } catch { /* retry */ }
   }
 
@@ -320,13 +327,22 @@ export default function WorkRulesPage({
                   {rule.isActive ? "Disable" : "Enable"}
                 </Button>
                 <Button variant="outline" size="sm" onClick={() => openEditForm(rule)}>Edit</Button>
-                <Button variant="outline" size="sm" onClick={() => handleDelete(rule)}
+                <Button variant="outline" size="sm" onClick={() => setDeleteTarget(rule)}
                   className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950">Delete</Button>
               </div>
             </div>
           ))}
         </div>
       )}
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        title={`Delete ${deleteTarget?.name ?? "work rule"}?`}
+        description="This rule will stop protecting future assignments. This cannot be undone."
+        confirmLabel="Delete rule"
+        variant="destructive"
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={() => void handleDelete()}
+      />
     </div>
   );
 }

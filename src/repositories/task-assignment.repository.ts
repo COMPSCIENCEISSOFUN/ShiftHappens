@@ -11,8 +11,20 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import {
   ASSIGNMENT_STATUSES,
+  COMMITTED_ASSIGNMENT_STATUSES,
   SLOT_OCCUPYING_ASSIGNMENT_STATUSES,
 } from "@/lib/assignment-status";
+import {
+  dayOfWeekInTimeZone,
+  endOfDayInTimeZone,
+  localDateInTimeZone,
+  startOfDayInTimeZone,
+  timeOfDayInTimeZone,
+} from "@/lib/timezone";
+import {
+  normalizeEmploymentType,
+  requiresManagedAvailability,
+} from "@/lib/role-config";
 
 export class TaskAssignmentRepository {
   /** Creates a new active task assignment */
@@ -101,13 +113,23 @@ export class TaskAssignmentRepository {
 
   /** Records clock-in time and moves the assignment into progress */
   async clockIn(id: string) {
-    return prisma.taskAssignment.update({
-      where: { id },
-      data: {
-        clockInTime: new Date(),
-        status: ASSIGNMENT_STATUSES.IN_PROGRESS,
-      },
-    });
+    return prisma.$transaction(async (tx) => {
+      const result = await tx.taskAssignment.updateMany({
+        where: {
+          id,
+          status: ASSIGNMENT_STATUSES.ASSIGNED,
+          clockInTime: null,
+          // Role eligibility is enforced when the assignment is created.
+          // If a role changes later, member lifecycle handling cancels the
+          // assignment; this transition only needs the member to remain active.
+          membership: { status: "active" },
+          task: { status: { notIn: ["cancelled", "completed"] } },
+        },
+        data: { clockInTime: new Date(), status: ASSIGNMENT_STATUSES.IN_PROGRESS },
+      });
+      if (result.count !== 1) throw new Error("Assignment can no longer be clocked in");
+      return tx.taskAssignment.findUniqueOrThrow({ where: { id } });
+    }, { isolationLevel: "Serializable" });
   }
 
   /**
@@ -129,9 +151,14 @@ export class TaskAssignmentRepository {
             const task = await tx.task.findUnique({
               where: { id: data.taskId },
               select: {
+                id: true,
                 organizationId: true,
                 departmentId: true,
                 requiredHeadcount: true,
+                status: true,
+                scheduledStart: true,
+                scheduledEnd: true,
+                requiredCertifications: true,
               },
             });
             if (!task || task.organizationId !== data.organizationId) {
@@ -150,7 +177,7 @@ export class TaskAssignmentRepository {
               );
             }
 
-            const eligibleMembershipCount = await tx.membership.count({
+            const eligibleMemberships = await tx.membership.findMany({
               where: {
                 id: { in: data.membershipIds },
                 organizationId: data.organizationId,
@@ -165,12 +192,26 @@ export class TaskAssignmentRepository {
                     }
                   : {}),
               },
+              include: {
+                user: { select: { isPlatformAdmin: true } },
+                departmentMemberships: { select: { departmentId: true } },
+                availabilities: true,
+                availabilityOverrides: true,
+                certifications: true,
+              },
             });
-            if (eligibleMembershipCount !== data.membershipIds.length) {
+            if (eligibleMemberships.length !== data.membershipIds.length) {
               throw new Error(
                 "Staff member cannot be assigned because eligibility changed"
               );
             }
+
+            await this.assertFinalEligibility(
+              tx,
+              task,
+              eligibleMemberships,
+              data.organizationId
+            );
 
             const existingCount = await tx.taskAssignment.count({
               where: {
@@ -216,6 +257,182 @@ export class TaskAssignmentRepository {
     throw new Error("Assignment transaction failed");
   }
 
+  /**
+   * Re-evaluates every mutable eligibility input on the same serializable
+   * snapshot that creates the assignments. Candidate screens remain advisory;
+   * this is the authoritative gate.
+   */
+  private async assertFinalEligibility(
+    tx: Prisma.TransactionClient,
+    task: {
+      id: string;
+      organizationId: string;
+      departmentId: string | null;
+      status: string;
+      scheduledStart: Date | null;
+      scheduledEnd: Date | null;
+      requiredCertifications: string[];
+    },
+    memberships: Array<{
+      id: string;
+      role: string;
+      employmentType: string | null;
+      customRoleId: string | null;
+      departmentMemberships: { departmentId: string }[];
+      availabilities: { dayOfWeek: number; startTime: string; endTime: string; isAvailable: boolean }[];
+      availabilityOverrides: { date: Date; isAvailable: boolean }[];
+      certifications: { name: string; status: string; expiryDate: Date | null }[];
+    }>,
+    organizationId: string
+  ) {
+    if (task.status !== "open") throw new Error("Task is no longer open");
+    const membershipIds = memberships.map((membership) => membership.id);
+    const [settings, rules, assignments, activeOverrides] = await Promise.all([
+      tx.companySettings.findUnique({ where: { organizationId } }),
+      tx.workRule.findMany({ where: { organizationId, isActive: true } }),
+      tx.taskAssignment.findMany({
+        where: {
+          membershipId: { in: membershipIds },
+          taskId: { not: task.id },
+          status: { in: COMMITTED_ASSIGNMENT_STATUSES },
+        },
+        select: {
+          membershipId: true,
+          clockInTime: true,
+          clockOutTime: true,
+          task: { select: { title: true, scheduledStart: true, scheduledEnd: true } },
+        },
+      }),
+      tx.eligibilityOverride.findMany({
+        where: {
+          taskId: task.id,
+          membershipId: { in: membershipIds },
+          ruleOverridden: "availability",
+          revokedAt: null,
+          OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+        },
+        select: { membershipId: true },
+      }),
+    ]);
+    const availabilityWaivers = new Set(activeOverrides.map((item) => item.membershipId));
+    const now = new Date();
+
+    for (const member of memberships) {
+      const committed = assignments.filter((item) => item.membershipId === member.id);
+      if (task.scheduledStart && task.scheduledEnd) {
+        const conflict = committed.find(
+          (item) =>
+            item.task.scheduledStart &&
+            item.task.scheduledEnd &&
+            item.task.scheduledStart < task.scheduledEnd! &&
+            item.task.scheduledEnd > task.scheduledStart!
+        );
+        if (conflict) throw new Error(`Staff member conflicts with ${conflict.task.title}`);
+
+        if (requiresManagedAvailability(normalizeEmploymentType(member.employmentType))) {
+          const dateKey = `${localDateInTimeZone(task.scheduledStart)}T00:00:00.000Z`;
+          const dateOverride = member.availabilityOverrides.find(
+            (item) => item.date.toISOString() === dateKey
+          );
+          let available = dateOverride?.isAvailable;
+          if (available === undefined) {
+            const day = dayOfWeekInTimeZone(task.scheduledStart);
+            const previousDay = (day + 6) % 7;
+            const startTime = timeOfDayInTimeZone(task.scheduledStart);
+            const endTime = timeOfDayInTimeZone(task.scheduledEnd);
+            available = member.availabilities.some((window) => {
+              if (!window.isAvailable) return false;
+              if (window.dayOfWeek === day) {
+                return window.startTime < window.endTime
+                  ? startTime >= window.startTime && endTime <= window.endTime && endTime > startTime
+                  : startTime >= window.startTime && endTime <= window.endTime;
+              }
+              return (
+                window.dayOfWeek === previousDay &&
+                window.startTime >= window.endTime &&
+                startTime < endTime &&
+                endTime <= window.endTime
+              );
+            });
+          }
+          if (!available && !availabilityWaivers.has(member.id)) {
+            throw new Error("Staff member is unavailable for this task");
+          }
+        }
+      }
+
+      const required = new Set(
+        task.requiredCertifications.map((name) => name.trim().toLowerCase())
+      );
+      const held = new Set(
+        member.certifications
+          .filter(
+            (certification) =>
+              certification.status === "verified" &&
+              (!certification.expiryDate || certification.expiryDate > now)
+          )
+          .map((certification) => certification.name.trim().toLowerCase())
+      );
+      if ([...required].some((name) => !held.has(name))) {
+        throw new Error("Staff member is missing a required certification");
+      }
+
+      const intervalHours = (start: Date, end: Date) =>
+        committed.reduce((total, item) => {
+          const intervalStart = item.clockInTime ?? item.task.scheduledStart;
+          const intervalEnd =
+            item.clockInTime && item.clockOutTime
+              ? item.clockOutTime
+              : item.task.scheduledEnd;
+          if (!intervalStart || !intervalEnd) return total;
+          const overlapStart = Math.max(start.getTime(), intervalStart.getTime());
+          const overlapEnd = Math.min(end.getTime(), intervalEnd.getTime());
+          return total + Math.max(0, overlapEnd - overlapStart) / 3_600_000;
+        }, 0);
+      const rollingHours = intervalHours(
+        new Date(now.getTime() - 24 * 60 * 60 * 1000),
+        now
+      );
+      if (settings && rollingHours >= settings.breakRuleHoursWorked) {
+        throw new Error("Staff member has reached the rolling hours limit");
+      }
+
+      if (task.scheduledStart && task.scheduledEnd) {
+        const duration =
+          (task.scheduledEnd.getTime() - task.scheduledStart.getTime()) / 3_600_000;
+        const departments = new Set(
+          member.departmentMemberships.map((item) => item.departmentId)
+        );
+        for (const rule of rules) {
+          if (rule.departmentId && !departments.has(rule.departmentId)) continue;
+          if (rule.roleId && member.customRoleId !== rule.roleId) continue;
+          if (rule.type === "break_interval" && rule.hoursThreshold && rollingHours >= rule.hoursThreshold) {
+            throw new Error(`Staff member violates work rule: ${rule.name}`);
+          }
+          if (rule.type === "max_hours_daily" && rule.maxHours) {
+            const total = intervalHours(
+              startOfDayInTimeZone(task.scheduledStart),
+              endOfDayInTimeZone(task.scheduledStart)
+            ) + duration;
+            if (total > rule.maxHours) throw new Error(`Staff member violates work rule: ${rule.name}`);
+          }
+          if (rule.type === "max_hours_weekly" && rule.maxHours) {
+            const day = dayOfWeekInTimeZone(task.scheduledStart);
+            const diff = day === 0 ? -6 : 1 - day;
+            const weekStart = startOfDayInTimeZone(
+              new Date(task.scheduledStart.getTime() + diff * 86_400_000)
+            );
+            const total = intervalHours(
+              weekStart,
+              new Date(weekStart.getTime() + 7 * 86_400_000)
+            ) + duration;
+            if (total > rule.maxHours) throw new Error(`Staff member violates work rule: ${rule.name}`);
+          }
+        }
+      }
+    }
+  }
+
   /** Creates every task/member pair in a confirmed schedule as one transaction. */
   async createScheduleAtomic(data: {
     organizationId: string;
@@ -240,10 +457,13 @@ export class TaskAssignmentRepository {
               },
               select: {
                 id: true,
+                organizationId: true,
                 departmentId: true,
                 requiredHeadcount: true,
+                status: true,
                 scheduledStart: true,
                 scheduledEnd: true,
+                requiredCertifications: true,
               },
             });
             if (tasks.length !== taskIds.length) throw new Error("Task not found");
@@ -256,9 +476,11 @@ export class TaskAssignmentRepository {
                 role: "staff",
                 user: { isPlatformAdmin: false },
               },
-              select: {
-                id: true,
+              include: {
                 departmentMemberships: { select: { departmentId: true } },
+                availabilities: true,
+                availabilityOverrides: true,
+                certifications: true,
               },
             });
             if (members.length !== membershipIds.length) {
@@ -300,6 +522,15 @@ export class TaskAssignmentRepository {
                   `Assignment exceeds required headcount of ${task.requiredHeadcount}`
                 );
               }
+              const selectedMembers = data.assignments
+                .filter((assignment) => assignment.taskId === task.id)
+                .map((assignment) => membersById.get(assignment.membershipId)!);
+              await this.assertFinalEligibility(
+                tx,
+                task,
+                selectedMembers,
+                data.organizationId
+              );
             }
 
             for (const assignment of data.assignments) {
@@ -321,6 +552,22 @@ export class TaskAssignmentRepository {
                 throw new Error(
                   "Staff member cannot be assigned to overlapping tasks"
                 );
+              }
+              const overlappingDraft = data.assignments.some((other) => {
+                if (
+                  other === assignment ||
+                  other.membershipId !== assignment.membershipId
+                ) return false;
+                const otherTask = tasksById.get(other.taskId)!;
+                return Boolean(
+                  otherTask.scheduledStart &&
+                  otherTask.scheduledEnd &&
+                  otherTask.scheduledStart < task.scheduledEnd! &&
+                  otherTask.scheduledEnd > task.scheduledStart!
+                );
+              });
+              if (overlappingDraft) {
+                throw new Error("Schedule contains overlapping assignments");
               }
             }
 
@@ -373,22 +620,30 @@ export class TaskAssignmentRepository {
    * explicitly marks it completed afterwards (see `complete`).
    */
   async clockOut(id: string) {
-    return prisma.taskAssignment.update({
-      where: { id },
-      data: {
-        clockOutTime: new Date(),
-        status: ASSIGNMENT_STATUSES.CLOCKED_OUT,
-      },
-    });
+    return prisma.$transaction(async (tx) => {
+      const result = await tx.taskAssignment.updateMany({
+        where: {
+          id,
+          status: ASSIGNMENT_STATUSES.IN_PROGRESS,
+          clockInTime: { not: null },
+          clockOutTime: null,
+        },
+        data: { clockOutTime: new Date(), status: ASSIGNMENT_STATUSES.CLOCKED_OUT },
+      });
+      if (result.count !== 1) throw new Error("Assignment can no longer be clocked out");
+      return tx.taskAssignment.findUniqueOrThrow({ where: { id } });
+    }, { isolationLevel: "Serializable" });
   }
 
   /** Marks a clocked-out assignment as completed and closes fully completed work. */
   async complete(id: string) {
     return prisma.$transaction(async (tx) => {
-      const completed = await tx.taskAssignment.update({
-        where: { id },
+      const result = await tx.taskAssignment.updateMany({
+        where: { id, status: ASSIGNMENT_STATUSES.CLOCKED_OUT },
         data: { status: ASSIGNMENT_STATUSES.COMPLETED },
       });
+      if (result.count !== 1) throw new Error("Assignment can no longer be completed");
+      const completed = await tx.taskAssignment.findUniqueOrThrow({ where: { id } });
       const task = await tx.task.findUniqueOrThrow({
         where: { id: completed.taskId },
         select: { id: true, requiredHeadcount: true },
@@ -406,8 +661,12 @@ export class TaskAssignmentRepository {
 
   /** Records a staff withdrawal request with a reason. Slot stays reserved. */
   async requestWithdrawal(id: string, reason: string, statusBeforeRequest: string) {
-    return prisma.taskAssignment.update({
-      where: { id },
+    const result = await prisma.taskAssignment.updateMany({
+      where: {
+        id,
+        status: statusBeforeRequest,
+        task: { status: { notIn: ["cancelled", "completed"] } },
+      },
       data: {
         status: ASSIGNMENT_STATUSES.WITHDRAWAL_REQUESTED,
         withdrawalReason: reason,
@@ -418,41 +677,53 @@ export class TaskAssignmentRepository {
         withdrawalDecision: null,
       },
     });
+    if (result.count !== 1) throw new Error("Assignment can no longer be withdrawn from");
+    return prisma.taskAssignment.findUniqueOrThrow({ where: { id } });
   }
 
   /** Manager approves a withdrawal request while preserving the work record. */
   async approveWithdrawal(id: string, reviewerUserId: string) {
-    const assignment = await prisma.taskAssignment.findUnique({ where: { id } });
-    const shouldClosePartialInterval =
-      Boolean(assignment?.clockInTime) && !assignment?.clockOutTime;
-
-    return prisma.taskAssignment.update({
-      where: { id },
-      data: {
-        status: ASSIGNMENT_STATUSES.WITHDRAWN,
-        withdrawalReviewedAt: new Date(),
-        withdrawalReviewedById: reviewerUserId,
-        withdrawalDecision: "approved",
-        ...(shouldClosePartialInterval ? { clockOutTime: new Date() } : {}),
-      },
-    });
+    return prisma.$transaction(async (tx) => {
+      const assignment = await tx.taskAssignment.findUnique({ where: { id } });
+      if (!assignment || assignment.status !== ASSIGNMENT_STATUSES.WITHDRAWAL_REQUESTED) {
+        throw new Error("No pending withdrawal request for this assignment");
+      }
+      const now = new Date();
+      const result = await tx.taskAssignment.updateMany({
+        where: { id, status: ASSIGNMENT_STATUSES.WITHDRAWAL_REQUESTED },
+        data: {
+          status: ASSIGNMENT_STATUSES.WITHDRAWN,
+          withdrawalReviewedAt: now,
+          withdrawalReviewedById: reviewerUserId,
+          withdrawalDecision: "approved",
+          ...(assignment.clockInTime && !assignment.clockOutTime ? { clockOutTime: now } : {}),
+        },
+      });
+      if (result.count !== 1) throw new Error("Withdrawal request was already resolved");
+      return tx.taskAssignment.findUniqueOrThrow({ where: { id } });
+    }, { isolationLevel: "Serializable" });
   }
 
   /** Manager denies a withdrawal request; assignment returns to its active path. */
   async denyWithdrawal(id: string, reviewerUserId: string) {
-    const assignment = await prisma.taskAssignment.findUnique({ where: { id } });
-    const nextStatus =
-      assignment?.withdrawalStatusBeforeRequest ?? ASSIGNMENT_STATUSES.ASSIGNED;
-
-    return prisma.taskAssignment.update({
-      where: { id },
-      data: {
-        status: nextStatus,
-        withdrawalReviewedAt: new Date(),
-        withdrawalReviewedById: reviewerUserId,
-        withdrawalDecision: "denied",
-      },
-    });
+    return prisma.$transaction(async (tx) => {
+      const assignment = await tx.taskAssignment.findUnique({ where: { id } });
+      if (!assignment || assignment.status !== ASSIGNMENT_STATUSES.WITHDRAWAL_REQUESTED) {
+        throw new Error("No pending withdrawal request for this assignment");
+      }
+      const nextStatus = assignment.withdrawalStatusBeforeRequest ?? ASSIGNMENT_STATUSES.ASSIGNED;
+      const result = await tx.taskAssignment.updateMany({
+        where: { id, status: ASSIGNMENT_STATUSES.WITHDRAWAL_REQUESTED },
+        data: {
+          status: nextStatus,
+          withdrawalReviewedAt: new Date(),
+          withdrawalReviewedById: reviewerUserId,
+          withdrawalDecision: "denied",
+        },
+      });
+      if (result.count !== 1) throw new Error("Withdrawal request was already resolved");
+      return tx.taskAssignment.findUniqueOrThrow({ where: { id } });
+    }, { isolationLevel: "Serializable" });
   }
 
   /**
@@ -483,7 +754,28 @@ export class TaskAssignmentRepository {
   }
 
   /** Cancels (deletes) an assignment — admin/manager action */
-  async cancel(id: string) {
-    return prisma.taskAssignment.delete({ where: { id } });
+  async cancel(id: string, cancelledById?: string, reason = "Removed by manager") {
+    return prisma.$transaction(async (tx) => {
+      const existing = await tx.taskAssignment.findUnique({ where: { id } });
+      if (
+        !existing ||
+        ["completed", "withdrawn", "cancelled"].includes(existing.status)
+      ) {
+        throw new Error("Assignment can no longer be cancelled");
+      }
+      const now = new Date();
+      return tx.taskAssignment.update({
+        where: { id },
+        data: {
+          status: ASSIGNMENT_STATUSES.CANCELLED,
+          cancelledAt: now,
+          cancelledById,
+          cancellationReason: reason,
+          ...(existing.clockInTime && !existing.clockOutTime
+            ? { clockOutTime: now }
+            : {}),
+        },
+      });
+    }, { isolationLevel: "Serializable" });
   }
 }

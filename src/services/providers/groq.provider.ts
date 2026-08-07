@@ -10,6 +10,7 @@
 import type { AIProvider, StaffCandidate, RankedStaff } from "../ai-provider";
 import { FallbackRanker } from "../fallback-ranker";
 import type { AllocationWeights } from "@/lib/allocation-weights";
+import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
 
 export class GroqProvider implements AIProvider {
   private apiKey: string;
@@ -43,7 +44,7 @@ export class GroqProvider implements AIProvider {
     const prompt = this.buildPrompt(task, candidates, weights);
 
     try {
-      const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      const response = await fetchWithTimeout("https://api.groq.com/openai/v1/chat/completions", {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${this.apiKey}`,

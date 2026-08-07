@@ -192,14 +192,6 @@ describe("AvailabilityRepository", () => {
         membershipId, dayOfWeek: 1, startTime: "08:00", endTime: "18:00", isAvailable: true,
       });
 
-      const result = await availRepo.isAvailableAt(
-        membershipId,
-        new Date("2026-06-16T00:00:00.000Z"), // Monday = day 1 (need to verify)
-        "09:00",
-        "12:00"
-      );
-      // Note: June 16 2026 is a Tuesday (dayOfWeek=2), so this tests no-schedule
-      // Let's use a known Monday
       const mondayResult = await availRepo.isAvailableAt(
         membershipId,
         new Date("2026-06-15T00:00:00.000Z"), // Monday

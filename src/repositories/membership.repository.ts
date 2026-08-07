@@ -149,11 +149,44 @@ export class MembershipRepository {
   }
 
   /** Updates a member's role (e.g. staff → manager) */
-  async updateRole(membershipId: string, role: string) {
-    return prisma.membership.update({
-      where: { id: membershipId },
-      data: { role },
-    });
+  async updateRole(membershipId: string, role: string, actorUserId?: string) {
+    return prisma.$transaction(async (tx) => {
+      const updated = await tx.membership.update({
+        where: { id: membershipId },
+        data: { role },
+      });
+      if (role !== "staff") {
+        const now = new Date();
+        await tx.taskAssignment.updateMany({
+          where: {
+            membershipId,
+            status: { notIn: ["completed", "withdrawn", "cancelled"] },
+            clockInTime: { not: null },
+            clockOutTime: null,
+          },
+          data: {
+            status: "cancelled",
+            clockOutTime: now,
+            cancelledAt: now,
+            cancelledById: actorUserId,
+            cancellationReason: "Member role is no longer assignable",
+          },
+        });
+        await tx.taskAssignment.updateMany({
+          where: {
+            membershipId,
+            status: { notIn: ["completed", "withdrawn", "cancelled"] },
+          },
+          data: {
+            status: "cancelled",
+            cancelledAt: now,
+            cancelledById: actorUserId,
+            cancellationReason: "Member role is no longer assignable",
+          },
+        });
+      }
+      return updated;
+    }, { isolationLevel: "Serializable" });
   }
 
   /** Sets or clears a member's custom role assignment */
@@ -177,11 +210,44 @@ export class MembershipRepository {
    * Deactivation prevents login to this org.
    * Task auto-unassignment will be added in Phase 4.
    */
-  async updateStatus(membershipId: string, status: string) {
-    return prisma.membership.update({
-      where: { id: membershipId },
-      data: { status },
-    });
+  async updateStatus(membershipId: string, status: string, actorUserId?: string) {
+    return prisma.$transaction(async (tx) => {
+      const updated = await tx.membership.update({
+        where: { id: membershipId },
+        data: { status },
+      });
+      if (status === "inactive") {
+        const now = new Date();
+        await tx.taskAssignment.updateMany({
+          where: {
+            membershipId,
+            status: { notIn: ["completed", "withdrawn", "cancelled"] },
+            clockInTime: { not: null },
+            clockOutTime: null,
+          },
+          data: {
+            status: "cancelled",
+            clockOutTime: now,
+            cancelledAt: now,
+            cancelledById: actorUserId,
+            cancellationReason: "Membership deactivated",
+          },
+        });
+        await tx.taskAssignment.updateMany({
+          where: {
+            membershipId,
+            status: { notIn: ["completed", "withdrawn", "cancelled"] },
+          },
+          data: {
+            status: "cancelled",
+            cancelledAt: now,
+            cancelledById: actorUserId,
+            cancellationReason: "Membership deactivated",
+          },
+        });
+      }
+      return updated;
+    }, { isolationLevel: "Serializable" });
   }
 
   /**
@@ -190,20 +256,82 @@ export class MembershipRepository {
    * This supports managers with multiple department assignments.
    */
   async assignDepartments(membershipId: string, departmentIds: string[]) {
-    // Remove all current department assignments
-    await prisma.departmentMembership.deleteMany({
-      where: { membershipId },
-    });
-
-    // Create new assignments
-    if (departmentIds.length > 0) {
-      await prisma.departmentMembership.createMany({
-        data: departmentIds.map((departmentId) => ({
-          membershipId,
-          departmentId,
-        })),
+    const uniqueDepartmentIds = [...new Set(departmentIds)];
+    await prisma.$transaction(async (tx) => {
+      const membership = await tx.membership.findUnique({
+        where: { id: membershipId },
+        select: { organizationId: true },
       });
-    }
+      if (!membership) throw new Error("Membership not found");
+
+      if (uniqueDepartmentIds.length > 0) {
+        const validCount = await tx.department.count({
+          where: {
+            id: { in: uniqueDepartmentIds },
+            organizationId: membership.organizationId,
+          },
+        });
+        if (validCount !== uniqueDepartmentIds.length) {
+          throw new Error("One or more departments do not belong to this organization");
+        }
+      }
+
+      await tx.departmentMembership.deleteMany({ where: { membershipId } });
+      if (uniqueDepartmentIds.length > 0) {
+        await tx.departmentMembership.createMany({
+          data: uniqueDepartmentIds.map((departmentId) => ({
+            membershipId,
+            departmentId,
+          })),
+        });
+      }
+    }, { isolationLevel: "Serializable" });
+  }
+
+  async findPageByOrgId(
+    organizationId: string,
+    departmentScope: string[] | null,
+    limit: number,
+    offset: number
+  ) {
+    const where = {
+      organizationId,
+      ...(departmentScope === null
+        ? {}
+        : {
+            departmentMemberships: {
+              some: { departmentId: { in: departmentScope } },
+            },
+          }),
+    };
+    const [members, total] = await Promise.all([
+      prisma.membership.findMany({
+        where,
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              image: true,
+              emailVerified: true,
+              isPlatformAdmin: true,
+            },
+          },
+          departmentMemberships: {
+            include: { department: { select: { id: true, name: true } } },
+          },
+          customRole: {
+            select: { id: true, name: true, displayLabel: true },
+          },
+        },
+        orderBy: { createdAt: "asc" },
+        take: limit,
+        skip: offset,
+      }),
+      prisma.membership.count({ where }),
+    ]);
+    return { members, total };
   }
 
   /** Gets all departments a member is assigned to */

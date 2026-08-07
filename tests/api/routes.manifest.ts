@@ -71,6 +71,7 @@ const org = (
 });
 
 export const ROUTES: RouteSpec[] = [
+  { path: "organizations/active", method: "POST", auth: "session" },
   // ── Organisation root ───────────────────────────────────────────────
   org("", "GET", MEMBER, { permission: "organization:read" }),
   org("", "PATCH", ADMIN, { suspension: true, permission: "organization:update" }),
@@ -84,6 +85,7 @@ export const ROUTES: RouteSpec[] = [
   org("task-allocation-mode", "GET", MANAGER, { permission: "tasks:read" }),
   org("subscription", "GET", MEMBER),
   org("checkout", "POST", ADMIN, { permission: "billing:manage" }),
+  org("billing-portal", "POST", ADMIN, { permission: "billing:manage" }),
   org("invitations", "GET", ADMIN, { permission: "members:invite" }),
   org("invitations", "POST", ADMIN, { suspension: true, permission: "members:invite" }),
   org("members", "GET", MEMBER, { permission: "members:read" }),
@@ -237,7 +239,7 @@ export const ROUTES: RouteSpec[] = [
     path: "platform/templates",
     method: "GET",
     auth: "session",
-    note: "KNOWN GAP: the isPlatformAdmin lookup only branches the response, it never denies. Any authenticated user can list active templates. Sibling [templateId] GET does deny.",
+    note: "Authenticated members intentionally receive active onboarding templates; platform admins receive the full management view.",
   },
   { path: "platform/templates", method: "POST", auth: "session" },
   { path: "platform/templates/[templateId]", method: "GET", auth: "session", extraParams: ["templateId"] },
@@ -246,6 +248,7 @@ export const ROUTES: RouteSpec[] = [
 
   // ── Public by design ────────────────────────────────────────────────
   { path: "register", method: "POST", auth: "public" },
+  { path: "contact", method: "POST", auth: "public" },
   { path: "forgot-password", method: "POST", auth: "public" },
   { path: "reset-password", method: "POST", auth: "public" },
   { path: "verify-email", method: "POST", auth: "public" },

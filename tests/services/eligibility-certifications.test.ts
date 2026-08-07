@@ -177,7 +177,7 @@ describe("EligibilityService — certifications", () => {
     expect(staff.checks.certifications.eligible).toBe(true);
   });
 
-  it("a 'certification' override waives the missing-cert block", async () => {
+  it("does not permit a missing certification to be overridden", async () => {
     const task = await taskRepo.create({
       title: "Food prep",
       organizationId: orgId,
@@ -185,18 +185,13 @@ describe("EligibilityService — certifications", () => {
       requiredCertifications: ["Food Safety"],
     });
 
-    await eligibilityService.createOverride(
-      task.id,
-      staffMembershipId,
-      adminUserId,
-      "Trainee working under supervision",
-      "certification",
-      orgId
-    );
+    await expect(eligibilityService.createOverride(
+      task.id, staffMembershipId, adminUserId,
+      "Trainee working under supervision", "certification", orgId
+    )).rejects.toThrow("Only availability warnings can be overridden");
 
     const staff = certCheckFor(await eligibilityService.checkEligibilityForTask(task.id, orgId));
-    expect(staff.checks.certifications.eligible).toBe(true);
-    expect(staff.eligible).toBe(true);
-    expect(staff.overrides).toContain("certification");
+    expect(staff.checks.certifications.eligible).toBe(false);
+    expect(staff.eligible).toBe(false);
   });
 });

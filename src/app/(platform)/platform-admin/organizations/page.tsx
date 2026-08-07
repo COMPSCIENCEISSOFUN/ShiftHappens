@@ -67,6 +67,8 @@ export default function PlatformOrganizationsPage() {
     try {
       const res = await fetch(`/api/platform/organizations/${orgId}`, {
         method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "toggle_status" }),
       });
       if (!res.ok) throw new Error("Failed to update organization");
       await fetchOrgs();

@@ -121,13 +121,18 @@ export class TaskRepository {
    * Lists tasks for an organization with optional filters.
    * Supports filtering by status, departmentId, and priority.
    */
-  async findByOrganizationId(organizationId: string, filters?: { status?: string; departmentId?: string; priority?: string }) {
+  async findByOrganizationId(
+    organizationId: string,
+    filters?: { status?: string; departmentId?: string; priority?: string; departmentIds?: string[] },
+    pagination?: { limit: number; offset: number }
+  ) {
     return prisma.task.findMany({
       where: {
         organizationId,
         ...(filters?.status && { status: filters.status }),
         ...(filters?.departmentId && { departmentId: filters.departmentId }),
         ...(filters?.priority && { priority: filters.priority }),
+        ...(filters?.departmentIds && { departmentId: { in: filters.departmentIds } }),
       },
       include: {
         department: { select: { id: true, name: true, color: true } },
@@ -142,6 +147,22 @@ export class TaskRepository {
         },
       },
       orderBy: { createdAt: "desc" },
+      ...(pagination ? { take: pagination.limit, skip: pagination.offset } : {}),
+    });
+  }
+
+  async countByOrganizationId(
+    organizationId: string,
+    filters?: { status?: string; departmentId?: string; priority?: string; departmentIds?: string[] }
+  ) {
+    return prisma.task.count({
+      where: {
+        organizationId,
+        ...(filters?.status && { status: filters.status }),
+        ...(filters?.departmentId && { departmentId: filters.departmentId }),
+        ...(filters?.priority && { priority: filters.priority }),
+        ...(filters?.departmentIds && { departmentId: { in: filters.departmentIds } }),
+      },
     });
   }
 
@@ -195,8 +216,51 @@ export class TaskRepository {
   }
 
   /** Deletes a task — cascade deletes assignments */
-  async delete(id: string) {
-    return prisma.task.delete({ where: { id } });
+  async cancel(
+    id: string,
+    data: Parameters<TaskRepository["update"]>[1] = {},
+    cancelledById?: string,
+    reason: string = "Task cancelled"
+  ) {
+    return prisma.$transaction(async (tx) => {
+      const now = new Date();
+      await tx.taskAssignment.updateMany({
+        where: {
+          taskId: id,
+          status: { notIn: ["completed", "withdrawn", "cancelled"] },
+          clockInTime: { not: null },
+          clockOutTime: null,
+        },
+        data: {
+          status: "cancelled",
+          clockOutTime: now,
+          cancelledAt: now,
+          cancelledById,
+          cancellationReason: reason,
+        },
+      });
+      await tx.taskAssignment.updateMany({
+        where: {
+          taskId: id,
+          status: { notIn: ["completed", "withdrawn", "cancelled"] },
+        },
+        data: {
+          status: "cancelled",
+          cancelledAt: now,
+          cancelledById,
+          cancellationReason: reason,
+        },
+      });
+      return tx.task.update({
+        where: { id },
+        data: { ...data, status: "cancelled" },
+        include: {
+          assignments: true,
+          department: { select: { id: true, name: true, color: true } },
+          createdBy: { select: { id: true, name: true } },
+        },
+      });
+    }, { isolationLevel: "Serializable" });
   }
 
   /**

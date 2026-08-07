@@ -8,6 +8,7 @@
 import type { AIProvider, StaffCandidate, RankedStaff } from "../ai-provider";
 import { FallbackRanker } from "../fallback-ranker";
 import type { AllocationWeights } from "@/lib/allocation-weights";
+import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
 
 export class GeminiProvider implements AIProvider {
   private apiKey: string;
@@ -39,7 +40,7 @@ export class GeminiProvider implements AIProvider {
     const prompt = this.buildPrompt(task, candidates, weights);
 
     try {
-      const response = await fetch(
+      const response = await fetchWithTimeout(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${this.apiKey}`,
         {
           method: "POST",

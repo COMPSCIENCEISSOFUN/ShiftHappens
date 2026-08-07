@@ -251,10 +251,8 @@ export default function MyCertificationsPage() {
     }
 
     const documentUrl = form.documentUrl.trim();
-    if (documentUrl && !/^https?:\/\/\S+$/i.test(documentUrl)) {
-      // The API validates with `z.string().url()`; saying so here saves a round
-      // trip and a generic "Validation failed".
-      setFormError("The document link needs to start with http:// or https://");
+    if (documentUrl && !/^https:\/\/\S+$/i.test(documentUrl)) {
+      setFormError("The document link needs to be a secure HTTPS URL");
       return;
     }
 

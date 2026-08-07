@@ -8,6 +8,8 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { InvitationService } from "@/services/invitation.service";
+import { acceptInvitationSchema } from "@/lib/validations";
+import { SubscriptionLimitError } from "@/lib/subscription-tiers";
 
 const invitationService = new InvitationService();
 
@@ -31,6 +33,7 @@ export async function GET(
       email: details.email,
       role: details.role,
       organization: details.organization,
+      existingUser: details.existingUser,
     });
   } catch {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
@@ -45,9 +48,17 @@ export async function POST(
     const { token } = await params;
     const body = await request.json().catch(() => null);
 
-    const registrationData = body?.name && body?.password
-      ? { name: body.name, password: body.password }
-      : null;
+    const parsed = acceptInvitationSchema.safeParse(body ?? {});
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: "Validation failed", details: parsed.error.flatten() },
+        { status: 400 }
+      );
+    }
+    const registrationData =
+      "name" in parsed.data && "password" in parsed.data
+        ? { name: parsed.data.name, password: parsed.data.password }
+        : null;
 
     const result = await invitationService.acceptInvitation(
       token,
@@ -59,6 +70,9 @@ export async function POST(
       userId: result.user.id,
     });
   } catch (error) {
+    if (error instanceof SubscriptionLimitError) {
+      return NextResponse.json({ error: error.message }, { status: 403 });
+    }
     if (error instanceof Error && error.message === "Invalid or expired invitation") {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }

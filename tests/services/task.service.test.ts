@@ -329,12 +329,12 @@ describe("TaskService", () => {
   });
 
   describe("delete", () => {
-    it("deletes a task", async () => {
+    it("cancels a task while preserving its history", async () => {
       const task = await taskService.create({ title: "Delete me" }, orgId, userId);
       await taskService.delete(task.id, orgId);
 
       const found = await taskService.getById(task.id, orgId);
-      expect(found).toBeNull();
+      expect(found?.status).toBe("cancelled");
     });
 
     it("throws if task not found", async () => {
@@ -428,7 +428,7 @@ describe("TaskService", () => {
       ).rejects.toThrow("scheduling conflict");
     });
 
-    it("allows assignment through a scheduling conflict when overridden", async () => {
+    it("does not allow scheduling conflicts through blanket overrides", async () => {
       const task1 = await taskService.create(
         {
           title: "Morning shift",
@@ -465,13 +465,12 @@ describe("TaskService", () => {
         },
       });
 
-      const assignments = await taskService.assignStaff(
+      await expect(taskService.assignStaff(
         task2.id,
         orgId,
         [staffMembershipId],
         userId
-      );
-      expect(assignments).toHaveLength(1);
+      )).rejects.toThrow("scheduling conflict");
     });
   });
 
@@ -493,7 +492,8 @@ describe("TaskService", () => {
       await taskService.cancelAssignment(assignments[0].id, orgId);
 
       const staffTasks = await taskService.getStaffTasks(staffMembershipId);
-      expect(staffTasks).toHaveLength(0);
+      expect(staffTasks).toHaveLength(1);
+      expect(staffTasks[0].status).toBe("cancelled");
     });
 
     it("throws if assignment is completed", async () => {

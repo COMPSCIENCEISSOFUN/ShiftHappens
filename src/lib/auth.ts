@@ -58,6 +58,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           name: user.name,
           image: user.image,
           isPlatformAdmin: user.isPlatformAdmin,
+          sessionVersion: user.sessionVersion,
         };
       },
     }),
@@ -72,6 +73,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       if (user) {
         token.id = user.id;
         token.isPlatformAdmin = (user as Record<string, unknown>).isPlatformAdmin ?? false;
+        token.sessionVersion = (user as Record<string, unknown>).sessionVersion ?? 0;
       }
       return token;
     },
@@ -81,10 +83,12 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         session.user.id = token.id as string;
       }
       (session.user as unknown as Record<string, unknown>).isPlatformAdmin = token.isPlatformAdmin ?? false;
+      (session.user as unknown as Record<string, unknown>).sessionVersion = token.sessionVersion ?? 0;
       return session;
     },
   },
   session: {
     strategy: "jwt",
+    maxAge: 8 * 60 * 60,
   },
 });

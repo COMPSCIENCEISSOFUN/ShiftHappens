@@ -21,10 +21,6 @@ import {
 const BASE_START = sgt("2026-06-01T09:00");
 const BASE_END = sgt("2026-06-01T13:00");
 
-function starts(occs: { start: Date }[]): string[] {
-  return occs.map((o) => o.start.toISOString());
-}
-
 describe("parseRecurrencePattern", () => {
   it("parses a valid daily pattern", () => {
     const p = parseRecurrencePattern('{"freq":"daily","interval":2}');

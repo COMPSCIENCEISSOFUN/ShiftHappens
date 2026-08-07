@@ -21,7 +21,6 @@ const orgRepo = new OrganizationRepository();
 const userRepo = new UserRepository();
 
 let orgId: string;
-let userId: string;
 
 beforeEach(async () => {
   await cleanDatabase();
@@ -31,7 +30,6 @@ beforeEach(async () => {
     email: "admin@example.com",
     hashedPassword: "hash",
   });
-  userId = user.id;
 
   const org = await orgRepo.create(
     { name: "Test Org", slug: "test-org" },
@@ -254,7 +252,7 @@ describe("SubscriptionService", () => {
       ).toBe(true);
     });
 
-    it("returns false for enterprise-only features on pro tier", async () => {
+    it("returns audit-log access but not enterprise-only support on pro tier", async () => {
       await prisma.organization.update({
         where: { id: orgId },
         data: { subscriptionTier: "pro" },
@@ -262,7 +260,7 @@ describe("SubscriptionService", () => {
 
       expect(
         await subscriptionService.canUseFeature(orgId, "audit_log")
-      ).toBe(false);
+      ).toBe(true);
       expect(
         await subscriptionService.canUseFeature(orgId, "priority_support")
       ).toBe(false);
@@ -306,7 +304,7 @@ describe("SubscriptionService", () => {
       ).resolves.toBeUndefined();
     });
 
-    it("throws for enterprise-only features on pro tier", async () => {
+    it("allows audit log access on pro tier", async () => {
       await prisma.organization.update({
         where: { id: orgId },
         data: { subscriptionTier: "pro" },
@@ -314,7 +312,7 @@ describe("SubscriptionService", () => {
 
       await expect(
         subscriptionService.enforceFeatureAccess(orgId, "audit_log")
-      ).rejects.toThrow(FeatureNotAvailableError);
+      ).resolves.toBeUndefined();
     });
 
     it("does not throw for any feature on enterprise tier", async () => {
@@ -381,7 +379,7 @@ describe("SubscriptionService", () => {
 
       expect(usage.features.custom_roles).toBe(true);
       expect(usage.features.pdf_export).toBe(true);
-      expect(usage.features.audit_log).toBe(false);
+      expect(usage.features.audit_log).toBe(true);
     });
 
     it("includes member count from org creation", async () => {

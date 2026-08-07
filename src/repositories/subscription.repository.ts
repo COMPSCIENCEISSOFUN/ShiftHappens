@@ -43,9 +43,7 @@ export class SubscriptionRepository {
   async getResourceCounts(organizationId: string): Promise<ResourceCounts> {
     const [members, activeTasks, departments, workRules, customRoles] =
       await Promise.all([
-        prisma.membership.count({
-          where: { organizationId, status: 'active' },
-        }),
+        this.countBillableMembers(organizationId),
         prisma.task.count({
           where: {
             organizationId,
@@ -75,9 +73,7 @@ export class SubscriptionRepository {
   ): Promise<number> {
     switch (resource) {
       case 'members':
-        return prisma.membership.count({
-          where: { organizationId, status: 'active' },
-        });
+        return this.countBillableMembers(organizationId);
       case 'active_tasks':
         return prisma.task.count({
           where: {
@@ -98,6 +94,17 @@ export class SubscriptionRepository {
           where: { organizationId, isSystemRole: false },
         });
     }
+  }
+
+  private async countBillableMembers(organizationId: string): Promise<number> {
+    const now = new Date();
+    const [activeMemberships, validPendingInvitations] = await Promise.all([
+      prisma.membership.count({ where: { organizationId, status: 'active' } }),
+      prisma.invitationToken.count({
+        where: { organizationId, acceptedAt: null, expires: { gt: now } },
+      }),
+    ]);
+    return activeMemberships + validPendingInvitations;
   }
 
   /**

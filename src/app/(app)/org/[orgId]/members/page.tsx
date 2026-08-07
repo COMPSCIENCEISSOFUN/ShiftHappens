@@ -13,9 +13,10 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { PageLoading } from "@/components/ui/page-loading";
 import { AlertBanner } from "@/components/ui/alert-banner";
@@ -62,6 +63,17 @@ interface Invitation {
   acceptedAt: string | null;
   expires: string;
   invitedBy: { name: string | null; email: string };
+}
+
+async function readArrayResponse<T>(response: Response, fallbackMessage: string): Promise<T[]> {
+  const payload: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message = typeof payload === "object" && payload !== null && "error" in payload
+      ? String(payload.error)
+      : fallbackMessage;
+    throw new Error(message);
+  }
+  return Array.isArray(payload) ? payload as T[] : [];
 }
 
 /* ------------------------------------------------------------------ */
@@ -115,6 +127,10 @@ export default function MembersPage() {
   const params = useParams();
   const orgId = params.orgId as string;
   const [members, setMembers] = useState<Member[]>([]);
+  const membersRef = useRef<Member[]>([]);
+  const [totalMembers, setTotalMembers] = useState(0);
+  const [hasMoreMembers, setHasMoreMembers] = useState(false);
+  const [loadingMoreMembers, setLoadingMoreMembers] = useState(false);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [customRoles, setCustomRoles] = useState<CustomRole[]>([]);
   const [invitations, setInvitations] = useState<Invitation[]>([]);
@@ -146,15 +162,7 @@ export default function MembersPage() {
   const [filterDept, setFilterDept] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
 
-  useEffect(() => {
-    fetchMembers();
-    fetchDepartments();
-    fetchCustomRoles();
-    fetchInvitations();
-    fetchCurrentUser();
-  }, [orgId]);
-
-  async function fetchCurrentUser() {
+  const fetchCurrentUser = useCallback(async () => {
     try {
       const res = await fetch("/api/profile");
       if (res.ok) {
@@ -162,42 +170,65 @@ export default function MembersPage() {
         setCurrentUserId(data.id);
       }
     } catch { /* non-critical */ }
-  }
+  }, []);
 
-  async function fetchMembers() {
+  const fetchMembers = useCallback(async (append = false) => {
+    if (append) setLoadingMoreMembers(true);
     try {
-      const res = await fetch(`/api/organizations/${orgId}/members`);
-      setMembers(await res.json());
-    } catch {
-      setError("Failed to load members");
+      const offset = append ? membersRef.current.length : 0;
+      const res = await fetch(`/api/organizations/${orgId}/members?limit=50&offset=${offset}`);
+      const page = await readArrayResponse<Member>(res, "Failed to load members");
+      setMembers((current) => {
+        const next = append ? [...current, ...page] : page;
+        membersRef.current = next;
+        return next;
+      });
+      setTotalMembers(Number(res.headers.get("X-Total-Count")) || page.length);
+      setHasMoreMembers(res.headers.get("X-Has-More") === "true");
+    } catch (fetchError) {
+      setMembers([]);
+      membersRef.current = [];
+      setError(fetchError instanceof Error ? fetchError.message : "Failed to load members");
     } finally {
       setLoading(false);
+      setLoadingMoreMembers(false);
     }
-  }
+  }, [orgId]);
 
-  async function fetchDepartments() {
+  const fetchDepartments = useCallback(async () => {
     try {
       const res = await fetch(`/api/organizations/${orgId}/departments`);
-      if (res.ok) setDepartments(await res.json());
+      if (res.ok) setDepartments(await readArrayResponse<Department>(res, "Failed to load departments"));
     } catch { /* non-critical */ }
-  }
+  }, [orgId]);
 
-  async function fetchCustomRoles() {
+  const fetchCustomRoles = useCallback(async () => {
     try {
       const res = await fetch(`/api/organizations/${orgId}/roles`);
       if (res.ok) {
-        const all: CustomRole[] = await res.json();
+        const all = await readArrayResponse<CustomRole>(res, "Failed to load custom roles");
         setCustomRoles(all.filter((r) => !r.isSystemRole));
       }
     } catch { /* non-critical */ }
-  }
+  }, [orgId]);
 
-  async function fetchInvitations() {
+  const fetchInvitations = useCallback(async () => {
     try {
       const res = await fetch(`/api/organizations/${orgId}/invitations`);
-      setInvitations(await res.json());
-    } catch { /* non-critical */ }
-  }
+      setInvitations(await readArrayResponse<Invitation>(res, "Failed to load invitations"));
+    } catch (fetchError) {
+      setInvitations([]);
+      setError(fetchError instanceof Error ? fetchError.message : "Failed to load invitations");
+    }
+  }, [orgId]);
+
+  useEffect(() => {
+    void fetchMembers();
+    void fetchDepartments();
+    void fetchCustomRoles();
+    void fetchInvitations();
+    void fetchCurrentUser();
+  }, [fetchCurrentUser, fetchCustomRoles, fetchDepartments, fetchInvitations, fetchMembers]);
 
   async function onInviteUser(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -217,7 +248,11 @@ export default function MembersPage() {
       });
       const result = await res.json();
       if (!res.ok) { setError(result.error || "Failed to send invitation"); return; }
-      setSuccess(`Invitation sent to ${formData.get("email")}`);
+      setSuccess(
+        result.emailDelivery?.sent
+          ? `Invitation sent to ${formData.get("email")}`
+          : `Invitation created for ${formData.get("email")}, but email delivery failed. Check email configuration and resend the invitation.`
+      );
       setShowInvite(false);
       (event.target as HTMLFormElement).reset();
       fetchInvitations();
@@ -409,7 +444,7 @@ export default function MembersPage() {
       {/* ── Result count ── */}
       {hasActiveFilters && (
         <p className="mb-2 text-[12px] text-muted-foreground">
-          Showing {filteredMembers.length} of {members.length} member{members.length !== 1 ? "s" : ""}
+          Showing {filteredMembers.length} of {totalMembers} member{totalMembers !== 1 ? "s" : ""}
         </p>
       )}
 
@@ -639,7 +674,6 @@ export default function MembersPage() {
             </div>
           ) : (
           filteredMembers.map((member) => {
-            const currentDeptId = member.departmentMemberships[0]?.department.id || "";
             const isSelf = member.user.id === currentUserId;
             return (
               <div key={member.id} className={`p-4 ${member.status !== "active" ? "opacity-50" : ""}`}>
@@ -700,6 +734,14 @@ export default function MembersPage() {
           )}
         </div>
       </div>
+
+      {hasMoreMembers && (
+        <div className="mt-4 flex justify-center">
+          <Button variant="outline" onClick={() => void fetchMembers(true)} disabled={loadingMoreMembers}>
+            {loadingMoreMembers ? "Loading..." : `Load more (${members.length} of ${totalMembers})`}
+          </Button>
+        </div>
+      )}
 
       {/* ── Pending invitations ── */}
       {pendingInvitations.length > 0 && (

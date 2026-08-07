@@ -31,6 +31,15 @@ describe("OperationsAssistantService", () => {
 
     expect(result.status).toBe("completed");
     expect(result.details).toEqual([expect.stringContaining("Personal shift")]);
+
+    const auditEntry = await prisma.auditLog.findFirstOrThrow({
+      where: { organizationId: organization.id, userId: staffUser.id, entityType: "ai-operation" },
+      orderBy: { createdAt: "desc" },
+    });
+    const details = auditEntry.details as { request?: string; result?: { message?: string; undo?: unknown } };
+    expect(details.request).toBe("What do I need to do today?");
+    expect(details.result?.message).toContain("scheduled task");
+    expect(details.result?.undo).toBeUndefined();
   });
 
   it("only undoes a manager's own assistant-created task within their department scope", async () => {
@@ -45,15 +54,24 @@ describe("OperationsAssistantService", () => {
     const refreshedManager = await prisma.membership.findUniqueOrThrow({ where: { id: manager.id }, include: { departmentMemberships: { include: { department: true } } } });
     const task = await prisma.task.create({ data: { title: "Assistant task", organizationId: organization.id, departmentId: department.id, createdById: managerUser.id } });
 
+    const operation = await prisma.assistantOperation.create({
+      data: {
+        organizationId: organization.id,
+        userId: managerUser.id,
+        kind: "task",
+        undoPayload: { kind: "task", taskIds: [task.id] },
+        expiresAt: new Date(Date.now() + 60_000),
+      },
+    });
     const result = await new OperationsAssistantService().undo({
-      undo: { kind: "task", taskIds: [task.id] },
+      operationId: operation.id,
       organizationId: organization.id,
       userId: managerUser.id,
       membership: refreshedManager,
     });
 
     expect(result.message).toContain("undone");
-    await expect(prisma.task.findUnique({ where: { id: task.id } })).resolves.toBeNull();
+    await expect(prisma.task.findUnique({ where: { id: task.id } })).resolves.toMatchObject({ status: "cancelled" });
     await expect(prisma.user.findUnique({ where: { id: adminUser.id } })).resolves.not.toBeNull();
   });
 });

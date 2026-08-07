@@ -18,7 +18,7 @@ import { EMPLOYMENT_TYPES } from "@/lib/role-config";
  * - At least one number
  * - At least one special character
  */
-const passwordSchema = z
+export const passwordSchema = z
   .string()
   .min(8, "Password must be at least 8 characters")
   .regex(/[A-Z]/, "Password must contain at least one uppercase letter")
@@ -214,6 +214,15 @@ export const updateCompanySettingsSchema = z.object({
   }).optional(),
 });
 
+/** Existing invitees submit an empty object; new users must meet full policy. */
+export const acceptInvitationSchema = z.union([
+  z.object({
+    name: z.string().trim().min(2).max(100),
+    password: passwordSchema,
+  }).strict(),
+  z.object({}).strict(),
+]);
+
 // ============================================================
 // Phase 4: Task Management & Assignment Schemas
 // ============================================================
@@ -334,7 +343,7 @@ export const setAvailabilitySchema = z.object({
 
 /** Validates bulk availability update (full week) */
 export const setWeeklyAvailabilitySchema = z.object({
-  schedule: z.array(setAvailabilitySchema).min(1).max(7),
+  schedule: z.array(setAvailabilitySchema).min(1).max(35),
 });
 
 /** Validates a date-specific availability override */
@@ -349,7 +358,13 @@ export const createCertificationSchema = z.object({
   name: z.string().min(1, "Certification name is required").max(200),
   issuedDate: z.string().datetime(),
   expiryDate: z.string().datetime().optional(),
-  documentUrl: z.string().url().optional(),
+  documentUrl: z
+    .string()
+    .url()
+    .refine((value) => new URL(value).protocol === "https:", {
+      message: "Document links must use HTTPS",
+    })
+    .optional(),
 });
 
 const certificationDepartmentRequirementSchema = z.object({
@@ -443,16 +458,9 @@ export const revokeCertificationSchema = z.object({
 export const createEligibilityOverrideSchema = z.object({
   membershipId: z.string().min(1),
   reason: z.string().min(1, "Override reason is required").max(500),
-  // "all" overrides every warning for the member on this task (used by the
-  // assignment override flow); the specific keys target a single dimension.
-  ruleOverridden: z.enum([
-    "hours_limit",
-    "availability",
-    "scheduling",
-    "work_rules",
-    "certification",
-    "all",
-  ]),
+  // Availability is the only warning-level condition. Scheduling conflicts,
+  // hour caps, work rules, and certifications are hard safety blocks.
+  ruleOverridden: z.literal("availability"),
 });
 
 // ============================================================

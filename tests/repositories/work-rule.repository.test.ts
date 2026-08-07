@@ -16,7 +16,6 @@ const orgRepo = new OrganizationRepository();
 const userRepo = new UserRepository();
 
 let orgId: string;
-let userId: string;
 
 beforeEach(async () => {
   await cleanDatabase();
@@ -26,7 +25,6 @@ beforeEach(async () => {
     email: "admin@test.com",
     hashedPassword: "hash",
   });
-  userId = user.id;
 
   const org = await orgRepo.create(
     { name: "Test Org", slug: "test-org" },

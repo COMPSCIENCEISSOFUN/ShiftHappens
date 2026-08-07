@@ -1,4 +1,4 @@
-# Smart Task Allocation
+# ShiftHappens
 
 A SaaS platform for intelligent workforce management in shift-based industries (hospitality, retail, healthcare). Features AI-powered staff allocation, eligibility engine, and real-time scheduling.
 
@@ -11,15 +11,15 @@ A SaaS platform for intelligent workforce management in shift-based industries (
 
 | Layer | Technology | Version |
 |-------|-----------|---------|
-| Framework | Next.js (App Router) | 16.2.6 |
+| Framework | Next.js (App Router) | 16.3.0 |
 | Language | TypeScript | 5.x |
 | Styling | Tailwind CSS + shadcn/ui | 4.x |
 | Database | PostgreSQL | 17+ |
 | ORM | Prisma | 6.19.3 |
-| Auth | NextAuth.js v5 | 5.0.0-beta.31 |
+| Auth | NextAuth.js v5 | 5.0.0-beta.32 |
 | Email | Resend | 6.12.3 |
 | AI | Groq + Google Gemini | Strategy pattern |
-| Testing | Vitest | 4.1.6 |
+| Testing | Vitest | 4.1.10 |
 
 ---
 
@@ -189,12 +189,18 @@ Run `npm exec -- tsx prisma/seed-it-demo.ts` to create the Northstar IT Solution
 |---------|-------------|
 | `npm run dev` | Start dev server on localhost:3000 |
 | `npm test` | Run all tests (uses test database) |
+| `npm run test:utc` | Re-run timezone-sensitive coverage under production UTC |
 | `npm run build` | Production build check |
 | `npm run lint` | ESLint check |
 | `npx prisma studio` | Visual database browser on localhost:5555 |
 | `npx prisma migrate dev --name <name>` | Create new migration |
 | `npx prisma db seed` | Seed permissions |
 | `npx tsx prisma/seed-demo.ts` | Seed demo data |
+
+Pull requests and pushes to `main` run migrations, seed RBAC data, typecheck,
+lint, both test modes, and a production build in GitHub Actions. Do not merge a
+change with a failing CI check. The scheduled-job workflow additionally needs
+`APP_URL` and `CRON_SECRET` repository secrets.
 
 ---
 

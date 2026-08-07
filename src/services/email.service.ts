@@ -9,7 +9,8 @@
 import { Resend } from "resend";
 
 const fromEmail = process.env.RESEND_FROM_EMAIL || "onboarding@resend.dev";
-const appName = "Smart Task Allocation";
+const appName = "ShiftHappens";
+export type EmailDeliveryResult = { sent: boolean; error?: string };
 
 /**
  * Lazily constructs the Resend client on first send, memoized thereafter.
@@ -105,8 +106,23 @@ function infoBox(text: string): string {
 }
 
 export class EmailService {
+  private async deliver(email: string, subject: string, html: string): Promise<EmailDeliveryResult> {
+    if (!process.env.RESEND_API_KEY) return { sent: false, error: "Email delivery is not configured." };
+    try {
+      const result = await getResend().emails.send({ from: fromEmail, to: email, subject, html });
+      if (result.error) {
+        console.error("[Email Error] Resend rejected email:", result.error);
+        return { sent: false, error: "Email delivery was rejected by the provider." };
+      }
+      return { sent: true };
+    } catch (error) {
+      console.error("[Email Error] Failed to send email:", error);
+      return { sent: false, error: "Email delivery failed." };
+    }
+  }
+
   /** Sends email verification link after registration */
-  async sendVerificationEmail(email: string, token: string) {
+  async sendVerificationEmail(email: string, token: string): Promise<EmailDeliveryResult> {
     const verifyUrl = `${process.env.NEXTAUTH_URL}/verify-email?token=${token}`;
 
     const content = `
@@ -122,20 +138,11 @@ export class EmailService {
       </p>
     `;
 
-    try {
-      await getResend().emails.send({
-        from: fromEmail,
-        to: email,
-        subject: `Verify your email — ${appName}`,
-        html: emailTemplate(content),
-      });
-    } catch (error) {
-      console.error("[Email Error] Failed to send verification email:", error);
-    }
+    return this.deliver(email, `Verify your email — ${appName}`, emailTemplate(content));
   }
 
   /** Sends password reset link */
-  async sendPasswordResetEmail(email: string, token: string) {
+  async sendPasswordResetEmail(email: string, token: string): Promise<EmailDeliveryResult> {
     const resetUrl = `${process.env.NEXTAUTH_URL}/reset-password?token=${token}`;
 
     const content = `
@@ -151,16 +158,7 @@ export class EmailService {
       </p>
     `;
 
-    try {
-      await getResend().emails.send({
-        from: fromEmail,
-        to: email,
-        subject: `Reset your password — ${appName}`,
-        html: emailTemplate(content),
-      });
-    } catch (error) {
-      console.error("[Email Error] Failed to send password reset email:", error);
-    }
+    return this.deliver(email, `Reset your password — ${appName}`, emailTemplate(content));
   }
 
   /** Sends organization invitation link */
@@ -169,7 +167,7 @@ export class EmailService {
     token: string,
     organizationName: string,
     inviterName: string
-  ) {
+  ): Promise<EmailDeliveryResult> {
     const inviteUrl = `${process.env.NEXTAUTH_URL}/accept-invitation?token=${token}`;
 
     const content = `
@@ -185,15 +183,6 @@ export class EmailService {
       </p>
     `;
 
-    try {
-      await getResend().emails.send({
-        from: fromEmail,
-        to: email,
-        subject: `You're invited to join ${organizationName} — ${appName}`,
-        html: emailTemplate(content),
-      });
-    } catch (error) {
-      console.error("[Email Error] Failed to send invitation email:", error);
-    }
+    return this.deliver(email, `You're invited to join ${organizationName} — ${appName}`, emailTemplate(content));
   }
 }

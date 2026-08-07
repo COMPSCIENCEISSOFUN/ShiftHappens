@@ -14,7 +14,7 @@
 // Imports
 // ============================================================
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Card,
   CardContent,
@@ -26,6 +26,7 @@ import { AlertBanner } from "@/components/ui/alert-banner";
 import { EmptyState } from "@/components/ui/empty-state";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { OperationsAssistant } from "@/components/operations/operations-assistant";
+import { Button } from "@/components/ui/button";
 
 // ============================================================
 // API response types
@@ -146,18 +147,13 @@ function getStatusPillInfo(items: NeedsAttentionItem[] | null): {
 
 export default function ManagerDashboard({
   orgId,
-  orgName,
   userName,
 }: ManagerDashboardProps) {
   const [data, setData] = useState<ManagerDashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchDashboard();
-  }, [orgId]);
-
-  async function fetchDashboard() {
+  const fetchDashboard = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -172,7 +168,11 @@ export default function ManagerDashboard({
     } finally {
       setLoading(false);
     }
-  }
+  }, [orgId]);
+
+  useEffect(() => {
+    void fetchDashboard();
+  }, [fetchDashboard]);
 
   // ----------------------------------------------------------
   // Loading state
@@ -211,11 +211,12 @@ export default function ManagerDashboard({
   // ----------------------------------------------------------
   if (error) {
     return (
-      <AlertBanner
-        message={error}
-        variant="error"
-        onDismiss={() => setError(null)}
-      />
+      <div className="space-y-3">
+        <AlertBanner message="Dashboard data could not be loaded." variant="error" />
+        <Button variant="outline" size="sm" onClick={() => void fetchDashboard()}>
+          Try again
+        </Button>
+      </div>
     );
   }
 
@@ -285,12 +286,10 @@ export default function ManagerDashboard({
 
       <OperationsAssistant orgId={orgId} role="manager" />
 
-      {/* ---- Action items ---- */}
-      {attentionItems.length > 0 && (
+      {/* ---- Operations inbox ---- */}
+      {attentionItems.length > 0 ? (
         <div className="space-y-3">
-          <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
-            Action items
-          </h3>
+          <div className="flex items-center justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wide text-primary">Operations inbox</p><h3 className="mt-1 text-base font-semibold">Decisions that need your judgment</h3></div><span className="rounded-full bg-muted px-2.5 py-1 text-xs font-semibold text-muted-foreground">{attentionItems.length}</span></div>
           <div className="space-y-2">
             {attentionItems.map((item, idx) => {
               const isDanger = item.severity === "danger";
@@ -335,7 +334,7 @@ export default function ManagerDashboard({
                     {/* Action button */}
                     <a
                       href={item.actionUrl}
-                      className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium transition-colors ${btnBg}`}
+                      className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${btnBg}`}
                     >
                       {item.actionLabel}
                     </a>
@@ -345,6 +344,10 @@ export default function ManagerDashboard({
             })}
           </div>
         </div>
+      ) : (
+        <Card className="border-emerald-200 bg-emerald-50/50 shadow-none dark:border-emerald-900 dark:bg-emerald-950/20">
+          <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-sm font-semibold text-emerald-800 dark:text-emerald-200">Your operations inbox is clear</p><p className="mt-1 text-xs text-emerald-700 dark:text-emerald-300">ShiftHappens found no urgent staffing, schedule, or review decisions right now.</p></div><a href={`/org/${orgId}/tasks`} className="inline-flex h-8 items-center justify-center rounded-lg border border-emerald-200 bg-background px-3 text-xs font-semibold text-emerald-800 hover:bg-emerald-100 dark:border-emerald-800 dark:text-emerald-200">Open tasks</a></CardContent>
+        </Card>
       )}
 
       {/* ---- Stat tiles (3 columns) ---- */}

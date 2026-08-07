@@ -16,7 +16,7 @@
  */
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
   Card,
@@ -24,7 +24,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import type { NeedsAttentionItem } from "@/components/dashboard/needs-attention";
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -187,7 +186,7 @@ const AI_ACTION_LABELS: Record<string, string> = {
 // Skeleton loader
 // ============================================================
 
-function DashboardSkeleton({ orgName }: { orgName: string }) {
+function DashboardSkeleton() {
   return (
     <div>
       <div className="mb-7">
@@ -231,12 +230,7 @@ export default function AdminDashboard({ orgId, orgName, userName }: AdminDashbo
   const [aiRecs, setAiRecs] = useState<AIRecommendationsData | null>(null);
   const [aiLoading, setAiLoading] = useState(true);
 
-  useEffect(() => {
-    fetchDashboard();
-    fetchAIRecommendations();
-  }, [orgId]);
-
-  async function fetchDashboard() {
+  const fetchDashboard = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -252,9 +246,9 @@ export default function AdminDashboard({ orgId, orgName, userName }: AdminDashbo
     } finally {
       setLoading(false);
     }
-  }
+  }, [orgId]);
 
-  async function fetchAIRecommendations() {
+  const fetchAIRecommendations = useCallback(async () => {
     try {
       setAiLoading(true);
       const res = await fetch(
@@ -268,9 +262,17 @@ export default function AdminDashboard({ orgId, orgName, userName }: AdminDashbo
     } finally {
       setAiLoading(false);
     }
-  }
+  }, [orgId]);
 
-  if (loading) return <DashboardSkeleton orgName={orgName} />;
+  useEffect(() => {
+    void fetchDashboard();
+    // Recommendations are useful, but they are not allowed to compete with
+    // the dashboard's first meaningful render.
+    const timer = window.setTimeout(() => void fetchAIRecommendations(), 800);
+    return () => window.clearTimeout(timer);
+  }, [fetchAIRecommendations, fetchDashboard]);
+
+  if (loading) return <DashboardSkeleton />;
 
   if (error) {
     return (
@@ -328,6 +330,22 @@ export default function AdminDashboard({ orgId, orgName, userName }: AdminDashbo
       <div className="mb-8">
         <OperationsAssistant orgId={orgId} role="company_admin" />
       </div>
+
+      {(data.departmentWorkload?.length === 0 || data.staffUtilization?.length === 0) && (
+        <Card className="mb-8 border-primary/20 bg-primary/[0.035] shadow-none">
+          <CardContent className="p-4 sm:p-5">
+            <p className="text-xs font-semibold uppercase tracking-wide text-primary">Get operational</p>
+            <h3 className="mt-1 text-base font-semibold">Complete your workforce setup</h3>
+            <p className="mt-1 text-sm text-muted-foreground">Set up the essentials once, then let ShiftHappens handle the repeatable coordination work.</p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Link href={`/org/${orgId}/departments`} className="inline-flex h-8 items-center rounded-lg border border-border bg-background px-3 text-xs font-semibold transition-colors hover:bg-muted">Add departments</Link>
+              <Link href={`/org/${orgId}/members`} className="inline-flex h-8 items-center rounded-lg border border-border bg-background px-3 text-xs font-semibold transition-colors hover:bg-muted">Add staff</Link>
+              <Link href={`/org/${orgId}/certifications`} className="inline-flex h-8 items-center rounded-lg border border-border bg-background px-3 text-xs font-semibold transition-colors hover:bg-muted">Set requirements</Link>
+              <Link href={`/org/${orgId}/tasks`} className="inline-flex h-8 items-center rounded-lg bg-primary px-3 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/85">Create first task</Link>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* 2. Action Items + Inline AI Suggestions             */}
       {/* ════════════════════════════════════════════════════ */}

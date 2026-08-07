@@ -5,7 +5,7 @@
  * POST  /api/organizations/[orgId]/certifications/[certId] — Revoke a verified one
  * DELETE /api/organizations/[orgId]/certifications/[certId] — Withdraw (owner, pending only)
  *
- * PATCH and POST require admin/manager. DELETE is restricted to the member who
+ * PATCH and POST require the scoped certification-review permission. DELETE is restricted to the member who
  * submitted it, and only while still pending: once a manager has acted, the
  * record is an audit artifact and is revoked rather than removed.
  */
@@ -74,7 +74,7 @@ export async function PATCH(
     const { orgId, certId } = await params;
 
     const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
-    if (membership?.role !== "manager" || !hasPermission(membership, PERMISSIONS.CERTIFICATIONS_REVIEW)) {
+    if (!membership || !hasPermission(membership, PERMISSIONS.CERTIFICATIONS_REVIEW)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -127,7 +127,7 @@ export async function POST(
     const { orgId, certId } = await params;
 
     const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
-    if (membership?.role !== "manager" || !hasPermission(membership, PERMISSIONS.CERTIFICATIONS_REVIEW)) {
+    if (!membership || !hasPermission(membership, PERMISSIONS.CERTIFICATIONS_REVIEW)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 

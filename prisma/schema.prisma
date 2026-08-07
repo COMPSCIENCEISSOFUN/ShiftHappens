@@ -16,6 +16,7 @@ model User {
   hashedPassword  String
   image           String?
   isPlatformAdmin Boolean   @default(false)
+  sessionVersion  Int       @default(0)
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
@@ -30,6 +31,7 @@ model User {
   auditLogs              AuditLog[]
   notifications          Notification[]
   projectsCreated        Project[] @relation("ProjectCreator")
+  assistantOperations    AssistantOperation[]
 }
 
 model Organization {
@@ -48,6 +50,7 @@ model Organization {
   stripeSubscriptionId String?
   subscriptionStatus   String?  // "active" | "past_due" | "canceled" | ... (mirrors Stripe)
   billingInterval      String?  // "month" | "year"
+  stripeLastEventAt    DateTime?
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
@@ -59,9 +62,25 @@ model Organization {
   tasks            Task[]
   projects         Project[]
   auditLogs        AuditLog[]
+  stripeWebhookEvents StripeWebhookEvent[]
   workRules        WorkRule[]
   notifications    Notification[]
   certificationDefinitions CertificationDefinition[]
+  assistantOperations AssistantOperation[]
+  contactSubmissions ContactSubmission[]
+}
+
+model StripeWebhookEvent {
+  id             String   @id // Stripe event id
+  organizationId String
+  type           String
+  eventCreatedAt DateTime
+  outcome        String
+  processedAt    DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, eventCreatedAt])
 }
 
 model Membership {
@@ -178,6 +197,9 @@ model InvitationToken {
   invitedById    String
   expires        DateTime
   acceptedAt     DateTime?
+  emailDeliveryStatus String @default("pending")
+  emailDeliveryError  String?
+  emailSentAt         DateTime?
   createdAt      DateTime  @default(now())
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -302,6 +324,9 @@ model TaskAssignment {
   withdrawalStatusBeforeRequest String?
   clockInTime     DateTime?
   clockOutTime    DateTime?
+  cancelledAt     DateTime?
+  cancelledById   String?
+  cancellationReason String?
   assignedById    String
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
@@ -328,8 +353,7 @@ model Availability {
 
   membership Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
 
-  @@unique([membershipId, dayOfWeek])
-  @@index([membershipId])
+  @@index([membershipId, dayOfWeek])
 }
 
 model AvailabilityOverride {
@@ -381,6 +405,8 @@ model EligibilityOverride {
   reason         String
   ruleOverridden String
   createdAt      DateTime @default(now())
+  expiresAt      DateTime?
+  revokedAt      DateTime?
 
   task       Task       @relation(fields: [taskId], references: [id], onDelete: Cascade)
   membership Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
@@ -388,6 +414,56 @@ model EligibilityOverride {
 
   @@index([taskId])
   @@index([membershipId])
+  @@index([taskId, membershipId, revokedAt])
+}
+
+/**
+ * Durable record of an operations-assistant mutation. Undo requests reference
+ * this server-created record instead of trusting task or assignment IDs sent
+ * by the browser.
+ */
+model AssistantOperation {
+  id             String   @id @default(cuid())
+  organizationId String
+  userId         String
+  kind           String
+  status         String   @default("completed")
+  undoPayload    Json?
+  expiresAt      DateTime?
+  undoneAt       DateTime?
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, userId, createdAt])
+}
+
+/** Public sales/contact requests submitted from the landing page. */
+model ContactSubmission {
+  id             String   @id @default(cuid())
+  organizationId String?
+  name           String
+  email          String
+  company        String?
+  message        String
+  status         String   @default("new")
+  createdAt      DateTime @default(now())
+
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([email, createdAt])
+}
+
+/** Shared production rate-limit counters. */
+model RateLimitBucket {
+  key         String   @id
+  count       Int
+  windowStart DateTime
+  expiresAt   DateTime
+
+  @@index([expiresAt])
 }
 
 model AuditLog {

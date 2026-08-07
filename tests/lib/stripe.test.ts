@@ -9,7 +9,7 @@
  * secret key and is covered indirectly through the billing service tests.
  */
 import { describe, it, expect } from "vitest";
-import { isBillingInterval, proPlanLineItem, BILLING_CURRENCY } from "@/lib/stripe";
+import { isBillingInterval, proPlanLineItem, BILLING_CURRENCY, getTrustedAppOrigin } from "@/lib/stripe";
 import { TIER_CONFIG } from "@/lib/subscription-tiers";
 
 describe("isBillingInterval", () => {
@@ -24,6 +24,30 @@ describe("isBillingInterval", () => {
     expect(isBillingInterval(null)).toBe(false);
     expect(isBillingInterval(undefined)).toBe(false);
     expect(isBillingInterval(12)).toBe(false);
+  });
+});
+
+describe("getTrustedAppOrigin", () => {
+  it("uses NEXTAUTH_URL instead of the request host", () => {
+    const previous = process.env.NEXTAUTH_URL;
+    process.env.NEXTAUTH_URL = "https://app.shifthappens.example/path";
+    try {
+      expect(getTrustedAppOrigin("https://untrusted.example")).toBe("https://app.shifthappens.example");
+    } finally {
+      if (previous === undefined) delete process.env.NEXTAUTH_URL;
+      else process.env.NEXTAUTH_URL = previous;
+    }
+  });
+
+  it("allows a localhost fallback for development only", () => {
+    const previous = process.env.NEXTAUTH_URL;
+    delete process.env.NEXTAUTH_URL;
+    try {
+      expect(getTrustedAppOrigin("http://localhost:3000")).toBe("http://localhost:3000");
+      expect(() => getTrustedAppOrigin("https://untrusted.example")).toThrow(/NEXTAUTH_URL/);
+    } finally {
+      if (previous !== undefined) process.env.NEXTAUTH_URL = previous;
+    }
   });
 });
 

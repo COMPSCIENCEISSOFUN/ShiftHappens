@@ -1,115 +1,146 @@
-/**
- * Invitation Service (Control Layer)
- * 
- * Handles the invitation acceptance flow:
- * - New users: creates account (with verified email) + org membership
- * - Existing users: creates org membership only
- * - Assigns department if specified in the invitation
- * 
- * Invited users get their email auto-verified since the invitation
- * was sent to their email by a trusted Company Admin.
- * 
- * Security:
- * - Tokens validated for existence, expiry, and acceptance status
- * - Passwords hashed with bcrypt before storage
- */
 import bcrypt from "bcryptjs";
+import { prisma } from "@/lib/prisma";
 import { normalizeEmploymentType } from "@/lib/role-config";
+import {
+  getResourceLimit,
+  SUBSCRIPTION_TIERS,
+  SubscriptionLimitError,
+  type SubscriptionTier,
+} from "@/lib/subscription-tiers";
 import { InvitationRepository } from "@/repositories/invitation.repository";
-import { MembershipRepository } from "@/repositories/membership.repository";
 import { UserRepository } from "@/repositories/user.repository";
 
+/** Atomic, entitlement-safe invitation acceptance. */
 export class InvitationService {
   private invitationRepo = new InvitationRepository();
-  private membershipRepo = new MembershipRepository();
   private userRepo = new UserRepository();
 
-  /**
-   * Retrieves invitation details for the acceptance page.
-   * Returns null if token is invalid, expired, or already accepted.
-   */
   async getInvitationDetails(token: string) {
     const invitation = await this.invitationRepo.findByToken(token);
-
-    if (!invitation) return null;
-    if (invitation.acceptedAt) return null;
-    if (invitation.expires < new Date()) return null;
-
-    return invitation;
+    if (!invitation || invitation.acceptedAt || invitation.expires < new Date()) {
+      return null;
+    }
+    const existingUser = await this.userRepo.findByEmail(invitation.email);
+    return { ...invitation, existingUser: Boolean(existingUser) };
   }
 
-  /**
-   * Accepts an invitation and creates the user's org membership.
-   * 
-   * @param token - The invitation token from the URL
-   * @param registrationData - Name and password for new users, null for existing users
-   * 
-   * Flow for new users:
-   * 1. Validate invitation token
-   * 2. Create user account with hashed password and verified email
-   * 3. Create org membership with invited role
-   * 4. Assign department if specified
-   * 5. Mark invitation as accepted
-   * 
-   * Flow for existing users:
-   * 1. Validate invitation token
-   * 2. Find existing user by email
-   * 3. Create org membership with invited role
-   * 4. Assign department if specified
-   * 5. Mark invitation as accepted
-   */
   async acceptInvitation(
     token: string,
     registrationData: { name: string; password: string } | null
   ) {
-    // Validate the invitation
-    const invitation = await this.invitationRepo.findByToken(token);
+    // Hash before opening the transaction so bcrypt does not hold the org lock.
+    const hashedPassword = registrationData
+      ? await bcrypt.hash(registrationData.password, 12)
+      : null;
 
-    if (!invitation || invitation.acceptedAt || invitation.expires < new Date()) {
-      throw new Error("Invalid or expired invitation");
-    }
+    return prisma.$transaction(async (tx) => {
+      const initial = await tx.invitationToken.findUnique({ where: { token } });
+      if (!initial) throw new Error("Invalid or expired invitation");
 
-    // Find or create the user
-    let user = await this.userRepo.findByEmail(invitation.email);
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${initial.organizationId}))`;
+      const invitation = await tx.invitationToken.findUnique({ where: { token } });
+      const now = new Date();
+      if (!invitation || invitation.acceptedAt || invitation.expires < now) {
+        throw new Error("Invalid or expired invitation");
+      }
 
-    if (!user && registrationData) {
-      // New user — create account with verified email
-      const hashedPassword = await bcrypt.hash(registrationData.password, 12);
-      user = await this.userRepo.create({
-        name: registrationData.name,
-        email: invitation.email,
-        hashedPassword,
+      const organization = await tx.organization.findUnique({
+        where: { id: invitation.organizationId },
+        select: { subscriptionTier: true },
       });
-      // Auto-verify email since invitation came from a trusted admin
-      user = await this.userRepo.verifyEmail(user.id);
-    } else if (!user && !registrationData) {
-      throw new Error("Registration data required for new users");
-    }
-
-    // Create org membership (carry employmentType from invitation if set)
-    // TODO: Remove cast after running `npx prisma generate` — employmentType
-    // was added in migration 20260726000000; Prisma types will include it.
-    const invitationEmploymentType = (invitation as typeof invitation & { employmentType?: string | null }).employmentType;
-    const membership = await this.membershipRepo.create({
-      userId: user!.id,
-      organizationId: invitation.organizationId,
-      role: invitation.role,
-      employmentType:
-        invitation.role === "staff"
-          ? normalizeEmploymentType(invitationEmploymentType)
-          : undefined,
-    });
-
-    // Assign department if specified in the invitation
-    if (invitation.departmentId) {
-      await this.membershipRepo.assignDepartments(membership.id, [
-        invitation.departmentId,
+      if (!organization) throw new Error("Organization not found");
+      const tier = SUBSCRIPTION_TIERS.includes(
+        organization.subscriptionTier as SubscriptionTier
+      )
+        ? organization.subscriptionTier as SubscriptionTier
+        : "free";
+      const limit = getResourceLimit(tier, "members");
+      const [activeMembers, validPending] = await Promise.all([
+        tx.membership.count({
+          where: { organizationId: invitation.organizationId, status: "active" },
+        }),
+        tx.invitationToken.count({
+          where: {
+            organizationId: invitation.organizationId,
+            acceptedAt: null,
+            expires: { gt: now },
+          },
+        }),
       ]);
-    }
+      const billableCount = activeMembers + validPending;
+      // This invitation is already part of validPending; accepting it replaces
+      // one pending seat with one active seat, so equality is allowed.
+      if (limit !== null && billableCount > limit) {
+        throw new SubscriptionLimitError("members", billableCount, limit, tier);
+      }
 
-    // Mark invitation as accepted
-    await this.invitationRepo.markAccepted(invitation.id);
+      let user = await tx.user.findUnique({ where: { email: invitation.email } });
+      if (!user) {
+        if (!registrationData || !hashedPassword) {
+          throw new Error("Registration data required for new users");
+        }
+        user = await tx.user.create({
+          data: {
+            name: registrationData.name,
+            email: invitation.email,
+            hashedPassword,
+            emailVerified: now,
+          },
+        });
+      }
 
-    return { user: user! };
+      const existingMembership = await tx.membership.findUnique({
+        where: {
+          userId_organizationId: {
+            userId: user.id,
+            organizationId: invitation.organizationId,
+          },
+        },
+        select: { id: true },
+      });
+      if (existingMembership) {
+        throw new Error("User is already a member of this organization");
+      }
+
+      if (invitation.departmentId) {
+        const department = await tx.department.findFirst({
+          where: {
+            id: invitation.departmentId,
+            organizationId: invitation.organizationId,
+          },
+          select: { id: true },
+        });
+        if (!department) {
+          throw new Error("Invitation department is no longer available");
+        }
+      }
+
+      const membership = await tx.membership.create({
+        data: {
+          userId: user.id,
+          organizationId: invitation.organizationId,
+          role: invitation.role,
+          status: "active",
+          employmentType:
+            invitation.role === "staff"
+              ? normalizeEmploymentType(invitation.employmentType)
+              : null,
+        },
+      });
+      if (invitation.departmentId) {
+        await tx.departmentMembership.create({
+          data: {
+            membershipId: membership.id,
+            departmentId: invitation.departmentId,
+          },
+        });
+      }
+      await tx.invitationToken.update({
+        where: { id: invitation.id },
+        data: { acceptedAt: now },
+      });
+
+      return { user };
+    }, { isolationLevel: "Serializable" });
   }
 }

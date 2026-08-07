@@ -16,11 +16,12 @@
  */
 "use client";
 
-import { useState, useEffect } from "react";
+import { useCallback, useState, useEffect, useRef } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { signOut } from "next-auth/react";
-import { useTheme } from "next-themes";
+import { useTheme } from "@/components/theme-provider";
+import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { getSystemRoleLabel } from "@/lib/role-config";
 import type { PermissionName } from "@/lib/permission-guard";
 
@@ -253,6 +254,7 @@ interface AppSidebarProps {
   employmentType?: string;
   customRoleLabel?: string;
   permissions?: string[];
+  organizations?: { id: string; name: string; status: string }[];
 }
 
 // ============================================================
@@ -286,19 +288,50 @@ export function AppSidebar({
   employmentType,
   customRoleLabel,
   permissions = [],
+  organizations = [],
 }: AppSidebarProps) {
   const pathname = usePathname();
+  const router = useRouter();
   const { resolvedTheme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   const [features, setFeatures] = useState<Record<string, boolean> | null>(null);
   const [tier, setTier] = useState<{ name: string; displayName: string } | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
+  const [switchingOrg, setSwitchingOrg] = useState(false);
+  const unreadRequestInFlight = useRef(false);
   const can = (permission: PermissionName) => permissions.includes(permission);
 
   useEffect(() => {
     setMounted(true);
+    setCollapsed(window.localStorage.getItem("shifthappens-sidebar-collapsed") === "true");
   }, []);
+
+  function toggleSidebar() {
+    setCollapsed((current) => {
+      const next = !current;
+      window.localStorage.setItem("shifthappens-sidebar-collapsed", String(next));
+      return next;
+    });
+  }
+
+  async function switchOrganization(nextOrgId: string) {
+    if (!nextOrgId || nextOrgId === orgId || switchingOrg) return;
+    setSwitchingOrg(true);
+    try {
+      const response = await fetch("/api/organizations/active", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ organizationId: nextOrgId }),
+      });
+      if (!response.ok) throw new Error("Unable to switch organization");
+      router.push("/dashboard");
+      router.refresh();
+    } finally {
+      setSwitchingOrg(false);
+    }
+  }
 
   // Close sidebar on route change (mobile navigation)
   useEffect(() => {
@@ -318,20 +351,9 @@ export function AppSidebar({
     }
   }, [orgId]);
 
-  // Poll unread notification count.
-  // Notifications are org-scoped, so there is nothing to poll outside an org.
-  useEffect(() => {
-    if (!orgId) {
-      setUnreadCount(0);
-      return;
-    }
-    fetchUnreadCount();
-    const interval = setInterval(fetchUnreadCount, 30000);
-    return () => clearInterval(interval);
-  }, [orgId]);
-
-  async function fetchUnreadCount() {
-    if (!orgId) return;
+  const fetchUnreadCount = useCallback(async () => {
+    if (!orgId || unreadRequestInFlight.current) return;
+    unreadRequestInFlight.current = true;
     try {
       const res = await fetch(
         `/api/organizations/${orgId}/notifications/unread-count`
@@ -342,8 +364,22 @@ export function AppSidebar({
       }
     } catch {
       // Non-critical — polling
+    } finally {
+      unreadRequestInFlight.current = false;
     }
-  }
+  }, [orgId]);
+
+  // Poll unread notification count.
+  // Notifications are org-scoped, so there is nothing to poll outside an org.
+  useEffect(() => {
+    if (!orgId) {
+      setUnreadCount(0);
+      return;
+    }
+    void fetchUnreadCount();
+    const interval = setInterval(fetchUnreadCount, 120000);
+    return () => clearInterval(interval);
+  }, [fetchUnreadCount, orgId]);
 
   // Build navigation sections based on role
   const sections: NavSection[] = [];
@@ -386,7 +422,7 @@ export function AppSidebar({
       orgItems.push({ href: `/org/${orgId}/departments`, label: "Departments", icon: DepartmentsIcon });
     }
     if (can("certifications:read")) {
-      orgItems.push({ href: `/org/${orgId}/certifications`, label: "Certifications", icon: CertificationsIcon });
+      orgItems.push({ href: `/org/${orgId}/certifications`, label: role === "manager" ? "Certification Review" : "Certification Requirements", icon: CertificationsIcon });
     }
 
     if (can("roles:read")) {
@@ -418,7 +454,7 @@ export function AppSidebar({
   }
 
   if (orgId && can("audit:view")) {
-    // Audit Log: only show if audit_log feature is available (Enterprise)
+    // Audit Log: show when the Pro-or-higher audit feature is available.
     if (features === null || features.audit_log !== false) {
       systemItems.push({ href: `/org/${orgId}/audit-log`, label: "Audit Log", icon: AuditLogIcon });
     }
@@ -464,7 +500,7 @@ export function AppSidebar({
         />
       )}
 
-      <aside className={`app-sidebar ${mobileOpen ? "app-sidebar-mobile-open" : ""}`}>
+      <aside className={`app-sidebar ${collapsed ? "app-sidebar-collapsed" : ""} ${mobileOpen ? "app-sidebar-mobile-open" : ""}`}>
         {/* Mobile close button */}
         <button
           onClick={() => setMobileOpen(false)}
@@ -478,18 +514,45 @@ export function AppSidebar({
         <div className="app-sidebar-dots" aria-hidden="true" />
 
       {/* Logo */}
-      <div className="relative z-[1] mb-9 flex items-center gap-2.5">
+      <div className="app-sidebar-brand relative z-[1] mb-9 flex items-center gap-2.5">
         <div className="flex h-9 w-9 items-center justify-center rounded-[10px] bg-white/20 text-sm font-extrabold backdrop-blur-sm">
           {(orgName || "S")[0].toUpperCase()}
         </div>
-        <div className="flex flex-col gap-0.5">
+        <div className="app-sidebar-brand-copy flex flex-col gap-0.5">
           <span className="text-[15px] font-bold tracking-tight">{orgName || "Smart Task"}</span>
+          {organizations.length > 1 && !collapsed && (
+            <label className="sr-only" htmlFor="organization-switcher">Organization</label>
+          )}
+          {organizations.length > 1 && !collapsed && (
+            <select
+              id="organization-switcher"
+              value={orgId}
+              disabled={switchingOrg}
+              onChange={(event) => void switchOrganization(event.target.value)}
+              className="mt-1 max-w-[11rem] rounded-md border border-white/20 bg-white/10 px-1.5 py-1 text-[11px] text-white"
+            >
+              {organizations.map((organization) => (
+                <option key={organization.id} value={organization.id} className="text-slate-900">
+                  {organization.name}{organization.status !== "active" ? " (suspended)" : ""}
+                </option>
+              ))}
+            </select>
+          )}
           {tier && (
             <span className="w-fit rounded-full bg-white/15 px-2 py-px text-[10px] font-semibold text-white/80">
               {tier.displayName}
             </span>
           )}
         </div>
+        <button
+          type="button"
+          onClick={toggleSidebar}
+          className="app-sidebar-collapse-button ml-auto hidden h-8 w-8 items-center justify-center rounded-lg text-white/70 transition-colors hover:bg-white/10 hover:text-white md:flex"
+          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+        >
+          {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+        </button>
       </div>
 
       {/* Navigation */}
@@ -515,13 +578,14 @@ export function AppSidebar({
                   key={item.href}
                   href={item.href}
                   className={`app-sidebar-link ${isActive ? "app-sidebar-link-active" : ""}`}
+                  title={collapsed ? item.label : undefined}
                 >
                   <span className={isActive ? "opacity-100" : "opacity-70"}>
                     <Icon />
                   </span>
-                  <span className="flex-1">{item.label}</span>
+                  <span className="app-sidebar-item-label flex-1">{item.label}</span>
                   {item.badge !== undefined && item.badge > 0 && (
-                    <span className="flex min-w-[18px] items-center justify-center rounded-[9px] bg-red-500/90 px-[5px] text-[10px] font-bold text-white" style={{ height: 18 }}>
+                    <span className="app-sidebar-item-badge flex min-w-[18px] items-center justify-center rounded-[9px] bg-red-500/90 px-[5px] text-[10px] font-bold text-white" style={{ height: 18 }}>
                       {item.badge > 99 ? "99+" : item.badge}
                     </span>
                   )}
@@ -538,13 +602,13 @@ export function AppSidebar({
         {mounted && (
           <button
             onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
-            className="app-sidebar-action-btn"
-            title={resolvedTheme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+          className="app-sidebar-action-btn"
+          title={resolvedTheme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
           >
             <span className="opacity-60">
               <ThemeIcon isDark={resolvedTheme === "dark"} />
             </span>
-            <span>{resolvedTheme === "dark" ? "Light mode" : "Dark mode"}</span>
+            <span className="app-sidebar-action-label">{resolvedTheme === "dark" ? "Light mode" : "Dark mode"}</span>
           </button>
         )}
 
@@ -552,19 +616,20 @@ export function AppSidebar({
         <button
           onClick={() => signOut({ callbackUrl: "/login" })}
           className="app-sidebar-action-btn"
+          title="Sign out"
         >
           <span className="opacity-60">
             <SignOutIcon />
           </span>
-          <span>Sign out</span>
+          <span className="app-sidebar-action-label">Sign out</span>
         </button>
 
         {/* User card */}
-        <div className="mt-3 flex items-center gap-2.5 rounded-xl bg-white/10 p-3">
+        <div className="app-sidebar-user-card mt-3 flex items-center gap-2.5 rounded-xl bg-white/10 p-3">
           <div className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-full bg-white/20 text-[13px] font-bold">
             {initials}
           </div>
-          <div className="min-w-0">
+          <div className="app-sidebar-user-copy min-w-0">
             <div className="truncate text-[13px] font-semibold">
               {user.name || "User"}
             </div>

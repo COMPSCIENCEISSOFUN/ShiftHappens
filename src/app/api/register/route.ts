@@ -32,10 +32,10 @@ export async function POST(request: NextRequest) {
     }
 
     // Delegate to AuthService (Control layer)
-    const { user } = await authService.register(parsed.data);
+    const { user, emailSent } = await authService.register(parsed.data);
 
     return NextResponse.json(
-      { message: "Registration successful. Please check your email to verify your account.", userId: user.id },
+      { message: emailSent ? "Registration successful. Please check your email to verify your account." : "Registration successful, but the verification email could not be sent.", userId: user.id, emailSent },
       { status: 201 }
     );
   } catch (error) {

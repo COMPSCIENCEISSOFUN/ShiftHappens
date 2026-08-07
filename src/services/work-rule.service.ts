@@ -21,6 +21,7 @@ import { WorkRuleRepository } from "@/repositories/work-rule.repository";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 import type { CreateWorkRuleInput, UpdateWorkRuleInput } from "@/lib/validations";
 import { SubscriptionService } from "@/services/subscription.service";
+import { prisma } from "@/lib/prisma";
 
 export class WorkRuleService {
   private workRuleRepo = new WorkRuleRepository();
@@ -40,6 +41,11 @@ export class WorkRuleService {
     }
 
     this.validateFieldsForType(input.type, input);
+    await this.assertTargetsBelongToOrganization(
+      input.roleId ?? null,
+      (input as Record<string, unknown>).departmentId as string | null ?? null,
+      orgId
+    );
 
     const rule = await this.workRuleRepo.create({
       organizationId: orgId,
@@ -105,6 +111,13 @@ export class WorkRuleService {
     this.validateFieldsForType(effectiveType, merged);
 
     const inputAny = input as Record<string, unknown>;
+    await this.assertTargetsBelongToOrganization(
+      input.roleId === undefined ? existing.roleId : input.roleId ?? null,
+      inputAny.departmentId === undefined
+        ? existing.departmentId
+        : inputAny.departmentId as string | null ?? null,
+      orgId
+    );
 
     const updated = await this.workRuleRepo.update(ruleId, {
       ...(input.name !== undefined && { name: input.name }),
@@ -184,5 +197,22 @@ export class WorkRuleService {
       default:
         throw new Error(`Unknown rule type: ${type}`);
     }
+  }
+
+  private async assertTargetsBelongToOrganization(
+    roleId: string | null,
+    departmentId: string | null,
+    organizationId: string
+  ) {
+    const [role, department] = await Promise.all([
+      roleId
+        ? prisma.role.findFirst({ where: { id: roleId, organizationId }, select: { id: true } })
+        : null,
+      departmentId
+        ? prisma.department.findFirst({ where: { id: departmentId, organizationId }, select: { id: true } })
+        : null,
+    ]);
+    if (roleId && !role) throw new Error("Role not found");
+    if (departmentId && !department) throw new Error("Department not found");
   }
 }

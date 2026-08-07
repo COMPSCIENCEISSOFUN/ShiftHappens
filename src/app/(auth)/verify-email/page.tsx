@@ -50,17 +50,20 @@ function VerifyEmailContent() {
       <CardHeader>
         <CardTitle className="text-2xl font-bold">Email Verification</CardTitle>
         <CardDescription>
-          {status === "pending" && justRegistered
+          {status === "pending" && justRegistered === "sent"
             ? "We sent a verification link to your email"
+            : status === "pending" && justRegistered === "not-sent"
+              ? "Verification email was not delivered"
             : "Verifying your email address"}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {status === "pending" && (
-          <p className="text-sm text-muted-foreground">
-            Please check your inbox and click the verification link to activate
-            your account.
-          </p>
+          justRegistered === "not-sent" ? (
+            <AlertBanner variant="warning" message="Your account was created, but the verification email was not delivered. Ask the administrator to configure a verified email sender, then register again with a new email address." />
+          ) : (
+            <p className="text-sm text-muted-foreground">Please check your inbox and click the verification link to activate your account.</p>
+          )
         )}
         {status === "loading" && (
           <PageLoading label="Verifying..." />

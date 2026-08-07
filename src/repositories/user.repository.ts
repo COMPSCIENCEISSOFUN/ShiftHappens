@@ -59,7 +59,10 @@ export class UserRepository {
   ) {
     return prisma.user.update({
       where: { id },
-      data,
+      data: {
+        ...data,
+        ...(data.hashedPassword ? { sessionVersion: { increment: 1 } } : {}),
+      },
     });
   }
 

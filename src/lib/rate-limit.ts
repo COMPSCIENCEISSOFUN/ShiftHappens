@@ -1,47 +1,4 @@
-/**
- * In-Memory Rate Limiter
- * 
- * Provides tiered rate limiting using a sliding window counter.
- * Keyed by IP + route pattern to allow different limits per tier.
- * 
- * Tiers:
- * - Strict (5 req/min): registration and password recovery endpoints
- * - Moderate (20 req/min): credential login, AI endpoints, invitations, email verification
- * - Relaxed (100 req/min): all other API routes
- * 
- * Production note: In-memory storage works for single-server deployments.
- * For serverless (Vercel), swap to Redis or Vercel KV for shared state.
- */
-
-interface RateLimitEntry {
-  count: number;
-  resetTime: number;
-}
-
-const store = new Map<string, RateLimitEntry>();
-
-/** Cleanup expired entries every 60 seconds to prevent memory leaks */
-const CLEANUP_INTERVAL_MS = 60_000;
-
-let cleanupTimer: ReturnType<typeof setInterval> | null = null;
-
-function startCleanup() {
-  if (cleanupTimer) return;
-  cleanupTimer = setInterval(() => {
-    const now = Date.now();
-    for (const [key, entry] of store) {
-      if (now >= entry.resetTime) {
-        store.delete(key);
-      }
-    }
-  }, CLEANUP_INTERVAL_MS);
-  // Allow Node.js process to exit even if timer is running
-  if (cleanupTimer && typeof cleanupTimer === "object" && "unref" in cleanupTimer) {
-    cleanupTimer.unref();
-  }
-}
-
-startCleanup();
+import { prisma } from "@/lib/prisma";
 
 export interface RateLimitResult {
   success: boolean;
@@ -50,54 +7,63 @@ export interface RateLimitResult {
   resetIn: number;
 }
 
-/**
- * Checks and increments the rate limit counter for a given key.
- * 
- * @param key - Unique identifier (typically "IP:routePattern")
- * @param maxRequests - Maximum requests allowed in the window
- * @param windowMs - Time window in milliseconds (default: 60000 = 1 minute)
- */
-export function rateLimit(
-  key: string,
-  maxRequests: number,
-  windowMs: number = 60_000
-): RateLimitResult {
+type Entry = { count: number; resetTime: number };
+const developmentStore = new Map<string, Entry>();
+
+/** Test/dev helper. Production buckets expire in the database. */
+export function resetRateLimitStore() {
+  developmentStore.clear();
+}
+
+function localRateLimit(key: string, maxRequests: number, windowMs: number): RateLimitResult {
   const now = Date.now();
-  const entry = store.get(key);
-
-  // No existing entry or window expired — start fresh
-  if (!entry || now >= entry.resetTime) {
-    store.set(key, { count: 1, resetTime: now + windowMs });
-    return {
-      success: true,
-      limit: maxRequests,
-      remaining: maxRequests - 1,
-      resetIn: windowMs,
-    };
-  }
-
-  // Within window — increment and check
-  entry.count += 1;
-  const resetIn = entry.resetTime - now;
-
-  if (entry.count > maxRequests) {
-    return {
-      success: false,
-      limit: maxRequests,
-      remaining: 0,
-      resetIn,
-    };
-  }
-
+  const existing = developmentStore.get(key);
+  const entry = !existing || existing.resetTime <= now
+    ? { count: 1, resetTime: now + windowMs }
+    : { count: existing.count + 1, resetTime: existing.resetTime };
+  developmentStore.set(key, entry);
   return {
-    success: true,
+    success: entry.count <= maxRequests,
     limit: maxRequests,
-    remaining: maxRequests - entry.count,
-    resetIn,
+    remaining: Math.max(0, maxRequests - entry.count),
+    resetIn: Math.max(0, entry.resetTime - now),
   };
 }
 
-/** Clears all entries — used in tests */
-export function resetRateLimitStore() {
-  store.clear();
+/** Shared DB-backed limiter in production; deterministic local limiter in tests/dev. */
+export async function rateLimit(
+  key: string,
+  maxRequests: number,
+  windowMs: number = 60_000
+): Promise<RateLimitResult> {
+  if (process.env.NODE_ENV !== "production") {
+    return localRateLimit(key, maxRequests, windowMs);
+  }
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + windowMs);
+  const rows = await prisma.$queryRaw<{ count: number; expiresAt: Date }[]>`
+    INSERT INTO "RateLimitBucket" ("key", "count", "windowStart", "expiresAt")
+    VALUES (${key}, 1, ${now}, ${expiresAt})
+    ON CONFLICT ("key") DO UPDATE SET
+      "count" = CASE
+        WHEN "RateLimitBucket"."expiresAt" <= ${now} THEN 1
+        ELSE "RateLimitBucket"."count" + 1
+      END,
+      "windowStart" = CASE
+        WHEN "RateLimitBucket"."expiresAt" <= ${now} THEN ${now}
+        ELSE "RateLimitBucket"."windowStart"
+      END,
+      "expiresAt" = CASE
+        WHEN "RateLimitBucket"."expiresAt" <= ${now} THEN ${expiresAt}
+        ELSE "RateLimitBucket"."expiresAt"
+      END
+    RETURNING "count", "expiresAt"
+  `;
+  const bucket = rows[0];
+  return {
+    success: bucket.count <= maxRequests,
+    limit: maxRequests,
+    remaining: Math.max(0, maxRequests - bucket.count),
+    resetIn: Math.max(0, bucket.expiresAt.getTime() - now.getTime()),
+  };
 }

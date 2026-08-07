@@ -50,9 +50,9 @@ export class AuthService {
 
     const token = crypto.randomBytes(32).toString("hex");
     await this.tokenRepo.createVerificationToken(input.email, token);
-    await this.emailService.sendVerificationEmail(input.email, token);
+    const delivery = await this.emailService.sendVerificationEmail(input.email, token);
 
-    return { user };
+    return { user, emailSent: delivery.sent };
   }
 
   /**

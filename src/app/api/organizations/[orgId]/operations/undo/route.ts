@@ -19,10 +19,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
     const body = await request.json();
-    if (!body?.undo || !["task", "assignments"].includes(body.undo.kind)) {
+    if (typeof body?.operationId !== "string" || body.operationId.length > 100) {
       return NextResponse.json({ error: "Invalid undo request." }, { status: 400 });
     }
-    const result = await assistant.undo({ undo: body.undo, organizationId: orgId, userId: user.id, membership });
+    const result = await assistant.undo({ operationId: body.operationId, organizationId: orgId, userId: user.id, membership });
     return NextResponse.json(result);
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Could not undo that operation." }, { status: 400 });

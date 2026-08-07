@@ -7,7 +7,7 @@
  */
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,6 +22,7 @@ import {
 import { PageLoading } from "@/components/ui/page-loading";
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 interface Permission {
   id: string;
@@ -53,13 +54,9 @@ export default function RolesPage() {
   const [selectedPermissions, setSelectedPermissions] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [deleteTarget, setDeleteTarget] = useState<Role | null>(null);
 
-  useEffect(() => {
-    fetchRoles();
-    fetchPermissions();
-  }, [orgId]);
-
-  async function fetchRoles() {
+  const fetchRoles = useCallback(async () => {
     try {
       const res = await fetch(`/api/organizations/${orgId}/roles`);
       const data = await res.json();
@@ -69,9 +66,9 @@ export default function RolesPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [orgId]);
 
-  async function fetchPermissions() {
+  const fetchPermissions = useCallback(async () => {
     try {
       const res = await fetch(`/api/organizations/${orgId}/permissions`);
       const data = await res.json();
@@ -79,7 +76,12 @@ export default function RolesPage() {
     } catch {
       // Silently fail
     }
-  }
+  }, [orgId]);
+
+  useEffect(() => {
+    void fetchRoles();
+    void fetchPermissions();
+  }, [fetchPermissions, fetchRoles]);
 
   function togglePermission(permId: string) {
     setSelectedPermissions((prev) =>
@@ -179,8 +181,9 @@ export default function RolesPage() {
     }
   }
 
-  async function onDeleteRole(roleId: string) {
-    if (!confirm("Are you sure you want to delete this role?")) return;
+  async function onDeleteRole() {
+    if (!deleteTarget) return;
+    const roleId = deleteTarget.id;
     setError(null);
 
     try {
@@ -197,6 +200,7 @@ export default function RolesPage() {
       }
 
       fetchRoles();
+      setDeleteTarget(null);
     } catch {
       setError("Something went wrong");
     }
@@ -396,7 +400,7 @@ export default function RolesPage() {
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => onDeleteRole(role.id)}
+                            onClick={() => setDeleteTarget(role)}
                           >
                             Delete
                           </Button>
@@ -426,6 +430,15 @@ export default function RolesPage() {
           ))}
         </div>
       )}
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        title={`Delete ${deleteTarget?.displayLabel ?? "role"}?`}
+        description="Members using this custom role will lose its permissions. This cannot be undone."
+        confirmLabel="Delete role"
+        variant="destructive"
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={() => void onDeleteRole()}
+      />
     </div>
   );
 }

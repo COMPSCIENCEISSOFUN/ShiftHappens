@@ -55,13 +55,17 @@ export async function PATCH(
     if (body.subscriptionTier) {
       const updated = await platformService.updateOrganizationTier(
         orgId,
-        body.subscriptionTier
+        body.subscriptionTier,
+        admin.id
       );
       return NextResponse.json(updated);
     }
 
     // Default: toggle status (backward compatible)
-    const updated = await platformService.toggleOrganizationStatus(orgId);
+    if (body.action !== "toggle_status") {
+      return NextResponse.json({ error: "Invalid organization update" }, { status: 400 });
+    }
+    const updated = await platformService.toggleOrganizationStatus(orgId, admin.id);
     return NextResponse.json(updated);
   } catch (error) {
     if (error instanceof Error) {

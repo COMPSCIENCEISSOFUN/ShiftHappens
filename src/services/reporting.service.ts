@@ -243,8 +243,6 @@ export class ReportingService {
     const now = new Date();
     const todayStart = startOfDayInTimeZone(now);
     const sevenDaysAgo = new Date(todayStart.getTime() - 7 * DAY_MS);
-    const tomorrow = new Date(todayStart.getTime() + DAY_MS);
-
     const [completionChart, staffUtilization, deptMetrics, settings, clockData, staffCount] =
       await Promise.all([
         this.getCompletionChart(organizationId),
@@ -789,7 +787,10 @@ export class ReportingService {
     organizationId: string,
     departmentIds?: string[]
   ): Promise<{ dayOfWeek: number; hour: number; count: number }[]> {
-    const schedules = await this.reportingRepo.getAllStaffAvailability(organizationId);
+    const schedules = await this.reportingRepo.getAllStaffAvailability(
+      organizationId,
+      departmentIds
+    );
 
     // Build coverage matrix
     const coverage: { dayOfWeek: number; hour: number; count: number }[] = [];

@@ -21,9 +21,9 @@ let adminUserId: string;
 
 vi.mock("@/services/email.service", () => ({
   EmailService: class {
-    sendVerificationEmail = vi.fn().mockResolvedValue(undefined);
-    sendPasswordResetEmail = vi.fn().mockResolvedValue(undefined);
-    sendInvitationEmail = vi.fn().mockResolvedValue(undefined);
+    sendVerificationEmail = vi.fn().mockResolvedValue({ sent: true });
+    sendPasswordResetEmail = vi.fn().mockResolvedValue({ sent: true });
+    sendInvitationEmail = vi.fn().mockResolvedValue({ sent: true });
   },
 }));
 
@@ -47,7 +47,7 @@ beforeEach(async () => {
 describe("InvitationService", () => {
   describe("getInvitationDetails", () => {
     it("returns invitation details for a valid token", async () => {
-      const invitation = await prisma.invitationToken.create({
+      await prisma.invitationToken.create({
         data: {
           organizationId: orgId,
           email: "newuser@example.com",

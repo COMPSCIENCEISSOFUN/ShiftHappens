@@ -15,6 +15,7 @@ import { TaskRepository } from "@/repositories/task.repository";
 import { MembershipRepository } from "@/repositories/membership.repository";
 import { SettingsRepository } from "@/repositories/settings.repository";
 import { prisma } from "@/lib/prisma";
+import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
 
 interface DashboardInsight {
   summary: string;
@@ -168,7 +169,7 @@ CRITICAL RULES:
     // Try Groq
     if (groqKey) {
       try {
-        const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        const response = await fetchWithTimeout("https://api.groq.com/openai/v1/chat/completions", {
           method: "POST",
           headers: {
             Authorization: `Bearer ${groqKey}`,
@@ -198,7 +199,7 @@ CRITICAL RULES:
     // Try Gemini
     if (geminiKey) {
       try {
-        const response = await fetch(
+        const response = await fetchWithTimeout(
           `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
           {
             method: "POST",
@@ -384,7 +385,7 @@ CRITICAL RULES:
     // Try Groq first
     if (groqKey) {
       try {
-        const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        const response = await fetchWithTimeout("https://api.groq.com/openai/v1/chat/completions", {
           method: "POST",
           headers: {
             Authorization: `Bearer ${groqKey}`,
@@ -414,7 +415,7 @@ CRITICAL RULES:
     // Try Gemini
     if (geminiKey) {
       try {
-        const response = await fetch(
+        const response = await fetchWithTimeout(
           `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
           {
             method: "POST",

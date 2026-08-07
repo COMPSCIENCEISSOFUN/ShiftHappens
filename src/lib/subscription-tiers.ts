@@ -73,7 +73,7 @@ export const TIER_CONFIG: Record<SubscriptionTier, TierDefinition> = {
       work_rules: 20,
       custom_roles: 10,
     },
-    gatedFeatures: ['custom_roles', 'pdf_export', 'mass_import'],
+    gatedFeatures: ['custom_roles', 'pdf_export', 'mass_import', 'audit_log'],
   },
   enterprise: {
     name: 'enterprise',
@@ -235,6 +235,6 @@ export const PRICING_FEATURES: PricingFeatureRow[] = [
   { name: 'Custom roles (RBAC)', free: false, pro: true, enterprise: true, category: 'tools' },
   { name: 'PDF report export', free: false, pro: true, enterprise: true, category: 'tools' },
   { name: 'Mass import (Excel)', free: false, pro: true, enterprise: true, category: 'tools' },
-  { name: 'Audit log', free: false, pro: false, enterprise: true, category: 'tools' },
+  { name: 'Audit log', free: false, pro: true, enterprise: true, category: 'tools' },
   { name: 'Priority support', free: false, pro: false, enterprise: true, category: 'tools' },
 ];

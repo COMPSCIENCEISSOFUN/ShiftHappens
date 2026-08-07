@@ -20,7 +20,7 @@
  */
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -35,6 +35,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { TIER_CONFIG } from "@/lib/subscription-tiers";
 import {
   OTHER_INDUSTRY,
@@ -80,6 +81,11 @@ interface SubscriptionData {
   displayName: string;
   resources: Record<string, ResourceUsage>;
   features: Record<string, boolean>;
+  billing?: {
+    status: string | null;
+    interval: string | null;
+    hasCustomer: boolean;
+  };
 }
 
 /* ------------------------------------------------------------------ */
@@ -199,6 +205,14 @@ export default function SettingsPage() {
     text: string;
   } | null>(null);
   const [taskLoading, setTaskLoading] = useState(false);
+  const allocationTotal = Object.values(allocationWeights).reduce(
+    (sum, value) => sum + value,
+    0
+  );
+  const taskConfigChanged =
+    allocationMode !== (settings?.allocationMode ?? "auto") ||
+    JSON.stringify(allocationWeights) !==
+      JSON.stringify(settings?.allocationWeights ?? DEFAULT_ALLOCATION_WEIGHTS);
 
   // ─── Notification state ────────────────────────────────────
   const [notifPrefs, setNotifPrefs] = useState({
@@ -218,19 +232,30 @@ export default function SettingsPage() {
     "month"
   );
   const [upgrading, setUpgrading] = useState(false);
+  const [openingPortal, setOpeningPortal] = useState(false);
   const [checkoutBanner, setCheckoutBanner] = useState<
     "success" | "canceled" | null
   >(null);
+  const [impactConfirmation, setImpactConfirmation] = useState<string | null>(null);
+  const impactConfirmationResolver = useRef<((confirmed: boolean) => void) | null>(null);
+  const loadedOrganizationRef = useRef<string | null>(null);
+
+  function confirmImpact(summary: string) {
+    setImpactConfirmation(summary);
+    return new Promise<boolean>((resolve) => {
+      impactConfirmationResolver.current = resolve;
+    });
+  }
+
+  function resolveImpactConfirmation(confirmed: boolean) {
+    impactConfirmationResolver.current?.(confirmed);
+    impactConfirmationResolver.current = null;
+    setImpactConfirmation(null);
+  }
 
   /* ────────────────────────────────────────────────────────────── */
   /*  Data fetching                                                 */
   /* ────────────────────────────────────────────────────────────── */
-
-  useEffect(() => {
-    loadOrgIdentity();
-    fetchSettings();
-    fetchSubscription();
-  }, [orgId]);
 
   useEffect(() => {
     const status = new URLSearchParams(window.location.search).get("checkout");
@@ -254,7 +279,41 @@ export default function SettingsPage() {
    * Passing the resolved array to resolveIndustrySelection removes the ordering
    * dependency entirely rather than papering over it with an extra effect.
    */
-  async function loadOrgIdentity() {
+  /** Drives both industry controls from a stored value. */
+  const applyIndustry = useCallback((
+    industry: string | null | undefined,
+    options: readonly string[]
+  ) => {
+    const selection = resolveIndustrySelection(industry, options);
+    setOrgIndustry(selection.select);
+    setOrgIndustryCustom(selection.custom);
+  }, []);
+
+  const fetchOrgDetails = useCallback(async (): Promise<OrgDetails | null> => {
+    try {
+      const res = await fetch(`/api/organizations/${orgId}`);
+      if (!res.ok) return null;
+      return (await res.json()) as OrgDetails;
+    } catch {
+      return null; // Non-critical on initial load
+    }
+  }, [orgId]);
+
+  const fetchIndustries = useCallback(async (): Promise<string[]> => {
+    try {
+      const res = await fetch("/api/platform/templates");
+      if (!res.ok) return [];
+      const data = await res.json();
+      if (!Array.isArray(data)) return [];
+      return data
+        .map((t: { name?: string }) => t?.name)
+        .filter((name): name is string => typeof name === "string" && name.length > 0);
+    } catch {
+      return []; // Non-critical — the free-text fallback still holds the value
+    }
+  }, []);
+
+  const loadOrgIdentity = useCallback(async () => {
     const [org, options] = await Promise.all([
       fetchOrgDetails(),
       fetchIndustries(),
@@ -268,43 +327,9 @@ export default function SettingsPage() {
     setOrgName(org.name);
     setOrgDescription(org.description || "");
     applyIndustry(org.industry, options);
-  }
+  }, [applyIndustry, fetchIndustries, fetchOrgDetails]);
 
-  /** Drives both industry controls from a stored value. */
-  function applyIndustry(
-    industry: string | null | undefined,
-    options: readonly string[]
-  ) {
-    const selection = resolveIndustrySelection(industry, options);
-    setOrgIndustry(selection.select);
-    setOrgIndustryCustom(selection.custom);
-  }
-
-  async function fetchOrgDetails(): Promise<OrgDetails | null> {
-    try {
-      const res = await fetch(`/api/organizations/${orgId}`);
-      if (!res.ok) return null;
-      return (await res.json()) as OrgDetails;
-    } catch {
-      return null; // Non-critical on initial load
-    }
-  }
-
-  async function fetchIndustries(): Promise<string[]> {
-    try {
-      const res = await fetch("/api/platform/templates");
-      if (!res.ok) return [];
-      const data = await res.json();
-      if (!Array.isArray(data)) return [];
-      return data
-        .map((t: { name?: string }) => t?.name)
-        .filter((name): name is string => typeof name === "string" && name.length > 0);
-    } catch {
-      return []; // Non-critical — the free-text fallback still holds the value
-    }
-  }
-
-  async function fetchSettings() {
+  const fetchSettings = useCallback(async () => {
     try {
       const res = await fetch(`/api/organizations/${orgId}/settings`);
       const data = await res.json();
@@ -320,9 +345,9 @@ export default function SettingsPage() {
     } catch {
       setTaskMessage({ type: "error", text: "Failed to load settings" });
     }
-  }
+  }, [orgId]);
 
-  async function fetchSubscription() {
+  const fetchSubscription = useCallback(async () => {
     try {
       const res = await fetch(`/api/organizations/${orgId}/subscription`);
       if (res.ok) {
@@ -332,7 +357,15 @@ export default function SettingsPage() {
     } catch {
       // Non-critical
     }
-  }
+  }, [orgId]);
+
+  useEffect(() => {
+    if (loadedOrganizationRef.current === orgId) return;
+    loadedOrganizationRef.current = orgId;
+    void loadOrgIdentity();
+    void fetchSettings();
+    void fetchSubscription();
+  }, [fetchSettings, fetchSubscription, loadOrgIdentity, orgId]);
 
   /* ────────────────────────────────────────────────────────────── */
   /*  Save handlers (one per card)                                  */
@@ -399,7 +432,7 @@ export default function SettingsPage() {
     try {
       const impactResponse = await fetch(`/api/organizations/${orgId}/settings/impact`);
       const impact = await impactResponse.json();
-      if (impactResponse.ok && typeof impact.summary === "string" && !window.confirm(`${impact.summary}\n\nReview this impact before applying the change. Continue?`)) {
+      if (impactResponse.ok && typeof impact.summary === "string" && !(await confirmImpact(impact.summary))) {
         return null;
       }
     } catch {
@@ -444,6 +477,15 @@ export default function SettingsPage() {
     );
     if (result?.allocationWeights) {
       setAllocationWeights(result.allocationWeights as AllocationWeights);
+      setSettings((current) =>
+        current
+          ? {
+              ...current,
+              allocationMode,
+              allocationWeights: result.allocationWeights as AllocationWeights,
+            }
+          : current
+      );
     }
   }
 
@@ -478,6 +520,25 @@ export default function SettingsPage() {
       setTaskMessage({ type: "error", text: "Couldn't start checkout" });
     } finally {
       setUpgrading(false);
+    }
+  }
+
+  async function openBillingPortal() {
+    setOpeningPortal(true);
+    try {
+      const res = await fetch(`/api/organizations/${orgId}/billing-portal`, {
+        method: "POST",
+      });
+      const data = await res.json();
+      if (res.ok && data.url) {
+        window.location.href = data.url;
+        return;
+      }
+      setTaskMessage({ type: "error", text: data.error || "Couldn't open billing portal" });
+    } catch {
+      setTaskMessage({ type: "error", text: "Couldn't open billing portal" });
+    } finally {
+      setOpeningPortal(false);
     }
   }
 
@@ -842,7 +903,7 @@ export default function SettingsPage() {
                   <div className="flex items-center justify-between gap-4">
                     <Label>Ranking Priorities</Label>
                     <span className="text-xs tabular-nums text-muted-foreground">
-                      Total {Object.values(allocationWeights).reduce((sum, value) => sum + value, 0)}%
+                      Total {allocationTotal}%
                     </span>
                   </div>
                   {ALLOCATION_FACTORS.map((factor) => (
@@ -874,6 +935,11 @@ export default function SettingsPage() {
                 </div>
               </CardContent>
               <CardFooter>
+                {taskConfigChanged && !taskLoading && (
+                  <span className="mr-auto text-xs font-medium text-amber-700 dark:text-amber-300">
+                    Unsaved changes
+                  </span>
+                )}
                 <Button
                   type="submit"
                   disabled={
@@ -1068,15 +1134,34 @@ export default function SettingsPage() {
             {subscription.tier === "pro" && (
               <>
                 <Separator />
-                <p className="text-sm text-muted-foreground">
-                  You&apos;re on the Pro plan. Need higher limits or audit logs?
-                  Contact us about Enterprise.
-                </p>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-sm font-medium">Pro billing</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {subscription.billing?.status === "past_due"
+                        ? "Your most recent payment needs attention. Update your payment method to keep Pro access."
+                        : `Status: ${subscription.billing?.status ?? "active"}${subscription.billing?.interval ? ` · billed ${subscription.billing.interval}ly` : ""}`}
+                    </p>
+                  </div>
+                  {subscription.billing?.hasCustomer && (
+                    <Button type="button" variant="outline" onClick={openBillingPortal} disabled={openingPortal}>
+                      {openingPortal ? "Opening..." : "Manage billing"}
+                    </Button>
+                  )}
+                </div>
               </>
             )}
           </CardContent>
         </Card>
       )}
+      <ConfirmDialog
+        open={Boolean(impactConfirmation)}
+        title="Apply these settings?"
+        description={`${impactConfirmation ?? ""} Review this impact before applying the change.`}
+        confirmLabel="Apply settings"
+        onCancel={() => resolveImpactConfirmation(false)}
+        onConfirm={() => resolveImpactConfirmation(true)}
+      />
     </div>
   );
 }

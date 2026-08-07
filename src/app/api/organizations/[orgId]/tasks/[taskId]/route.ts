@@ -79,7 +79,7 @@ export async function PATCH(
       );
     }
 
-    const updated = await taskService.update(taskId, orgId, parsed.data);
+    const updated = await taskService.update(taskId, orgId, parsed.data, user.id);
     return NextResponse.json(updated);
   } catch (error) {
     if (error instanceof Error) {
@@ -115,7 +115,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Task not found" }, { status: 404 });
     }
 
-    await taskService.delete(taskId, orgId);
+    await taskService.delete(taskId, orgId, user.id);
     return NextResponse.json({ message: "Task deleted" });
   } catch (error) {
     if (error instanceof Error && error.message === "Task not found") {

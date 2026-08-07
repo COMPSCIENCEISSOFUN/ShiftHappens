@@ -161,11 +161,12 @@ export default function AutoSchedulePage() {
 
   return (
     <div className="max-w-5xl">
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h2 className="text-2xl font-bold">Smart auto-schedule</h2>
-          <p className="text-sm text-muted-foreground mt-1">
-            AI generates optimal staff assignments for the selected week
+          <p className="text-xs font-semibold uppercase tracking-wide text-primary">Schedule review</p>
+          <h1 className="mt-1 text-2xl font-bold tracking-tight">Smart auto-schedule</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Generate a draft, inspect the decisions, then publish only when the coverage looks right.
           </p>
         </div>
         <Button variant="outline" onClick={() => router.push("/dashboard")}>
@@ -179,7 +180,7 @@ export default function AutoSchedulePage() {
 
       {/* Week selector + generate — always visible when no draft */}
       {!draft && (
-        <div className="rounded-lg border bg-card p-6 space-y-4">
+        <div className="space-y-4 rounded-lg border border-primary/20 bg-card p-5 shadow-sm sm:p-6">
           <div className="space-y-2">
             <label className="text-sm font-medium">Week starting</label>
             <div className="flex items-center gap-3">
@@ -196,7 +197,7 @@ export default function AutoSchedulePage() {
             </div>
           </div>
           <Button onClick={handleGenerate} disabled={generating}>
-            {generating ? "Generating..." : "Generate schedule"}
+            {generating ? "Building draft..." : "Generate schedule draft"}
           </Button>
           {generating && (
             <p className="text-sm text-muted-foreground">
@@ -226,7 +227,7 @@ export default function AutoSchedulePage() {
           </div>
 
           {/* Summary metrics */}
-          <div className="grid grid-cols-4 gap-3 mb-4">
+          <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
             <div className="rounded-md bg-muted/50 p-3">
               <p className="text-xs text-muted-foreground">Tasks to fill</p>
               <p className="text-xl font-medium">{draft.summary.totalTasks}</p>
@@ -250,8 +251,8 @@ export default function AutoSchedulePage() {
           </div>
 
           {/* Assignment table */}
-          <div className="rounded-lg border overflow-hidden mb-4">
-            <table className="w-full text-sm">
+          <div className="mb-4 overflow-x-auto rounded-lg border bg-card shadow-sm">
+            <table className="min-w-[700px] w-full text-sm">
               <thead>
                 <tr className="border-b bg-muted/30">
                   <th className="text-left font-medium px-4 py-3 text-muted-foreground">Task</th>
@@ -271,7 +272,7 @@ export default function AutoSchedulePage() {
                     </td>
                     <td className="px-4 py-3 text-muted-foreground text-xs">{a.reasoning}</td>
                     <td className="px-4 py-3">
-                      <button onClick={() => handleRemoveAssignment(index)} className="text-xs text-red-500 hover:underline">
+                      <button onClick={() => handleRemoveAssignment(index)} className="text-xs font-medium text-red-600 hover:underline dark:text-red-400">
                         Remove
                       </button>
                     </td>

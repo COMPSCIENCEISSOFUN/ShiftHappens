@@ -1080,14 +1080,33 @@ function Testimonials() {
 function ContactForm() {
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
+    setError(null);
+    const form = new FormData(e.currentTarget);
+    try {
+      const response = await fetch("/api/contact", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: form.get("name"),
+          email: form.get("email"),
+          company: form.get("company"),
+          message: form.get("message"),
+        }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(payload?.error || "Could not send your message");
+      e.currentTarget.reset();
       setSubmitted(true);
-    }, 800);
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : "Could not send your message");
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -1131,7 +1150,7 @@ function ContactForm() {
                       Enterprise &amp; custom plans
                     </p>
                     <p className="text-sm text-slate-500">
-                      Need unlimited members, audit logs, or priority support?
+                      Need unlimited members, priority support, or a tailored rollout?
                       Let&apos;s talk.
                     </p>
                   </div>
@@ -1176,6 +1195,7 @@ function ContactForm() {
                 </div>
               ) : (
                 <form onSubmit={handleSubmit} className="space-y-6">
+                  {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
                   {/* Form header */}
                   <div className="mb-2">
                     <h3 className="text-lg font-semibold text-slate-900">
@@ -1196,6 +1216,7 @@ function ContactForm() {
                       </label>
                       <input
                         id="contact-name"
+                        name="name"
                         type="text"
                         required
                         placeholder="Your name"
@@ -1211,6 +1232,7 @@ function ContactForm() {
                       </label>
                       <input
                         id="contact-email"
+                        name="email"
                         type="email"
                         required
                         placeholder="you@company.com"
@@ -1231,6 +1253,7 @@ function ContactForm() {
                     </label>
                     <input
                       id="contact-company"
+                      name="company"
                       type="text"
                       placeholder="Your company"
                       className="w-full rounded-lg border border-slate-200 bg-slate-50/50 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent focus:bg-white transition-all"
@@ -1246,6 +1269,7 @@ function ContactForm() {
                     </label>
                     <textarea
                       id="contact-message"
+                      name="message"
                       required
                       rows={5}
                       placeholder="Tell us what you're looking for..."
@@ -1346,7 +1370,7 @@ function Footer() {
             </div>
             <div>
               <span className="text-lg font-bold text-white tracking-tight">
-                Smart Task Allocation
+                ShiftHappens
               </span>
               <p className="text-sm text-slate-500">
                 Intelligent workforce scheduling for modern teams.
@@ -1378,10 +1402,16 @@ function Footer() {
             >
               Sign up
             </Link>
+            <Link href="/privacy" className="hover:text-slate-300 transition-colors">
+              Privacy
+            </Link>
+            <Link href="/terms" className="hover:text-slate-300 transition-colors">
+              Terms
+            </Link>
           </div>
         </div>
         <div className="mt-8 pt-8 border-t border-slate-800 text-center text-xs text-slate-600">
-          &copy; {new Date().getFullYear()} Smart Task Allocation. CSIT321
+          &copy; {new Date().getFullYear()} ShiftHappens. CSIT321
           Final Year Project — University of Wollongong (SIM Campus).
         </div>
       </div>

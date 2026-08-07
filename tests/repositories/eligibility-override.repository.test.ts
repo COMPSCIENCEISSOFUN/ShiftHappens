@@ -15,7 +15,6 @@ const orgRepo = new OrganizationRepository();
 const userRepo = new UserRepository();
 const taskRepo = new TaskRepository();
 
-let orgId: string;
 let membershipId: string;
 let adminUserId: string;
 let taskId: string;
@@ -34,7 +33,6 @@ beforeEach(async () => {
     { name: "Acme Corp", slug: "acme-corp" },
     admin.id
   );
-  orgId = org.id;
 
   const staff = await userRepo.create({
     name: "Staff User",

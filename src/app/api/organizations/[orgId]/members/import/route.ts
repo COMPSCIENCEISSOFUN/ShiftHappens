@@ -76,19 +76,6 @@ export async function POST(
       );
     }
 
-    // Check if import would exceed limit
-    if (limitCheck.limit !== null) {
-      const totalAfter = limitCheck.current + parsed.data.members.length;
-      if (totalAfter > limitCheck.limit) {
-        return NextResponse.json(
-          {
-            error: `Import would exceed member limit. Current: ${limitCheck.current}, importing: ${parsed.data.members.length}, limit: ${limitCheck.limit}.`,
-          },
-          { status: 403 }
-        );
-      }
-    }
-
     const result = await userManagementService.batchImportMembers(
       orgId,
       parsed.data.members,

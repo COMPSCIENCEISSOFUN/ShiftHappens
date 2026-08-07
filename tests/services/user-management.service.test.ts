@@ -23,9 +23,9 @@ let adminUserId: string;
 // Mock EmailService to prevent actual emails during tests
 vi.mock("@/services/email.service", () => ({
   EmailService: class {
-    sendVerificationEmail = vi.fn().mockResolvedValue(undefined);
-    sendPasswordResetEmail = vi.fn().mockResolvedValue(undefined);
-    sendInvitationEmail = vi.fn().mockResolvedValue(undefined);
+    sendVerificationEmail = vi.fn().mockResolvedValue({ sent: true });
+    sendPasswordResetEmail = vi.fn().mockResolvedValue({ sent: true });
+    sendInvitationEmail = vi.fn().mockResolvedValue({ sent: true });
   },
 }));
 
@@ -588,9 +588,10 @@ describe("UserManagementService", () => {
       expect(result.failed).toBe(0);
       expect(result.errors).toHaveLength(0);
 
-      const members = await userMgmtService.getOrgMembers(orgId);
-      // 1 admin + 2 imported
-      expect(members).toHaveLength(3);
+      const invitations = await prisma.invitationToken.findMany({
+        where: { organizationId: orgId },
+      });
+      expect(invitations).toHaveLength(2);
     });
 
     it("assigns departments by name", async () => {
@@ -612,11 +613,10 @@ describe("UserManagementService", () => {
 
       expect(result.created).toBe(1);
 
-      const members = await prisma.membership.findMany({
-        where: { organizationId: orgId, role: "staff" },
-        include: { departmentMemberships: true },
+      const invitation = await prisma.invitationToken.findFirst({
+        where: { organizationId: orgId, email: "emma@example.com" },
       });
-      expect(members[0].departmentMemberships).toHaveLength(1);
+      expect(invitation?.departmentId).not.toBeNull();
     });
 
     it("matches department names case-insensitively", async () => {
@@ -655,13 +655,13 @@ describe("UserManagementService", () => {
         adminUserId
       );
 
-      const membership = await prisma.membership.findFirst({
-        where: { organizationId: orgId, role: "staff" },
+      const invitation = await prisma.invitationToken.findFirst({
+        where: { organizationId: orgId, email: "emma@example.com" },
       });
-      expect(membership!.employmentType).toBe("temporary_part_time");
+      expect(invitation?.employmentType).toBe("temporary_part_time");
     });
 
-    it("marks imported users' emails as verified", async () => {
+    it("does not create or pre-verify accounts before invitation acceptance", async () => {
       await userMgmtService.batchImportMembers(
         orgId,
         [
@@ -677,7 +677,7 @@ describe("UserManagementService", () => {
       );
 
       const user = await userRepo.findByEmail("emma@example.com");
-      expect(user!.emailVerified).not.toBeNull();
+      expect(user).toBeNull();
     });
 
     it("skips members who already exist in the org", async () => {
@@ -697,7 +697,7 @@ describe("UserManagementService", () => {
 
       expect(result.created).toBe(0);
       expect(result.failed).toBe(1);
-      expect(result.errors[0]).toContain("Already a member");
+      expect(result.errors[0]).toContain("already a member");
     });
 
     it("skips intra-batch duplicate emails", async () => {

@@ -63,6 +63,45 @@ export class SchedulerService {
     return orgs.map((o) => o.id);
   }
 
+  /** Bounded fan-out prevents one large tenant list from exhausting DB slots. */
+  private async runForOrganizations<T>(
+    jobName: string,
+    worker: (organizationId: string) => Promise<T>,
+    concurrency = 5
+  ): Promise<Array<{ organizationId: string; result: T }>> {
+    const organizationIds = await this.activeOrganizationIds();
+    const results: Array<{ organizationId: string; result: T } | undefined> =
+      new Array(organizationIds.length);
+    let nextIndex = 0;
+
+    await Promise.all(
+      Array.from(
+        { length: Math.min(concurrency, organizationIds.length) },
+        async () => {
+          while (nextIndex < organizationIds.length) {
+            const index = nextIndex++;
+            const organizationId = organizationIds[index];
+            try {
+              results[index] = {
+                organizationId,
+                result: await worker(organizationId),
+              };
+            } catch (error) {
+              console.error(
+                `[Scheduler] ${jobName} failed for org ${organizationId}:`,
+                error
+              );
+            }
+          }
+        }
+      )
+    );
+
+    return results.filter(
+      (item): item is { organizationId: string; result: T } => Boolean(item)
+    );
+  }
+
   /**
    * Generates upcoming recurring-task instances for every active org.
    * Runs as the system (no acting user) — generated instances inherit their
@@ -71,89 +110,64 @@ export class SchedulerService {
   async runRecurringGeneration(
     horizonDays: number = DEFAULT_HORIZON_DAYS
   ): Promise<RecurringRunSummary> {
-    const orgIds = await this.activeOrganizationIds();
-    const summary: RecurringRunSummary = {
-      orgsProcessed: 0,
-      totalCreated: 0,
-      perOrg: [],
-    };
-
-    for (const organizationId of orgIds) {
-      try {
-        const result = await this.recurringTaskService.generateForOrganization(
+    const results = await this.runForOrganizations(
+      "recurring generation",
+      (organizationId) =>
+        this.recurringTaskService.generateForOrganization(
           organizationId,
           horizonDays
-        );
-        summary.orgsProcessed++;
-        summary.totalCreated += result.created;
-        summary.perOrg.push({ organizationId, ...result });
-      } catch (error) {
-        // One tenant's failure must not stop the rest of the run.
-        console.error(
-          `[Scheduler] recurring generation failed for org ${organizationId}:`,
-          error
-        );
-      }
-    }
-
+        )
+    );
+    const summary: RecurringRunSummary = {
+      orgsProcessed: results.length,
+      totalCreated: results.reduce((sum, item) => sum + item.result.created, 0),
+      perOrg: results.map(({ organizationId, result }) => ({
+        organizationId,
+        ...result,
+      })),
+    };
     return summary;
   }
 
   /** Runs the hour-limit alert scan for every active org. */
   async runHourAlerts(): Promise<HourAlertRunSummary> {
-    const orgIds = await this.activeOrganizationIds();
+    const results = await this.runForOrganizations(
+      "hour-alert scan",
+      (organizationId) => this.hourAlertService.checkOrganization(organizationId)
+    );
     const summary: HourAlertRunSummary = {
-      orgsProcessed: 0,
-      totalAlerted: 0,
-      perOrg: [],
+      orgsProcessed: results.length,
+      totalAlerted: results.reduce(
+        (sum, item) => sum + item.result.alerted.length,
+        0
+      ),
+      perOrg: results.map(({ organizationId, result }) => ({
+        organizationId,
+        checked: result.checked,
+        alerted: result.alerted.length,
+      })),
     };
-
-    for (const organizationId of orgIds) {
-      try {
-        const { checked, alerted } =
-          await this.hourAlertService.checkOrganization(organizationId);
-        summary.orgsProcessed++;
-        summary.totalAlerted += alerted.length;
-        summary.perOrg.push({
-          organizationId,
-          checked,
-          alerted: alerted.length,
-        });
-      } catch (error) {
-        console.error(
-          `[Scheduler] hour-alert scan failed for org ${organizationId}:`,
-          error
-        );
-      }
-    }
-
     return summary;
   }
 
   /** Warns staff whose certifications are about to expire, for every active org. */
   async runCertificationExpiry(): Promise<CertExpiryRunSummary> {
-    const orgIds = await this.activeOrganizationIds();
+    const results = await this.runForOrganizations(
+      "certification expiry scan",
+      (organizationId) => this.certificationService.notifyExpiring(organizationId)
+    );
     const summary: CertExpiryRunSummary = {
-      orgsProcessed: 0,
-      totalNotified: 0,
-      perOrg: [],
+      orgsProcessed: results.length,
+      totalNotified: results.reduce(
+        (sum, item) => sum + item.result.notified,
+        0
+      ),
+      perOrg: results.map(({ organizationId, result }) => ({
+        organizationId,
+        checked: result.checked,
+        notified: result.notified,
+      })),
     };
-
-    for (const organizationId of orgIds) {
-      try {
-        const { checked, notified } =
-          await this.certificationService.notifyExpiring(organizationId);
-        summary.orgsProcessed++;
-        summary.totalNotified += notified;
-        summary.perOrg.push({ organizationId, checked, notified });
-      } catch (error) {
-        console.error(
-          `[Scheduler] certification expiry scan failed for org ${organizationId}:`,
-          error
-        );
-      }
-    }
-
     return summary;
   }
 
@@ -161,9 +175,11 @@ export class SchedulerService {
   async runAll(
     horizonDays: number = DEFAULT_HORIZON_DAYS
   ): Promise<SchedulerRunSummary> {
-    const recurring = await this.runRecurringGeneration(horizonDays);
-    const hourAlerts = await this.runHourAlerts();
-    const certExpiry = await this.runCertificationExpiry();
+    const [recurring, hourAlerts, certExpiry] = await Promise.all([
+      this.runRecurringGeneration(horizonDays),
+      this.runHourAlerts(),
+      this.runCertificationExpiry(),
+    ]);
     return { recurring, hourAlerts, certExpiry };
   }
 }

@@ -57,6 +57,7 @@ interface StaffEligibility {
     certifications: EligibilityCheck;
   };
   overrides: string[];
+  overridable: boolean;
 }
 
 export class EligibilityService {
@@ -138,9 +139,7 @@ export class EligibilityService {
       );
 
       const memberOverrides = overridesByMember.get(member.id) ?? new Set<string>();
-      // A member is waived on a dimension by a matching key or a blanket "all".
-      const isOverridden = (key: string) =>
-        memberOverrides.has("all") || memberOverrides.has(key);
+      const isOverridden = (key: string) => memberOverrides.has(key);
 
       // Applies an override to a failing check — keeps the original reason
       // visible so the manager knows what was waived.
@@ -153,9 +152,10 @@ export class EligibilityService {
           : check;
 
       // 1. Hours limit
-      const hoursCheck = applyOverride(
-        this.OVERRIDE_KEYS.hoursLimit,
-        await this.checkHoursLimit(member.id, settings.breakRuleHoursWorked, task.id)
+      const hoursCheck = await this.checkHoursLimit(
+        member.id,
+        settings.breakRuleHoursWorked,
+        task.id
       );
 
       // 2. Availability. The approved WBS requires weekly availability for
@@ -186,10 +186,7 @@ export class EligibilityService {
       }
 
       // 3. Scheduling conflicts
-      const schedulingCheck = applyOverride(
-        this.OVERRIDE_KEYS.scheduling,
-        await this.checkSchedulingConflicts(member.id, task)
-      );
+      const schedulingCheck = await this.checkSchedulingConflicts(member.id, task);
 
       // 4. Work rules — filtered by member's departments and custom role
       const memberDeptIds = (member.departmentMemberships || []).map(
@@ -197,25 +194,19 @@ export class EligibilityService {
       );
       const memberCustomRoleId = (member as Record<string, unknown>).customRoleId as string | null;
 
-      const workRulesCheck = applyOverride(
-        this.OVERRIDE_KEYS.workRules,
-        await this.checkWorkRules(
+      const workRulesCheck = await this.checkWorkRules(
           member.id,
           allWorkRules,
           task,
           memberDeptIds,
           memberCustomRoleId || null
-        )
       );
 
       // 5. Certifications — member must hold every cert the task requires
       //    (verified + non-expired). No requirement → always passes.
-      const certCheck = applyOverride(
-        this.OVERRIDE_KEYS.certifications,
-        await this.checkCertifications(
+      const certCheck = await this.checkCertifications(
           member.id,
           (task as { requiredCertifications?: string[] }).requiredCertifications ?? []
-        )
       );
 
       const eligible =
@@ -239,6 +230,12 @@ export class EligibilityService {
           certifications: certCheck,
         },
         overrides: Array.from(memberOverrides),
+        overridable:
+          !availCheck.eligible &&
+          hoursCheck.eligible &&
+          schedulingCheck.eligible &&
+          workRulesCheck.eligible &&
+          certCheck.eligible,
       });
     }
 
@@ -660,10 +657,13 @@ export class EligibilityService {
     for (const a of assignments) {
       const interval = this.effectiveInterval(a);
       if (!interval) continue;
-      if (interval.start < windowStart) continue;
-      if (windowEnd && interval.start >= windowEnd) continue;
-      total +=
-        (interval.end.getTime() - interval.start.getTime()) / (1000 * 60 * 60);
+      const overlapStart = Math.max(interval.start.getTime(), windowStart.getTime());
+      const overlapEnd = Math.min(
+        interval.end.getTime(),
+        windowEnd?.getTime() ?? interval.end.getTime()
+      );
+      if (overlapEnd <= overlapStart) continue;
+      total += (overlapEnd - overlapStart) / (1000 * 60 * 60);
     }
     return Math.round(total * 10) / 10;
   }
@@ -740,7 +740,7 @@ export class EligibilityService {
     // an override must not be created against another tenant's task/member.
     const task = await prisma.task.findUnique({
       where: { id: taskId },
-      select: { organizationId: true, title: true },
+      select: { organizationId: true, title: true, scheduledEnd: true },
     });
     if (!task || task.organizationId !== organizationId) {
       throw new Error("Task not found");
@@ -751,16 +751,32 @@ export class EligibilityService {
       throw new Error("Staff member does not belong to this organization");
     }
 
+    if (ruleOverridden !== this.OVERRIDE_KEYS.availability) {
+      throw new Error("Only availability warnings can be overridden");
+    }
+    const currentEligibility = await this.checkEligibilityForTask(
+      taskId,
+      organizationId,
+      { membershipIds: [membershipId] }
+    );
+    const candidate = currentEligibility[0];
+    if (!candidate || candidate.eligible || !candidate.overridable) {
+      throw new Error("This eligibility result is a hard block and cannot be overridden");
+    }
+
+    const expiresAt = task.scheduledEnd ?? new Date(Date.now() + 24 * 60 * 60 * 1000);
+
     const override = await this.overrideRepo.create({
       taskId,
       membershipId,
       overriddenById,
       reason,
       ruleOverridden,
+      expiresAt,
     });
 
     // Audit — records who waived which rule and why.
-    void this.auditService.log({
+    await this.auditService.log({
       organizationId: task.organizationId,
       userId: overriddenById,
       action: ACTIONS.ELIGIBILITY_OVERRIDDEN,

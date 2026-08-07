@@ -17,7 +17,6 @@ import {
   type ResourceType,
   type GatedFeature,
   SUBSCRIPTION_TIERS,
-  TIER_CONFIG,
   getTierConfig,
   getResourceLimit,
   isFeatureAvailable,

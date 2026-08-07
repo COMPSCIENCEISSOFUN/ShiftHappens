@@ -132,7 +132,7 @@ export class RecurringTaskService {
     }
 
     if (result.created > 0 || result.limitReached) {
-      void this.auditService.log({
+    await this.auditService.log({
         organizationId,
         userId,
         action: ACTIONS.RECURRING_TASKS_GENERATED,

@@ -16,6 +16,7 @@ const ACTIONS = {
   TASK_CREATED: "task.created",
   TASK_UPDATED: "task.updated",
   TASK_DELETED: "task.deleted",
+  TASK_CANCELLED: "task.cancelled",
   TASK_ASSIGNED: "task.assigned",
   TASK_UNASSIGNED: "task.unassigned",
   TASK_REPLACEMENT_ALLOCATED: "task.replacement_allocated",
@@ -67,6 +68,8 @@ const ACTIONS = {
   USER_LOGGED_IN: "user.logged_in",
   // Organization
   ORGANIZATION_UPDATED: "organization.updated",
+  PLATFORM_ORGANIZATION_STATUS_CHANGED: "platform.organization_status_changed",
+  PLATFORM_SUBSCRIPTION_TIER_CHANGED: "platform.subscription_tier_changed",
   // AI operations
   AI_OPERATION_EXECUTED: "ai_operation.executed",
   // Billing / subscription
@@ -96,11 +99,7 @@ export class AuditLogService {
     details?: Record<string, unknown>;
     ipAddress?: string;
   }) {
-    try {
-      await this.auditRepo.create(params);
-    } catch (error) {
-      console.error("[AuditLog Error]", error);
-    }
+    return this.auditRepo.create(params);
   }
 
   /** Retrieves audit logs with filters */

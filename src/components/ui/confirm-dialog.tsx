@@ -6,7 +6,7 @@
  */
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useId, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { AlertTriangle } from "lucide-react";
@@ -43,13 +43,22 @@ export function ConfirmDialog({
   loading = false,
   className,
 }: ConfirmDialogProps) {
-  const confirmRef = useRef<HTMLButtonElement>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+  const descriptionId = useId();
 
   /* Focus the confirm button when the dialog opens */
   useEffect(() => {
-    if (open) {
-      confirmRef.current?.focus();
-    }
+    if (!open) return;
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    cancelRef.current?.focus();
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      previouslyFocused?.focus();
+    };
   }, [open]);
 
   /* Close on Escape */
@@ -57,6 +66,21 @@ export function ConfirmDialog({
     if (!open) return;
     function handleKey(e: KeyboardEvent) {
       if (e.key === "Escape") onCancel();
+      if (e.key === "Tab") {
+        const focusable = panelRef.current?.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        );
+        if (!focusable?.length) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
     }
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
@@ -75,9 +99,11 @@ export function ConfirmDialog({
 
       {/* Panel */}
       <div
+        ref={panelRef}
         role="alertdialog"
-        aria-labelledby="confirm-dialog-title"
-        aria-describedby="confirm-dialog-desc"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={descriptionId}
         className={cn(
           "relative z-10 mx-4 w-full max-w-md rounded-xl bg-card p-6 text-card-foreground shadow-lg ring-1 ring-foreground/10",
           className,
@@ -91,13 +117,13 @@ export function ConfirmDialog({
           )}
           <div className="flex-1">
             <h2
-              id="confirm-dialog-title"
+              id={titleId}
               className="text-base font-semibold"
             >
               {title}
             </h2>
             <p
-              id="confirm-dialog-desc"
+              id={descriptionId}
               className="mt-1 text-sm text-muted-foreground"
             >
               {description}
@@ -107,6 +133,7 @@ export function ConfirmDialog({
 
         <div className="mt-5 flex justify-end gap-2">
           <Button
+            ref={cancelRef}
             variant="outline"
             onClick={onCancel}
             disabled={loading}
@@ -114,7 +141,6 @@ export function ConfirmDialog({
             Cancel
           </Button>
           <Button
-            ref={confirmRef}
             variant={variant}
             onClick={onConfirm}
             disabled={loading}

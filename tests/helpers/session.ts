@@ -45,6 +45,7 @@ export function asUser(userId: string, extra: Record<string, unknown> = {}) {
       id: userId,
       email: `${userId}@example.com`,
       name: "Test User",
+      sessionVersion: 0,
       ...extra,
     },
   } as never);

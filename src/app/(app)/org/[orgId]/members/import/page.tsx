@@ -4,7 +4,8 @@
  * Pro+ feature — bulk import members from Excel/CSV files.
  * Flow: upload → parse → column mapping → preview with validation → confirm import
  *
- * Client-side: SheetJS parses the file, algorithmic column mapping and validation.
+ * Client-side: a maintained XLSX reader parses the file, followed by
+ * algorithmic column mapping and validation.
  * Server-side: AI column mapping + department matching (enhancement, wired later).
  * Constrained fields (role, department, employment type) use dropdowns from org data.
  *
@@ -17,7 +18,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Input } from "@/components/ui/input";
 import { AlertBanner } from "@/components/ui/alert-banner";
-import * as XLSX from "xlsx";
+import { readSheet } from "read-excel-file/browser";
 import {
   INVITABLE_ROLES,
   EMPLOYMENT_TYPES,
@@ -111,13 +112,7 @@ export default function MemberImportPage() {
   const [error, setError] = useState<string | null>(null);
 
   // ─── Data fetching ──────────────────────────────────────────
-  useEffect(() => {
-    fetchDepartments();
-    fetchSubscription();
-    fetchExistingMembers();
-  }, [orgId]);
-
-  async function fetchDepartments() {
+  const fetchDepartments = useCallback(async () => {
     try {
       const res = await fetch(`/api/organizations/${orgId}/departments`);
       if (res.ok) {
@@ -127,9 +122,9 @@ export default function MemberImportPage() {
     } catch {
       // Non-critical — departments list may be empty
     }
-  }
+  }, [orgId]);
 
-  async function fetchSubscription() {
+  const fetchSubscription = useCallback(async () => {
     try {
       const res = await fetch(`/api/organizations/${orgId}/subscription`);
       if (res.ok) {
@@ -140,9 +135,9 @@ export default function MemberImportPage() {
     } catch {
       // Non-critical
     }
-  }
+  }, [orgId]);
 
-  async function fetchExistingMembers() {
+  const fetchExistingMembers = useCallback(async () => {
     try {
       const res = await fetch(`/api/organizations/${orgId}/members`);
       if (res.ok) {
@@ -155,11 +150,17 @@ export default function MemberImportPage() {
     } catch {
       // Non-critical
     }
-  }
+  }, [orgId]);
+
+  useEffect(() => {
+    void fetchDepartments();
+    void fetchSubscription();
+    void fetchExistingMembers();
+  }, [fetchDepartments, fetchExistingMembers, fetchSubscription]);
 
   // ─── Column mapping (algorithmic fallback) ──────────────────
 
-  function mapColumns(headers: string[]): ColumnMapping[] {
+  const mapColumns = useCallback((headers: string[]): ColumnMapping[] => {
     const mappings: ColumnMapping[] = [];
     const usedTargets = new Set<string>();
 
@@ -188,11 +189,11 @@ export default function MemberImportPage() {
     }
 
     return mappings;
-  }
+  }, []);
 
   // ─── Row parsing and validation ─────────────────────────────
 
-  function matchDepartment(value: string): { name: string; matched: boolean } {
+  const matchDepartment = useCallback((value: string): { name: string; matched: boolean } => {
     if (!value.trim()) return { name: "", matched: true };
 
     // Exact match
@@ -210,22 +211,22 @@ export default function MemberImportPage() {
     if (partial) return { name: partial.name, matched: true };
 
     return { name: value.trim(), matched: false };
-  }
+  }, [departments]);
 
-  function matchRole(value: string): string | null {
+  const matchRole = useCallback((value: string): string | null => {
     const normalized = value.toLowerCase().trim();
     return ROLE_ALIASES[normalized] ?? null;
-  }
+  }, []);
 
-  function matchEmploymentType(value: string): string | null {
+  const matchEmploymentType = useCallback((value: string): string | null => {
     const normalized = value.toLowerCase().trim();
     return EMPLOYMENT_ALIASES[normalized] ?? null;
-  }
+  }, []);
 
-  function validateAndParseRows(
+  const validateAndParseRows = useCallback((
     rawRows: Record<string, string>[],
     mappings: ColumnMapping[]
-  ): ImportRow[] {
+  ): ImportRow[] => {
     const targetMap = new Map<string, string>();
     for (const m of mappings) {
       if (m.target) targetMap.set(m.target, m.source);
@@ -342,25 +343,56 @@ export default function MemberImportPage() {
         skipped: false,
       };
     });
-  }
+  }, [existingEmails, matchDepartment, matchEmploymentType, matchRole]);
 
   // ─── File handling ──────────────────────────────────────────
 
-  function processFile(file: File) {
+  function parseCsv(source: string): string[][] {
+    const rows: string[][] = [];
+    let row: string[] = [];
+    let value = "";
+    let quoted = false;
+    for (let index = 0; index < source.length; index++) {
+      const character = source[index];
+      if (character === '"') {
+        if (quoted && source[index + 1] === '"') {
+          value += '"';
+          index++;
+        } else {
+          quoted = !quoted;
+        }
+      } else if (character === "," && !quoted) {
+        row.push(value);
+        value = "";
+      } else if ((character === "\n" || character === "\r") && !quoted) {
+        if (character === "\r" && source[index + 1] === "\n") index++;
+        row.push(value);
+        if (row.some((cell) => cell.trim())) rows.push(row);
+        row = [];
+        value = "";
+      } else {
+        value += character;
+      }
+    }
+    row.push(value);
+    if (row.some((cell) => cell.trim())) rows.push(row);
+    return rows;
+  }
+
+  const processFile = useCallback(async (file: File) => {
     setError(null);
 
     const validTypes = [
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "application/vnd.ms-excel",
       "text/csv",
     ];
-    const validExtensions = [".xlsx", ".xls", ".csv"];
+    const validExtensions = [".xlsx", ".csv"];
     const hasValidExt = validExtensions.some((ext) =>
       file.name.toLowerCase().endsWith(ext)
     );
 
     if (!validTypes.includes(file.type) && !hasValidExt) {
-      setError("Please upload an Excel (.xlsx, .xls) or CSV file");
+      setError("Please upload an Excel (.xlsx) or CSV file");
       return;
     }
 
@@ -371,17 +403,18 @@ export default function MemberImportPage() {
 
     setFileName(file.name);
 
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const data = new Uint8Array(e.target?.result as ArrayBuffer);
-        const workbook = XLSX.read(data, { type: "array" });
-        const sheetName = workbook.SheetNames[0];
-        const sheet = workbook.Sheets[sheetName];
-        const jsonData = XLSX.utils.sheet_to_json<Record<string, string>>(sheet, {
-          defval: "",
-          raw: false,
-        });
+    try {
+        const table = file.name.toLowerCase().endsWith(".csv")
+          ? parseCsv(await file.text())
+          : (await readSheet(file)).map((row) =>
+              row.map((cell) => (cell == null ? "" : String(cell)))
+            );
+        const headers = (table[0] ?? []).map((header) => header.trim());
+        const jsonData = table.slice(1).map((values) =>
+          Object.fromEntries(
+            headers.map((header, index) => [header, values[index] ?? ""])
+          )
+        ) as Record<string, string>[];
 
         if (jsonData.length === 0) {
           setError("File is empty or has no data rows");
@@ -393,7 +426,6 @@ export default function MemberImportPage() {
           return;
         }
 
-        const headers = Object.keys(jsonData[0]);
         const mappings = mapColumns(headers);
 
         // Check that we have at least name and email mapped
@@ -412,13 +444,10 @@ export default function MemberImportPage() {
         setColumnMappings(mappings.filter((m) => m.target));
         setRows(parsedRows);
         setPhase("preview");
-      } catch {
-        setError("Failed to parse file. Make sure it is a valid Excel or CSV file.");
-      }
-    };
-
-    reader.readAsArrayBuffer(file);
-  }
+    } catch {
+      setError("Failed to parse file. Make sure it is a valid XLSX or CSV file.");
+    }
+  }, [mapColumns, validateAndParseRows]);
 
   // ─── Drag and drop ─────────────────────────────────────────
 
@@ -439,7 +468,7 @@ export default function MemberImportPage() {
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       processFile(e.dataTransfer.files[0]);
     }
-  }, [departments, existingEmails]);
+  }, [processFile]);
 
   const handleFileSelect = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -447,7 +476,7 @@ export default function MemberImportPage() {
         processFile(e.target.files[0]);
       }
     },
-    [departments, existingEmails]
+    [processFile]
   );
 
   // ─── Template download ─────────────────────────────────────
@@ -470,20 +499,20 @@ export default function MemberImportPage() {
       },
     ];
 
-    const ws = XLSX.utils.json_to_sheet(templateData);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Members");
-
-    // Set column widths
-    ws["!cols"] = [
-      { wch: 20 }, // Name
-      { wch: 25 }, // Email
-      { wch: 10 }, // Role
-      { wch: 20 }, // Department
-      { wch: 18 }, // Employment Type
-    ];
-
-    XLSX.writeFile(wb, "member-import-template.xlsx");
+    const headers = Object.keys(templateData[0]);
+    const escapeCell = (value: string) => `"${value.replaceAll('"', '""')}"`;
+    const csv = [
+      headers.map(escapeCell).join(","),
+      ...templateData.map((row) =>
+        headers.map((header) => escapeCell(String(row[header as keyof typeof row]))).join(",")
+      ),
+    ].join("\r\n");
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "member-import-template.csv";
+    link.click();
+    URL.revokeObjectURL(url);
   }
 
   // ─── Row editing ────────────────────────────────────────────
@@ -688,7 +717,7 @@ export default function MemberImportPage() {
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".xlsx,.xls,.csv"
+                accept=".xlsx,.csv"
                 onChange={handleFileSelect}
                 className="hidden"
               />
@@ -705,7 +734,7 @@ export default function MemberImportPage() {
                 <span className="text-indigo-600 dark:text-indigo-400 underline underline-offset-2">browse</span>
               </p>
               <p className="mt-1.5 text-[11px] text-muted-foreground">
-                Supports .xlsx, .xls, and .csv — max 200 rows, 5 MB
+                Supports .xlsx and .csv — max 200 rows, 5 MB
               </p>
             </div>
 

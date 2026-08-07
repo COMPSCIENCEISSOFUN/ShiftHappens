@@ -32,11 +32,21 @@ export async function GET(
     }
 
     // Managers see only members in their department(s); admins see everyone.
-    const members = await userMgmtService.getOrgMembers(
+    const { searchParams } = new URL(request.url);
+    const limit = Math.min(Math.max(Number(searchParams.get("limit")) || 50, 1), 100);
+    const offset = Math.max(Number(searchParams.get("offset")) || 0, 0);
+    const { members, total } = await userMgmtService.getOrgMembersPage(
       orgId,
-      departmentScopeFor(membership)
+      departmentScopeFor(membership),
+      limit,
+      offset
     );
-    return NextResponse.json(members);
+    return NextResponse.json(members, {
+      headers: {
+        "X-Total-Count": String(total),
+        "X-Has-More": String(offset + members.length < total),
+      },
+    });
   } catch {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }

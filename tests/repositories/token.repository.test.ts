@@ -5,7 +5,6 @@
  */
 import { describe, it, expect, beforeEach } from "vitest";
 import { TokenRepository } from "@/repositories/token.repository";
-import { prisma } from "@/lib/prisma";
 import { cleanDatabase } from "../helpers/cleanup";
 
 const tokenRepo = new TokenRepository();

@@ -131,7 +131,7 @@ export class OrganizationService {
     const updated = await this.orgRepo.update(orgId, updateData);
 
     // Audit log (fire-and-forget)
-    void this.auditService.log({
+    await this.auditService.log({
       organizationId: orgId,
       userId,
       action: ACTIONS.ORGANIZATION_UPDATED,

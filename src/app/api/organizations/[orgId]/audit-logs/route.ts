@@ -3,7 +3,7 @@
  * GET /api/organizations/[orgId]/audit-logs
  *
  * Returns paginated audit logs with optional filters.
- * Company Admin only. Requires Enterprise subscription tier.
+ * Company Admin only. Requires Pro or Enterprise subscription tier.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { AuditLogService } from "@/services/audit-log.service";
@@ -32,7 +32,7 @@ export async function GET(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    // Feature gate: audit log is Enterprise only
+    // Feature gate: audit log is available on Pro and Enterprise.
     await subscriptionService.enforceFeatureAccess(orgId, "audit_log");
 
     const searchParams = request.nextUrl.searchParams;

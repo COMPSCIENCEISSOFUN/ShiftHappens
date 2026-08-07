@@ -83,6 +83,7 @@ export class InvitationRepository {
         email,
         organizationId,
         acceptedAt: null,
+        expires: { gt: new Date() },
       },
     });
   }

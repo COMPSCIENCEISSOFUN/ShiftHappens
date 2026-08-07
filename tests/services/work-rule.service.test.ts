@@ -7,7 +7,6 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { WorkRuleService } from "@/services/work-rule.service";
 import { OrganizationRepository } from "@/repositories/organization.repository";
 import { UserRepository } from "@/repositories/user.repository";
-import { prisma } from "@/lib/prisma";
 import { cleanDatabase } from "../helpers/cleanup";
 
 const workRuleService = new WorkRuleService();

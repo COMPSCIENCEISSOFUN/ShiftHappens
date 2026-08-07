@@ -195,14 +195,14 @@ describe("TaskRepository", () => {
     });
   });
 
-  describe("delete", () => {
-    it("deletes a task", async () => {
+  describe("cancel", () => {
+    it("soft-cancels a task so its history is preserved", async () => {
       const task = await taskRepo.create({ title: "Delete me", organizationId: orgId, createdById: userId });
 
-      await taskRepo.delete(task.id);
+      await taskRepo.cancel(task.id, {}, userId, "Test cancellation");
 
       const found = await taskRepo.findById(task.id);
-      expect(found).toBeNull();
+      expect(found?.status).toBe("cancelled");
     });
   });
 

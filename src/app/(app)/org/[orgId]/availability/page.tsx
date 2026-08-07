@@ -6,7 +6,7 @@
  */
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,6 +24,7 @@ import { AlertBanner } from "@/components/ui/alert-banner";
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
 interface DaySchedule {
+  id?: string;
   dayOfWeek: number;
   startTime: string;
   endTime: string;
@@ -55,37 +56,44 @@ export default function AvailabilityPage() {
   const [editingOverrideId, setEditingOverrideId] = useState<string | null>(null);
   const [savingSchedule, setSavingSchedule] = useState(false);
 
-  useEffect(() => {
-    fetchSchedule();
-    fetchOverrides();
-  }, [orgId]);
-
-  async function fetchSchedule() {
+  const fetchSchedule = useCallback(async () => {
     try {
       const res = await fetch(`/api/organizations/${orgId}/availability`);
       const data = await res.json();
       if (data.length > 0) {
-        setSchedule((prev) =>
-          prev.map((day) => {
-            const saved = data.find((d: DaySchedule) => d.dayOfWeek === day.dayOfWeek);
-            return saved || day;
-          })
-        );
+        setSchedule((prev) => {
+          const savedDays = new Set(
+            data.map((window: DaySchedule) => window.dayOfWeek)
+          );
+          return [
+            ...data,
+            ...prev.filter((window) => !savedDays.has(window.dayOfWeek)),
+          ].sort(
+            (a, b) =>
+              a.dayOfWeek - b.dayOfWeek ||
+              a.startTime.localeCompare(b.startTime)
+          );
+        });
       }
     } catch {
       setError("Failed to load schedule");
     } finally {
       setLoading(false);
     }
-  }
+  }, [orgId]);
 
-  async function fetchOverrides() {
+  const fetchOverrides = useCallback(async () => {
     try {
       const res = await fetch(`/api/organizations/${orgId}/availability/overrides`);
       const data = await res.json();
       setOverrides(data);
     } catch {}
-  }
+  }, [orgId]);
+
+  useEffect(() => {
+    void fetchSchedule();
+    void fetchOverrides();
+  }, [fetchOverrides, fetchSchedule]);
 
   function updateDay(index: number, field: string, value: string | boolean) {
     setSchedule((prev) =>
@@ -96,14 +104,48 @@ export default function AvailabilityPage() {
   }
 
   function copyWeekdayHours() {
-    const weekday = schedule.find((day) => day.dayOfWeek === 1) ?? schedule[0];
-    setSchedule((current) => current.map((day) => day.dayOfWeek >= 1 && day.dayOfWeek <= 5
-      ? { ...day, startTime: weekday.startTime, endTime: weekday.endTime, isAvailable: weekday.isAvailable }
-      : day));
+    const monday = schedule.filter((window) => window.dayOfWeek === 1);
+    setSchedule((current) => [
+      ...current.filter(
+        (window) => window.dayOfWeek === 0 || window.dayOfWeek === 6
+      ),
+      ...[1, 2, 3, 4, 5].flatMap((dayOfWeek) =>
+        monday.map((window) => ({
+          dayOfWeek,
+          startTime: window.startTime,
+          endTime: window.endTime,
+          isAvailable: window.isAvailable,
+        }))
+      ),
+    ]);
   }
 
   function markWholeWeekUnavailable() {
     setSchedule((current) => current.map((day) => ({ ...day, isAvailable: false })));
+  }
+
+  function addWindow(dayOfWeek: number) {
+    setSchedule((current) => [
+      ...current,
+      { dayOfWeek, startTime: "09:00", endTime: "17:00", isAvailable: true },
+    ]);
+  }
+
+  function removeWindow(dayOfWeek: number, index: number) {
+    const dayWindows = schedule.filter((window) => window.dayOfWeek === dayOfWeek);
+    if (dayWindows.length === 1) {
+      setSchedule((current) =>
+        current.map((window) =>
+          window === dayWindows[index]
+            ? { ...window, isAvailable: false }
+            : window
+        )
+      );
+      return;
+    }
+    setSchedule((current) =>
+      current.filter((window) => window !== dayWindows[index])
+    );
   }
 
   async function onSaveSchedule() {
@@ -186,7 +228,11 @@ export default function AvailabilityPage() {
 
   return (
     <div className="max-w-3xl">
-      <h2 className="mb-6 text-2xl font-bold">My Availability</h2>
+      <div className="mb-6">
+        <p className="text-xs font-semibold uppercase tracking-wide text-primary">Scheduling preferences</p>
+        <h1 className="mt-1 text-2xl font-bold tracking-tight">My Availability</h1>
+        <p className="mt-1 text-sm text-muted-foreground">Keep your regular hours current so ShiftHappens can make reliable allocation decisions.</p>
+      </div>
 
       {error && <AlertBanner message={error} variant="error" />}
       {success && <AlertBanner message={success} variant="success" />}
@@ -202,33 +248,62 @@ export default function AvailabilityPage() {
             <Button type="button" size="sm" variant="outline" onClick={copyWeekdayHours}>Copy Monday to weekdays</Button>
             <Button type="button" size="sm" variant="outline" onClick={markWholeWeekUnavailable}>Mark whole week unavailable</Button>
           </div>
-          {schedule.map((day, index) => (
-            <div key={day.dayOfWeek} className="flex items-center gap-4">
-              <label className="flex w-32 items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={day.isAvailable}
-                  onChange={(e) => updateDay(index, "isAvailable", e.target.checked)}
-                />
-                {DAYS[day.dayOfWeek]}
-              </label>
-              <Input
-                type="time"
-                value={day.startTime}
-                onChange={(e) => updateDay(index, "startTime", e.target.value)}
-                disabled={!day.isAvailable}
-                className="w-32"
-              />
-              <span className="text-sm text-muted-foreground">to</span>
-              <Input
-                type="time"
-                value={day.endTime}
-                onChange={(e) => updateDay(index, "endTime", e.target.value)}
-                disabled={!day.isAvailable}
-                className="w-32"
-              />
-            </div>
-          ))}
+          {DAYS.map((dayName, dayOfWeek) => {
+            const windows = schedule.filter(
+              (window) => window.dayOfWeek === dayOfWeek
+            );
+            return (
+              <fieldset key={dayName} className="rounded-lg border p-3">
+                <legend className="px-1 text-sm font-semibold">{dayName}</legend>
+                <div className="space-y-2">
+                  {windows.map((window, windowIndex) => {
+                    const scheduleIndex = schedule.indexOf(window);
+                    return (
+                      <div key={window.id ?? `${dayOfWeek}-${windowIndex}`} className="flex flex-wrap items-center gap-2">
+                        <label className="flex items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={window.isAvailable}
+                            onChange={(event) =>
+                              updateDay(scheduleIndex, "isAvailable", event.target.checked)
+                            }
+                          />
+                          Available
+                        </label>
+                        <Input
+                          aria-label={`${dayName} window ${windowIndex + 1} start`}
+                          type="time"
+                          value={window.startTime}
+                          onChange={(event) =>
+                            updateDay(scheduleIndex, "startTime", event.target.value)
+                          }
+                          disabled={!window.isAvailable}
+                          className="w-32"
+                        />
+                        <span className="text-sm text-muted-foreground">to</span>
+                        <Input
+                          aria-label={`${dayName} window ${windowIndex + 1} end`}
+                          type="time"
+                          value={window.endTime}
+                          onChange={(event) =>
+                            updateDay(scheduleIndex, "endTime", event.target.value)
+                          }
+                          disabled={!window.isAvailable}
+                          className="w-32"
+                        />
+                        <Button type="button" size="sm" variant="ghost" onClick={() => removeWindow(dayOfWeek, windowIndex)}>
+                          Remove
+                        </Button>
+                      </div>
+                    );
+                  })}
+                  <Button type="button" size="sm" variant="outline" onClick={() => addWindow(dayOfWeek)} disabled={windows.length >= 5}>
+                    Add time window
+                  </Button>
+                </div>
+              </fieldset>
+            );
+          })}
           <Button onClick={onSaveSchedule} className="mt-4" disabled={savingSchedule}>
             {savingSchedule ? "Saving..." : "Save schedule"}
           </Button>
@@ -244,7 +319,7 @@ export default function AvailabilityPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={onCreateOverride} className="mb-4 flex gap-3 items-end">
+          <form onSubmit={onCreateOverride} className="mb-4 flex flex-wrap items-end gap-3">
             <div className="space-y-1">
               <Label>Date</Label>
               <Input type="date" name="overrideDate" required />

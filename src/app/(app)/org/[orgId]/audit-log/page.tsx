@@ -6,14 +6,12 @@
  */
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
-  CardHeader,
-  CardTitle,
 } from "@/components/ui/card";
 import { PageLoading } from "@/components/ui/page-loading";
 import { AlertBanner } from "@/components/ui/alert-banner";
@@ -33,6 +31,7 @@ const ACTION_LABELS: Record<string, string> = {
   "task.created": "Task created",
   "task.updated": "Task updated",
   "task.deleted": "Task deleted",
+  "task.cancelled": "Task cancelled",
   "task.assigned": "Staff assigned",
   "task.unassigned": "Staff unassigned",
   "assignment.clocked_in": "Clocked in",
@@ -83,11 +82,7 @@ export default function AuditLogPage() {
   const [error, setError] = useState<string | null>(null);
   const limit = 20;
 
-  useEffect(() => {
-    fetchLogs();
-  }, [orgId, offset, filterAction, filterEntity, search, startDate, endDate]);
-
-  async function fetchLogs() {
+  const fetchLogs = useCallback(async () => {
     setLoading(true);
     try {
       const params = new URLSearchParams();
@@ -115,7 +110,11 @@ export default function AuditLogPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [endDate, filterAction, filterEntity, offset, orgId, search, startDate]);
+
+  useEffect(() => {
+    void fetchLogs();
+  }, [fetchLogs]);
 
   const totalPages = Math.ceil(total / limit);
   const currentPage = Math.floor(offset / limit) + 1;

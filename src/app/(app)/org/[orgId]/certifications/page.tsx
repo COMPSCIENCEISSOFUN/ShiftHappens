@@ -364,7 +364,7 @@ export default function CertificationsPage() {
   const [busyIds, setBusyIds] = useState<string[]>([]);
   const [reasonTarget, setReasonTarget] = useState<ReasonTarget | null>(null);
   const [dialogSubmitting, setDialogSubmitting] = useState(false);
-  const [viewerRole, setViewerRole] = useState<string | null>(null);
+  const [canReview, setCanReview] = useState(false);
 
   // Debounced so typing does not re-filter on every keystroke.
   useEffect(() => {
@@ -390,7 +390,7 @@ export default function CertificationsPage() {
       }
 
       setCertifications(data);
-      setViewerRole(res.headers.get("X-Organization-Role"));
+      setCanReview(res.headers.get("X-Can-Review-Certifications") === "true");
       setError(null);
     } catch {
       setError("Failed to load certifications");
@@ -632,17 +632,18 @@ export default function CertificationsPage() {
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2 className="text-xl font-bold tracking-tight sm:text-2xl">
-            Certifications
+            {canReview ? "Certification Review" : "Certification Requirements"}
           </h2>
           <p className="mt-0.5 text-[13px] text-muted-foreground">
-            Review what your team has submitted, and keep an eye on what is about
-            to lapse
+            {canReview
+              ? "Review team submissions and keep an eye on certifications that are about to lapse."
+              : "Define certification requirements and monitor workforce compliance."}
           </p>
         </div>
         {counts.pending > 0 && (
           <button
             onClick={() => setFilter("pending")}
-            className="shrink-0 self-start rounded-lg bg-gradient-to-r from-indigo-600 to-indigo-500 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:from-indigo-700 hover:to-indigo-600"
+            className="shrink-0 self-start rounded-lg bg-primary px-3.5 py-1.5 text-xs font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/85"
           >
             Review {counts.pending} pending
           </button>
@@ -1061,7 +1062,7 @@ export default function CertificationsPage() {
 
                         {/* Actions stack full-width under the details on a
                             phone and sit beside them from sm up. */}
-                        {viewerRole === "manager" && cert.status === "pending" && (
+                        {canReview && cert.status === "pending" && (
                           <div className="flex shrink-0 gap-2">
                             <button
                               onClick={() => void handleVerify(cert)}
@@ -1081,7 +1082,7 @@ export default function CertificationsPage() {
                             </button>
                           </div>
                         )}
-                        {viewerRole === "manager" && cert.status === "verified" && (
+                        {canReview && cert.status === "verified" && (
                           <div className="flex shrink-0">
                             <button
                               onClick={() =>

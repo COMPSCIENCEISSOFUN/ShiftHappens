@@ -13,7 +13,7 @@ import { prisma } from "@/lib/prisma";
 
 const templateService = new IndustryTemplateService();
 
-export async function GET(req: NextRequest) {
+export async function GET() {
   try {
     const user = await getAuthenticatedUser();
     if (!user) return unauthorizedResponse();

@@ -30,6 +30,7 @@ interface InvitationDetails {
   email: string;
   role: string;
   organization: { name: string };
+  existingUser: boolean;
 }
 
 function AcceptInvitationContent() {
@@ -153,30 +154,47 @@ function AcceptInvitationContent() {
         <CardContent className="space-y-4">
           {error && <AlertBanner message={error} variant="error" />}
           <div className="space-y-2">
-            <Label>Email</Label>
-            <Input value={invitation?.email} disabled />
+            <Label htmlFor="invitation-email">Email</Label>
+            <Input id="invitation-email" value={invitation?.email} disabled />
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="name">Full Name</Label>
-            <Input
-              id="name"
-              name="name"
-              placeholder="Your full name"
-              required
-              className="focus-visible:ring-indigo-500"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="password">Password</Label>
-            <Input
-              id="password"
-              name="password"
-              type="password"
-              placeholder="Create a password"
-              required
-              className="focus-visible:ring-indigo-500"
-            />
-          </div>
+          {invitation?.existingUser ? (
+            <p className="text-sm text-muted-foreground">
+              This invitation will be added to your existing account. Sign in
+              with your current password after accepting it.
+            </p>
+          ) : (
+            <>
+              <div className="space-y-2">
+                <Label htmlFor="name">Full Name</Label>
+                <Input
+                  id="name"
+                  name="name"
+                  placeholder="Your full name"
+                  required
+                  minLength={2}
+                  maxLength={100}
+                  className="focus-visible:ring-indigo-500"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="password">Password</Label>
+                <Input
+                  id="password"
+                  name="password"
+                  type="password"
+                  placeholder="Create a strong password"
+                  required
+                  minLength={8}
+                  autoComplete="new-password"
+                  aria-describedby="invitation-password-hint"
+                  className="focus-visible:ring-indigo-500"
+                />
+                <p id="invitation-password-hint" className="text-xs text-muted-foreground">
+                  Use upper- and lowercase letters, a number, and a special character.
+                </p>
+              </div>
+            </>
+          )}
         </CardContent>
         <CardFooter className="border-0 bg-transparent">
           <Button

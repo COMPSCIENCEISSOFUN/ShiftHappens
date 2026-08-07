@@ -72,7 +72,7 @@ async function seedAll(tx: Tx) {
   }
 
   // Ensure admin membership exists and is correct
-  const adminMembership = await tx.membership.upsert({
+  await tx.membership.upsert({
     where: {
       userId_organizationId: {
         userId: adminUser.id,
@@ -307,15 +307,10 @@ async function seedAll(tx: Tx) {
       for (let d = 0; d <= 6; d++) schedules.push({ dayOfWeek: d, startTime: "07:00", endTime: "23:00", isAvailable: true });
     }
 
-    for (const sched of schedules) {
-      await tx.availability.upsert({
-        where: {
-          membershipId_dayOfWeek: { membershipId: membership.id, dayOfWeek: sched.dayOfWeek },
-        },
-        update: sched,
-        create: { ...sched, membershipId: membership.id },
-      });
-    }
+    await tx.availability.deleteMany({ where: { membershipId: membership.id } });
+    await tx.availability.createMany({
+      data: schedules.map((sched) => ({ ...sched, membershipId: membership.id })),
+    });
   }
 
   console.log("Created 5 staff with availability schedules");

@@ -8,7 +8,7 @@
  */
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -30,11 +30,7 @@ export function DashboardInsights({ orgId }: { orgId: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchInsights();
-  }, [orgId]);
-
-  async function fetchInsights() {
+  const fetchInsights = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -50,7 +46,11 @@ export function DashboardInsights({ orgId }: { orgId: string }) {
     } finally {
       setLoading(false);
     }
-  }
+  }, [orgId]);
+
+  useEffect(() => {
+    void fetchInsights();
+  }, [fetchInsights]);
 
   function alertColor(type: string) {
     switch (type) {

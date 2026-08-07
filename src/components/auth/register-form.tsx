@@ -69,7 +69,7 @@ export function RegisterForm() {
         return;
       }
 
-      router.push("/verify-email?registered=true");
+      router.push(`/verify-email?registered=${result?.emailSent ? "sent" : "not-sent"}`);
     } catch {
       setErrors(["Something went wrong. Please try again."]);
     } finally {

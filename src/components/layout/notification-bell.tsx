@@ -15,7 +15,7 @@
  */
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 
 interface Notification {
@@ -62,15 +62,6 @@ export function NotificationBell({ orgId }: { orgId?: string }) {
   const [loading, setLoading] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
 
-  // Poll unread count every 30 seconds.
-  // Notifications are org-scoped, so outside an org there is nothing to count.
-  useEffect(() => {
-    if (!orgId) return;
-    fetchUnreadCount();
-    const interval = setInterval(fetchUnreadCount, 30000);
-    return () => clearInterval(interval);
-  }, [orgId]);
-
   // Close panel when clicking outside
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -84,7 +75,7 @@ export function NotificationBell({ orgId }: { orgId?: string }) {
     }
   }, [isOpen]);
 
-  async function fetchUnreadCount() {
+  const fetchUnreadCount = useCallback(async () => {
     if (!orgId) return;
     try {
       const res = await fetch(
@@ -97,7 +88,16 @@ export function NotificationBell({ orgId }: { orgId?: string }) {
     } catch {
       // Silent fail — polling is non-critical
     }
-  }
+  }, [orgId]);
+
+  // Poll unread count every 30 seconds.
+  // Notifications are org-scoped, so outside an org there is nothing to count.
+  useEffect(() => {
+    if (!orgId) return;
+    void fetchUnreadCount();
+    const interval = setInterval(fetchUnreadCount, 30000);
+    return () => clearInterval(interval);
+  }, [fetchUnreadCount, orgId]);
 
   async function fetchNotifications() {
     if (!orgId) return;

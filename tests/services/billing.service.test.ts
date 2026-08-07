@@ -16,6 +16,7 @@ import type Stripe from "stripe";
 const mockStripe = vi.hoisted(() => ({
   customers: { create: vi.fn() },
   checkout: { sessions: { create: vi.fn() } },
+  billingPortal: { sessions: { create: vi.fn() } },
   webhooks: { constructEventAsync: vi.fn() },
 }));
 
@@ -41,10 +42,12 @@ const userRepo = new UserRepository();
 
 let orgId: string;
 let userId: string;
+let eventSequence = 0;
 
 beforeEach(async () => {
   await cleanDatabase();
   vi.clearAllMocks();
+  eventSequence = 0;
 
   const user = await userRepo.create({
     name: "Admin",
@@ -61,8 +64,9 @@ beforeEach(async () => {
 });
 
 /** Build a minimal Stripe.Event of the given type wrapping `object`. */
-function event(type: string, object: unknown): Stripe.Event {
-  return { type, data: { object } } as unknown as Stripe.Event;
+function event(type: string, object: unknown, created = 1_750_000_000): Stripe.Event {
+  eventSequence += 1;
+  return { id: `evt_${eventSequence}`, type, created, data: { object } } as unknown as Stripe.Event;
 }
 
 describe("BillingService.createCheckoutSession", () => {
@@ -196,6 +200,40 @@ describe("BillingService.createCheckoutSession", () => {
       })
     ).rejects.toThrow(/checkout URL/i);
   });
+
+  it("prevents a second checkout while Pro is already active", async () => {
+    await billingRepo.applySubscriptionState(orgId, {
+      subscriptionTier: "pro",
+      subscriptionStatus: "active",
+    });
+
+    await expect(
+      billingService.createCheckoutSession({
+        organizationId: orgId,
+        userId,
+        userEmail: "admin@example.com",
+        interval: "month",
+        source: "settings",
+        origin: "http://localhost:3000",
+      })
+    ).rejects.toThrow(/already has an active/i);
+    expect(mockStripe.checkout.sessions.create).not.toHaveBeenCalled();
+  });
+
+  it("creates a customer billing portal session", async () => {
+    await billingRepo.setStripeCustomerId(orgId, "cus_PORTAL");
+    mockStripe.billingPortal.sessions.create.mockResolvedValue({
+      url: "https://billing.stripe.com/session/test",
+    });
+
+    await expect(
+      billingService.createPortalSession({ organizationId: orgId, origin: "http://localhost:3000" })
+    ).resolves.toBe("https://billing.stripe.com/session/test");
+    expect(mockStripe.billingPortal.sessions.create).toHaveBeenCalledWith({
+      customer: "cus_PORTAL",
+      return_url: `http://localhost:3000/org/${orgId}/settings`,
+    });
+  });
 });
 
 describe("BillingService.handleEvent", () => {
@@ -231,6 +269,23 @@ describe("BillingService.handleEvent", () => {
 
     const billing = await billingRepo.getByOrgId(orgId);
     expect(billing!.subscriptionTier).toBe("pro");
+  });
+
+  it("does not grant Pro when Checkout reports an unpaid payment", async () => {
+    await billingService.handleEvent(
+      event("checkout.session.completed", {
+        id: "cs_unpaid",
+        client_reference_id: orgId,
+        customer: "cus_unpaid",
+        subscription: "sub_unpaid",
+        payment_status: "unpaid",
+        metadata: { organizationId: orgId, interval: "month" },
+      })
+    );
+
+    const billing = await billingRepo.getByOrgId(orgId);
+    expect(billing!.subscriptionTier).toBe("free");
+    expect(billing!.subscriptionStatus).toBe("incomplete");
   });
 
   it("customer.subscription.updated with an active status keeps Pro", async () => {
@@ -309,6 +364,46 @@ describe("BillingService.handleEvent", () => {
     expect(billing!.subscriptionStatus).toBe("canceled");
     expect(billing!.stripeSubscriptionId).toBeNull();
     expect(billing!.billingInterval).toBeNull();
+  });
+
+  it("processes a Stripe event only once", async () => {
+    const completed = event("checkout.session.completed", {
+      id: "cs_once",
+      client_reference_id: orgId,
+      customer: "cus_once",
+      subscription: "sub_once",
+      metadata: { organizationId: orgId, interval: "month" },
+    });
+
+    await billingService.handleEvent(completed);
+    await billingService.handleEvent(completed);
+
+    expect(await prisma.stripeWebhookEvent.count()).toBe(1);
+  });
+
+  it("does not let an older webhook restore a cancelled subscription", async () => {
+    await billingService.handleEvent(
+      event("customer.subscription.deleted", {
+        id: "sub_stale",
+        status: "canceled",
+        customer: "cus_stale",
+        metadata: { organizationId: orgId },
+      }, 1_750_000_100)
+    );
+    await billingService.handleEvent(
+      event("checkout.session.completed", {
+        id: "cs_stale",
+        client_reference_id: orgId,
+        customer: "cus_stale",
+        subscription: "sub_stale",
+        metadata: { organizationId: orgId, interval: "month" },
+      }, 1_750_000_000)
+    );
+
+    const billing = await billingRepo.getByOrgId(orgId);
+    expect(billing!.subscriptionTier).toBe("free");
+    expect(billing!.subscriptionStatus).toBe("canceled");
+    expect(await prisma.stripeWebhookEvent.count({ where: { outcome: "stale" } })).toBe(1);
   });
 
   it("ignores unhandled event types without changing tier", async () => {

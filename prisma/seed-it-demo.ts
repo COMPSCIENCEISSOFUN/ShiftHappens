@@ -50,7 +50,6 @@ async function assignDepartment(tx: Tx, membershipId: string, departmentId: stri
 
 async function seed() {
   await prisma.$transaction(async (tx) => {
-    const hashedPassword = await bcrypt.hash(PASSWORD, 12);
     const adminUser = await user(tx, "admin@northstarit.com", "Jordan Patel", PASSWORD);
     const organization = await tx.organization.upsert({
       where: { slug: ORG_SLUG },
@@ -105,13 +104,16 @@ async function seed() {
       staff.push({ membershipId: staffMembership.id, name: item.name });
       for (const dept of item.depts) await assignDepartment(tx, staffMembership.id, dept.id);
 
-      for (let day = 1; day <= 5; day++) {
-        await tx.availability.upsert({
-          where: { membershipId_dayOfWeek: { membershipId: staffMembership.id, dayOfWeek: day } },
-          update: { startTime: "09:00", endTime: "17:30", isAvailable: true },
-          create: { membershipId: staffMembership.id, dayOfWeek: day, startTime: "09:00", endTime: "17:30", isAvailable: true },
-        });
-      }
+      await tx.availability.deleteMany({ where: { membershipId: staffMembership.id } });
+      await tx.availability.createMany({
+        data: Array.from({ length: 5 }, (_, index) => ({
+          membershipId: staffMembership.id,
+          dayOfWeek: index + 1,
+          startTime: "09:00",
+          endTime: "17:30",
+          isAvailable: true,
+        })),
+      });
 
       for (const certName of item.certs) {
         await tx.certification.upsert({

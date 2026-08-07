@@ -18,6 +18,7 @@ export class EligibilityOverrideRepository {
     overriddenById: string;
     reason: string;
     ruleOverridden: string;
+    expiresAt?: Date;
   }) {
     return prisma.eligibilityOverride.create({
       data,
@@ -35,7 +36,11 @@ export class EligibilityOverrideRepository {
   /** Gets all overrides for a specific task */
   async findByTaskId(taskId: string) {
     return prisma.eligibilityOverride.findMany({
-      where: { taskId },
+      where: {
+        taskId,
+        revokedAt: null,
+        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+      },
       include: {
         membership: {
           include: {
@@ -51,7 +56,11 @@ export class EligibilityOverrideRepository {
   /** Gets all overrides for a specific member */
   async findByMembershipId(membershipId: string) {
     return prisma.eligibilityOverride.findMany({
-      where: { membershipId },
+      where: {
+        membershipId,
+        revokedAt: null,
+        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+      },
       include: {
         task: { select: { id: true, title: true } },
         overriddenBy: { select: { id: true, name: true } },
@@ -70,7 +79,13 @@ export class EligibilityOverrideRepository {
     ruleOverridden: string
   ): Promise<boolean> {
     const count = await prisma.eligibilityOverride.count({
-      where: { taskId, membershipId, ruleOverridden },
+      where: {
+        taskId,
+        membershipId,
+        ruleOverridden,
+        revokedAt: null,
+        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+      },
     });
     return count > 0;
   }

@@ -43,6 +43,7 @@ export async function GET(
     );
     const response = NextResponse.json(certs);
     response.headers.set("X-Organization-Role", membership.role);
+    response.headers.set("X-Can-Review-Certifications", String(hasPermission(membership, PERMISSIONS.CERTIFICATIONS_REVIEW)));
     return response;
   } catch {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

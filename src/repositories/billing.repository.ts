@@ -19,6 +19,7 @@ export interface OrgBilling {
   stripeSubscriptionId: string | null;
   subscriptionStatus: string | null;
   billingInterval: string | null;
+  stripeLastEventAt: Date | null;
 }
 
 const BILLING_SELECT = {
@@ -29,6 +30,7 @@ const BILLING_SELECT = {
   stripeSubscriptionId: true,
   subscriptionStatus: true,
   billingInterval: true,
+  stripeLastEventAt: true,
 } as const;
 
 export class BillingRepository {
@@ -77,6 +79,60 @@ export class BillingRepository {
       where: { id: organizationId },
       data,
       select: BILLING_SELECT,
+    });
+  }
+
+  /**
+   * Applies a verified Stripe event once. A stale event is recorded for audit
+   * purposes but cannot overwrite a newer subscription state.
+   */
+  async applyStripeEvent(input: {
+    eventId: string;
+    eventType: string;
+    eventCreatedAt: Date;
+    organizationId: string;
+    state: {
+      subscriptionTier?: string;
+      subscriptionStatus?: string | null;
+      stripeSubscriptionId?: string | null;
+      stripeCustomerId?: string | null;
+      billingInterval?: string | null;
+    };
+  }): Promise<"applied" | "duplicate" | "stale"> {
+    return prisma.$transaction(async (tx) => {
+      const existing = await tx.stripeWebhookEvent.findUnique({
+        where: { id: input.eventId },
+        select: { id: true },
+      });
+      if (existing) return "duplicate";
+
+      const organization = await tx.organization.findUnique({
+        where: { id: input.organizationId },
+        select: { stripeLastEventAt: true },
+      });
+      if (!organization) throw new Error("Organization not found");
+
+      const stale =
+        organization.stripeLastEventAt !== null &&
+        organization.stripeLastEventAt > input.eventCreatedAt;
+
+      await tx.stripeWebhookEvent.create({
+        data: {
+          id: input.eventId,
+          organizationId: input.organizationId,
+          type: input.eventType,
+          eventCreatedAt: input.eventCreatedAt,
+          outcome: stale ? "stale" : "applied",
+        },
+      });
+
+      if (stale) return "stale";
+
+      await tx.organization.update({
+        where: { id: input.organizationId },
+        data: { ...input.state, stripeLastEventAt: input.eventCreatedAt },
+      });
+      return "applied";
     });
   }
 }

@@ -61,7 +61,7 @@ export class PdfReportService {
     y = this.renderAtAGlance(doc, data, margin, contentWidth, y);
     y = this.renderPipeline(doc, data.metrics, margin, contentWidth, y);
     y = this.renderDepartments(doc, data.departments, margin, contentWidth, y);
-    y = this.renderStaff(doc, data.staffUtilization, margin, contentWidth, y);
+    this.renderStaff(doc, data.staffUtilization, margin, contentWidth, y);
     this.renderFooter(doc);
 
     return doc.output("arraybuffer");

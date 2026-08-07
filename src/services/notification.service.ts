@@ -232,8 +232,7 @@ export class NotificationService {
     entityType?: string,
     entityId?: string
   ) {
-    try {
-      await this.notificationRepo.create({
+    return this.notificationRepo.create({
         userId,
         organizationId,
         type,
@@ -242,9 +241,6 @@ export class NotificationService {
         entityType,
         entityId,
       });
-    } catch (error) {
-      console.error("[Notification Error]", error);
-    }
   }
 
   /**
@@ -260,8 +256,7 @@ export class NotificationService {
     entityType?: string,
     entityId?: string
   ) {
-    try {
-      const notifications = userIds.map((userId) => ({
+    const notifications = userIds.map((userId) => ({
         userId,
         organizationId,
         type,
@@ -270,10 +265,7 @@ export class NotificationService {
         entityType,
         entityId,
       }));
-      await this.notificationRepo.createMany(notifications);
-    } catch (error) {
-      console.error("[Notification Error]", error);
-    }
+    return this.notificationRepo.createMany(notifications);
   }
 
   /**

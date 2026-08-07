@@ -698,7 +698,7 @@ describe("revokeCertificationSchema", () => {
 
 describe("createEligibilityOverrideSchema", () => {
   it("accepts valid override", () => {
-    const result = createEligibilityOverrideSchema.safeParse({ membershipId: "member-123", reason: "Manager approved exception", ruleOverridden: "hours_limit" });
+    const result = createEligibilityOverrideSchema.safeParse({ membershipId: "member-123", reason: "Manager approved exception", ruleOverridden: "availability" });
     expect(result.success).toBe(true);
   });
 
@@ -712,19 +712,19 @@ describe("createEligibilityOverrideSchema", () => {
     expect(result.success).toBe(false);
   });
 
-  it("accepts the 'scheduling' rule", () => {
+  it("rejects the hard 'scheduling' rule", () => {
     const result = createEligibilityOverrideSchema.safeParse({ membershipId: "member-123", reason: "Manager approved", ruleOverridden: "scheduling" });
-    expect(result.success).toBe(true);
+    expect(result.success).toBe(false);
   });
 
-  it("accepts the 'work_rules' rule", () => {
+  it("rejects the hard 'work_rules' rule", () => {
     const result = createEligibilityOverrideSchema.safeParse({ membershipId: "member-123", reason: "Manager approved", ruleOverridden: "work_rules" });
-    expect(result.success).toBe(true);
+    expect(result.success).toBe(false);
   });
 
-  it("accepts the 'all' rule (blanket override)", () => {
+  it("rejects blanket overrides", () => {
     const result = createEligibilityOverrideSchema.safeParse({ membershipId: "member-123", reason: "Manager approved", ruleOverridden: "all" });
-    expect(result.success).toBe(true);
+    expect(result.success).toBe(false);
   });
 });
 

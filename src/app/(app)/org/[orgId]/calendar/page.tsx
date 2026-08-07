@@ -15,7 +15,7 @@
  */
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { CalendarAssignModal } from "@/components/calendar/calendar-assign-modal";
 import { SLOT_OCCUPYING_ASSIGNMENT_STATUSES } from "@/lib/assignment-status";
@@ -337,47 +337,34 @@ export default function CalendarPage() {
   }, []);
 
   useEffect(() => {
-    fetchTasks();
-    fetchCoverage();
-    fetchStaff();
-    fetchCalendarSettings();
-  }, [orgId]);
-
-  useEffect(() => {
     const interval = setInterval(() => setCurrentTime(new Date()), 60000);
     return () => clearInterval(interval);
   }, []);
 
-  useEffect(() => {
-    function onFocus() { fetchTasks(); }
-    window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
-  }, [orgId]);
-
-  async function fetchTasks() {
+  const fetchTasks = useCallback(async () => {
     try {
       const res = await fetch(`/api/organizations/${orgId}/tasks`);
       if (!res.ok) { setError("Failed to load tasks"); return; }
       setTasks(await res.json());
       setError(null);
     } catch { setError("Failed to load tasks"); } finally { setLoading(false); }
-  }
+  }, [orgId]);
 
-  async function fetchCoverage() {
+  const fetchCoverage = useCallback(async () => {
     try {
       const res = await fetch(`/api/organizations/${orgId}/calendar/coverage`);
       if (res.ok) setCoverage(await res.json());
     } catch { /* non-critical */ }
-  }
+  }, [orgId]);
 
-  async function fetchStaff() {
+  const fetchStaff = useCallback(async () => {
     try {
       const res = await fetch(`/api/organizations/${orgId}/calendar/staff`);
       if (res.ok) setStaffData(await res.json());
     } catch { /* non-critical */ }
-  }
+  }, [orgId]);
 
-  async function fetchCalendarSettings() {
+  const fetchCalendarSettings = useCallback(async () => {
     try {
       const res = await fetch(`/api/organizations/${orgId}/calendar-settings`);
       if (res.ok) {
@@ -386,7 +373,7 @@ export default function CalendarPage() {
         if (data.operatingHoursEnd !== undefined) setOpEnd(data.operatingHoursEnd);
       }
     } catch { /* use defaults */ }
-  }
+  }, [orgId]);
 
   const HOURS = Array.from({ length: opEnd - opStart }, (_, i) => i + opStart);
   const totalHours = HOURS.length;
@@ -425,6 +412,19 @@ export default function CalendarPage() {
   function getTasksForDay(date: Date): Task[] {
     return filteredTasks.filter((task) => intersectsCalendarDay(task, date));
   }
+
+  useEffect(() => {
+    void fetchTasks();
+    void fetchCoverage();
+    void fetchStaff();
+    void fetchCalendarSettings();
+  }, [fetchCalendarSettings, fetchCoverage, fetchStaff, fetchTasks]);
+
+  useEffect(() => {
+    function onFocus() { void fetchTasks(); }
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [fetchTasks]);
 
   function getCurrentTimePosition(): number | null {
     const hour = currentTime.getHours() + currentTime.getMinutes() / 60;

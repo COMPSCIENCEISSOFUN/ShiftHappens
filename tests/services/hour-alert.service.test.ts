@@ -16,7 +16,6 @@ import { TaskRepository } from "@/repositories/task.repository";
 import { NOTIFICATION_TYPES } from "@/services/notification.service";
 import { prisma } from "@/lib/prisma";
 import { cleanDatabase } from "../helpers/cleanup";
-import { startOfTodaySgt } from "../helpers/time";
 
 const hourAlertService = new HourAlertService();
 const orgRepo = new OrganizationRepository();
@@ -95,11 +94,8 @@ async function seedWorkedHours(hours: number) {
   // The organisation's midnight, not the runner's. getHoursOnDate() sums the
   // Singapore day, so clamping to a local midnight put the shift in the
   // previous org-day whenever the two disagreed.
-  const todayStart = startOfTodaySgt(now);
-
-  const rawClockIn = new Date(now.getTime() - hours * 60 * 60 * 1000);
-  const clockIn = rawClockIn < todayStart ? todayStart : rawClockIn;
-  const clockOut = new Date(clockIn.getTime() + hours * 60 * 60 * 1000);
+  const clockIn = new Date(now.getTime() - hours * 60 * 60 * 1000);
+  const clockOut = now;
 
   await prisma.taskAssignment.create({
     data: {
@@ -157,11 +153,11 @@ describe("HourAlertService", () => {
           organizationId: orgId,
           name: "Daily cap",
           type: "max_hours_daily",
-          maxHours: 4,
+          maxHours: 0.5,
           isActive: true,
         },
       });
-      await seedWorkedHours(5); // under the 8h break rule, but over the 4h/day rule
+      await seedWorkedHours(1); // under the 8h break rule, but over today's 0.5h cap
 
       const status = await hourAlertService.getMemberStatus(
         staffMembershipId,
