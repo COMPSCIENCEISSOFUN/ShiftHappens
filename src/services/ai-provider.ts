@@ -13,8 +13,30 @@ export interface StaffCandidate {
   hoursWorkedToday: number;
   maxHours: number;
   certifications: string[];
+  /** Human-readable summary, for the prompt. Not scored — see `availabilityFit`. */
   availableHours: string;
   departmentHistory: number;
+  /**
+   * How tightly this member's free window wraps the shift, 0–1.
+   *
+   * 1 is an exact match; somebody free all week for a four-hour shift is near
+   * 0. `null` when it cannot be computed — a task with no scheduled time — in
+   * which case the dimension is neutral for everybody rather than guessing.
+   *
+   * Exists because `availableHours` is a display string, so the only thing the
+   * ranker could ask of it was whether it said "Not set". That made a quarter
+   * of the score a constant.
+   */
+  availabilityFit?: number | null;
+  /**
+   * The share, 0–1, of the certifications this DEPARTMENT's work calls for that
+   * this member holds.
+   *
+   * `null` when the department requires none. Replaces counting certificates,
+   * which rewarded irrelevant ones — and since a missing REQUIRED certificate
+   * already fails eligibility, counting could only ever measure extras.
+   */
+  certificationRelevance?: number | null;
 }
 
 export interface RankedStaff {
@@ -58,6 +80,16 @@ export interface AIProvider {
       title: string;
       department: string | null;
       priority: string;
+      /**
+       * The organisation's ranking priorities, strongest first.
+       *
+       * The models reason in language, so they are TOLD the ordering rather
+       * than bound by it — a language model cannot multiply by 0.30. Without
+       * this the configured weights applied only to `FallbackRanker`, which
+       * runs when both providers fail: a setting that worked exclusively
+       * during an outage.
+       */
+      priorities?: string;
       scheduledStart: string | null;
       scheduledEnd: string | null;
       requiredHeadcount: number;

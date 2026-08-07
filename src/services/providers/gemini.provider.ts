@@ -5,6 +5,7 @@
  * Backup provider if Groq is unavailable.
  * Free tier: 15 req/min, 1M tokens/day.
  */
+import { aiTimeoutSignal } from "@/lib/ai-limits";
 import type { AIProvider, StaffCandidate, RankedStaff } from "../ai-provider";
 
 /**
@@ -38,6 +39,7 @@ export class GeminiProvider implements AIProvider {
       title: string;
       department: string | null;
       priority: string;
+      priorities?: string;
       scheduledStart: string | null;
       scheduledEnd: string | null;
       requiredHeadcount: number;
@@ -63,6 +65,10 @@ export class GeminiProvider implements AIProvider {
       const response = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${this.apiKey}`,
         {
+          // Without this the failover below is unreachable on a hang — see
+          // AI_TIMEOUT_MS. A socket that never answers is neither an error nor a
+          // non-ok response, so nothing advances to the next provider.
+          signal: aiTimeoutSignal(),
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -99,6 +105,7 @@ export class GeminiProvider implements AIProvider {
       title: string;
       department: string | null;
       priority: string;
+      priorities?: string;
       scheduledStart: string | null;
       scheduledEnd: string | null;
       requiredHeadcount: number;
@@ -110,7 +117,12 @@ export class GeminiProvider implements AIProvider {
     prompt += `Each element: { "membershipId": string, "rank": number, "score": 0-100, "explanation": string }\n\n`;
     prompt += `TASK: "${task.title}", Department: ${task.department || "None"}, Priority: ${task.priority}\n`;
     prompt += `Schedule: ${task.scheduledStart && task.scheduledEnd ? `${task.scheduledStart} to ${task.scheduledEnd}` : "Flexible"}\n`;
-    prompt += `Needs: ${task.requiredHeadcount} staff\n\n`;
+    prompt += `Needs: ${task.requiredHeadcount} staff\n`;
+    // Guidance, not arithmetic — see `priorities` on the AIProvider interface.
+    if (task.priorities) {
+      prompt += `RANKING PRIORITIES (most important first): ${task.priorities}\n`;
+    }
+    prompt += `\n`;
     prompt += `STAFF:\n`;
 
     for (const c of candidates) {

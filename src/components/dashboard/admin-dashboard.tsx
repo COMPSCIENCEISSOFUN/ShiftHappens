@@ -203,6 +203,8 @@ interface FeedbackThemes {
   /** How many comments were read. Ours, counted — the denominator. */
   basedOn: number;
   provider: string | null;
+  /** The comments were never read, as opposed to read and unremarkable. */
+  unavailable?: boolean;
 }
 
 // ============================================================
@@ -430,6 +432,15 @@ export default function AdminDashboard({ orgId, orgName, userName }: AdminDashbo
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [priority, setPriority] = useState<PriorityCall | null>(null);
+  /**
+   * The engine was asked about this list and did not answer.
+   *
+   * Distinct from having no strong opinion, which is also `call: null`. The
+   * badge disappeared identically for a rate limit, a timeout, a missing key
+   * and "fewer than two alerts" — so a manager who had come to rely on it had
+   * no way to know the engine had stopped answering a fortnight ago.
+   */
+  const [priorityUnavailable, setPriorityUnavailable] = useState(false);
   const [feedback, setFeedback] = useState<FeedbackThemes | null>(null);
   const [engine, setEngine] = useState<EngineReport | null>(null);
   const [engineLoading, setEngineLoading] = useState(true);
@@ -546,6 +557,7 @@ export default function AdminDashboard({ orgId, orgName, userName }: AdminDashbo
       if (res.ok) {
         const body = await res.json();
         setPriority(body.call ?? null);
+        setPriorityUnavailable(Boolean(body.unavailable));
       }
     } catch {
       // Non-critical. No pick simply means the list keeps its own order — the
@@ -643,6 +655,18 @@ export default function AdminDashboard({ orgId, orgName, userName }: AdminDashbo
           count={actionItems.length}
           defaultOpen
         >
+          {/*
+            One muted line, not an error. The list is complete and correctly
+            ordered without the engine — only the "start here" hint is missing —
+            so this says what is absent without implying the panel is broken.
+          */}
+          {priorityUnavailable && (
+            <p className="mb-2 text-[12px] text-muted-foreground">
+              The assistant couldn&apos;t suggest where to start right now. The
+              list below is complete and in its usual order.
+            </p>
+          )}
+
           {shownActions.map((item) => {
             const { Icon, tint, tone } = severityIcon(item.severity);
             const isPicked =
@@ -822,12 +846,25 @@ export default function AdminDashboard({ orgId, orgName, userName }: AdminDashbo
             </div>
           ))}
 
-          {feedback.themes.length === 0 && (
-            <p className="rounded-xl border border-dashed border-border px-3.5 py-3 text-[13px] text-muted-foreground">
-              Nothing recurring in what people wrote — the comments did not
-              group into a shared subject.
-            </p>
-          )}
+          {/*
+            Two different empty states, because they mean opposite things.
+            This printed the "nothing recurring" line either way — an
+            affirmative claim that the comments WERE read and analysed, made
+            when both providers had failed. A panel that reads as merely
+            uneventful is one nobody investigates.
+          */}
+          {feedback.themes.length === 0 &&
+            (feedback.unavailable ? (
+              <p className="rounded-xl border border-dashed border-amber-300 px-3.5 py-3 text-[13px] text-amber-700 dark:border-amber-800 dark:text-amber-400">
+                Couldn&apos;t read the comments right now — the assistant did not
+                answer. Nothing has been analysed; try again shortly.
+              </p>
+            ) : (
+              <p className="rounded-xl border border-dashed border-border px-3.5 py-3 text-[13px] text-muted-foreground">
+                Nothing recurring in what people wrote — the comments did not
+                group into a shared subject.
+              </p>
+            ))}
         </CollapsibleSection>
       )}
 

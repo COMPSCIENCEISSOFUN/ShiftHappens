@@ -7,6 +7,7 @@
  * Groq offers fast inference with a generous free tier
  * (30 req/min, 14,400 req/day).
  */
+import { aiTimeoutSignal } from "@/lib/ai-limits";
 import type { AIProvider, StaffCandidate, RankedStaff } from "../ai-provider";
 
 /**
@@ -42,6 +43,7 @@ export class GroqProvider implements AIProvider {
       title: string;
       department: string | null;
       priority: string;
+      priorities?: string;
       scheduledStart: string | null;
       scheduledEnd: string | null;
       requiredHeadcount: number;
@@ -65,6 +67,10 @@ export class GroqProvider implements AIProvider {
 
     try {
       const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        // Without this the failover below is unreachable on a hang — see
+        // AI_TIMEOUT_MS. A socket that never answers is neither an error nor a
+        // non-ok response, so nothing advances to the next provider.
+        signal: aiTimeoutSignal(),
         method: "POST",
         headers: {
           "Authorization": `Bearer ${this.apiKey}`,
@@ -117,6 +123,7 @@ Higher score = better fit.`,
       title: string;
       department: string | null;
       priority: string;
+      priorities?: string;
       scheduledStart: string | null;
       scheduledEnd: string | null;
       requiredHeadcount: number;
@@ -133,7 +140,12 @@ Higher score = better fit.`,
     prompt += `- Department: ${task.department || "None"}\n`;
     prompt += `- Priority: ${task.priority}\n`;
     prompt += `- Schedule: ${schedule}\n`;
-    prompt += `- Required headcount: ${task.requiredHeadcount}\n\n`;
+    prompt += `- Required headcount: ${task.requiredHeadcount}\n`;
+    // Guidance, not arithmetic — see `priorities` on the AIProvider interface.
+    if (task.priorities) {
+      prompt += `\nRANKING PRIORITIES (most important first): ${task.priorities}\n`;
+    }
+    prompt += `\n`;
     prompt += `ELIGIBLE STAFF:\n`;
 
     for (const c of candidates) {

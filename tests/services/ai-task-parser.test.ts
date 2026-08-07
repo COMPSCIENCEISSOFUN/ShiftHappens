@@ -385,11 +385,18 @@ describe("AITaskParserService — AI path", () => {
     try {
       const result = await parser.parseTaskDescription("Need kitchen staff", orgId);
 
-      // parseResponse falls back with an EMPTY string, so the keyword parser has
-      // nothing to work with — the department is lost. Documenting the real
-      // behaviour rather than the hoped-for one.
-      expect(result.title).toBe("New Task");
-      expect(result.requiredHeadcount).toBe(1);
+      /*
+       * The user's sentence SURVIVES.
+       *
+       * This test used to assert the opposite and say so: `parseResponse` fell
+       * back with an empty string, so the keyword parser had nothing to work
+       * with and the department was lost — the admin got "New Task" and their
+       * typing was already cleared from the input. It now throws instead, which
+       * both reaches the keyword parser with the real text and lets Gemini be
+       * tried first.
+       */
+      expect(result.departmentName?.toLowerCase()).toContain("kitchen");
+      expect(result.parsedBy).toBe("keywords");
       expect(errorSpy).toHaveBeenCalled();
     } finally {
       errorSpy.mockRestore();

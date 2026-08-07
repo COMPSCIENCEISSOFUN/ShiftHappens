@@ -39,6 +39,14 @@ function candidate(id: string, hours: number, certs: string[] = []): StaffCandid
     certifications: certs,
     departmentHistory: 0,
     availableHours: "08:00-18:00",
+    /*
+     * The ranker scores RELEVANCE now, not the length of `certifications` —
+     * counting certificates rewarded irrelevant ones, and a missing required
+     * certificate already fails eligibility. Derived here from the cert list so
+     * this fixture still means "b holds none of what the department needs".
+     */
+    certificationRelevance: certs.length / 2,
+    availabilityFit: 0.4,
   };
 }
 

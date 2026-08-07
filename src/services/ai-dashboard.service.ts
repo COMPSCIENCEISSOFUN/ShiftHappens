@@ -11,6 +11,7 @@
  * as the allocation service. All insights are advisory — the
  * admin always has final decision authority.
  */
+import { AI_TIMEOUT_MS } from "@/lib/ai-limits";
 import { TaskRepository } from "@/repositories/task.repository";
 import { startOfDayInTimeZone } from "@/lib/timezone";
 import { MembershipRepository } from "@/repositories/membership.repository";
@@ -123,6 +124,17 @@ export interface PriorityCall {
 export interface PriorityCallResponse {
   /** Null whenever no model answered, or nothing was worth prioritising. */
   call: PriorityCall | null;
+  /**
+   * The engine was asked and could not answer.
+   *
+   * `call: null` alone meant five different things — fewer than two alerts, no
+   * key configured, a rate limit, a timeout, and a hallucinated id — and the
+   * dashboard dropped the badge identically for all of them. Nothing false was
+   * stated, but a manager who had come to rely on it had no way to tell "the
+   * engine has no strong opinion today" from "the engine stopped answering a
+   * fortnight ago".
+   */
+  unavailable?: boolean;
 }
 
 // ================================================================
@@ -177,6 +189,16 @@ export interface FeedbackThemesResponse {
   basedOn: number;
   /** Null when no model answered; themes is then empty. */
   provider: AIProviderName | null;
+  /**
+   * The comments were never read, as opposed to read and found unremarkable.
+   *
+   * The panel rendered whenever `basedOn >= 5`, so an empty `themes` printed
+   * "Nothing recurring in what people wrote — the comments did not group into a
+   * shared subject." That is an affirmative claim that the text WAS analysed,
+   * and it was being made when both providers had failed. Nobody investigates a
+   * panel that reads as merely uneventful.
+   */
+  unavailable?: boolean;
 }
 
 /** How far back to read. Older complaints describe a shift nobody remembers. */
@@ -194,17 +216,10 @@ const MIN_LINES_PER_THEME = 2;
 
 const MAX_THEMES = 3;
 const MAX_QUOTES_PER_THEME = 3;
-/**
- * How long a provider gets before we move on.
- *
- * Neither call had a bound. A hung Groq connection held the request open until
- * the platform killed it — a 504 for the panel — and because Groq is tried
- * FIRST, the Gemini fallback was never reached: the failover only fires on an
- * error or a non-ok response, and a socket that never answers is neither. The
- * whole point of having a second provider is defeated by the failure mode
- * second providers exist for.
+/*
+ * The bound and its reasoning now live in `@/lib/ai-limits`, because every
+ * other provider call in the codebase needed the same fix and had not had it.
  */
-const AI_TIMEOUT_MS = 8000;
 
 /**
  * Logs a provider response that came back but was not ok.
@@ -413,7 +428,9 @@ RULES:
       .join("\n");
 
     const answer = await this.callAIForPriority(prompt);
-    if (!answer) return { call: null };
+    // Asked, and no provider answered — distinct from the early return above,
+    // where there was nothing worth asking about.
+    if (!answer) return { call: null, unavailable: true };
 
     const chosen = candidates.find((a) => a.entityId === answer.entityId);
     // An id we did not send. Discarded rather than resolved — a hallucinated
@@ -568,7 +585,17 @@ RULES:
       .join("\n");
 
     const answer = await this.callAIForThemes(numbered);
-    if (!answer) return { themes: [], basedOn: snippets.length, provider: null };
+    // Asked, and no provider answered. The early return above is the other
+    // case — too few comments to look for a pattern in — and the panel says
+    // something different about each.
+    if (!answer) {
+      return {
+        themes: [],
+        basedOn: snippets.length,
+        provider: null,
+        unavailable: true,
+      };
+    }
 
     // Loaded only once a model has actually answered — no reply means no label
     // to check, and no reason to spend the query.
