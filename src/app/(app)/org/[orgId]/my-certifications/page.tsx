@@ -25,6 +25,8 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { CertificationStateIcon } from "@/components/ui/certification-state-icon";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { StatTile } from "@/components/ui/stat-tile";
+import { Input } from "@/components/ui/input";
+import { SECONDARY_BUTTON } from "@/components/ui/button-styles";
 import {
   EXPIRY_WARNING_DAYS,
   REJECTION_REASON_LABELS,
@@ -91,6 +93,33 @@ function reasonSentence(cert: MyCertification): string | null {
 /*  Page                                                               */
 /* ------------------------------------------------------------------ */
 
+/**
+ * The states offered in the filter, in the order a holder cares about them.
+ *
+ * Derived nowhere — stated here, because the filter is a UI affordance rather
+ * than a rule, and the display-state union already IS the source of truth for
+ * what a certificate can look like. A `Record` below rather than a loose
+ * string map, so adding a state to that union fails the build here instead of
+ * silently producing an option with no label.
+ */
+const CERT_FILTER_STATES: CertificationDisplayState[] = [
+  "pending",
+  "verified",
+  "expiring",
+  "expired",
+  "rejected",
+  "revoked",
+];
+
+const CERT_STATE_LABEL: Record<CertificationDisplayState, string> = {
+  pending: "Awaiting review",
+  verified: "Verified",
+  expiring: "Expiring soon",
+  expired: "Expired",
+  rejected: "Rejected",
+  revoked: "Revoked",
+};
+
 export default function MyCertificationsPage() {
   const params = useParams();
   const orgId = params.orgId as string;
@@ -109,6 +138,18 @@ export default function MyCertificationsPage() {
     null
   );
   const [withdrawing, setWithdrawing] = useState(false);
+
+  /*
+   * Filtered in the page, not the query.
+   *
+   * This endpoint returns one member's certificates — a handful of rows, all
+   * already in memory — so a round trip per keystroke would buy nothing and
+   * cost a spinner. My History filters server-side because it is PAGED and its
+   * totals describe the whole range; neither is true here, and building the
+   * same machinery for both would be over-engineering one of them.
+   */
+  const [stateFilter, setStateFilter] = useState<CertificationDisplayState | "">("");
+  const [search, setSearch] = useState("");
 
   const fetchCertifications = useCallback(async () => {
     try {
@@ -312,7 +353,16 @@ export default function MyCertificationsPage() {
   };
 
   // Whatever needs the holder's action floats to the top.
-  const ordered = [...withState].sort((a, b) => {
+  const needle = search.trim().toLowerCase();
+  const visible = withState.filter((entry) => {
+    if (stateFilter && entry.state !== stateFilter) return false;
+    // Names are typed by whoever uploaded the certificate, so matching the
+    // capitalisation they happened to use would be a search that only works if
+    // you already know the answer.
+    return !needle || entry.cert.name.toLowerCase().includes(needle);
+  });
+
+  const ordered = [...visible].sort((a, b) => {
     const byUrgency = rank(a.state) - rank(b.state);
     if (byUrgency !== 0) return byUrgency;
     return (
@@ -525,14 +575,70 @@ export default function MyCertificationsPage() {
         </form>
       )}
 
+      {/*
+        Only shown once there is enough to sift. Two certificates do not need a
+        filter, and a control that can only ever do nothing invites a click that
+        changes nothing.
+      */}
+      {certifications.length > 2 && (
+        <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+          <select
+            aria-label="Status"
+            value={stateFilter}
+            onChange={(e) =>
+              setStateFilter(e.target.value as CertificationDisplayState | "")
+            }
+            // bg-background and text-foreground are the point: without them a
+            // native select renders light-on-light in dark mode.
+            className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground"
+          >
+            <option value="">Any status</option>
+            {CERT_FILTER_STATES.map((state) => (
+              <option key={state} value={state}>
+                {CERT_STATE_LABEL[state]}
+              </option>
+            ))}
+          </select>
+
+          <Input
+            aria-label="Search certifications"
+            placeholder="Search by name"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="h-9 flex-1 text-sm"
+          />
+
+          {(stateFilter || search) && (
+            <button
+              type="button"
+              onClick={() => {
+                setStateFilter("");
+                setSearch("");
+              }}
+              className={SECONDARY_BUTTON}
+            >
+              Clear
+            </button>
+          )}
+        </div>
+      )}
+
       {/* ── List ── */}
       {ordered.length === 0 ? (
         <EmptyState
           icon={ShieldCheck}
-          title="No certifications yet"
-          description="Add your qualifications here so managers can verify them. Once verified, you become eligible for tasks that require them."
+          title={
+            certifications.length > 0
+              ? "Nothing matches"
+              : "No certifications yet"
+          }
+          description={
+            certifications.length > 0
+              ? "None of your certifications match those filters."
+              : "Add your qualifications here so managers can verify them. Once verified, you become eligible for tasks that require them."
+          }
           action={
-            !formOpen ? (
+            !formOpen && certifications.length === 0 ? (
               <button
                 onClick={() => openForm()}
                 className="rounded-lg bg-gradient-to-r from-indigo-600 to-indigo-500 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:from-indigo-700 hover:to-indigo-600"

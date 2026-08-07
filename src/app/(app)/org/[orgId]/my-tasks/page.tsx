@@ -200,6 +200,13 @@ export default function MyTasksPage() {
   const [success, setSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busyIds, setBusyIds] = useState<string[]>([]);
+  /*
+   * Filtered in the page. This endpoint returns one member's assignments and
+   * the page already holds them all, so a round trip per keystroke would buy
+   * nothing. My History filters server-side because it is paged and its totals
+   * describe a range neither of which is true here.
+   */
+  const [search, setSearch] = useState("");
 
   useEffect(() => {
     fetchAssignments();
@@ -360,19 +367,24 @@ export default function MyTasksPage() {
 
   if (loading) return <PageLoading />;
 
-  const pending = assignments.filter(
+  const pendingAll = assignments.filter(
     // decline_requested belongs here, not in history: the member is still
     // rostered on the shift and the outcome is not decided. Filtering on
     // "pending" alone dropped the row from every group on the page, so a
     // full-time member who declined saw the shift simply disappear.
     (a) => a.status === "pending" || a.status === "decline_requested"
   );
-  const active = assignments.filter(
+  const activeAll = assignments.filter(
     (a) => a.status === "accepted" || a.status === "withdrawal_requested"
   );
-  const awaitingCompletion = assignments.filter((a) => a.status === "clocked_out");
 
-  const onShift = active.filter((a) => a.clockInTime && !a.clockOutTime).length;
+  /*
+   * The TILES count everything outstanding; the PANELS show what matches the
+   * search. Filtering the tiles too would make "3 to respond" become "1" while
+   * a search was set — a member could type a word and believe two shifts had
+   * gone away.
+   */
+  const onShift = activeAll.filter((a) => a.clockInTime && !a.clockOutTime).length;
 
   /*
    * Everything still on the member's plate.
@@ -391,6 +403,28 @@ export default function MyTasksPage() {
   const live = assignments.filter(
     (a) => !["completed", "rejected", "withdrawn"].includes(a.status)
   );
+
+  /*
+   * Searched over title AND department, because "kitchen" is as likely a thing
+   * to type as "close" — a member with shifts in three departments is usually
+   * asking "what am I on in the bar this week".
+   */
+  const needle = search.trim().toLowerCase();
+  const matching = needle
+    ? live.filter(
+        (a) =>
+          a.task.title.toLowerCase().includes(needle) ||
+          (a.task.department?.name ?? "").toLowerCase().includes(needle)
+      )
+    : live;
+
+  const pending = matching.filter(
+    (a) => a.status === "pending" || a.status === "decline_requested"
+  );
+  const active = matching.filter(
+    (a) => a.status === "accepted" || a.status === "withdrawal_requested"
+  );
+  const awaitingCompletion = matching.filter((a) => a.status === "clocked_out");
 
   return (
     <div className="w-full">
@@ -422,14 +456,14 @@ export default function MyTasksPage() {
       <div className="mb-4 grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-3">
         <StatTile
           label="To respond"
-          value={pending.length}
+          value={pendingAll.length}
           detail="awaiting your answer"
           accentColour={STAT_ACCENT.amber}
-          valueColour={pending.length > 0 ? "text-amber-600 dark:text-amber-400" : ""}
+          valueColour={pendingAll.length > 0 ? "text-amber-600 dark:text-amber-400" : ""}
         />
         <StatTile
           label="Upcoming"
-          value={active.length}
+          value={activeAll.length}
           detail="shifts accepted"
           accentColour={STAT_ACCENT.indigo}
         />
@@ -450,6 +484,44 @@ export default function MyTasksPage() {
         that is what this page is about — the old check would have told them
         otherwise while showing them nothing.
       */}
+      {/*
+        Only once there is enough to sift through. A member with two shifts
+        does not need a search box, and an empty one on a phone costs a row of
+        screen for nothing.
+      */}
+      {live.length > 3 && (
+        <div className="mb-3 flex items-center gap-2">
+          <Input
+            aria-label="Search your shifts"
+            placeholder="Search by shift or department"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="h-9 text-sm"
+          />
+          {search && (
+            <button
+              type="button"
+              onClick={() => setSearch("")}
+              className={SECONDARY_BUTTON}
+            >
+              Clear
+            </button>
+          )}
+        </div>
+      )}
+
+      {/*
+        Nothing MATCHED is a different message from nothing outstanding — one is
+        about the search they just typed, the other about their week.
+      */}
+      {!error && live.length > 0 && matching.length === 0 && (
+        <EmptyState
+          title="Nothing matches"
+          description="No shifts on your plate match that search."
+          icon={Inbox}
+        />
+      )}
+
       {!error && live.length === 0 && (
         <EmptyState
           title="Nothing on your plate"

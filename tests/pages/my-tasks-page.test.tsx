@@ -15,7 +15,8 @@
  * shift.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
 import MyTasksPage from "@/app/(app)/org/[orgId]/my-tasks/page";
 
@@ -164,6 +165,105 @@ describe("what it has handed to My History", () => {
 
     const link = await screen.findByRole("link", { name: /finished with/i });
     expect(link).toHaveAttribute("href", "/org/org1/my-history");
+  });
+});
+
+describe("searching what is on the plate", () => {
+  /** Five live shifts, since the box only appears once there is enough to sift. */
+  function many() {
+    return [
+      assignment({ id: "a1", task: { ...assignment().task, title: "Saturday close", department: { name: "Kitchen" } } }),
+      assignment({ id: "a2", task: { ...assignment().task, title: "Sunday brunch", department: { name: "Kitchen" } } }),
+      assignment({ id: "a3", task: { ...assignment().task, title: "Friday bar", department: { name: "Bar" } } }),
+      assignment({ id: "a4", task: { ...assignment().task, title: "Monday prep", department: { name: "Kitchen" } } }),
+      assignment({ id: "a5", task: { ...assignment().task, title: "Tuesday close", department: { name: "Bar" } } }),
+    ];
+  }
+
+  /*
+   * A member with two shifts does not need a search box, and an empty one on a
+   * phone costs a row of screen for nothing.
+   */
+  it("stays hidden until there is enough to sift", async () => {
+    mockApi([assignment()]);
+    render(<MyTasksPage />);
+
+    await screen.findByText("Tonight's close");
+    expect(screen.queryByLabelText("Search your shifts")).not.toBeInTheDocument();
+  });
+
+  it("appears once there is", async () => {
+    mockApi(many());
+    render(<MyTasksPage />);
+
+    expect(await screen.findByLabelText("Search your shifts")).toBeInTheDocument();
+  });
+
+  it("narrows to matching shift names", async () => {
+    mockApi(many());
+    render(<MyTasksPage />);
+    await screen.findByText("Saturday close");
+
+    await userEvent.type(screen.getByLabelText("Search your shifts"), "brunch");
+
+    expect(screen.getByText("Sunday brunch")).toBeInTheDocument();
+    expect(screen.queryByText("Saturday close")).not.toBeInTheDocument();
+  });
+
+  /*
+   * Department as well as title. "What am I on in the bar this week" is as
+   * likely a question as "when was that close shift".
+   */
+  it("matches on department too", async () => {
+    mockApi(many());
+    render(<MyTasksPage />);
+    await screen.findByText("Friday bar");
+
+    await userEvent.type(screen.getByLabelText("Search your shifts"), "bar");
+
+    expect(screen.getByText("Friday bar")).toBeInTheDocument();
+    expect(screen.queryByText("Sunday brunch")).not.toBeInTheDocument();
+  });
+
+  it("ignores case", async () => {
+    mockApi(many());
+    render(<MyTasksPage />);
+    await screen.findByText("Saturday close");
+
+    await userEvent.type(screen.getByLabelText("Search your shifts"), "SATURDAY");
+
+    expect(screen.getByText("Saturday close")).toBeInTheDocument();
+  });
+
+  /*
+   * The tiles count what is outstanding; the panels show what matched. If the
+   * tiles followed the search, typing a word would make "5 to respond" read
+   * "1", and a member could believe four shifts had gone away.
+   */
+  it("leaves the tiles counting everything", async () => {
+    mockApi(many());
+    render(<MyTasksPage />);
+    await screen.findByText("Saturday close");
+
+    const tile = screen.getByText("To respond").closest("div")!;
+    expect(within(tile).getByText("5")).toBeInTheDocument();
+
+    await userEvent.type(screen.getByLabelText("Search your shifts"), "brunch");
+
+    expect(within(tile).getByText("5")).toBeInTheDocument();
+  });
+
+  // Nothing matched is a claim about the search; nothing outstanding is a claim
+  // about their week.
+  it("says nothing matched rather than nothing to do", async () => {
+    mockApi(many());
+    render(<MyTasksPage />);
+    await screen.findByText("Saturday close");
+
+    await userEvent.type(screen.getByLabelText("Search your shifts"), "zzzz");
+
+    expect(screen.getByText(/Nothing matches/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Nothing on your plate/i)).not.toBeInTheDocument();
   });
 });
 
