@@ -62,8 +62,18 @@ export const OUTCOME_NOTE: Record<ShiftOutcome, string> = {
   declined: "You turned this shift down.",
   withdrawn: "You came off this shift after accepting it.",
   cancelled: "The shift was cancelled after you were rostered on.",
+  /*
+   * Says what is true and stops. The first version added "ask your manager to
+   * correct it", which points at a feature that does not exist — there is no
+   * way for anybody to amend a clock time. Telling somebody to request an
+   * impossible fix is worse than telling them nothing: they go and ask, and the
+   * manager finds out the same way.
+   *
+   * Amending clock times is on the backlog. When it lands, this line is where
+   * the route to it belongs.
+   */
   not_clocked_out:
-    "Clocked in but never out, so these hours are not in your total. Ask your manager to correct it.",
+    "Clocked in but never out, so these hours are not counted in your total.",
   no_clock_in: "No clock-in was recorded, so this shift is not in your hours.",
   unanswered: "The shift passed without an answer either way.",
 };
