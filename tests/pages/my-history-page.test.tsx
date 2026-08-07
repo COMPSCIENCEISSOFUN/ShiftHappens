@@ -83,6 +83,10 @@ function payload(overrides: Record<string, unknown> = {}) {
     pageSize: 20,
     total: 1,
     totalPages: 1,
+    departments: [
+      { id: "d1", name: "Front of House", color: "#6366f1" },
+      { id: "d2", name: "Kitchen", color: "#ef4444" },
+    ],
     summary: SUMMARY,
     ...overrides,
   };
@@ -97,12 +101,17 @@ afterEach(() => {
 });
 
 describe("drawing what the route returns", () => {
+  /*
+   * Scoped to the row. "Worked" is also an option in the outcome filter, and an
+   * unscoped query would pass on a page whose list failed to render at all.
+   */
   it("lists a shift with its title and outcome", async () => {
     mockApi(payload());
     render(<MyHistoryPage />);
 
-    expect(await screen.findByText("Saturday close")).toBeInTheDocument();
-    expect(screen.getByText("Worked")).toBeInTheDocument();
+    const title = await screen.findByText("Saturday close");
+    const entry = title.closest("div.px-4") as HTMLElement;
+    expect(within(entry).getByText("Worked")).toBeInTheDocument();
   });
 
   it("shows the hours the row carries", async () => {
@@ -112,11 +121,14 @@ describe("drawing what the route returns", () => {
     expect(await screen.findByText("8.0h")).toBeInTheDocument();
   });
 
+  // Scoped for the same reason: the department filter lists it too.
   it("names the department", async () => {
     mockApi(payload());
     render(<MyHistoryPage />);
 
-    expect(await screen.findByText("Front of House")).toBeInTheDocument();
+    const title = await screen.findByText("Saturday close");
+    const entry = title.closest("div.px-4") as HTMLElement;
+    expect(within(entry).getByText("Front of House")).toBeInTheDocument();
   });
 
   /*
@@ -328,6 +340,121 @@ describe("the range filter", () => {
   });
 });
 
+describe("narrowing the list", () => {
+  it("asks the server for the chosen outcome", async () => {
+    mockApi(payload());
+    render(<MyHistoryPage />);
+    await screen.findByText("Saturday close");
+
+    await userEvent.selectOptions(screen.getByLabelText("Outcome"), "declined");
+
+    await waitFor(() =>
+      expect(requested[requested.length - 1]).toContain("outcome=declined")
+    );
+  });
+
+  it("asks for the chosen department", async () => {
+    mockApi(payload());
+    render(<MyHistoryPage />);
+    await screen.findByText("Saturday close");
+
+    await userEvent.selectOptions(screen.getByLabelText("Department"), "d2");
+
+    await waitFor(() =>
+      expect(requested[requested.length - 1]).toContain("department=d2")
+    );
+  });
+
+  /*
+   * One department is a label, not a filter — a control that can only ever do
+   * nothing is worse than no control, because it invites a click.
+   */
+  it("hides the department filter when there is only one", async () => {
+    mockApi(payload({ departments: [{ id: "d1", name: "Front of House", color: null }] }));
+    render(<MyHistoryPage />);
+
+    await screen.findByText("Saturday close");
+    expect(screen.queryByLabelText("Department")).not.toBeInTheDocument();
+  });
+
+  /*
+   * Submitted, not typed. A request per keystroke would be six round trips to
+   * spell "Saturday", each recomputing unpaged totals over the whole range,
+   * with the answers free to arrive out of order.
+   */
+  it("does not search on every keystroke", async () => {
+    mockApi(payload());
+    render(<MyHistoryPage />);
+    await screen.findByText("Saturday close");
+
+    const before = requested.length;
+    await userEvent.type(screen.getByLabelText("Search shifts"), "Saturday");
+
+    expect(requested.length).toBe(before);
+  });
+
+  it("searches when the form is submitted", async () => {
+    mockApi(payload());
+    render(<MyHistoryPage />);
+    await screen.findByText("Saturday close");
+
+    await userEvent.type(screen.getByLabelText("Search shifts"), "Saturday{Enter}");
+
+    await waitFor(() =>
+      expect(requested[requested.length - 1]).toContain("search=Saturday")
+    );
+  });
+
+  /*
+   * Every control resets the page. Staying on page 4 of a set that now has two
+   * would show an empty list under a total saying otherwise, and the reader
+   * would blame the filter rather than the pager.
+   */
+  it("returns to the first page when a filter changes", async () => {
+    mockApi(payload({ total: 45, totalPages: 3 }));
+    render(<MyHistoryPage />);
+    await screen.findByText("Saturday close");
+
+    await userEvent.click(screen.getByRole("button", { name: /Next/ }));
+    await waitFor(() => expect(requested[requested.length - 1]).toContain("page=2"));
+
+    await userEvent.selectOptions(screen.getByLabelText("Outcome"), "worked");
+
+    await waitFor(() =>
+      expect(requested[requested.length - 1]).toContain("page=1")
+    );
+  });
+
+  it("offers a way back once something is filtered", async () => {
+    mockApi(payload());
+    render(<MyHistoryPage />);
+    await screen.findByText("Saturday close");
+
+    expect(screen.queryByRole("button", { name: /clear filters/i })).not.toBeInTheDocument();
+
+    await userEvent.selectOptions(screen.getByLabelText("Outcome"), "declined");
+
+    expect(
+      await screen.findByRole("button", { name: /clear filters/i })
+    ).toBeInTheDocument();
+  });
+
+  it("drops every filter when cleared", async () => {
+    mockApi(payload());
+    render(<MyHistoryPage />);
+    await screen.findByText("Saturday close");
+
+    await userEvent.selectOptions(screen.getByLabelText("Outcome"), "declined");
+    await userEvent.click(await screen.findByRole("button", { name: /clear filters/i }));
+
+    await waitFor(() => {
+      const last = requested[requested.length - 1];
+      expect(last).not.toContain("outcome=");
+      expect(last).not.toContain("search=");
+    });
+  });
+});
+
 describe("when there is nothing to show", () => {
   it("says so rather than rendering an empty panel", async () => {
     mockApi(payload({ rows: [], total: 0 }));
@@ -341,6 +468,21 @@ describe("when there is nothing to show", () => {
    * on a 30-day range is a claim about the member; "none in this period" is a
    * claim about the filter, and only one of them is true.
    */
+  /*
+   * A different claim from "you have worked no shifts". Telling somebody their
+   * record is empty when in fact their filters are narrow reads as the system
+   * having lost their history.
+   */
+  it("blames the filters when filters are set", async () => {
+    mockApi(payload({ rows: [], total: 0 }));
+    render(<MyHistoryPage />);
+    await screen.findByText(/Nothing here yet/i);
+
+    await userEvent.selectOptions(screen.getByLabelText("Outcome"), "declined");
+
+    expect(await screen.findByText(/Nothing matches/i)).toBeInTheDocument();
+  });
+
   it("suggests a wider range when one is set", async () => {
     mockApi(payload({ rows: [], total: 0 }));
     render(<MyHistoryPage />);

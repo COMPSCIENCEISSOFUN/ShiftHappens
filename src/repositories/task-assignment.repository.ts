@@ -12,7 +12,104 @@ import { prisma } from "@/lib/prisma";
 import {
   occupyingStatusFilter,
   RELEASED_STATUSES,
+  WORKED_STATUSES,
 } from "@/lib/assignment-status";
+import type { ShiftOutcome } from "@/lib/shift-outcome";
+
+
+/** What a caller may narrow a member's history by. */
+export interface HistoryFilters {
+  from?: Date;
+  to?: Date;
+  departmentId?: string;
+  search?: string;
+  outcome?: ShiftOutcome;
+}
+
+/*
+ * `shiftOutcome` decided in application code; this decides the same thing in
+ * SQL. Two implementations of one rule, which is a drift risk worth naming.
+ *
+ * They are not shared, and could not easily be: `shift-outcome.ts` is imported
+ * by the browser, and giving it Prisma types would drag the server's client
+ * into the page bundle. The alternative — classifying in application code —
+ * would mean fetching the whole history to filter it, which breaks paging and
+ * makes the totals describe a different set of rows than the list.
+ *
+ * So instead of sharing the code, the suite proves the two agree:
+ * `shift-history-filters.test.ts` filters by every outcome in turn, classifies
+ * each returned row with `shiftOutcome`, and asserts the counts partition the
+ * unfiltered total exactly. A disagreement between these two definitions cannot
+ * survive that.
+ */
+
+/** Worked: a terminal worked status, or a clock-out however the row is marked. */
+const WORKED_WHERE = {
+  OR: [
+    { status: { in: [...WORKED_STATUSES] } },
+    { clockOutTime: { not: null } },
+  ],
+};
+
+/** Its exact negation, needed by every outcome below `worked` in the order. */
+const NOT_WORKED_WHERE = {
+  status: { notIn: [...WORKED_STATUSES] },
+  clockOutTime: null,
+};
+
+/**
+ * The precedence in `shiftOutcome` is the whole content of that function, so it
+ * is the whole content of this one too: each outcome excludes everything that
+ * outranks it. Without those exclusions the filters would overlap — a cancelled
+ * shift somebody worked would come back under both "Worked" and "Cancelled",
+ * and the partition test is what makes that impossible to ship.
+ */
+function outcomeWhere(outcome: ShiftOutcome) {
+  const notReleased = { status: { notIn: ["rejected", "withdrawn"] } };
+  const notCancelled = { task: { status: { not: "cancelled" } } };
+
+  switch (outcome) {
+    case "worked":
+      return WORKED_WHERE;
+    case "declined":
+      return { ...NOT_WORKED_WHERE, status: "rejected" };
+    case "withdrawn":
+      return { ...NOT_WORKED_WHERE, status: "withdrawn" };
+    case "cancelled":
+      return {
+        AND: [NOT_WORKED_WHERE, notReleased, { task: { status: "cancelled" } }],
+      };
+    case "not_clocked_out":
+      return {
+        AND: [
+          NOT_WORKED_WHERE,
+          notReleased,
+          notCancelled,
+          { clockInTime: { not: null } },
+        ],
+      };
+    case "unanswered":
+      return {
+        AND: [
+          NOT_WORKED_WHERE,
+          notReleased,
+          notCancelled,
+          { clockInTime: null },
+          { status: { in: ["pending", "decline_requested"] } },
+        ],
+      };
+    case "no_clock_in":
+      return {
+        AND: [
+          NOT_WORKED_WHERE,
+          notReleased,
+          notCancelled,
+          { clockInTime: null },
+          { status: { notIn: ["pending", "decline_requested"] } },
+        ],
+      };
+  }
+}
 
 export class TaskAssignmentRepository {
   /** Creates a new task assignment with pending status */
@@ -558,7 +655,7 @@ export class TaskAssignmentRepository {
    */
   private historyWhere(
     membershipId: string,
-    options: { from?: Date; to?: Date },
+    options: HistoryFilters,
     now: Date
   ) {
     /*
@@ -582,6 +679,31 @@ export class TaskAssignmentRepository {
           ]
         : [];
 
+    /*
+     * Department and free text are ordinary conditions; they go in the same
+     * `AND` for the same reason the range does.
+     *
+     * `mode: "insensitive"` because the member typing here is looking for a
+     * shift they remember, not running a query. Making them match the
+     * capitalisation a manager used when creating it would be a search that
+     * works only if you already know the answer.
+     */
+    const department = options.departmentId
+      ? [{ task: { departmentId: options.departmentId } }]
+      : [];
+
+    const search = options.search?.trim()
+      ? [
+          {
+            task: {
+              title: { contains: options.search.trim(), mode: "insensitive" as const },
+            },
+          },
+        ]
+      : [];
+
+    const outcome = options.outcome ? [outcomeWhere(options.outcome)] : [];
+
     return {
       membershipId,
       OR: [
@@ -589,7 +711,7 @@ export class TaskAssignmentRepository {
         { status: { in: [...RELEASED_STATUSES] } },
         { task: { status: "cancelled" } },
       ],
-      AND: range,
+      AND: [...range, ...department, ...search, ...outcome],
     };
   }
 
@@ -607,7 +729,7 @@ export class TaskAssignmentRepository {
    */
   async findHistoryForMember(
     membershipId: string,
-    options: { from?: Date; to?: Date; take: number; skip: number },
+    options: HistoryFilters & { take: number; skip: number },
     now: Date = new Date()
   ) {
     const where = this.historyWhere(membershipId, options, now);
@@ -645,6 +767,41 @@ export class TaskAssignmentRepository {
   }
 
   /**
+   * The departments this member has actually worked in, for the filter's list.
+   *
+   * Not from `GET /departments` — that endpoint is manager-only, and widening
+   * it so a staff member can populate a dropdown would trade a permission
+   * boundary for a convenience. This is the member's own history either way.
+   *
+   * Computed over the DATE RANGE only, deliberately ignoring the department,
+   * outcome and search filters. A list that narrowed as you used it would
+   * collapse to the one option you had chosen, leaving no way back to the
+   * others without clearing the filter you could no longer see.
+   */
+  async historyDepartments(
+    membershipId: string,
+    options: { from?: Date; to?: Date },
+    now: Date = new Date()
+  ) {
+    const rows = await prisma.taskAssignment.findMany({
+      where: this.historyWhere(membershipId, options, now),
+      select: {
+        task: {
+          select: { department: { select: { id: true, name: true, color: true } } },
+        },
+      },
+      distinct: ["taskId"],
+    });
+
+    const seen = new Map<string, { id: string; name: string; color: string | null }>();
+    for (const row of rows) {
+      const d = row.task.department;
+      if (d && !seen.has(d.id)) seen.set(d.id, d);
+    }
+    return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  /**
    * The same rows, reduced to the columns the totals need.
    *
    * Unpaged on purpose. Deriving the totals from the page would make "12
@@ -654,7 +811,7 @@ export class TaskAssignmentRepository {
    */
   async summariseHistoryForMember(
     membershipId: string,
-    options: { from?: Date; to?: Date },
+    options: HistoryFilters,
     now: Date = new Date()
   ) {
     return prisma.taskAssignment.findMany({

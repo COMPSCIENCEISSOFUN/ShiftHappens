@@ -36,9 +36,11 @@ import {
   ChevronRight,
   History,
   Inbox,
+  Search,
   Star,
 } from "lucide-react";
 
+import { Input } from "@/components/ui/input";
 import { Panel } from "@/components/ui/panel";
 import { PageLoading } from "@/components/ui/page-loading";
 import { AlertBanner } from "@/components/ui/alert-banner";
@@ -46,7 +48,12 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { StatTile, STAT_ACCENT } from "@/components/ui/stat-tile";
 import { SECONDARY_BUTTON } from "@/components/ui/button-styles";
-import { OUTCOME_LABEL, OUTCOME_NOTE, type ShiftOutcome } from "@/lib/shift-outcome";
+import {
+  OUTCOME_LABEL,
+  OUTCOME_NOTE,
+  SHIFT_OUTCOMES,
+  type ShiftOutcome,
+} from "@/lib/shift-outcome";
 import { reasonLabel } from "@/lib/decline-reasons";
 import { ShiftRating } from "@/components/tasks/shift-rating";
 import { cn } from "@/lib/utils";
@@ -80,6 +87,8 @@ interface HistoryRow {
 
 interface HistoryResponse {
   rows: HistoryRow[];
+  /** Departments this member has worked in — see the repository. */
+  departments: { id: string; name: string; color: string | null }[];
   page: number;
   pageSize: number;
   total: number;
@@ -257,6 +266,18 @@ export default function MyHistoryPage() {
 
   const [data, setData] = useState<HistoryResponse | null>(null);
   const [range, setRange] = useState<RangeKey>("90");
+  const [outcome, setOutcome] = useState<ShiftOutcome | "">("");
+  const [department, setDepartment] = useState("");
+  /*
+   * Two states for the search box: what is typed, and what has been asked for.
+   *
+   * A request per keystroke would be six round trips to spell "Saturday", each
+   * recomputing unpaged totals over the whole range, with the answers free to
+   * arrive out of order. The box submits on Enter or on the button, so `search`
+   * only changes when the member has finished saying what they want.
+   */
+  const [searchDraft, setSearchDraft] = useState("");
+  const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -287,6 +308,9 @@ export default function MyHistoryPage() {
     if (days !== null) {
       query.set("from", new Date(Date.now() - days * 86_400_000).toISOString());
     }
+    if (outcome) query.set("outcome", outcome);
+    if (department) query.set("department", department);
+    if (search) query.set("search", search);
 
     void (async () => {
       try {
@@ -314,11 +338,12 @@ export default function MyHistoryPage() {
     return () => {
       cancelled = true;
     };
-  }, [orgId, range, page, reloadKey]);
+  }, [orgId, range, page, outcome, department, search, reloadKey]);
 
   if (loading && !data) return <PageLoading />;
 
   const summary = data?.summary;
+  const filtered = Boolean(outcome || department || search);
 
   return (
     <div className="space-y-6">
@@ -356,6 +381,98 @@ export default function MyHistoryPage() {
             {option.label}
           </button>
         ))}
+      </div>
+
+      {/*
+        Every control resets to page one. Staying on page 4 of a set that now
+        has two would show an empty list under a total saying otherwise — and
+        the reader would blame the filter rather than the pager.
+      */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+        <select
+          aria-label="Outcome"
+          value={outcome}
+          onChange={(e) => {
+            setLoading(true);
+            setOutcome(e.target.value as ShiftOutcome | "");
+            setPage(1);
+          }}
+          // bg-background and text-foreground are the point: without them a
+          // native select renders light-on-light in dark mode.
+          className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground"
+        >
+          <option value="">Any outcome</option>
+          {SHIFT_OUTCOMES.map((o) => (
+            <option key={o} value={o}>
+              {OUTCOME_LABEL[o]}
+            </option>
+          ))}
+        </select>
+
+        {/*
+          Only worth showing when there is a choice to make. One department is
+          not a filter, it is a label — and an organisation with a single
+          department would get a control that can only ever do nothing.
+        */}
+        {data && data.departments.length > 1 && (
+          <select
+            aria-label="Department"
+            value={department}
+            onChange={(e) => {
+              setLoading(true);
+              setDepartment(e.target.value);
+              setPage(1);
+            }}
+            className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground"
+          >
+            <option value="">All departments</option>
+            {data.departments.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name}
+              </option>
+            ))}
+          </select>
+        )}
+
+        <form
+          className="flex flex-1 items-center gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (searchDraft.trim() === search) return;
+            setLoading(true);
+            setSearch(searchDraft.trim());
+            setPage(1);
+          }}
+        >
+          <Input
+            aria-label="Search shifts"
+            placeholder="Search by shift name"
+            value={searchDraft}
+            onChange={(e) => setSearchDraft(e.target.value)}
+            className="h-9 text-sm"
+          />
+          <button type="submit" className={SECONDARY_BUTTON}>
+            <Search className="h-3.5 w-3.5" aria-hidden="true" />
+            Search
+          </button>
+        </form>
+
+        {(outcome || department || search) && (
+          <button
+            type="button"
+            className={SECONDARY_BUTTON}
+            onClick={() => {
+              setLoading(true);
+              setOutcome("");
+              setDepartment("");
+              setSearch("");
+              setSearchDraft("");
+              setPage(1);
+            }}
+          >
+            Clear filters
+          </button>
+        )}
       </div>
 
       {summary && (
@@ -432,6 +549,13 @@ export default function MyHistoryPage() {
           </Link>
         }
       >
+        {/*
+          Three empty states below, because three different things are true and
+          only one of them is about the member. "You have worked no shifts" is a
+          claim about their record; "nothing matches these filters" is a claim
+          about the controls they just set — and telling somebody the first when
+          the second is true reads as the system losing their history.
+        */}
         {data && data.rows.length > 0 ? (
           data.rows.map((row) => (
             <HistoryEntry
@@ -444,11 +568,13 @@ export default function MyHistoryPage() {
         ) : (
           <EmptyState
             icon={Inbox}
-            title="Nothing here yet"
+            title={filtered ? "Nothing matches" : "Nothing here yet"}
             description={
-              range === "all"
-                ? "Shifts appear here once they have finished, or once you turn one down."
-                : "No finished shifts in this period. Try a wider range."
+              filtered
+                ? "No shifts in this period match those filters. Try clearing one."
+                : range === "all"
+                  ? "Shifts appear here once they have finished, or once you turn one down."
+                  : "No finished shifts in this period. Try a wider range."
             }
           />
         )}

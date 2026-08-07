@@ -18,6 +18,7 @@
 import { reasonLabel } from "@/lib/decline-reasons";
 import { isFullTime } from "@/lib/role-config";
 import { shiftOutcome, workedHours } from "@/lib/shift-outcome";
+import type { HistoryFilters } from "@/repositories/task-assignment.repository";
 import { TaskAssignmentRepository } from "@/repositories/task-assignment.repository";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 import { NotificationService, NOTIFICATION_TYPES } from "@/services/notification.service";
@@ -640,7 +641,7 @@ export class TaskAssignmentService {
    */
   async getHistory(
     membershipId: string,
-    options: { from?: Date; to?: Date; page?: number; pageSize?: number } = {}
+    options: HistoryFilters & { page?: number; pageSize?: number } = {}
   ) {
     const pageSize = Math.min(Math.max(options.pageSize ?? 20, 1), 100);
     const page = Math.max(options.page ?? 1, 1);
@@ -649,15 +650,33 @@ export class TaskAssignmentService {
       throw new Error("The start of the range must come before the end");
     }
 
-    const range = { from: options.from, to: options.to };
+    /*
+     * One object, passed to both queries. The list is paged and the totals are
+     * not, so a filter reaching one and not the other would print "3 shifts, 11
+     * hours" above a list of one — the same page-versus-range failure the
+     * summary was built to avoid, arriving through a different door.
+     */
+    const range: HistoryFilters = {
+      from: options.from,
+      to: options.to,
+      departmentId: options.departmentId,
+      search: options.search,
+      outcome: options.outcome,
+    };
 
-    const [{ rows, total }, all] = await Promise.all([
+    const [{ rows, total }, all, departments] = await Promise.all([
       this.assignmentRepo.findHistoryForMember(membershipId, {
         ...range,
         take: pageSize,
         skip: (page - 1) * pageSize,
       }),
       this.assignmentRepo.summariseHistoryForMember(membershipId, range),
+      // Date range only — see the repository. The list of departments a member
+      // can pick from must not shrink as they pick.
+      this.assignmentRepo.historyDepartments(membershipId, {
+        from: options.from,
+        to: options.to,
+      }),
     ]);
 
     let hoursWorked = 0;
@@ -696,6 +715,7 @@ export class TaskAssignmentService {
         outcome: shiftOutcome(row),
         hoursWorked: workedHours(row),
       })),
+      departments,
       page,
       pageSize,
       total,

@@ -27,6 +27,7 @@ import { TaskAssignmentService } from "@/services/task-assignment.service";
 import { AccessService } from "@/services/access.service";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
 import { canBeRostered } from "@/lib/role-config";
+import { SHIFT_OUTCOMES, type ShiftOutcome } from "@/lib/shift-outcome";
 
 const assignmentService = new TaskAssignmentService();
 const accessService = new AccessService();
@@ -85,12 +86,32 @@ export async function GET(
       );
     }
 
+    /*
+     * An unrecognised outcome is dropped rather than refused.
+     *
+     * It reaches the route only from a stale bookmark or a hand-written URL,
+     * and the cost of the two answers is asymmetric: dropping it shows the
+     * member their whole history, while a 400 shows them an error page for a
+     * link they clicked. Neither is what they asked for; only one is useful.
+     * A wrong FILTER would be different — that would silently answer a
+     * different question — but an absent one is visibly the unfiltered view.
+     */
+    const outcomeParam = searchParams.get("outcome");
+    const outcome = SHIFT_OUTCOMES.includes(outcomeParam as ShiftOutcome)
+      ? (outcomeParam as ShiftOutcome)
+      : undefined;
+
     const pageParam = Number(searchParams.get("page") ?? "1");
     const sizeParam = Number(searchParams.get("pageSize") ?? "20");
 
     const history = await assignmentService.getHistory(membership.id, {
       from,
       to,
+      outcome,
+      departmentId: searchParams.get("department") || undefined,
+      // Trimmed and length-capped at the boundary. `contains` on an unbounded
+      // string is the caller choosing how much work the database does.
+      search: (searchParams.get("search") || "").trim().slice(0, 100) || undefined,
       // NaN would flow into Math.max and come back NaN, which Prisma rejects at
       // the driver with a message nobody can act on. A page number that is not
       // a number is page one.
