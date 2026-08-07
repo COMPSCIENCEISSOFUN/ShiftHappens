@@ -6,7 +6,7 @@
  * Any org member can manage their own availability.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { AvailabilityService } from "@/services/availability.service";
+import { AvailabilityService, WINDOW_LENGTH_ERROR } from "@/services/availability.service";
 import { setWeeklyAvailabilitySchema } from "@/lib/validations";
 import {
   getAuthenticatedUser,
@@ -88,7 +88,7 @@ export async function PUT(
     return NextResponse.json(schedule);
   } catch (error) {
     if (error instanceof Error) {
-      if (error.message.includes("End time")) {
+      if (error.message === WINDOW_LENGTH_ERROR) {
         return NextResponse.json({ error: error.message }, { status: 400 });
       }
       // A full-time member writing their own contracted days. 403 rather than

@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import {
   Building2,
   Briefcase,
+  CalendarClock,
   ShieldCheck,
   Sparkles,
   TrendingUp,
@@ -16,6 +17,7 @@ import {
   DEFAULT_EMPLOYMENT_TYPE,
   SYSTEM_ROLE_LABELS,
 } from "@/lib/role-config";
+import { ContractedDaysEditor } from "@/components/members/contracted-days-editor";
 import { SENIORITY_LEVELS, SENIORITY_LABEL, type SeniorityAssessment } from "@/lib/seniority";
 
 export interface DrawerMember {
@@ -54,6 +56,7 @@ export interface DrawerMember {
  * would not be.
  */
 export function MemberEditDrawer({
+  orgId,
   member,
   departments,
   customRoles,
@@ -62,6 +65,8 @@ export function MemberEditDrawer({
   canUpdateRole,
   canUpdateSeniority,
   canDeactivate,
+  canSetContractedDays,
+  onRequestAvailabilityReview,
   onUpdateRole,
   onUpdateEmploymentType,
   onUpdateCustomRole,
@@ -70,6 +75,7 @@ export function MemberEditDrawer({
   onToggleStatus,
   onClose,
 }: {
+  orgId: string;
   member: DrawerMember;
   departments: { id: string; name: string }[];
   customRoles: { id: string; displayLabel: string }[];
@@ -78,6 +84,10 @@ export function MemberEditDrawer({
   canUpdateRole: boolean;
   canUpdateSeniority: boolean;
   canDeactivate: boolean;
+  /** Whether this caller may set contracted days — `members:set_contracted_days`. */
+  canSetContractedDays: boolean;
+  /** The existing availability-review nudge, offered for casual members. */
+  onRequestAvailabilityReview?: (userId: string) => void;
   onUpdateRole: (userId: string, role: string) => void;
   onUpdateEmploymentType: (userId: string, empType: string) => void;
   onUpdateCustomRole: (userId: string, customRoleId: string | null) => void;
@@ -280,6 +290,33 @@ export function MemberEditDrawer({
                   </option>
                 ))}
               </select>
+            </div>
+          )}
+
+          {/* ── Contracted days ──────────────────────────────── */}
+          {/*
+            The screen for the endpoint that had none. `PUT
+            .../contracted-days` shipped tested and unreachable, so the only
+            way to set anybody's working days was curl — while full-time staff
+            had just lost the ability to set their own.
+
+            Rostering only, so admins are excluded: `canBeRostered` keeps
+            company_admins off shifts entirely, which makes a contract of days
+            for one a field with nothing to act on it.
+          */}
+          {canSetContractedDays && member.role !== "company_admin" && (
+            <div>
+              <span className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                <CalendarClock className="h-3.5 w-3.5" aria-hidden="true" />
+                Working days
+              </span>
+              <ContractedDaysEditor
+                orgId={orgId}
+                userId={member.user.id}
+                employmentType={member.employmentType}
+                memberName={member.user.name || member.user.email}
+                onRequestReview={onRequestAvailabilityReview}
+              />
             </div>
           )}
 

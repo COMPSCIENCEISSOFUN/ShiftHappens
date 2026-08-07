@@ -137,7 +137,11 @@ describe("newly guarded routes still work on an ACTIVE organisation", () => {
     asUser(tenant.staff.userId);
     const res = await postOverride(
       jsonReq("POST", {
-        date: "2026-08-01T00:00:00.000Z",
+        // Relative, not a literal. This was "2026-08-01", which sat in the
+        // future when it was written and quietly became the past — the route
+        // now refuses back-dated overrides, so a fixed date here is a test
+        // with an expiry date on it.
+        date: new Date(Date.now() + 7 * 86_400_000).toISOString(),
         isAvailable: false,
         reason: "Medical appointment",
       }),

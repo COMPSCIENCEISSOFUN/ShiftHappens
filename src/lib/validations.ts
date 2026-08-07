@@ -266,6 +266,25 @@ export const updateCompanySettingsSchema = z.object({
     hourLimitWarning: z.boolean().optional(),
     certificationExpiry: z.boolean().optional(),
   }).optional(),
+  /*
+   * How much each dimension counts when the engine ranks candidates.
+   *
+   * Bounded 0–100 per key here, but NOT required to total 100: ranking depends
+   * only on the ratio between them, so they are normalised at the point of use.
+   * Four sliders forced to sum to a constant make every adjustment an
+   * arithmetic problem for the person moving them.
+   *
+   * The two rules that need the merged object — "not all zero" and "no single
+   * dimension dominating" — live in the service, for the same reason the
+   * seniority thresholds do: a request sending one key must be checked against
+   * the three it left alone.
+   */
+  smartAllocationWeights: z.object({
+    workload: z.number().min(0).max(100),
+    availability: z.number().min(0).max(100),
+    certifications: z.number().min(0).max(100),
+    department: z.number().min(0).max(100),
+  }).optional(),
 });
 
 // ============================================================

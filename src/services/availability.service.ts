@@ -46,6 +46,18 @@ interface Commitment {
   scheduledStart: Date | null;
 }
 
+/**
+ * Rejected because the window has no length.
+ *
+ * Exported so the two routes that map it to a 400 match a value rather than a
+ * substring. They matched `includes("End time")` against the old message, and
+ * when the wording changed — narrowing "end must be after start" to "start and
+ * end cannot be the same" — both silently began returning 500 for a form
+ * mistake a user makes by leaving a picker alone. A constant makes that class
+ * of drift a compile error instead of a status code nobody notices.
+ */
+export const WINDOW_LENGTH_ERROR = "Start and end time cannot be the same";
+
 export class AvailabilityService {
   private availRepo = new AvailabilityRepository();
   private taskRepo = new TaskRepository();
@@ -131,10 +143,25 @@ export class AvailabilityService {
     return { requested: true };
   }
 
-  /** Sets availability for a single day of the week */
+  /**
+   * Sets availability for a single day of the week.
+   *
+   * ## A window may now wrap past midnight
+   *
+   * This refused `startTime >= endTime` outright, so a genuine night worker
+   * could not declare 22:00–06:00 — they had to split it across two days and
+   * hope both halves were read together. Only the SHIFT could wrap. The
+   * repository now reads a window that ends before it starts as running into
+   * the next morning, which is the same rule it already applied to shifts.
+   *
+   * EQUAL is still refused, and is the reason this is not simply the check
+   * removed: 09:00–09:00 is a window of no length. It is what an empty form or
+   * a mis-clicked time picker produces, and storing it would mean "available"
+   * for a period nobody can be rostered in.
+   */
   async setDayAvailability(membershipId: string, input: SetAvailabilityInput) {
-    if (input.isAvailable && input.startTime >= input.endTime) {
-      throw new Error("End time must be after start time");
+    if (input.isAvailable && input.startTime === input.endTime) {
+      throw new Error(WINDOW_LENGTH_ERROR);
     }
 
     return this.availRepo.setDayAvailability({
@@ -214,6 +241,33 @@ export class AvailabilityService {
    * behaviour changed depending on a field the person editing may not have
    * looked at. The audit entry records who did it either way.
    */
+  /**
+   * Another member's weekly pattern, for whoever may set it.
+   *
+   * `getWeeklySchedule` next door takes a membership id and answers for the
+   * caller's own row; there was no way to READ somebody else's, which made the
+   * setter unusable from a screen — an editor that cannot show the current
+   * value can only overwrite it blind.
+   *
+   * Same resolution and same scope rules as the setter, so a caller who may not
+   * write a member's pattern cannot read it either.
+   */
+  async getContractedDaysForUser(
+    organizationId: string,
+    userId: string,
+    departmentScope?: string[] | null
+  ) {
+    const membership = await this.membershipRepo.findByUserAndOrgIncludingInactive(
+      userId,
+      organizationId
+    );
+    if (!membership) throw new Error("Member not found");
+    if (!memberInScope(membership, departmentScope)) {
+      throw new Error("Member not found");
+    }
+    return this.availRepo.getWeeklySchedule(membership.id);
+  }
+
   async setContractedDaysForUser(
     organizationId: string,
     userId: string,
@@ -354,6 +408,26 @@ export class AvailabilityService {
      */
     if (needsApproval && input.isAvailable) {
       throw new Error("Contracted days are set by your organisation");
+    }
+
+    /*
+     * A date already past cannot change anything.
+     *
+     * `isAvailableAt` is only ever asked about a shift being scheduled, so an
+     * override for last Tuesday is read by nothing — and the form reported
+     * success for it, which is the worst of both: no effect, and no way to tell
+     * that from an effect. A full-timer could file leave for a day they had
+     * already worked and watch it sit in the manager's queue.
+     *
+     * Compared on the ORGANISATION's calendar day, not the server's.
+     * `overrideDateKey` is the same derivation the write and the read both use,
+     * so "today" here means the same day the roster means — without it, a
+     * request made at 07:00 in Singapore would be refused as yesterday's on a
+     * UTC host.
+     */
+    const requested = overrideDateKey(new Date(input.date));
+    if (requested < overrideDateKey(new Date())) {
+      throw new Error("That date has already passed");
     }
 
     const created = await this.withIneligibilityCheck(membershipId, () =>
@@ -637,6 +711,37 @@ export class AvailabilityService {
     }
     if (ownerMembershipId && override.membershipId !== ownerMembershipId) {
       throw new Error("Override not found");
+    }
+
+    /*
+     * A member may withdraw a request, not undo a decision.
+     *
+     * This checked nothing but ownership, so somebody could delete leave a
+     * manager had GRANTED, with nothing telling the manager who granted it. It
+     * fails in the safe direction — removing approved leave only ever makes
+     * them more available — but a decision could still be erased by the person
+     * it was made for.
+     *
+     * ## Why `reviewedById` and not `status === "approved"`
+     *
+     * The first version tested the status and was wrong, which the suite caught
+     * immediately: a CASUAL member's override is written `approved` the moment
+     * they save it, because their availability is an offer that binds at once.
+     * Testing the status would have locked every casual out of their own date
+     * overrides — taking back an offer is precisely what that endpoint is for.
+     *
+     * `reviewedById` is the fact that actually matters: somebody else made a
+     * decision on this row. It is null on every auto-approved casual override
+     * and set only when a manager answered a request.
+     *
+     * Scoped to the SELF path: `ownerMembershipId` is supplied only when a
+     * member is deleting their own row. The internal callers that pass nothing
+     * are cleanup paths that must stay unconditional.
+     */
+    if (ownerMembershipId && override.reviewedById) {
+      throw new Error(
+        "Approved leave can only be changed by a manager — ask them to reverse it."
+      );
     }
 
     return this.withIneligibilityCheck(override.membershipId, () =>

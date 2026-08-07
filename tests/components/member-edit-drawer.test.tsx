@@ -58,6 +58,7 @@ function renderDrawer(props: Partial<Parameters<typeof MemberEditDrawer>[0]> = {
   };
   render(
     <MemberEditDrawer
+      orgId="org1"
       member={member()}
       departments={[KITCHEN, BAR]}
       customRoles={[]}
@@ -66,6 +67,9 @@ function renderDrawer(props: Partial<Parameters<typeof MemberEditDrawer>[0]> = {
       canUpdateRole
       canUpdateSeniority
       canDeactivate
+      // Off by default: this file is about the controls the drawer has always
+      // had. The contracted-days panel fetches on mount and has its own tests.
+      canSetContractedDays={false}
       {...handlers}
       {...props}
     />

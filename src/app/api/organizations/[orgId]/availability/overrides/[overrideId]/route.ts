@@ -56,8 +56,15 @@ export async function DELETE(
     await availService.deleteOverride(overrideId, membership.id);
     return NextResponse.json({ success: true });
   } catch (error) {
-    if (error instanceof Error && error.message === "Override not found") {
-      return NextResponse.json({ error: error.message }, { status: 404 });
+    if (error instanceof Error) {
+      if (error.message === "Override not found") {
+        return NextResponse.json({ error: error.message }, { status: 404 });
+      }
+      // 409: the row exists and is theirs, but a manager's decision stands on
+      // it. Well-formed request, refused by state rather than by permission.
+      if (error.message.includes("only be changed by a manager")) {
+        return NextResponse.json({ error: error.message }, { status: 409 });
+      }
     }
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }

@@ -213,12 +213,32 @@ describe("the endpoint", () => {
     expect(res.status).toBe(404);
   });
 
-  it("400s on a day that runs backwards", async () => {
+  /*
+   * This asserted a 400 for 17:00–09:00, on the grounds that a day cannot run
+   * backwards. It can: that is a night shift, and refusing it meant a venue
+   * that closes after midnight could not contract anybody to work the closing
+   * shift. The check was narrowed to a window of NO length rather than deleted,
+   * so both halves are pinned here.
+   */
+  it("accepts a contracted day that runs past midnight", async () => {
     asUser(tenant.admin.userId);
     const res = await setContractedDays(
       jsonReq("PUT", {
         schedule: [
           { dayOfWeek: 1, startTime: "17:00", endTime: "09:00", isAvailable: true },
+        ],
+      }),
+      ctx({ orgId: tenant.orgId, userId: fullTimer.userId })
+    );
+    expect(res.status).toBe(200);
+  });
+
+  it("400s on a day of no length", async () => {
+    asUser(tenant.admin.userId);
+    const res = await setContractedDays(
+      jsonReq("PUT", {
+        schedule: [
+          { dayOfWeek: 1, startTime: "09:00", endTime: "09:00", isAvailable: true },
         ],
       }),
       ctx({ orgId: tenant.orgId, userId: fullTimer.userId })

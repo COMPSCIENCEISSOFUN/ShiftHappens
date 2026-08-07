@@ -22,6 +22,16 @@ import { dayOfWeekInTimeZone, localDateInTimeZone } from "@/lib/timezone";
 const END_OF_DAY = "23:59";
 
 /**
+ * Does this window run past midnight?
+ *
+ * The same test `isAvailableAt` applies to a SHIFT, stated once so a window and
+ * a shift cannot come to disagree about what wrapping means.
+ */
+export function wraps(startTime: string, endTime: string): boolean {
+  return endTime < startTime;
+}
+
+/**
  * The storage key for a date override.
  *
  * An override is about a CALENDAR DAY, not an instant, so it is stored at UTC
@@ -356,8 +366,32 @@ export class AvailabilityRepository {
       return { available: false, reason: "Marked unavailable for this day" };
     }
 
-    // Check if task time falls within available hours
-    if (startTime < schedule.startTime || endTime > schedule.endTime) {
+    /*
+     * Does the requested slice fall inside the declared window?
+     *
+     * A window that ENDS BEFORE IT STARTS wraps past midnight — 22:00–06:00 is
+     * a night worker's shift, and refusing to store one meant they had to split
+     * it across two days themselves and hope both halves were interpreted
+     * together. Only the SHIFT could wrap; the window could not.
+     *
+     * The wrapped window covers two disjoint ranges on this calendar day: from
+     * the start to the end of the day, and from the start of the day to the
+     * end. The caller has already split a wrapping SHIFT into per-day slices
+     * (see `isAvailableAt`), so each slice sits wholly within one of those two
+     * ranges or in neither.
+     */
+    const covers = wraps(schedule.startTime, schedule.endTime)
+      ? (from: string, to: string) =>
+          // Late slice: inside the evening half. Early slice: inside the
+          // morning half. `to <= END_OF_DAY` is not tested because every slice
+          // this method receives already ends within the day.
+          (from >= schedule.startTime && to > from) ||
+          (to <= schedule.endTime && from < to) ||
+          (from >= schedule.startTime && to <= schedule.endTime)
+      : (from: string, to: string) =>
+          from >= schedule.startTime && to <= schedule.endTime;
+
+    if (!covers(startTime, endTime)) {
       return {
         available: false,
         reason: `Available ${schedule.startTime}–${schedule.endTime} only`,
