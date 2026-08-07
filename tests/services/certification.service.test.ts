@@ -21,6 +21,7 @@ import { OrganizationRepository } from "@/repositories/organization.repository";
 import { UserRepository } from "@/repositories/user.repository";
 import { prisma } from "@/lib/prisma";
 import { cleanDatabase } from "../helpers/cleanup";
+import { eventuallyAtLeast } from "../helpers/settle";
 
 const certService = new CertificationService();
 const orgRepo = new OrganizationRepository();
@@ -99,9 +100,6 @@ function notificationsFor(userId: string, type: string) {
   return prisma.notification.findMany({ where: { userId, type } });
 }
 
-/** Notifications are fire-and-forget, so give them a moment to land. */
-const settle = () => new Promise((r) => setTimeout(r, 200));
-
 describe("CertificationService", () => {
   describe("create", () => {
     it("creates a certification with pending status", async () => {
@@ -131,11 +129,10 @@ describe("CertificationService", () => {
     it("notifies the holder", async () => {
       const cert = await submit();
       await certService.updateStatus(cert.id, orgId, "verified", adminUserId);
-      await settle();
-
-      const notes = await notificationsFor(
-        staffUserId,
-        NOTIFICATION_TYPES.CERT_VERIFIED
+      // Polled rather than slept — the notify call is fire-and-forget,
+      // so a fixed pause is a guess about how fast the machine is.
+      const notes = await eventuallyAtLeast(() =>
+        notificationsFor(staffUserId, NOTIFICATION_TYPES.CERT_VERIFIED)
       );
       expect(notes).toHaveLength(1);
       expect(notes[0].entityId).toBe(cert.id);
@@ -193,11 +190,10 @@ describe("CertificationService", () => {
         rejectionReason: "certificate_expired",
         rejectionNotes: "Lapsed in 2024.",
       });
-      await settle();
-
-      const notes = await notificationsFor(
-        staffUserId,
-        NOTIFICATION_TYPES.CERT_REJECTED
+      // Polled rather than slept — the notify call is fire-and-forget,
+      // so a fixed pause is a guess about how fast the machine is.
+      const notes = await eventuallyAtLeast(() =>
+        notificationsFor(staffUserId, NOTIFICATION_TYPES.CERT_REJECTED)
       );
       expect(notes).toHaveLength(1);
       // The readable label, not the enum value — the employee has to act on it.
@@ -261,11 +257,10 @@ describe("CertificationService", () => {
       await certService.revoke(cert.id, orgId, adminUserId, {
         rejectionReason: "not_recognised",
       });
-      await settle();
-
-      const notes = await notificationsFor(
-        staffUserId,
-        NOTIFICATION_TYPES.CERT_REJECTED
+      // Polled rather than slept — the notify call is fire-and-forget,
+      // so a fixed pause is a guess about how fast the machine is.
+      const notes = await eventuallyAtLeast(() =>
+        notificationsFor(staffUserId, NOTIFICATION_TYPES.CERT_REJECTED)
       );
       expect(notes.some((n) => n.title === "Certification revoked")).toBe(true);
     });

@@ -8,6 +8,7 @@ import { OrganizationService } from "@/services/organization.service";
 import { UserRepository } from "@/repositories/user.repository";
 import { prisma } from "@/lib/prisma";
 import { cleanDatabase } from "../helpers/cleanup";
+import { eventuallyAtLeast, pauseForAbsence } from "../helpers/settle";
 
 const orgService = new OrganizationService();
 const userRepo = new UserRepository();
@@ -208,15 +209,13 @@ describe("OrganizationService", () => {
         testUser.id
       );
 
-      // Wait briefly for fire-and-forget audit log
-      await new Promise((r) => setTimeout(r, 200));
-
-      const logs = await prisma.auditLog.findMany({
-        where: {
-          organizationId: org.id,
-          action: "organization.updated",
-        },
-      });
+      // Polled, not slept: the audit write is fire-and-forget, so there is
+      // nothing to await and a fixed sleep is a guess about the machine.
+      const logs = await eventuallyAtLeast(() =>
+        prisma.auditLog.findMany({
+          where: { organizationId: org.id, action: "organization.updated" },
+        })
+      );
 
       expect(logs).toHaveLength(1);
       expect(logs[0].userId).toBe(testUser.id);
@@ -231,7 +230,8 @@ describe("OrganizationService", () => {
 
       await orgService.updateOrganization(org.id, {}, testUser.id);
 
-      await new Promise((r) => setTimeout(r, 200));
+      // Absence, so this has to be a pause — see helpers/settle.
+      await pauseForAbsence();
 
       const logs = await prisma.auditLog.findMany({
         where: {

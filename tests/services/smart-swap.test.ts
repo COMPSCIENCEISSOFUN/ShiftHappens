@@ -11,9 +11,20 @@ import { prisma } from "@/lib/prisma";
 import { cleanDatabase } from "../helpers/cleanup";
 import bcrypt from "bcryptjs";
 import { atHourSgt, nextMondaySgt, nextSundaySgt } from "../helpers/time";
+import { eventuallyMatching, pauseForAbsence } from "../helpers/settle";
 
 const taskService = new TaskService();
 const notificationRepo = new NotificationRepository();
+
+/**
+ * Notification titles as one string.
+ *
+ * A string, not an array: Vitest abbreviates a failed array match to
+ * `[ Array(1) ]`, which hides the one thing worth seeing.
+ */
+function titlesOf(notifications: { title: string }[]): string {
+  return notifications.length ? notifications.map((n) => n.title).join(" | ") : "(none)";
+}
 
 let orgId: string;
 let adminUserId: string;
@@ -106,14 +117,24 @@ describe("Smart-Swap", () => {
     // Cancel one — task becomes understaffed (1/2)
     await taskService.cancelAssignment(a1.id, orgId, adminUserId);
 
-    // Wait for fire-and-forget notification
-    await new Promise((r) => setTimeout(r, 500));
+    /*
+     * Polled, not slept. `suggestReplacement` is fired with `void` so there is
+     * nothing to await, and the fixed 500ms this used to wait was a guess about
+     * the machine: 83ms of work on the CI sandbox, and a failure on a Windows
+     * laptop straight after a build.
+     */
+    const notifications = await eventuallyMatching(
+      () => notificationRepo.findByUserId(adminUserId, orgId),
+      (n) => n.title === "Smart swap — replacement suggested"
+    );
 
-    const notifications = await notificationRepo.findByUserId(adminUserId, orgId);
-    expect(notifications.length).toBeGreaterThanOrEqual(1);
+    // Asserted against the titles JOINED INTO A STRING, so the failure names
+    // what did arrive. `expect(found).toBeDefined()` could only ever report
+    // `undefined`, and asserting on the array prints `[ Array(1) ]` — Vitest
+    // truncates it, which loses exactly the information this is here for.
+    expect(titlesOf(notifications)).toContain("Smart swap — replacement suggested");
 
     const swapNotif = notifications.find((n) => n.title === "Smart swap — replacement suggested");
-    expect(swapNotif).toBeDefined();
     expect(swapNotif!.message).toContain("Kitchen Prep");
     expect(swapNotif!.message).toContain("needs 1 more");
   });
@@ -144,7 +165,8 @@ describe("Smart-Swap", () => {
     // Cancel one — still has 1/1, not understaffed
     await taskService.cancelAssignment(a1.id, orgId, adminUserId);
 
-    await new Promise((r) => setTimeout(r, 500));
+    // Absence cannot be polled for — see the caveat in helpers/settle.
+    await pauseForAbsence(500);
 
     const notifications = await notificationRepo.findByUserId(adminUserId, orgId);
     const swapNotif = notifications.find((n) => n.title === "Smart swap — replacement suggested");
@@ -173,11 +195,23 @@ describe("Smart-Swap", () => {
 
     await taskService.cancelAssignment(a1.id, orgId, adminUserId);
 
-    await new Promise((r) => setTimeout(r, 500));
+    const notifications = await eventuallyMatching(
+      () => notificationRepo.findByUserId(adminUserId, orgId),
+      (n) => n.title === "Staff unassigned — no replacements"
+    );
 
-    const notifications = await notificationRepo.findByUserId(adminUserId, orgId);
+    /*
+     * The assertion that failed on Darryn's machine was `expect(noReplace)
+     * .toBeDefined()`, which reports `undefined` and nothing else. Two very
+     * different faults produce it: the notification had not landed yet, or a
+     * replacement WAS found and "Smart swap — replacement suggested" arrived
+     * instead — which would mean somebody was eligible on a Sunday nobody has
+     * availability for. Naming the titles distinguishes them in the failure
+     * message rather than in a debugging session.
+     */
+    expect(titlesOf(notifications)).toContain("Staff unassigned — no replacements");
+
     const noReplace = notifications.find((n) => n.title === "Staff unassigned — no replacements");
-    expect(noReplace).toBeDefined();
     expect(noReplace!.message).toContain("Sunday Task");
   });
 

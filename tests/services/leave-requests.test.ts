@@ -27,6 +27,7 @@ import { AvailabilityRepository } from "@/repositories/availability.repository";
 import { prisma } from "@/lib/prisma";
 import { cleanDatabase } from "../helpers/cleanup";
 import { createTenant, type Tenant } from "../helpers/fixtures";
+import { eventually, pauseForAbsence } from "../helpers/settle";
 
 const service = new AvailabilityService();
 const repo = new AvailabilityRepository();
@@ -338,7 +339,8 @@ describe("who gets told", () => {
     });
 
     await askForLeave(fullTimer);
-    await new Promise((r) => setTimeout(r, 150)); // the fan-out is fire-and-forget
+    // Absence, so this has to be a pause — see helpers/settle.
+    await pauseForAbsence(300);
 
     const theirs = await prisma.notification.count({
       where: { userId: outsider.id, type: "leave_requested" },
@@ -350,11 +352,14 @@ describe("who gets told", () => {
   // can approve anything and must always hear about it.
   it("always notifies an admin", async () => {
     await askForLeave(fullTimer);
-    await new Promise((r) => setTimeout(r, 150));
 
-    const theirs = await prisma.notification.count({
-      where: { userId: tenant.admin.userId, type: "leave_requested" },
-    });
+    const theirs = await eventually(
+      () =>
+        prisma.notification.count({
+          where: { userId: tenant.admin.userId, type: "leave_requested" },
+        }),
+      (count) => count >= 1
+    );
     expect(theirs).toBe(1);
   });
 });

@@ -14,6 +14,7 @@ import { ReportingService } from "@/services/reporting.service";
 import { prisma } from "@/lib/prisma";
 import { cleanDatabase } from "../helpers/cleanup";
 import { createTenant, type Tenant } from "../helpers/fixtures";
+import { pauseForAbsence } from "../helpers/settle";
 
 const assignments = new TaskAssignmentService();
 const reporting = new ReportingService();
@@ -373,8 +374,9 @@ describe("rating a shift", () => {
     const high = await workedShift();
     await assignments.rate(high.id, tenant.staff.membershipId, 5);
 
-    // Fire-and-forget; the notify call is not awaited by the service.
-    await new Promise((r) => setTimeout(r, 150));
+    // Asserting the notification does NOT exist, so this is a pause rather
+    // than a poll — see helpers/settle.
+    await pauseForAbsence(300);
 
     const notifications = await prisma.notification.findMany({
       where: { userId: tenant.admin.userId, type: "shift_rated_low" },

@@ -11,6 +11,7 @@ import { OrganizationRepository } from "@/repositories/organization.repository";
 import { UserRepository } from "@/repositories/user.repository";
 import { prisma } from "@/lib/prisma";
 import { cleanDatabase } from "../helpers/cleanup";
+import { eventuallyAtLeast } from "../helpers/settle";
 
 const userMgmtService = new UserManagementService();
 const deptRepo = new DepartmentRepository();
@@ -838,16 +839,19 @@ describe("UserManagementService", () => {
         adminUserId
       );
 
-      // Wait for fire-and-forget audit logs
-      await new Promise((r) => setTimeout(r, 200));
-
-      const logs = await prisma.auditLog.findMany({
-        where: {
-          organizationId: orgId,
-          action: "member.invited",
-          details: { path: ["method"], equals: "batch_import" },
-        },
-      });
+      // Polled for BOTH rows, not just the first. Waiting for one and
+      // asserting two would reintroduce the race one layer down.
+      const logs = await eventuallyAtLeast(
+        () =>
+          prisma.auditLog.findMany({
+            where: {
+              organizationId: orgId,
+              action: "member.invited",
+              details: { path: ["method"], equals: "batch_import" },
+            },
+          }),
+        2
+      );
 
       expect(logs).toHaveLength(2);
     });

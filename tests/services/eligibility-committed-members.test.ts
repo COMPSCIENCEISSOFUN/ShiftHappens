@@ -21,6 +21,7 @@ import { TaskService } from "@/services/task.service";
 import { prisma } from "@/lib/prisma";
 import { cleanDatabase } from "../helpers/cleanup";
 import { createTenant, type Tenant } from "../helpers/fixtures";
+import { pauseForAbsence } from "../helpers/settle";
 
 const eligibility = new EligibilityService();
 const allocation = new AllocationService();
@@ -308,7 +309,7 @@ describe("which edits trigger the managers' check", () => {
 
     await taskService.update(t.id, tenant.orgId, { title: "Evening shift (busy)" });
 
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    await pauseForAbsence(300); // absence — see helpers/settle
     expect(await alertCount()).toBe(0);
   });
 
@@ -329,7 +330,7 @@ describe("which edits trigger the managers' check", () => {
       requiredCertifications: ["Food Safety", "First Aid"],
     });
 
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    await pauseForAbsence(300); // absence — see helpers/settle
     expect(await alertCount()).toBe(0);
   });
 
@@ -340,7 +341,7 @@ describe("which edits trigger the managers' check", () => {
 
     await taskService.update(t.id, tenant.orgId, { status: "cancelled" });
 
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    await pauseForAbsence(300); // absence — see helpers/settle
     expect(await alertCount()).toBe(0);
   });
 });

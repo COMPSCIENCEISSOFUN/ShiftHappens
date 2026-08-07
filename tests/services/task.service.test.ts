@@ -11,6 +11,7 @@ import { UserRepository } from "@/repositories/user.repository";
 import { NOTIFICATION_TYPES } from "@/services/notification.service";
 import { prisma } from "@/lib/prisma";
 import { cleanDatabase } from "../helpers/cleanup";
+import { eventuallyAtLeast, pauseForAbsence } from "../helpers/settle";
 
 const taskService = new TaskService();
 const orgRepo = new OrganizationRepository();
@@ -582,8 +583,9 @@ describe("TaskService", () => {
       const task = await taskService.create({ title: "Night shift" }, orgId, userId);
       await taskService.assignStaff(task.id, orgId, [staffMembershipId], userId);
 
-      // Give the fire-and-forget notification a chance to land, then assert none.
-      await new Promise((r) => setTimeout(r, 300));
+      // Absence cannot be polled for: the pause has to be long enough that
+      // the notification WOULD have landed. See helpers/settle.
+      await pauseForAbsence(300);
       const notes = await prisma.notification.findMany({
         where: { userId: staffUserId, type: NOTIFICATION_TYPES.TASK_ASSIGNED },
       });
@@ -593,22 +595,19 @@ describe("TaskService", () => {
 });
 
 /**
- * Notifications are fire-and-forget (not awaited by the service), so polling
- * beats a fixed sleep — fast when it lands, tolerant when the DB is slow.
+ * Kept as a named wrapper because the call sites read better for it, but the
+ * waiting now lives in helpers/settle.
+ *
+ * This function had the right idea and the right docblock, and stayed
+ * file-local while nine other test files went on sleeping a fixed number of
+ * milliseconds — one of which failed on a laptop for it. Reasoning that is
+ * correct in one file and unavailable everywhere else is the same defect this
+ * codebase keeps finding in its own source.
  */
-async function waitForNotifications(
-  userId: string,
-  type: string,
-  timeoutMs = 3000
-) {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    const notes = await prisma.notification.findMany({
-      where: { userId, type },
-    });
-    if (notes.length > 0 || Date.now() > deadline) return notes;
-    await new Promise((r) => setTimeout(r, 25));
-  }
+async function waitForNotifications(userId: string, type: string) {
+  return eventuallyAtLeast(() =>
+    prisma.notification.findMany({ where: { userId, type } })
+  );
 }
 /**
  * update() computes newStart/newEnd by falling back to the task's stored
