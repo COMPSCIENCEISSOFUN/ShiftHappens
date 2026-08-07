@@ -411,9 +411,17 @@ async function seedAll(tx: Tx) {
   // ============================================================
   // Managers
   // ============================================================
+  /*
+   * `employmentType` stated, not left to the default.
+   *
+   * Managers can be rostered, so the field means something for them — and NULL
+   * reads as casual everywhere, which had both demo managers presented as
+   * casual staff whose availability was their own to set. A demo that leaves a
+   * meaningful field unset is a demo that shows the fallback.
+   */
   const managers = [
-    { name: "Sarah Chen", email: "sarah@oceangrill.com", dept: "Kitchen" },
-    { name: "Marcus Johnson", email: "marcus@oceangrill.com", dept: "Bar" },
+    { name: "Sarah Chen", email: "sarah@oceangrill.com", dept: "Kitchen", employmentType: "full_time" },
+    { name: "Marcus Johnson", email: "marcus@oceangrill.com", dept: "Bar", employmentType: "casual" },
   ];
 
   // Captured so certification reviews can be attributed to a manager rather
@@ -437,12 +445,17 @@ async function seedAll(tx: Tx) {
       where: {
         userId_organizationId: { userId: user.id, organizationId: orgId },
       },
-      update: { role: "manager", status: "active" },
+      update: {
+        role: "manager",
+        status: "active",
+        employmentType: mgr.employmentType,
+      },
       create: {
         userId: user.id,
         organizationId: orgId,
         role: "manager",
         status: "active",
+        employmentType: mgr.employmentType,
       },
     });
 

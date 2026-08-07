@@ -167,10 +167,36 @@ describe("what each member gets asked", () => {
     expect(screen.queryByLabelText("Seniority")).toBeNull();
   });
 
-  it("asks a manager for seniority but not employment type", () => {
+  /*
+   * This asserted the opposite — "asks a manager for seniority but NOT
+   * employment type" — and so pinned a bug rather than catching one.
+   *
+   * Managers can be rostered. The Working Days panel rendered for them and read
+   * `employmentType` to decide what to say, while the control that sets it was
+   * hidden, so a manager with the field unset was told "X is casual, so their
+   * availability is theirs to set" with no way to disagree. The consequence was
+   * shown and the cause was hidden.
+   */
+  it("asks a manager for employment type as well as seniority", () => {
     renderDrawer({ member: member({ role: "manager" }) });
-    expect(screen.queryByLabelText("Employment type")).toBeNull();
+    expect(screen.getByLabelText("Employment type")).toBeInTheDocument();
     expect(screen.getByLabelText("Seniority")).toBeInTheDocument();
+  });
+
+  it("still asks a staff member for it", () => {
+    renderDrawer({ member: member({ role: "staff" }) });
+    expect(screen.getByLabelText("Employment type")).toBeInTheDocument();
+  });
+
+  /*
+   * The gate is `canBeRostered`, which is a two-name allowlist rather than
+   * "anything but admin". `Membership.role` is an unconstrained string, so an
+   * unrecognised value is reachable and must not acquire a field the engine
+   * would never read for it.
+   */
+  it("asks an unrecognised role for neither", () => {
+    renderDrawer({ member: member({ role: "supervisor" }) });
+    expect(screen.queryByLabelText("Employment type")).toBeNull();
   });
 
   it("offers a custom role only when the organisation has one", () => {

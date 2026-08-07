@@ -16,6 +16,7 @@ import {
   EMPLOYMENT_TYPE_LABELS,
   DEFAULT_EMPLOYMENT_TYPE,
   SYSTEM_ROLE_LABELS,
+  canBeRostered,
 } from "@/lib/role-config";
 import { ContractedDaysEditor } from "@/components/members/contracted-days-editor";
 import { SENIORITY_LEVELS, SENIORITY_LABEL, type SeniorityAssessment } from "@/lib/seniority";
@@ -266,7 +267,22 @@ export function MemberEditDrawer({
           )}
 
           {/* ── Employment type ──────────────────────────────── */}
-          {member.role === "staff" && (
+          {/*
+            `canBeRostered`, not `role === "staff"`.
+            
+            Managers can be put on shifts — the eligibility engine, `assignStaff`
+            and `findSchedulableStaff` all admit them — so a manager can
+            legitimately be full-time and contracted. This control was hidden
+            from them while the Working Days panel immediately below RENDERED for
+            them, reading the same field: a manager with no employment type set
+            was told "X is casual, so their availability is theirs to set" with
+            no way to say otherwise. The consequence was shown and the cause was
+            hidden.
+
+            Same predicate as the sidebar, the engine and `my-history`, so the
+            control and the rules cannot drift apart again.
+          */}
+          {canBeRostered(member.role) && (
             <div>
               <label
                 htmlFor="drawer-emptype"
