@@ -88,6 +88,26 @@ export const OCCUPYING_STATUSES = ASSIGNMENT_STATUSES.filter(
 );
 
 /**
+ * Statuses meaning "this shift was actually worked".
+ *
+ * `clocked_out` counts as well as `completed`. The final confirmation is a
+ * button somebody has to remember to press, and the hours between clocking in
+ * and clocking out happened whether or not they did — the seniority derivation
+ * already treats the two the same way, and a delete guard that disagreed with
+ * it would protect a different set of rows than the one that matters.
+ *
+ * `clocked_in` is not a status in this system; a shift in progress is
+ * `accepted` with a `clockInTime`, which is why the guard checks that column
+ * separately rather than looking for a status here.
+ */
+export const WORKED_STATUSES = ["clocked_out", "completed"] as const;
+
+/** Was this shift actually worked, as opposed to merely rostered? */
+export function wasWorked(status: string): boolean {
+  return (WORKED_STATUSES as readonly string[]).includes(status);
+}
+
+/**
  * Does this assignment still hold a slot on the shift?
  *
  * Takes a plain string rather than `AssignmentStatus`: statuses arrive from

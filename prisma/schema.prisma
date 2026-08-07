@@ -293,7 +293,21 @@ model Task {
   updatedAt         DateTime  @updatedAt
 
   organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  department   Department?      @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  /*
+   * Restrict, not SetNull.
+   *
+   * A department-less task means ORG-WIDE work, so nulling the column on delete
+   * made blank mean two different things — and a stranded task silently widens
+   * eligibility to the whole organisation and switches seniority from
+   * per-department to org-wide. Blank cannot mean both "I meant everyone" and
+   * "my department was deleted".
+   *
+   * Same ambiguity 20260805000000_work_rule_targets_restrict removed for work
+   * rules, and it wants the same treatment: an admin must reassign or delete a
+   * department's shifts first, which is a step where they can see what they
+   * would otherwise have stranded.
+   */
+  department   Department?      @relation(fields: [departmentId], references: [id], onDelete: Restrict)
   createdBy    User             @relation(fields: [createdById], references: [id])
   assignments  TaskAssignment[]
   eligibilityOverrides EligibilityOverride[]

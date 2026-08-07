@@ -13,6 +13,7 @@
  *  4. Impact summary: counts affected entities before archive
  */
 import { DepartmentRepository } from "@/repositories/department.repository";
+import { TaskRepository } from "@/repositories/task.repository";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 import { WorkRuleRepository } from "@/repositories/work-rule.repository";
 import { SubscriptionService } from "@/services/subscription.service";
@@ -21,6 +22,7 @@ import type { CreateDepartmentInput, UpdateDepartmentInput } from "@/lib/validat
 export class DepartmentService {
   private workRuleRepo = new WorkRuleRepository();
   private deptRepo = new DepartmentRepository();
+  private taskRepo = new TaskRepository();
   private auditService = new AuditLogService();
   private subscriptionService = new SubscriptionService();
 
@@ -211,6 +213,36 @@ export class DepartmentService {
    * Names, not a count: "3 work rules target this department" says there is a
    * problem and nothing about how to solve it.
    */
+  /**
+   * Refuses while shifts still point at the department.
+   *
+   * The database now refuses this too — `Task.departmentId` became `Restrict`,
+   * because a department-less task means ORG-WIDE work and blank cannot also
+   * mean "my department was deleted". A stranded task silently widens
+   * eligibility to the whole organisation and switches seniority from
+   * per-department to org-wide.
+   *
+   * This exists so the refusal is a sentence rather than a foreign-key
+   * violation surfacing as a 500, and it counts rather than naming: a
+   * department being retired may hold hundreds of shifts, and a message listing
+   * them would be unreadable where the work-rule one is not.
+   *
+   * Both layers on purpose. The guard explains; the constraint is what holds
+   * when somebody writes a second delete path — which is exactly how the
+   * work-rule version came to be needed.
+   */
+  private async assertNoTasksInDepartment(id: string) {
+    const count = await this.taskRepo.countInDepartment(id);
+    if (count === 0) return;
+
+    throw new Error(
+      `Cannot delete: ${count} task${count === 1 ? "" : "s"} ` +
+        `still belong${count === 1 ? "s" : ""} to this department. ` +
+        `Move ${count === 1 ? "it" : "them"} to another department or delete ` +
+        `${count === 1 ? "it" : "them"} first.`
+    );
+  }
+
   private async assertNoWorkRulesTargetDepartment(id: string) {
     const rules = await this.workRuleRepo.findTargeting({ departmentId: id });
     if (rules.length === 0) return;
@@ -239,6 +271,7 @@ export class DepartmentService {
     }
 
     await this.assertNoWorkRulesTargetDepartment(departmentId);
+    await this.assertNoTasksInDepartment(departmentId);
 
     const deleted = await this.deptRepo.delete(departmentId);
 

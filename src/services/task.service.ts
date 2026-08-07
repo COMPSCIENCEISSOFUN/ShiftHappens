@@ -32,7 +32,7 @@ import {
   parseCompositionRules,
   serialiseCompositionRules,
 } from "@/lib/composition-rules";
-import { occupiesSlot } from "@/lib/assignment-status";
+import { occupiesSlot, wasWorked } from "@/lib/assignment-status";
 import { canBeRostered } from "@/lib/role-config";
 
 export class TaskService {
@@ -405,9 +405,49 @@ export class TaskService {
     }
   }
 
+  /**
+   * Deletes a task — unless anybody actually worked it.
+   *
+   * ## Why a guard rather than an archive
+   *
+   * There was no check at all, and the cascade is wide: `TaskAssignment`,
+   * `EligibilityOverride`, and — because `parentTaskId` is `onDelete: Cascade`
+   * — every generated instance of a recurring series.
+   *
+   * Completed assignments are the evidence SENIORITY is derived from, so
+   * deleting old tasks silently dropped people's levels, which changes who a
+   * composition rule will admit onto future shifts. Reporting lost its source
+   * at the same time. The inconsistency was already visible in this service:
+   * `cancelAssignment` refuses to cancel a COMPLETED assignment, and then this
+   * method deleted the whole task underneath it without asking.
+   *
+   * An archive column was the other candidate and was rejected. A task created
+   * by mistake and never worked should stay deletable — a permanent record of
+   * typos helps nobody — and `status: "cancelled"` already means "this was real
+   * and is not happening". An `archivedAt` column would add a filter obligation
+   * to EVERY query touching tasks, which is the "every select" rule of the
+   * new-field checklist and precisely where this codebase has produced bugs
+   * before.
+   *
+   * A shift in progress is `accepted` with a `clockInTime`, not a status of its
+   * own, so that column is checked separately rather than through
+   * `wasWorked`.
+   */
   async delete(taskId: string, orgId: string) {
     const task = await this.taskRepo.findById(taskId);
     if (!task || task.organizationId !== orgId) throw new Error("Task not found");
+
+    const worked = (task.assignments ?? []).filter(
+      (a: { status: string; clockInTime?: Date | null }) =>
+        wasWorked(a.status) || Boolean(a.clockInTime)
+    );
+    if (worked.length > 0) {
+      throw new Error(
+        `This shift has been worked by ${worked.length} ${
+          worked.length === 1 ? "person" : "people"
+        } — cancel it instead of deleting, so the record stays.`
+      );
+    }
 
     // Capture who to tell before the task (and its assignments) are gone.
     const affectedUserIds = this.stillAssignedUserIds(task);

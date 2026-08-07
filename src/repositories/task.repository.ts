@@ -195,6 +195,38 @@ export class TaskRepository {
     return task === null ? undefined : task.departmentId;
   }
 
+  /**
+   * Every certification named by any task in a department.
+   *
+   * "What this department's work actually calls for", derived rather than
+   * configured — there is no field saying a department needs a food-safety
+   * ticket, but its shifts say so every time one is created.
+   *
+   * Org-scoped as well as department-scoped: `departmentId` arrives from a
+   * task, and a task id is not on its own proof of tenancy.
+   *
+   * A null department means org-wide work, and the union of every task's
+   * requirements is the closest honest answer for it.
+   */
+  /** How many tasks still sit in a department. The delete guard's numerator. */
+  async countInDepartment(departmentId: string): Promise<number> {
+    return prisma.task.count({ where: { departmentId } });
+  }
+
+  async requiredCertificationsInDepartment(
+    organizationId: string,
+    departmentId: string | null
+  ): Promise<string[]> {
+    const rows = await prisma.task.findMany({
+      where: {
+        organizationId,
+        ...(departmentId ? { departmentId } : {}),
+      },
+      select: { requiredCertifications: true },
+    });
+    return [...new Set(rows.flatMap((r) => r.requiredCertifications ?? []))];
+  }
+
   async findManyByIdsInOrg(ids: string[], organizationId: string) {
     if (ids.length === 0) return [];
     return prisma.task.findMany({
