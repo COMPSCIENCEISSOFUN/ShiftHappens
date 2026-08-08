@@ -1067,7 +1067,7 @@ async function seedAll(tx: Tx) {
         organizationId: orgId,
         allocationMode: "suggested",
         taskAcceptanceMode: "require_acceptance",
-        breakRuleHoursWorked: 8,
+        workingDayHours: 8,
       },
     });
   }
