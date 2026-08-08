@@ -87,17 +87,28 @@ describe("the three system roles land where they always did", () => {
 
 describe("a custom role moves them", () => {
   /*
-   * The removal finally taking effect. Before this, a manager whose role
-   * omitted `reports:view` still reached the manager dashboard — and after the
-   * route was fixed but before this was, they would have reached it and found
-   * it empty. Sending them to the personal dashboard is the honest answer:
-   * their own shifts are what they can still see.
+   * A role cannot move somebody DOWN, and this asserted that it could one
+   * commit ago. Inverted rather than deleted: the manager keeps `reports:view`
+   * from their bundle, so the manager dashboard is where they belong, and the
+   * way to move them is to change their system role.
    */
-  it("sends a narrowed manager to the staff dashboard", async () => {
+  it("does not move a manager off the manager dashboard", async () => {
     await giveCustomRole(tenant.manager.membershipId, "Shift Lead", [
       "tasks:assign",
     ]);
-    expect(await dashboardFor(tenant.manager.userId)).toBe(StaffDashboard);
+    expect(await dashboardFor(tenant.manager.userId)).toBe(ManagerDashboard);
+  });
+
+  /*
+   * And the narrowing path, so the pair reads as one statement: the same role
+   * on a staff member yields the personal dashboard. This is what "restrict a
+   * manager" now means — change what they are, then say what they may do.
+   */
+  it("leaves a staff member holding that same role on the staff dashboard", async () => {
+    await giveCustomRole(tenant.staff.membershipId, "Shift Lead", [
+      "tasks:assign",
+    ]);
+    expect(await dashboardFor(tenant.staff.userId)).toBe(StaffDashboard);
   });
 
   /*

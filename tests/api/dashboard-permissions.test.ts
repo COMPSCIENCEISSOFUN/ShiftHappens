@@ -5,24 +5,25 @@
  * ## The hole
  *
  * This route decided everything it returned from `membership.role`. Permissions
- * were not consulted at all, on the largest data surface in the product — so
- * the custom-role feature was untrue in both directions here:
- *
- *   - an admin who composed a role deliberately WITHOUT `reports:view`, and
- *     gave it to a manager, still sent them key metrics, staff utilisation,
- *     rejection trends, coverage and tomorrow's schedule. The removal did not
- *     merely go unmentioned in the UI. It did not happen;
- *   - a senior staff member granted `reports:view` received nothing, because
- *     the branch asked their title instead.
+ * were not consulted at all, on the largest data surface in the product, so a
+ * senior staff member granted `reports:view` received nothing — the branch
+ * asked their title instead of what they held.
  *
  * ## What is pinned here
  *
- * Both directions, and — the half that is easy to forget — that the three
- * system roles still get exactly what they got before. A permissions fix that
- * quietly changes what a plain manager sees is a regression wearing a fix's
- * clothes, and `certificationSummary` is where that nearly happened: managers
- * hold `certifications:review` in their bundle, so gating that section on the
- * permission alone would have handed every manager an org-wide figure.
+ * That a grant reaches this endpoint, that it reaches it SCOPED, and — the half
+ * that is easy to forget — that the three system roles still get exactly what
+ * they got before. A permissions fix that quietly changes what a plain manager
+ * sees is a regression wearing a fix's clothes, and `certificationSummary` is
+ * where that nearly happened: managers hold `certifications:review` in their
+ * bundle, so gating that section on the permission alone would have handed
+ * every manager an org-wide figure.
+ *
+ * Several tests here asserted the opposite one commit ago, when a custom role
+ * REPLACED the system bundle and could therefore take these sections away. They
+ * are inverted rather than deleted — the removal direction is what the model
+ * gave up, and a reader who remembers it should find the answer where they look
+ * for it.
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
@@ -141,13 +142,17 @@ describe("the system roles get what they always got", () => {
   });
 });
 
-describe("a custom role can take the org sections away", () => {
+describe("narrowing goes through the system role, not the custom role", () => {
   /*
-   * The bug, stated as a test. This manager's role does not include
-   * `reports:view`; before this change they received all eight sections
-   * regardless, because the route asked their title.
+   * This asserted the opposite one commit ago, and inverting it is the point
+   * rather than an accident.
+   *
+   * A custom role adds. Taking the org sections away from somebody is
+   * expressed by making them staff — which is the honest form of it, because a
+   * manager who may not see the roster is not a manager. Leaving the old
+   * assertion in place would have pinned a behaviour the model no longer has.
    */
-  it("stops sending them to a manager whose role omits reports:view", async () => {
+  it("does not let a custom role take them from a manager", async () => {
     await giveCustomRole(tenant.manager.membershipId, "Shift Lead", [
       "tasks:assign",
       "eligibility:view",
@@ -155,26 +160,41 @@ describe("a custom role can take the org sections away", () => {
 
     const body = await dashboardFor(tenant.manager.userId);
 
-    for (const section of ORG_SECTIONS) expect(body).not.toHaveProperty(section);
+    for (const section of ORG_SECTIONS) expect(body).toHaveProperty(section);
   });
 
-  it("takes the team roster with it when the role omits calendar:view_team", async () => {
-    await giveCustomRole(tenant.manager.membershipId, "Shift Lead", [
-      "reports:view",
+  it("gives a staff member holding that same role nothing but their own data", async () => {
+    await giveCustomRole(tenant.staff.membershipId, "Shift Lead", [
+      "tasks:assign",
+      "eligibility:view",
     ]);
 
-    const body = await dashboardFor(tenant.manager.userId);
+    const body = await dashboardFor(tenant.staff.userId);
 
-    // Reporting survives — it was granted — so this is not the whole payload
-    // collapsing, which is what makes the absence below mean something.
+    for (const section of ORG_SECTIONS) expect(body).not.toHaveProperty(section);
+    expect(body).toHaveProperty("staffData");
+  });
+
+  /*
+   * The grant is precise: `reports:view` opens the eight org sections and does
+   * not carry the team roster with it. Without this, "gave them reporting"
+   * could quietly mean "gave them everything a manager sees", which is the
+   * failure mode of a bundle pretending to be a permission.
+   */
+  it("does not hand over the team roster with reports:view", async () => {
+    await giveCustomRole(tenant.staff.membershipId, "Senior", ["reports:view"]);
+
+    const body = await dashboardFor(tenant.staff.userId);
+
     expect(body).toHaveProperty("keyMetrics");
     expect(body).not.toHaveProperty("teamRoster");
   });
 
   /*
-   * A narrowed manager is still rostered — `canBeRostered` admits them — so
-   * they keep their own shifts. Removing a reporting permission must not take
-   * away the person's view of their own work, which is not a permission at all.
+   * A member holding a role is still rostered — `canBeRostered` admits staff
+   * and managers — so they keep their own shifts. A permission decision must
+   * not reach the person's view of their own work, which is not a permission
+   * at all.
    */
   it("leaves the member's own data alone", async () => {
     await giveCustomRole(tenant.manager.membershipId, "Shift Lead", [
@@ -245,17 +265,16 @@ describe("a custom role can hand the org sections to a staff member", () => {
 
 describe("an empty custom role", () => {
   /*
-   * Composed with nothing in it, it must mean nothing — that is the difference
-   * between "no custom role" (fall back to the bundle) and "a role granting
-   * nothing", and collapsing the two would make an empty role behave like no
-   * role at all.
+   * A role composed with nothing in it contributes nothing, so the manager
+   * keeps their bundle. Under replace semantics this same fixture left them
+   * with no sections at all — an admin could empty somebody's access by
+   * creating a role and forgetting to tick anything, and the screen that did
+   * it showed a chip reading like an addition.
    *
-   * Worth pinning here because this is the behaviour that changes in the next
-   * commit: once a role ADDS to the system bundle instead of replacing it, this
-   * manager keeps their sections and this test is the one that should fail and
-   * be rewritten, rather than a surprise found later.
+   * Kept as a test because "a role called Empty" is exactly the artefact
+   * somebody will find in a database and reason wrongly about.
    */
-  it("currently leaves a manager with no org sections at all", async () => {
+  it("leaves a manager's org sections in place", async () => {
     const role = await prisma.role.create({
       data: {
         organizationId: tenant.orgId,
@@ -270,8 +289,8 @@ describe("an empty custom role", () => {
 
     const body = await dashboardFor(tenant.manager.userId);
 
-    for (const section of ORG_SECTIONS) expect(body).not.toHaveProperty(section);
-    expect(body).not.toHaveProperty("teamRoster");
+    for (const section of ORG_SECTIONS) expect(body).toHaveProperty(section);
+    expect(body).toHaveProperty("teamRoster");
     expect(body).toHaveProperty("staffData");
   });
 });

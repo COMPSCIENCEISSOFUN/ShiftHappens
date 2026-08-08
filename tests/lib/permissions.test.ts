@@ -148,16 +148,22 @@ describe("effectivePermissions", () => {
   });
 
   /**
-   * The distinction the whole model rests on. `null` means "no custom role";
-   * `[]` means "a role an admin deliberately composed with nothing in it".
-   * Collapsing them would make an empty role behave like no role at all, and a
-   * role could then never be used to take anything away.
+   * The reversal, and the test that used to assert the opposite.
+   *
+   * Under replace semantics `[]` and `null` HAD to differ — an empty role meant
+   * "nothing", and collapsing the two would have made it grant the whole system
+   * bundle. Adding rather than replacing dissolves the distinction: a role
+   * holding nothing contributes nothing.
+   *
+   * Worth keeping as its own test rather than deleting, because the old
+   * behaviour is the one a reader will expect if they meet a role called
+   * "Empty" in a database and assume it locks somebody out.
    */
-  it("treats an empty custom role as nothing, not as no custom role", () => {
-    // Read on a MANAGER: the staff bundle is now deliberately empty, so staff
-    // could not tell the two cases apart and would prove nothing here.
-    expect(effectivePermissions("manager", []).size).toBe(0);
-    expect(effectivePermissions("manager", null).size).toBeGreaterThan(0);
+  it("leaves a manager untouched by a custom role holding nothing", () => {
+    expect(effectivePermissions("manager", [])).toEqual(
+      effectivePermissions("manager", null)
+    );
+    expect(effectivePermissions("manager", []).size).toBeGreaterThan(0);
   });
 
   /**
@@ -169,16 +175,26 @@ describe("effectivePermissions", () => {
     expect(effectivePermissions("staff", null).size).toBe(0);
   });
 
-  it("lets a custom role narrow what a manager may do", () => {
-    const perms = effectivePermissions("manager", ["tasks:update", "tasks:assign"]);
-    expect(perms.has("tasks:assign")).toBe(true);
-    // A shift lead who may fill a shift but not delete one.
-    expect(perms.has("tasks:delete")).toBe(false);
+  /**
+   * A custom role CANNOT narrow a manager. This asserted the opposite before —
+   * it is the behaviour the change removes, so it is inverted rather than
+   * deleted: a reader who remembers narrowing should find the answer here
+   * instead of finding nothing.
+   *
+   * Taking `tasks:delete` away from a manager is now expressed by making them
+   * staff and granting what they may do, which also moves their rank, which is
+   * the honest consequence of the same decision.
+   */
+  it("does not let a custom role narrow a manager", () => {
+    const perms = effectivePermissions("manager", ["tasks:update"]);
+    expect(perms.has("tasks:update")).toBe(true);
+    expect(perms.has("tasks:delete")).toBe(true);
   });
 
   /**
-   * The Shift Lead. Now that every permission is a manager or admin action,
-   * giving a staff member a custom role is purely additive.
+   * The Shift Lead. A staff member starts from nothing, so their role is the
+   * whole of what they hold — which is how a strict role is still expressible
+   * with no way to subtract.
    */
   it("lets a custom role widen what a staff member may do", () => {
     const perms = effectivePermissions("staff", [
@@ -187,8 +203,52 @@ describe("effectivePermissions", () => {
     ]);
     expect(perms.has("certifications:review")).toBe(true);
     expect(perms.has("tasks:assign")).toBe(true);
-    // And nothing beyond what was ticked.
+    // And nothing beyond what was ticked — the empty staff bundle is what
+    // makes that true, and why emptying it turned out to be load-bearing.
     expect(perms.has("tasks:delete")).toBe(false);
+    expect(perms.size).toBe(2);
+  });
+
+  it("adds a role's permissions to the manager bundle rather than replacing it", () => {
+    const perms = effectivePermissions("manager", ["work_rules:manage"]);
+
+    expect(perms.has("work_rules:manage")).toBe(true);
+    for (const inherited of ROLE_PERMISSIONS.manager) {
+      expect(perms.has(inherited), `manager lost ${inherited}`).toBe(true);
+    }
+  });
+
+  /**
+   * The drift this change exists to stop.
+   *
+   * `assignments:correct_clock` was added to the manager bundle in August.
+   * Every manager got it; every custom role composed by copying that bundle did
+   * not, and never would for any later addition. Inheritance means a role built
+   * last month keeps up with a bundle that moves.
+   *
+   * Named explicitly rather than asserted over the whole bundle, because the
+   * loop above already does that — this one is about the DATE, and a reader
+   * meeting it should be able to see which addition made the point.
+   */
+  it("gives a role built before a bundle grew the permission added later", () => {
+    const builtEarlier = ["tasks:assign"];
+    expect(
+      effectivePermissions("manager", builtEarlier).has("assignments:correct_clock")
+    ).toBe(true);
+  });
+
+  /**
+   * Rank is a separate scale and no role touches it. A staff member can end up
+   * holding more permissions than a manager — that is the point of a Shift
+   * Lead — and still cannot administer one, because the escalation guards read
+   * `ROLE_RANK`, not this set.
+   */
+  it("can leave a staff member holding more than a plain manager", () => {
+    const perms = effectivePermissions("staff", [
+      ...ROLE_PERMISSIONS.manager,
+      "work_rules:manage",
+    ]);
+    expect(perms.size).toBeGreaterThan(effectivePermissions("manager", null).size);
   });
 
   it("gives an unknown system role nothing rather than defaulting open", () => {

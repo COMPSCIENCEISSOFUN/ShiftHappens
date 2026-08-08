@@ -23,12 +23,46 @@
  *   refuses to give an admin a custom role, so there is no path by which an
  *   admin's own access can be narrowed — which matters, because the person who
  *   edits roles must not be able to lock themselves out of the roles screen.
- * - Anyone else holds either their system role's default bundle, or — if they
- *   have been given a custom role — exactly that role's permissions INSTEAD.
- *   Replacing rather than intersecting is what makes the feature useful: a
- *   "Shift Lead" who can assign shifts but not delete them is a narrowing, and
- *   a senior staff member who may verify certificates is a widening, and both
- *   are things an org admin has a legitimate reason to express.
+ * - Anyone else holds their system role's default bundle, PLUS the permissions
+ *   of any custom role they have been given. A custom role only ever adds.
+ *
+ * ## Why it adds rather than replaces
+ *
+ * It used to replace: a custom role's permissions were the member's complete
+ * set. That allowed narrowing, and it cost two things that were worse.
+ *
+ * The removal was invisible. An admin ticking three boxes for a "Shift Lead"
+ * and handing it to a manager silently took twelve permissions away, with
+ * nothing on any screen saying so — the members list showed a chip beside
+ * "Manager", which reads as an addition and was the opposite.
+ *
+ * And a hand-built role went stale. `assignments:correct_clock` was added to
+ * the manager bundle in August; every manager got it, and every custom role
+ * composed by copying that bundle did not, and never would for any future
+ * addition. Roles decayed silently against a moving base.
+ *
+ * Nothing is lost by adding only, and that is a fact about THIS catalogue
+ * rather than a general claim: `STAFF_PERMISSIONS` is empty, so "staff plus a
+ * role" is an absolute set — exactly the ticked permissions and nothing else.
+ * The strictest role remains expressible. Narrowing a manager is expressed as
+ * making them staff and saying what they may do, which is the honest form of
+ * it, because a manager who may not do manager things is not one.
+ *
+ * This is the hierarchical arm of the standard RBAC model — a senior role
+ * inherits the junior one and extends it — rather than the ad-hoc rule it
+ * replaced.
+ *
+ * The one case that stops being expressible: manager RANK with sub-manager
+ * permissions, i.e. somebody who outranks staff for administration but can do
+ * less than a manager. Rank only bites when changing another member's role or
+ * status, which needs `members:update_role` or `members:deactivate` granted
+ * anyway — at which point manager rank is what you wanted.
+ *
+ * Rank itself is untouched by any of this. `ROLE_RANK` is a fixed scale in
+ * `role-config`, so no custom role can raise the holder's authority over
+ * anyone; a member with more permissions than a manager still cannot
+ * administer one. Permissions are a lattice under an admin ceiling; rank is a
+ * strict hierarchy. Keeping them separate is what makes the feature safe.
  *
  * The bundles below are defined so that a member WITHOUT a custom role has
  * exactly the access the role-string checks gave them before. That is what
@@ -206,10 +240,13 @@ export const PERMISSION_FEATURE: Record<string, GatedFeature> = {
  *     case of all: the notification service sends regardless, so no code path
  *     could ever have consulted it.
  *
- * What remains is the useful consequence. Every permission in the catalogue is
- * now a manager or admin action, so giving a STAFF member a custom role is
- * purely additive — ticking two or three boxes is exactly how a "Shift Lead"
- * gets built. That was impossible to see while a third of the list did nothing.
+ * What remains is the useful consequence, and it turned out to be load-bearing.
+ * Every permission in the catalogue is now a manager or admin action, so a
+ * staff member starts from nothing — which is what lets `effectivePermissions`
+ * add rather than replace without losing the ability to express a strict role.
+ * "Staff plus these five" IS exactly five permissions. Emptying this list began
+ * as a tidy-up of checkboxes that enforced nothing; it is now the reason the
+ * whole model works.
  */
 const STAFF_PERMISSIONS = [] as const;
 
@@ -302,20 +339,31 @@ export const DEPARTMENT_LIST_READERS = [
 ] as const;
 
 /**
- * The permissions a member holds, given their system role and custom role.
+ * The permissions a member holds: their system role's bundle, plus any custom
+ * role's, and never less than the bundle alone.
  *
- * `customRolePermissions` is null when the member has no custom role — which is
- * NOT the same as an empty array. An empty array is a role an admin composed
- * with nothing in it, and it must mean "nothing", or a role could never be used
- * to take anything away.
+ * `null` and `[]` now mean the same thing here, which is a deliberate reversal.
+ * Under replace semantics the two had to differ — `null` fell back to the
+ * bundle while `[]` meant "a role composed with nothing in it", and collapsing
+ * them would have made an empty role grant everything the system role did.
+ * Adding rather than replacing removes the question: a role holding nothing
+ * contributes nothing, whether it exists or not. The parameter keeps its
+ * nullable type because callers have no role to pass, not because the two
+ * cases are still distinguished.
+ *
+ * The admin short-circuit stays, and stays first. It is not an optimisation:
+ * it is the guarantee that no route through this function can narrow the
+ * person who edits roles, even if `assignCustomRole`'s refusal were bypassed.
  */
 export function effectivePermissions(
   systemRole: string,
   customRolePermissions: readonly string[] | null
 ): Set<string> {
   if (systemRole === "company_admin") return new Set(PERMISSION_NAMES);
-  if (customRolePermissions !== null) return new Set(customRolePermissions);
-  return new Set(ROLE_PERMISSIONS[systemRole] ?? []);
+  return new Set([
+    ...(ROLE_PERMISSIONS[systemRole] ?? []),
+    ...(customRolePermissions ?? []),
+  ]);
 }
 
 /**

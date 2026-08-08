@@ -7,8 +7,7 @@
  * catalogue replaced everywhere else, still deciding a notification list. It
  * made the message miss the person whose job it is: a member holding a custom
  * role with `tasks:assign`, who can actually move people on and off the task,
- * was not told, while a manager whose custom role removed it was told anyway
- * and could do nothing with the information.
+ * was not told, because their title was wrong.
  *
  * The question is "who can put this right", so the answer is `tasks:assign`.
  *
@@ -127,19 +126,23 @@ describe("a custom role decides it now", () => {
   });
 
   /*
-   * The removal direction, which is the whole reason this commit exists. Note
-   * the role grants something else, so the member still HAS a custom role and
-   * still reaches the permission check — an empty role would have proved less.
+   * A role cannot take the notification away, and this asserted the opposite
+   * one commit ago — it is inverted rather than deleted, because "my role does
+   * not mention assigning, so why am I still told" is the question a reader
+   * will arrive with.
+   *
+   * A custom role adds. Silencing somebody is done by making them staff, which
+   * the "does not tell a plain staff member" case above already covers, and
+   * which is honest: a manager still holds `tasks:assign` from their bundle and
+   * can still fix the shift, so telling them is correct.
    */
-  it("stops telling a manager whose role omits it", async () => {
+  it("keeps telling a manager whose role does not mention it", async () => {
     await giveCustomRole(tenant.manager.membershipId, "Rota Reader", [
       "reports:view",
     ]);
 
     const ids = await taskWatcherUserIds(tenant.orgId, tenant.departmentId);
-
-    expect(ids).toContain(tenant.admin.userId);
-    expect(ids).not.toContain(tenant.manager.userId);
+    expect(ids).toContain(tenant.manager.userId);
   });
 
   /*

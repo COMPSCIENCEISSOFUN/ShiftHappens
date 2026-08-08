@@ -107,20 +107,27 @@ async function callAuditLogs(userId: string) {
   return GET(req(), ctx({ orgId: tenant.orgId }));
 }
 
-describe("a custom role narrows", () => {
+describe("a custom role does not narrow", () => {
   /**
-   * The "Shift Lead" case: someone who runs shifts but is not trusted to
-   * reshape the roster. Before this change the role existed on screen and
-   * changed nothing.
+   * These two asserted the opposite until custom roles became additive, and
+   * they are inverted rather than deleted because "the role does not mention
+   * `tasks:create`, so why can they still create one" is what a reader will
+   * come here asking.
+   *
+   * The answer is that a role adds to the system bundle. The "Shift Lead" who
+   * runs shifts but may not reshape the roster is still expressible — as a
+   * STAFF member with `tasks:assign`, which the widening block below covers.
+   * What changed is that building one out of a manager no longer silently
+   * strips the other fourteen permissions off them.
    */
-  it("refuses a manager an action their custom role omits", async () => {
+  it("leaves a manager the actions their custom role omits", async () => {
     await giveCustomRole(tenant.manager.membershipId, [
       "tasks:assign",
       "reports:view",
     ]);
 
     const res = await callTasksPost(tenant.manager.userId);
-    expect(res.status).toBe(403);
+    expect(res.status).not.toBe(403);
   });
 
   it("still allows the actions the custom role does include", async () => {
@@ -132,9 +139,17 @@ describe("a custom role narrows", () => {
     expect(res.status).not.toBe(403);
   });
 
-  // An empty role is a deliberate composition, not an absence. If it fell back
-  // to the system bundle, a role could never take anything away.
-  it("leaves an empty custom role holding nothing", async () => {
+  /**
+   * An empty role contributes nothing, so the manager keeps their bundle.
+   *
+   * Under the old semantics this same fixture left them unable to do anything:
+   * an admin could empty a colleague's access by creating a role and forgetting
+   * to tick a box, from a screen whose chip read like an addition. That is the
+   * failure mode the change removes, and it is worth a test of its own because
+   * a role literally named "Empty" is the artefact somebody will find in a
+   * database and reason wrongly about.
+   */
+  it("leaves a manager untouched by an empty custom role", async () => {
     const role = await prisma.role.create({
       data: {
         organizationId: tenant.orgId,
@@ -148,6 +163,22 @@ describe("a custom role narrows", () => {
     });
 
     const res = await callTasksPost(tenant.manager.userId);
+    expect(res.status).not.toBe(403);
+  });
+
+  /**
+   * The narrowing path, asserted here so the block is a complete statement
+   * rather than a list of things that no longer happen: the same role on a
+   * staff member yields exactly what it grants, because the staff bundle is
+   * empty. This is what restricting somebody now means.
+   */
+  it("gives a staff member holding the same role only what it grants", async () => {
+    await giveCustomRole(tenant.staff.membershipId, [
+      "tasks:assign",
+      "reports:view",
+    ]);
+
+    const res = await callTasksPost(tenant.staff.userId);
     expect(res.status).toBe(403);
   });
 });
