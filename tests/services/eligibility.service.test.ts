@@ -66,7 +66,7 @@ beforeEach(async () => {
   await prisma.companySettings.create({
     data: {
       organizationId: org.id,
-      breakRuleHoursWorked: 8,
+      workingDayHours: 8,
     },
   });
 });

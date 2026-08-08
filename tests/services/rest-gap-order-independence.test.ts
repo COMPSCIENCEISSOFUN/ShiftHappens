@@ -66,7 +66,7 @@ beforeEach(async () => {
 
   // Both hour dimensions out of the way; this file is about the rest gap alone.
   await prisma.companySettings.create({
-    data: { organizationId: org.id, breakRuleHoursWorked: 100 },
+    data: { organizationId: org.id, workingDayHours: 100 },
   });
   await prisma.workRule.create({
     data: {
@@ -211,7 +211,7 @@ describe("the company break rule measures the load the shift creates", () => {
   beforeEach(async () => {
     await prisma.companySettings.update({
       where: { organizationId: orgId },
-      data: { breakRuleHoursWorked: 8 },
+      data: { workingDayHours: 8 },
     });
     // Rest gap out of the way — this block is about the hours dimension.
     await prisma.workRule.deleteMany({ where: { organizationId: orgId } });

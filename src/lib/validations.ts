@@ -248,7 +248,7 @@ export const updateRoleSchema = z.object({
 export const updateCompanySettingsSchema = z.object({
   allocationMode: z.enum(["manual", "suggested", "auto"]).optional(),
   taskAcceptanceMode: z.enum(["auto_accept", "require_acceptance"]).optional(),
-  breakRuleHoursWorked: z.number().int().min(1).max(24).optional(),
+  workingDayHours: z.number().int().min(1).max(24).optional(),
   operatingHoursStart: z.number().int().min(0).max(23).optional(),
   operatingHoursEnd: z.number().int().min(1).max(24).optional(),
   // Completed-shift counts at which a member becomes experienced, then senior.

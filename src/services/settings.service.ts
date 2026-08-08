@@ -91,7 +91,7 @@ export class SettingsService {
       taskAcceptanceMode?: string;
       experiencedShiftThreshold?: number;
       seniorShiftThreshold?: number;
-      breakRuleHoursWorked?: number;
+      workingDayHours?: number;
       operatingHoursStart?: number;
       operatingHoursEnd?: number;
       notificationPreferences?: string;
@@ -100,7 +100,7 @@ export class SettingsService {
 
     if (input.allocationMode !== undefined) updateData.allocationMode = input.allocationMode;
     if (input.taskAcceptanceMode !== undefined) updateData.taskAcceptanceMode = input.taskAcceptanceMode;
-    if (input.breakRuleHoursWorked !== undefined) updateData.breakRuleHoursWorked = input.breakRuleHoursWorked;
+    if (input.workingDayHours !== undefined) updateData.workingDayHours = input.workingDayHours;
     if (input.operatingHoursStart !== undefined) updateData.operatingHoursStart = input.operatingHoursStart;
     if (input.operatingHoursEnd !== undefined) updateData.operatingHoursEnd = input.operatingHoursEnd;
     if (input.experiencedShiftThreshold !== undefined) {

@@ -240,7 +240,25 @@ model CompanySettings {
   organizationId          String   @unique
   allocationMode          String   @default("manual")
   taskAcceptanceMode      String   @default("auto_accept")
-  breakRuleHoursWorked    Int      @default(8)
+  /// The most hours a member may be rostered in one day.
+  ///
+  /// NOT a break rule, despite the column name. It is the daily cap the
+  /// eligibility check enforces and the denominator for every capacity figure
+  /// in reporting — `staffCount * this * 7` is a week's capacity. The break
+  /// LENGTH that is actually enforced lives on a `break_interval` work rule,
+  /// per rule and targetable, and the setting that used to sit beside this one
+  /// pretending to be it was dead and was deleted on 2026-08-07.
+  ///
+  /// The misnomer sent an admin looking for a rest period this does not
+  /// control. The UI label was corrected first ("Working day"); this renames
+  /// the field the code reads.
+  ///
+  /// `@map` keeps the COLUMN called `breakRuleHoursWorked`, so this rename is
+  /// a code change and not a migration — which matters here, because migration
+  /// history is not baselined on any of the three databases and every schema
+  /// change has to be applied by hand to each. The column name can be brought
+  /// into line whenever something else needs a migration on this table.
+  workingDayHours         Int      @default(8) @map("breakRuleHoursWorked")
   operatingHoursStart     Int      @default(6)
   operatingHoursEnd       Int      @default(22)
   smartAllocationWeights  String?

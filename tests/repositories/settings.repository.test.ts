@@ -53,7 +53,7 @@ describe("SettingsRepository", () => {
 
       expect(settings.allocationMode).toBe("manual");
       expect(settings.taskAcceptanceMode).toBe("auto_accept");
-      expect(settings.breakRuleHoursWorked).toBe(8);
+      expect(settings.workingDayHours).toBe(8);
     });
   });
 
@@ -86,9 +86,9 @@ describe("SettingsRepository", () => {
       await settingsRepo.createDefaults(orgId);
 
       const updated = await settingsRepo.update(orgId, {
-        breakRuleHoursWorked: 6,
+        workingDayHours: 6,
       });
-      expect(updated.breakRuleHoursWorked).toBe(6);
+      expect(updated.workingDayHours).toBe(6);
     });
 
     it("updates notification preferences as JSON", async () => {
@@ -114,7 +114,7 @@ describe("SettingsRepository", () => {
       });
       expect(updated.allocationMode).toBe("auto");
       expect(updated.taskAcceptanceMode).toBe("auto_accept");
-      expect(updated.breakRuleHoursWorked).toBe(8);
+      expect(updated.workingDayHours).toBe(8);
     });
   });
 });

@@ -91,7 +91,7 @@ async function settingsWithDayStart(dayStartHour: number) {
       organizationId: orgId,
       // High enough that the rolling break rule never interferes with the cap
       // being tested.
-      breakRuleHoursWorked: 100,
+      workingDayHours: 100,
       operatingHoursStart: dayStartHour,
       operatingHoursEnd: dayStartHour,
     },

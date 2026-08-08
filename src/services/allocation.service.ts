@@ -159,7 +159,7 @@ export class AllocationService {
       const candidate = await this.buildCandidate(
         staff.membershipId,
         staff.memberName,
-        settings.breakRuleHoursWorked,
+        settings.workingDayHours,
         task.departmentId
       );
       candidates.push(candidate);
@@ -267,7 +267,7 @@ export class AllocationService {
         await this.buildCandidate(
           staff.membershipId,
           staff.memberName,
-          settings.breakRuleHoursWorked,
+          settings.workingDayHours,
           task.departmentId,
           departmentCerts,
           shift

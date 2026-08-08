@@ -60,6 +60,7 @@ import { AlertBanner } from "@/components/ui/alert-banner";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { usePermissions } from "@/components/layout/permission-provider";
 import { EmptyState } from "@/components/ui/empty-state";
+import { Bell, Building2, Clock, CreditCard, Settings, Wrench } from "lucide-react";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -83,7 +84,7 @@ interface Settings {
   notificationPreferences: string | null;
   /** Already parsed by the service — never a JSON string on the wire. */
   smartAllocationWeights: RankingWeights;
-  breakRuleHoursWorked: number;
+  workingDayHours: number;
 }
 
 interface ResourceUsage {
@@ -229,7 +230,7 @@ export default function SettingsPage() {
   // becoming NaN and blanking the input.
   const [experiencedThreshold, setExperiencedThreshold] = useState("10");
   const [seniorThreshold, setSeniorThreshold] = useState("40");
-  const [breakAfterHours, setBreakAfterHours] = useState("8");
+  const [workingDayHours, setWorkingDayHours] = useState("8");
   // Defaults mirror the database defaults, so the controls show the truth for
   // the moment before the fetch resolves rather than an arbitrary 00:00–00:00.
   const [opStart, setOpStart] = useState(6);
@@ -378,7 +379,7 @@ export default function SettingsPage() {
       // The service hands these back already parsed, so the screen never has an
       // opinion about a malformed column.
       if (data.smartAllocationWeights) setWeights(data.smartAllocationWeights);
-      setBreakAfterHours(String(data.breakRuleHoursWorked));
+      setWorkingDayHours(String(data.workingDayHours));
       setExperiencedThreshold(String(data.experiencedShiftThreshold ?? 10));
       setSeniorThreshold(String(data.seniorShiftThreshold ?? 40));
       // Guarded rather than assigned blindly: these are the only numeric
@@ -522,7 +523,7 @@ export default function SettingsPage() {
         experiencedShiftThreshold: Number(experiencedThreshold),
         seniorShiftThreshold: Number(seniorThreshold),
         smartAllocationWeights: weights,
-        breakRuleHoursWorked: Number(breakAfterHours),
+        workingDayHours: Number(workingDayHours),
       },
       setTaskMessage,
       setTaskLoading,
@@ -643,23 +644,11 @@ export default function SettingsPage() {
         <div className="relative z-[1] flex flex-col items-center gap-4 sm:flex-row">
           {/* Settings icon */}
           <div className="flex h-13 w-13 shrink-0 items-center justify-center rounded-xl bg-white/[0.18] backdrop-blur-sm">
-            <svg
-              width="28"
-              height="28"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              viewBox="0 0 24 24"
-            >
-              <circle cx="12" cy="12" r="3" />
-              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-            </svg>
+            <Settings className="h-7 w-7" aria-hidden="true" />
           </div>
 
           <div className="flex-1 text-center sm:text-left">
-            <h1 className="text-2xl font-bold">Company Settings</h1>
+            <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Company settings</h1>
             <p className="mt-0.5 text-sm text-white/70">
               Manage your organization, task rules, and preferences
             </p>
@@ -690,20 +679,7 @@ export default function SettingsPage() {
             <CardHeader>
               <div className="flex items-center gap-3">
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-50 dark:bg-indigo-950/30">
-                  <svg
-                    width="18"
-                    height="18"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    viewBox="0 0 24 24"
-                    className="text-indigo-500"
-                  >
-                    <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-                    <polyline points="9 22 9 12 15 12 15 22" />
-                  </svg>
+                  <Building2 className="h-[18px] w-[18px] text-indigo-500" aria-hidden="true" />
                 </div>
                 <div>
                   <CardTitle>Organization Details</CardTitle>
@@ -800,20 +776,7 @@ export default function SettingsPage() {
               <CardHeader>
                 <div className="flex items-center gap-3">
                   <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-pink-50 dark:bg-pink-950/30">
-                    <svg
-                      width="18"
-                      height="18"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      viewBox="0 0 24 24"
-                      className="text-pink-600"
-                    >
-                      <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-                      <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-                    </svg>
+                    <Bell className="h-[18px] w-[18px] text-pink-600" aria-hidden="true" />
                   </div>
                   <div>
                     <CardTitle>Notification Preferences</CardTitle>
@@ -941,19 +904,7 @@ export default function SettingsPage() {
               <CardHeader>
                 <div className="flex items-center gap-3">
                   <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-50 dark:bg-amber-950/30">
-                    <svg
-                      width="18"
-                      height="18"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      viewBox="0 0 24 24"
-                      className="text-amber-600"
-                    >
-                      <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
-                    </svg>
+                    <Wrench className="h-[18px] w-[18px] text-amber-600" aria-hidden="true" />
                   </div>
                   <div>
                     <CardTitle>Task Configuration</CardTitle>
@@ -1180,7 +1131,7 @@ export default function SettingsPage() {
                   They feed the eligibility break check, the hour alerts, the
                   allocation ranker's workload dimension, and — the reason this
                   was promoted out of "small" — FOUR separate
-                  `staffCount * breakRuleHoursWorked * 7` capacity calculations
+                  `staffCount * workingDayHours * 7` capacity calculations
                   in reporting. An organisation working twelve-hour shifts saw
                   wrong capacity on every report and got refusals it could not
                   configure away, because the defaults assume an eight-hour day.
@@ -1200,7 +1151,7 @@ export default function SettingsPage() {
                   </p>
                   {/*
                     Labelled "Working day", not "Break rule", although the column
-                    behind it is still `breakRuleHoursWorked`.
+                    behind it is still `workingDayHours`.
 
                     Nothing here enforces a BREAK. This number is a daily hours
                     cap and the denominator for capacity, and calling it a break
@@ -1221,18 +1172,18 @@ export default function SettingsPage() {
                   */}
                   <div className="max-w-xs space-y-1.5">
                     <Label
-                      htmlFor="breakRuleHoursWorked"
+                      htmlFor="workingDayHours"
                       className="text-xs font-semibold text-muted-foreground"
                     >
                       Hours in a working day
                     </Label>
                     <Input
-                      id="breakRuleHoursWorked"
+                      id="workingDayHours"
                       type="number"
                       min={1}
                       max={24}
-                      value={breakAfterHours}
-                      onChange={(e) => setBreakAfterHours(e.target.value)}
+                      value={workingDayHours}
+                      onChange={(e) => setWorkingDayHours(e.target.value)}
                       disabled={!canUpdateSettings}
                     />
                   </div>
@@ -1265,20 +1216,7 @@ export default function SettingsPage() {
               <CardHeader>
                 <div className="flex items-center gap-3">
                   <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-sky-50 dark:bg-sky-950/30">
-                    <svg
-                      width="18"
-                      height="18"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      viewBox="0 0 24 24"
-                      className="text-sky-600"
-                    >
-                      <circle cx="12" cy="12" r="9" />
-                      <path d="M12 7v5l3 2" />
-                    </svg>
+                    <Clock className="h-[18px] w-[18px] text-sky-600" aria-hidden="true" />
                   </div>
                   <div>
                     <CardTitle>Operating Hours</CardTitle>
@@ -1379,20 +1317,7 @@ export default function SettingsPage() {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-50 dark:bg-violet-950/30">
-                  <svg
-                    width="18"
-                    height="18"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    viewBox="0 0 24 24"
-                    className="text-violet-600"
-                  >
-                    <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
-                    <line x1="1" y1="10" x2="23" y2="10" />
-                  </svg>
+                  <CreditCard className="h-[18px] w-[18px] text-violet-600" aria-hidden="true" />
                 </div>
                 <div>
                   <CardTitle>Subscription & Billing</CardTitle>

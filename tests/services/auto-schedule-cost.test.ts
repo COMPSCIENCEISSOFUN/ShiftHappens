@@ -48,8 +48,8 @@ beforeEach(async () => {
 
   await prisma.companySettings.upsert({
     where: { organizationId: tenant.orgId },
-    create: { organizationId: tenant.orgId, breakRuleHoursWorked: 1000 },
-    update: { breakRuleHoursWorked: 1000 },
+    create: { organizationId: tenant.orgId, workingDayHours: 1000 },
+    update: { workingDayHours: 1000 },
   });
 
   /*

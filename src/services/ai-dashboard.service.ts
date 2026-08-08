@@ -829,7 +829,7 @@ RULES:
         }
       }
 
-      if (hours >= settings.breakRuleHoursWorked * 0.75) {
+      if (hours >= settings.workingDayHours * 0.75) {
         staffNearLimit.push({
           name: staff.user.name || staff.user.email,
           hours,
@@ -908,7 +908,7 @@ RULES:
       pendingCertifications,
       departmentCount: departments.length,
       departments: deptStats,
-      maxHours: settings.breakRuleHoursWorked,
+      maxHours: settings.workingDayHours,
     };
   }
 }

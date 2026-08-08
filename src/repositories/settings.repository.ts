@@ -42,7 +42,7 @@ export class SettingsRepository {
     data: {
       allocationMode?: string;
       taskAcceptanceMode?: string;
-      breakRuleHoursWorked?: number;
+      workingDayHours?: number;
       smartAllocationWeights?: string;
       notificationPreferences?: string;
       experiencedShiftThreshold?: number;

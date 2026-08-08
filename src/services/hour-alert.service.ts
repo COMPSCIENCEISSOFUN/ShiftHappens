@@ -5,7 +5,7 @@
  * exceeded — a working-hour limit (US-72 for managers, US-85 for staff).
  *
  * Limits checked for each member:
- *  1. The company break rule (settings.breakRuleHoursWorked) over the last 24h
+ *  1. The company-wide daily hours cap (settings.workingDayHours) over the last 24h
  *  2. Any active work rule targeting them:
  *     - break_interval    → hours in last 24h vs hoursThreshold
  *     - max_hours_daily   → hours worked today vs maxHours
@@ -136,10 +136,10 @@ export class HourAlertService {
         settings.operatingHoursStart
       ));
 
-    // 1. Company-wide break rule
-    if (settings.breakRuleHoursWorked > 0) {
+    // 1. Company-wide daily hours cap
+    if (settings.workingDayHours > 0) {
       const used = await last24h();
-      const limit = settings.breakRuleHoursWorked;
+      const limit = settings.workingDayHours;
       const ratio = used / limit;
       limits.push({
         label: `Break rule (${limit}h in 24h)`,

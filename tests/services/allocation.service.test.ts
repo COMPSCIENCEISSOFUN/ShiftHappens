@@ -53,7 +53,7 @@ beforeEach(async () => {
     data: {
       organizationId: orgId,
       allocationMode: "suggested",
-      breakRuleHoursWorked: 8,
+      workingDayHours: 8,
     },
   });
 

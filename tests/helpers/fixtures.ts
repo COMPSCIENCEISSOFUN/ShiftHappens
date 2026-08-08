@@ -87,7 +87,7 @@ export async function createTenant(
     data: {
       organizationId: org.id,
       taskAcceptanceMode: "require_acceptance",
-      breakRuleHoursWorked: 8,
+      workingDayHours: 8,
     },
   });
 

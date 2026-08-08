@@ -55,7 +55,7 @@ beforeEach(async () => {
   staffMembershipId = membership.id;
 
   await prisma.companySettings.create({
-    data: { organizationId: org.id, breakRuleHoursWorked: 8 },
+    data: { organizationId: org.id, workingDayHours: 8 },
   });
 });
 

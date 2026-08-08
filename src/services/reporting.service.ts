@@ -446,7 +446,7 @@ export class ReportingService {
     }
     totalLogged = Math.round(totalLogged * 10) / 10;
 
-    const totalCapacity = staffCount * settings.breakRuleHoursWorked * 7;
+    const totalCapacity = staffCount * settings.workingDayHours * 7;
 
     return {
       completionTrend: completionChart.map((d) => ({
@@ -725,7 +725,7 @@ export class ReportingService {
 
     // Hours logged
     const totalHours = this.sumClockHours(clockData);
-    const weeklyCapacity = staffCount * settings.breakRuleHoursWorked * 7;
+    const weeklyCapacity = staffCount * settings.workingDayHours * 7;
 
     return {
       assignmentPipeline: pipeline,
@@ -847,7 +847,7 @@ export class ReportingService {
       this.settingsRepo.getOrCreate(organizationId),
     ]);
 
-    const weeklyCapacity = settings.breakRuleHoursWorked * 7;
+    const weeklyCapacity = settings.workingDayHours * 7;
 
     // Group hours by membership
     const hoursMap = new Map<string, number>();
@@ -1155,7 +1155,7 @@ export class ReportingService {
 
     return {
       hoursThisWeek,
-      weeklyCapacity: settings.breakRuleHoursWorked * 7,
+      weeklyCapacity: settings.workingDayHours * 7,
       nextShift,
       tasksThisWeek: {
         total: activeWeekAssignments.length,

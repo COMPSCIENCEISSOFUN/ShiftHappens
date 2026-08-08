@@ -63,7 +63,7 @@ async function createTenant(slug: string): Promise<Tenant> {
     data: {
       organizationId: org.id,
       taskAcceptanceMode: "require_acceptance",
-      breakRuleHoursWorked: 8,
+      workingDayHours: 8,
     },
   });
 
@@ -305,10 +305,11 @@ describe("Tenant isolation — RoleService", () => {
 
 describe("Tenant isolation — CertificationService", () => {
   async function makeCert(tenant: Tenant) {
-    return certService.create(tenant.staffMembershipId, {
-      name: "Food Safety",
-      issuedDate: "2026-01-15T00:00:00.000Z",
-    });
+    return certService.create(
+      tenant.staffMembershipId,
+      { name: "Food Safety", issuedDate: "2026-01-15T00:00:00.000Z" },
+      { organizationId: tenant.orgId, userId: tenant.staffUserId }
+    );
   }
 
   it("getById returns null for a cert in another org", async () => {

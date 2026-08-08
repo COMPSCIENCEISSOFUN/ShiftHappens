@@ -47,7 +47,7 @@ describe("SettingsService", () => {
 
       expect(settings.allocationMode).toBe("manual");
       expect(settings.taskAcceptanceMode).toBe("auto_accept");
-      expect(settings.breakRuleHoursWorked).toBe(8);
+      expect(settings.workingDayHours).toBe(8);
     });
 
     it("returns default operating hours for new org", async () => {
@@ -95,9 +95,9 @@ describe("SettingsService", () => {
        */
       it("updates the working day", async () => {
         const updated = await settingsService.updateSettings(orgId, {
-          breakRuleHoursWorked: 6,
+          workingDayHours: 6,
         });
-        expect(updated.breakRuleHoursWorked).toBe(6);
+        expect(updated.workingDayHours).toBe(6);
       });
 
       it("updates notification preferences", async () => {
@@ -286,7 +286,7 @@ describe("SettingsService", () => {
         await settingsService.updateSettings(orgId, {
           allocationMode: "suggested",
           taskAcceptanceMode: "require_acceptance",
-          breakRuleHoursWorked: 10,
+          workingDayHours: 10,
           operatingHoursStart: 7,
           operatingHoursEnd: 23,
         });
@@ -299,7 +299,7 @@ describe("SettingsService", () => {
         // All other fields should remain unchanged
         expect(updated.allocationMode).toBe("auto");
         expect(updated.taskAcceptanceMode).toBe("require_acceptance");
-        expect(updated.breakRuleHoursWorked).toBe(10);
+        expect(updated.workingDayHours).toBe(10);
         expect(updated.operatingHoursStart).toBe(7);
         expect(updated.operatingHoursEnd).toBe(23);
       });
@@ -378,7 +378,7 @@ describe("SettingsService", () => {
         const after = await settingsService.updateSettings(orgId, {});
 
         expect(after.allocationMode).toBe(before.allocationMode);
-        expect(after.breakRuleHoursWorked).toBe(before.breakRuleHoursWorked);
+        expect(after.workingDayHours).toBe(before.workingDayHours);
         expect(after.operatingHoursStart).toBe(before.operatingHoursStart);
         expect(after.operatingHoursEnd).toBe(before.operatingHoursEnd);
       });

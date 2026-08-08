@@ -4,7 +4,7 @@
  * The core eligibility engine. Checks five dimensions to determine
  * if a staff member is eligible for a task assignment:
  *
- * 1. HOURS LIMIT — Has the member exceeded the company break rule threshold in
+ * 1. HOURS LIMIT — Has the member exceeded the company daily hours cap in
  *    the 24 hours before the shift begins?
  * 2. AVAILABILITY — Is the member available at the task's scheduled time?
  *    - Casual staff: weekly availability is a HARD CONSTRAINT
@@ -282,7 +282,7 @@ export class EligibilityService {
         this.OVERRIDE_KEYS.hoursLimit,
         await this.checkHoursLimit(
           member.id,
-          settings.breakRuleHoursWorked,
+          settings.workingDayHours,
           task.id,
           hoursCache,
           provisional,
@@ -435,7 +435,7 @@ export class EligibilityService {
   }
 
   /**
-   * Checks a member against the company break rule: a cap on hours in any
+   * Checks a member against the company daily hours cap: a limit on hours in any
    * rolling 24 hours.
    *
    * ## What this used to ask, and why it was wrong twice

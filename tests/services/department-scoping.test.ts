@@ -84,7 +84,7 @@ beforeEach(async () => {
   orgId = org.id;
 
   await prisma.companySettings.create({
-    data: { organizationId: orgId, breakRuleHoursWorked: 100 },
+    data: { organizationId: orgId, workingDayHours: 100 },
   });
 
   kitchenId = (await deptRepo.create({ name: "Kitchen", organizationId: orgId })).id;
@@ -167,18 +167,21 @@ describe("EligibilityService — task department scopes the candidate pool", () 
 describe("CertificationService.getByOrganization — department scope", () => {
   beforeEach(async () => {
     const noDeptMembershipId = await makeStaff("Floating Staff");
-    await certService.create(kitchenStaffMembershipId, {
-      name: "Food Safety",
-      issuedDate: "2026-01-01T00:00:00.000Z",
-    });
-    await certService.create(barStaffMembershipId, {
-      name: "Bar Licence",
-      issuedDate: "2026-01-01T00:00:00.000Z",
-    });
-    await certService.create(noDeptMembershipId, {
-      name: "Floating Cert",
-      issuedDate: "2026-01-01T00:00:00.000Z",
-    });
+    await certService.create(
+      kitchenStaffMembershipId,
+      { name: "Food Safety", issuedDate: "2026-01-01T00:00:00.000Z" },
+      { organizationId: orgId, userId: adminUserId }
+    );
+    await certService.create(
+      barStaffMembershipId,
+      { name: "Bar Licence", issuedDate: "2026-01-01T00:00:00.000Z" },
+      { organizationId: orgId, userId: adminUserId }
+    );
+    await certService.create(
+      noDeptMembershipId,
+      { name: "Floating Cert", issuedDate: "2026-01-01T00:00:00.000Z" },
+      { organizationId: orgId, userId: adminUserId }
+    );
   });
 
   it("returns every certification when scope is null (admin)", async () => {

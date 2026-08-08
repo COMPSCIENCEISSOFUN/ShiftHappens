@@ -337,7 +337,7 @@ describe("updateCompanySettingsSchema", () => {
   it("accepts valid settings", () => {
     const result = updateCompanySettingsSchema.safeParse({
       allocationMode: "suggested", taskAcceptanceMode: "require_acceptance",
-      breakRuleHoursWorked: 6,
+      workingDayHours: 6,
     });
     expect(result.success).toBe(true);
   });
@@ -355,7 +355,7 @@ describe("updateCompanySettingsSchema", () => {
   });
 
   it("rejects break hours above 24", () => {
-    const result = updateCompanySettingsSchema.safeParse({ breakRuleHoursWorked: 25 });
+    const result = updateCompanySettingsSchema.safeParse({ workingDayHours: 25 });
     expect(result.success).toBe(false);
   });
 

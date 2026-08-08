@@ -38,7 +38,7 @@ async function makeOrg(slug: string, status: "active" | "suspended" = "active") 
   const org = await orgRepo.create({ name: `Org ${slug}`, slug }, admin.id);
   await prisma.organization.update({ where: { id: org.id }, data: { status } });
   await prisma.companySettings.create({
-    data: { organizationId: org.id, breakRuleHoursWorked: 8 },
+    data: { organizationId: org.id, workingDayHours: 8 },
   });
   const adminMembership = await prisma.membership.findFirst({
     where: { organizationId: org.id },
