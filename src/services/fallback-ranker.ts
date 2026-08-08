@@ -54,6 +54,40 @@ import {
 /** What a dimension returns when it has nothing to distinguish anybody by. */
 const NEUTRAL = 50;
 
+/**
+ * Put a provider's rankings into the order it claimed.
+ *
+ * The models return `rank` and `score` on each entry but emit the ARRAY in
+ * whatever order they felt like, and nothing sorted it. `autoAllocate` then did
+ * `rankings.slice(0, headcount)` — taking whoever happened to be listed first
+ * and storing `allocationRank: 1` against them regardless of what the model
+ * actually said. On a shift needing two people out of five, that is the wrong
+ * two, recorded as the engine's top picks, feeding a dashboard that asks
+ * whether the engine's top picks work out.
+ *
+ * `FallbackRanker.rank` already sorts its own output, so this only ever
+ * reorders provider results — and applying it to both keeps one guarantee for
+ * every caller: the array is the ranking.
+ *
+ * Rank ascending first, because that is the model's stated intent. Score
+ * descending breaks ties, and the original index breaks those, so the result is
+ * deterministic even when a model returns the same rank for everybody — which
+ * `ordering-determinism` exists to stop happening silently elsewhere.
+ */
+export function byRank<T extends { rank: number; score: number }>(
+  rankings: readonly T[]
+): T[] {
+  return rankings
+    .map((entry, index) => ({ entry, index }))
+    .sort(
+      (a, b) =>
+        a.entry.rank - b.entry.rank ||
+        b.entry.score - a.entry.score ||
+        a.index - b.index
+    )
+    .map(({ entry }) => entry);
+}
+
 export class FallbackRanker {
   /** Matches the `name` on the AI providers, so provenance reads the same way. */
   static readonly name_ = "algorithmic" as const;

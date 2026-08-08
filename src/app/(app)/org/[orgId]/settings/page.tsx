@@ -23,6 +23,8 @@
 import {
   asPercentages,
   DEFAULT_WEIGHTS,
+  MAX_SHARE,
+  rebalanceWeights,
   WEIGHT_DESCRIPTIONS,
   WEIGHT_KEYS,
   WEIGHT_LABELS,
@@ -975,8 +977,9 @@ export default function SettingsPage() {
                   </div>
                   <p className="text-[13px] text-muted-foreground">
                     Applied exactly by the built-in ranker, and given to the AI
-                    as guidance. They do not need to add up to 100 — only the
-                    balance between them matters.
+                    as guidance. Moving one adjusts the others so the four always
+                    total 100%, and each number is that priority&rsquo;s real
+                    share.
                   </p>
 
                   <div className="space-y-3 pt-1">
@@ -997,14 +1000,26 @@ export default function SettingsPage() {
                           id={`weight-${key}`}
                           type="range"
                           min={0}
-                          max={100}
                           step={5}
+                          /* Capped where `weightsProblem` refuses, so the
+                             screen cannot compose a set it will then reject. */
+                          max={Math.round(MAX_SHARE * 100)}
                           value={weights[key]}
+                          /*
+                            Rebalanced, not set. Four sliders moving
+                            independently made the one question being asked —
+                            how much does this matter COMPARED to the rest —
+                            unanswerable: dragging workload from 30 to 60 cut
+                            availability's real share from 25% to 19% while its
+                            own slider still read 25.
+
+                            The rule lives in `ranking-weights` beside the
+                            normalisation it has to agree with, not here.
+                          */
                           onChange={(e) =>
-                            setWeights((prev) => ({
-                              ...prev,
-                              [key]: Number(e.target.value),
-                            }))
+                            setWeights((prev) =>
+                              rebalanceWeights(prev, key, Number(e.target.value))
+                            )
                           }
                           aria-label={WEIGHT_LABELS[key]}
                           className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-muted accent-indigo-600"
@@ -1031,7 +1046,33 @@ export default function SettingsPage() {
 
                 <Separator />
 
-                {/* Task Acceptance */}
+                {/*
+                  Task Acceptance.
+
+                  Both descriptions used to overstate what the setting does, in
+                  the same direction — they described the happy path and left
+                  out every case where the system asks anyway or refuses to let
+                  go.
+
+                  "Staff are automatically assigned without needing to confirm"
+                  stopped being true when waiving somebody's stated
+                  availability began writing the assignment `pending` on
+                  purpose: booking a person onto a day they said they could not
+                  work is an ask, not a booking.
+
+                  "Staff must accept or reject each assigned task" was never
+                  true for a full-time member. Their rejection is routed to
+                  `decline_requested` and waits for a manager, because a
+                  contracted employee refusing a rostered shift is a different
+                  act from a casual turning down an offer.
+
+                  The line about leaving a shift is the one most worth having.
+                  It is the same for everybody and it surprises people: under
+                  auto-accept a casual is booked without being asked and then
+                  needs approval to get out, since `requestWithdrawal` is the
+                  only exit from an accepted assignment and is not gated on
+                  employment type.
+                */}
                 <div className="space-y-2">
                   <Label>Task Acceptance</Label>
                   <div className="space-y-2">
@@ -1041,7 +1082,7 @@ export default function SettingsPage() {
                       selected={taskAcceptanceMode === "auto_accept"}
                       onSelect={setTaskAcceptanceMode}
                       title="Auto Accept"
-                      description="Staff are automatically assigned without needing to confirm"
+                      description="Staff are rostered without being asked. Anyone booked over their stated availability is still asked to confirm."
                     />
                     <RadioCard
                       name="taskAcceptanceMode"
@@ -1049,9 +1090,13 @@ export default function SettingsPage() {
                       selected={taskAcceptanceMode === "require_acceptance"}
                       onSelect={setTaskAcceptanceMode}
                       title="Require Acceptance"
-                      description="Staff must accept or reject each assigned task"
+                      description="Staff accept or reject each shift. A full-time member's rejection goes to their manager to approve."
                     />
                   </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    Either way, leaving a shift already accepted is a request a
+                    manager approves — for full-time and casual staff alike.
+                  </p>
                 </div>
 
                 <Separator />

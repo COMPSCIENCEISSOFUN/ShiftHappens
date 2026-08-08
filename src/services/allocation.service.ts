@@ -11,7 +11,7 @@
  * certifications, availability, department history) and sends
  * them to the AI provider for intelligent ranking.
  */
-import { FallbackRanker } from "./fallback-ranker";
+import { FallbackRanker, byRank } from "./fallback-ranker";
 import { availabilityFit, certificationRelevance } from "@/lib/ranking-inputs";
 import {
   DEFAULT_WEIGHTS,
@@ -78,7 +78,7 @@ export class AllocationService {
     for (const provider of this.providers) {
       try {
         const rankings = await provider.rankStaff(task, candidates);
-        return { rankings, provider: provider.name };
+        return { rankings: byRank(rankings), provider: provider.name };
       } catch (error) {
         console.error("[AI Failover] Provider failed, trying next:", error);
       }
@@ -111,60 +111,34 @@ export class AllocationService {
     taskId: string,
     organizationId: string
   ): Promise<RankingResult> {
-    const task = await this.taskRepo.findById(taskId);
-    if (!task || task.organizationId !== organizationId) throw new Error("Task not found");
-
-    const eligibility = await this.eligibilityService.checkEligibilityForTask(
+    /*
+     * The shared builder, which this used NOT to use.
+     *
+     * It had its own copy of the eligible-and-not-already-assigned filter and
+     * its own candidate loop — and the loop passed four arguments where the
+     * builder passes six. The two omitted are `departmentCerts` and `shift`,
+     * both of which default, so nothing failed: `certificationRelevance` and
+     * `availabilityFit` simply returned null for every candidate, the ranker
+     * substituted NEUTRAL for both, and HALF the weighted score became a
+     * constant on the suggest and auto-allocate paths.
+     *
+     * `buildCandidatePool`'s own docblock said it existed "so the AI path and
+     * the algorithmic path cannot disagree about who is a candidate". The AI
+     * path did not call it. The duplication is what drifted, so the fix is to
+     * remove the duplicate rather than add the two arguments to it.
+     */
+    const { task, candidates } = await this.buildCandidatePool(
       taskId,
       organizationId
     );
 
-    /*
-     * Anyone who ALREADY HAS a row on this shift is not a candidate.
-     *
-     * Not a status list. `TaskAssignment` is unique on (taskId, membershipId),
-     * so an existing row of any status makes a second assignment impossible —
-     * `autoAllocate` would fail on the constraint. And an approved withdrawal
-     * DELETES the row rather than storing "withdrawn", so "has a row" is
-     * exactly the condition, not a proxy for it.
-     *
-     * This was a hand-written list of four statuses, which is how
-     * `decline_requested` came to be missing from it: a full-time member with a
-     * pending decline was still on the shift and would have been suggested for
-     * it again.
-     *
-     * It matters more than it looks because eligibility deliberately INCLUDES
-     * people already assigned, so that their commitments can still be
-     * validated. That widening is about checking, not proposing; without this
-     * filter it leaks into the suggestion path.
-     */
-    const settledMembershipIds = new Set(
-      task.assignments.map((a) => a.membershipId)
-    );
-
-    const eligibleStaff = eligibility
-      .filter((e) => e.eligible)
-      .filter((e) => !settledMembershipIds.has(e.membershipId));
-
-    if (eligibleStaff.length === 0) {
+    if (candidates.length === 0) {
       // No candidates means no strategy ran. Reporting a provider here would
       // put a phantom row in the AI-vs-fallback split for work never done.
       return { rankings: [], provider: "algorithmic" };
     }
 
     const settings = await this.settingsRepo.getOrCreate(organizationId);
-    const candidates: StaffCandidate[] = [];
-
-    for (const staff of eligibleStaff) {
-      const candidate = await this.buildCandidate(
-        staff.membershipId,
-        staff.memberName,
-        settings.workingDayHours,
-        task.departmentId
-      );
-      candidates.push(candidate);
-    }
-
     const weights = parseWeights(settings.smartAllocationWeights);
     return this.rankWithFailover(
       {
@@ -202,7 +176,7 @@ export class AllocationService {
     taskId: string,
     organizationId: string
   ): Promise<RankingResult> {
-    const candidates = await this.buildCandidatePool(taskId, organizationId);
+    const { candidates } = await this.buildCandidatePool(taskId, organizationId);
     if (candidates.length === 0) {
       return { rankings: [], provider: "algorithmic" };
     }
@@ -227,7 +201,10 @@ export class AllocationService {
   private async buildCandidatePool(
     taskId: string,
     organizationId: string
-  ): Promise<StaffCandidate[]> {
+  ): Promise<{
+    task: NonNullable<Awaited<ReturnType<TaskRepository["findById"]>>>;
+    candidates: StaffCandidate[];
+  }> {
     const task = await this.taskRepo.findById(taskId);
     if (!task || task.organizationId !== organizationId) {
       throw new Error("Task not found");
@@ -237,12 +214,27 @@ export class AllocationService {
       taskId,
       organizationId
     );
+
+    /*
+     * Anyone who ALREADY HAS a row on this shift is not a candidate.
+     *
+     * Not a status list. `TaskAssignment` is unique on (taskId, membershipId),
+     * so an existing row of any status makes a second assignment impossible —
+     * `autoAllocate` would fail on the constraint. And an approved withdrawal
+     * DELETES the row rather than storing "withdrawn", so "has a row" is
+     * exactly the condition, not a proxy for it.
+     *
+     * It matters more than it looks because eligibility deliberately INCLUDES
+     * people already assigned, so that their commitments can still be
+     * validated. That widening is about checking, not proposing; without this
+     * filter it leaks into the suggestion path.
+     */
     const settled = new Set(task.assignments.map((a) => a.membershipId));
     const eligibleStaff = eligibility
       .filter((e) => e.eligible)
       .filter((e) => !settled.has(e.membershipId));
 
-    if (eligibleStaff.length === 0) return [];
+    if (eligibleStaff.length === 0) return { task, candidates: [] };
 
     const settings = await this.settingsRepo.getOrCreate(organizationId);
 
@@ -274,7 +266,7 @@ export class AllocationService {
         )
       );
     }
-    return candidates;
+    return { task, candidates };
   }
 
   /**

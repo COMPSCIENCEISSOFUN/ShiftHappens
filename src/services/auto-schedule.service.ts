@@ -44,7 +44,11 @@ import { isDepartmentInScope } from "@/lib/department-scope";
 import { aiTimeoutSignal, hasApiKey } from "@/lib/ai-limits";
 import { FallbackRanker } from "@/services/fallback-ranker";
 import { availabilityFit, certificationRelevance } from "@/lib/ranking-inputs";
-import { parseWeights, type RankingWeights } from "@/lib/ranking-weights";
+import {
+  parseWeights,
+  describeWeightsForPrompt,
+  type RankingWeights,
+} from "@/lib/ranking-weights";
 import type { RankedStaff } from "@/services/ai-provider";
 
 interface StaffInfo {
@@ -995,6 +999,21 @@ export class AutoScheduleService {
      * the attributes above are conditional, and the numbering follows so the
      * list never has a gap.
      */
+    /*
+     * The organisation's ranking priorities, as a sentence.
+     *
+     * `context.weights` was parsed on every run and read in exactly one place —
+     * the algorithmic branch — so whenever the AI draft won the fill-count
+     * comparison, the priorities an admin had configured influenced nothing.
+     * Worse, unlike the single-task prompt they were not even mentioned, so the
+     * model was inventing its own preference order.
+     *
+     * Told, not enforced: the models reason in language and cannot multiply by
+     * 0.30, which is the same bargain the single-task path makes and the same
+     * one the settings screen describes.
+     */
+    const priorities = describeWeightsForPrompt(context.weights);
+
     const compositionRule = kinds.size === 0
       ? ""
       : `6. Composition. Where a task lists COMPOSITION, the SET of people on that
@@ -1075,8 +1094,9 @@ wastes the slot and leaves the shift unfilled:
 4. No double-booking — one task at a time per staff member.
 5. Respect the work rules above (hour limits and rest between shifts).
 ${compositionRule}
-PREFERENCES — apply these only among staff who satisfy every hard rule:
-${compositionRule ? "7" : "6"}. Distribute hours fairly — prefer staff with fewer hours worked.
+PREFERENCES — apply these only among staff who satisfy every hard rule, in
+this order of importance:
+${priorities || "Distribute hours fairly — prefer staff with fewer hours worked."}
 
 Respond with ONLY a JSON array using task numbers and staff letters:
 [{"task": 1, "staff": "A", "reason": "brief reason"}, ...]

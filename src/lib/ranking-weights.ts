@@ -147,6 +147,71 @@ export function asPercentages(weights: RankingWeights): Record<WeightKey, number
 }
 
 /**
+ * Move one priority and absorb the difference across the others, keeping the
+ * total at exactly 100.
+ *
+ * ## Why the screen needs this at all
+ *
+ * The weights are ratios — the ranker normalises them, so 30/25/25/20 and
+ * 60/50/50/40 rank identically, and that is why "they need not total 100" is
+ * true rather than merely reassuring. But four sliders that each move
+ * independently make the ONE question an admin is actually asking — "how much
+ * does this matter compared to the rest?" — unanswerable without arithmetic,
+ * because dragging workload from 30 to 60 changes availability's real share
+ * from 25% to 19% while its slider still reads 25.
+ *
+ * Holding the total at 100 makes the number on each slider its actual share.
+ *
+ * ## The rules it has to respect
+ *
+ * `MAX_SHARE` caps any single dimension, so the moved value is clamped before
+ * anything is redistributed — otherwise the screen would let somebody build a
+ * set that `weightsProblem` then refuses on save, which is a worse experience
+ * than not letting them drag that far.
+ *
+ * The remainder is shared in proportion to what the OTHERS already held, so
+ * their relative order survives: if availability mattered twice as much as
+ * department before, it still does afterwards. Splitting it equally would
+ * quietly flatten priorities the admin had set.
+ *
+ * When the others are all at zero there is no proportion to preserve, so the
+ * remainder is spread evenly — the only case where this invents a preference,
+ * and it beats leaving the total below 100 or refusing the drag.
+ *
+ * Rounding is settled on the LAST key rather than by rounding each share, so
+ * the total is exactly 100 and never 99 or 101 from four independent rounds.
+ */
+export function rebalanceWeights(
+  weights: RankingWeights,
+  moved: WeightKey,
+  value: number
+): RankingWeights {
+  const capped = Math.max(0, Math.min(Math.round(MAX_SHARE * 100), Math.round(value)));
+  const others = WEIGHT_KEYS.filter((k) => k !== moved);
+  const remainder = 100 - capped;
+  const othersTotal = others.reduce((sum, k) => sum + Math.max(0, weights[k]), 0);
+
+  const result = { ...weights, [moved]: capped } as RankingWeights;
+
+  let allocated = 0;
+  others.forEach((key, i) => {
+    const isLast = i === others.length - 1;
+    if (isLast) {
+      result[key] = remainder - allocated;
+      return;
+    }
+    const share =
+      othersTotal > 0
+        ? (Math.max(0, weights[key]) / othersTotal) * remainder
+        : remainder / others.length;
+    result[key] = Math.round(share);
+    allocated += result[key];
+  });
+
+  return result;
+}
+
+/**
  * Why a set of weights is unusable, or null if it is fine.
  *
  * Only two things are actually refused. Everything non-negative ranks
