@@ -20,6 +20,10 @@ import { TaskRepository } from "@/repositories/task.repository";
 import { TaskService } from "./task.service";
 import { prisma } from "@/lib/prisma";
 import { parseAllocationWeights, type AllocationWeights } from "@/lib/allocation-weights";
+import {
+  getProjectTeamRestriction,
+  isAllowedByProjectTeam,
+} from "@/lib/project-staffing";
 
 export class AllocationService {
   private providers: AIProvider[];
@@ -115,42 +119,11 @@ export class AllocationService {
     *
     * It only narrows WHO may be ranked.
     */
-    let allowedProjectTeamIds:
-      | Set<string>
-      | null = null;
-
-    if (task.projectId) {
-      const project =
-        await prisma.project.findFirst({
-          where: {
-            id: task.projectId,
-            organizationId,
-          },
-
-          select: {
-            staffingMode: true,
-
-            projectMembers: {
-              select: {
-                membershipId: true,
-              },
-            },
-          },
-        });
-
-      if (
-        project?.staffingMode ===
-        "project_team"
-      ) {
-        allowedProjectTeamIds =
-          new Set(
-            project.projectMembers.map(
-              (member) =>
-                member.membershipId
-            )
-          );
-      }
-    }
+    const projectTeam =
+      await getProjectTeamRestriction(
+        task.projectId,
+        organizationId
+      );
 
     const eligibleStaff =
       eligibility.filter((entry) => {
@@ -174,8 +147,8 @@ export class AllocationService {
         * only team members survive.
         */
         if (
-          allowedProjectTeamIds &&
-          !allowedProjectTeamIds.has(
+          !isAllowedByProjectTeam(
+            projectTeam,
             entry.membershipId
           )
         ) {

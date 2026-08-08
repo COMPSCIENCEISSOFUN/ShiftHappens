@@ -372,6 +372,9 @@ export class OperationsAssistantService {
         description: parsed.description || undefined,
         departmentId: parsed.departmentId,
         priority: parsed.priority as "low" | "medium" | "high" | "urgent",
+        // The assistant plans work items, not a persistent team. A manager
+        // switches the project to Project Team staffing when they want one.
+        staffingMode: "task_based",
         plannedStart: parsed.scheduledStart || undefined,
         plannedEnd: parsed.scheduledEnd || undefined,
       }, organizationId, userId);

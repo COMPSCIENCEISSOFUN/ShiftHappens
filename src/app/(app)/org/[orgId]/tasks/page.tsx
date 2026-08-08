@@ -1233,11 +1233,6 @@ export default function TasksPage() {
                           {task.project.title}
                         </Link>
                       )}
-                      {task.project && (
-                        <span className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700 dark:border-indigo-800 dark:bg-indigo-950 dark:text-indigo-300">
-                          Project: {task.project.title}
-                        </span>
-                      )}
 
                       {task.isRecurring && (
                         <span

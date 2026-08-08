@@ -260,20 +260,25 @@ export class ProjectService {
     );
 
     /*
-     * Once project work exists, moving the
-     * entire Project to another department
-     * would leave existing Tasks under the
-     * original department.
+     * Once project work or a Project Team
+     * exists, moving the entire Project to
+     * another department would leave those
+     * Tasks and members under the original
+     * department.
      */
     if (
       input.departmentId !==
         undefined &&
       input.departmentId !==
         existing.departmentId &&
-      existing.tasks.length > 0
+      (existing.tasks.length > 0 ||
+        existing.projectMembers
+          .length > 0)
     ) {
       throw new Error(
-        "Cannot change the project department after work items have been created"
+        existing.tasks.length > 0
+          ? "Cannot change the project department after work items have been created"
+          : "Cannot change the project department while the Project Team has members"
       );
     }
 
@@ -380,48 +385,79 @@ export class ProjectService {
       }
     }
 
+    /*
+     * Leaving Project Team staffing drops the
+     * persistent team. Existing Task assignments
+     * are untouched — those are real scheduled
+     * work. Keeping the membership rows would
+     * silently restore the old team if the mode
+     * were switched back later.
+     */
+    const clearsTeam =
+      input.staffingMode ===
+        "task_based" &&
+      existing.staffingMode ===
+        "project_team";
+
     const project =
-      await prisma.project.update({
-        where: {
-          id: projectId,
-        },
+      await prisma.$transaction(
+        async (tx) => {
+          if (clearsTeam) {
+            await tx.projectMember.deleteMany(
+              {
+                where: {
+                  projectId,
+                },
+              }
+            );
+          }
 
-        data: {
-          title: input.title,
+          return tx.project.update({
+            where: {
+              id: projectId,
+            },
 
-          description:
-            input.description,
+            data: {
+              title: input.title,
 
-          departmentId:
-            input.departmentId,
+              description:
+                input.description,
 
-          priority:
-            input.priority,
+              departmentId:
+                input.departmentId,
 
-          staffingMode:
-            input.staffingMode,
+              priority:
+                input.priority,
 
-          status: input.status,
+              staffingMode:
+                input.staffingMode,
 
-          plannedStart:
-            plannedStart
-              ? new Date(
-                  plannedStart
-                )
-              : plannedStart === null
-                ? null
-                : undefined,
+              status: input.status,
 
-          plannedEnd:
-            plannedEnd
-              ? new Date(plannedEnd)
-              : plannedEnd === null
-                ? null
-                : undefined,
-        },
+              plannedStart:
+                plannedStart
+                  ? new Date(
+                      plannedStart
+                    )
+                  : plannedStart ===
+                      null
+                    ? null
+                    : undefined,
 
-        include: this.include,
-      });
+              plannedEnd:
+                plannedEnd
+                  ? new Date(
+                      plannedEnd
+                    )
+                  : plannedEnd === null
+                    ? null
+                    : undefined,
+            },
+
+            include: this.include,
+          });
+        }
+      );
 
     await this.auditService.log({
       organizationId,

@@ -30,6 +30,10 @@ import {
 import type { AutoScheduleAssignmentReference } from "@/lib/validations";
 import { isDepartmentInScope } from "@/lib/department-scope";
 import {
+  getProjectTeamRestrictions,
+  isAllowedByProjectTeam,
+} from "@/lib/project-staffing";
+import {
   DEFAULT_TIMEZONE,
   dayOfWeekInTimeZone,
   timeOfDayInTimeZone,
@@ -63,6 +67,12 @@ interface TaskInfo {
   currentAssignments: number;
   scheduledStart: Date;
   scheduledEnd: Date;
+  /**
+   * Membership ids allowed to staff this task, or null when unrestricted.
+   * Populated for work items of a `project_team` project so the draft never
+   * proposes someone the final eligibility gate would reject.
+   */
+  projectTeam: Set<string> | null;
 }
 
 export interface DraftAssignment {
@@ -116,6 +126,11 @@ export class AutoScheduleService {
 
     const allTasks = await this.taskRepo.findByOrganizationId(organizationId, { status: "open" });
 
+    const projectTeams = await getProjectTeamRestrictions(
+      allTasks.map((task) => task.projectId),
+      organizationId
+    );
+
     const tasks: TaskInfo[] = [];
     for (const task of allTasks) {
       if (!isDepartmentInScope(task.departmentId, authorizedDepartmentIds)) continue;
@@ -137,6 +152,9 @@ export class AutoScheduleService {
         currentAssignments,
         scheduledStart: start,
         scheduledEnd: end,
+        projectTeam: task.projectId
+          ? projectTeams.get(task.projectId) ?? null
+          : null,
       });
     }
 
@@ -252,6 +270,10 @@ export class AutoScheduleService {
 
       const candidates = context.staff
         .filter((s) => {
+          // Project Team staffing narrows the pool before any other check.
+          // An empty team yields no candidates rather than falling back to
+          // the wider organization.
+          if (!isAllowedByProjectTeam(task.projectTeam, s.membershipId)) return false;
           if (requiresManagedAvailability(s.employmentType)) {
             const daySchedule = s.availability.find((a) => a.dayOfWeek === taskDayOfWeek);
             if (!daySchedule || !daySchedule.isAvailable) return false;
@@ -295,7 +317,13 @@ export class AutoScheduleService {
 
       assignments.push(...assignedToThisTask);
       if (assignedToThisTask.length < slotsNeeded) {
-        unfilledTasks.push({ taskId: task.id, taskTitle: task.title, reason: `${assignedToThisTask.length} of ${slotsNeeded} filled — no eligible staff remaining` });
+        const pool =
+          task.projectTeam?.size === 0
+            ? "the Project Team has no members yet"
+            : task.projectTeam
+              ? "no eligible Project Team member remaining"
+              : "no eligible staff remaining";
+        unfilledTasks.push({ taskId: task.id, taskTitle: task.title, reason: `${assignedToThisTask.length} of ${slotsNeeded} filled — ${pool}` });
       }
     }
 

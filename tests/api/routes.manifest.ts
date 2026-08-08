@@ -131,6 +131,8 @@ export const ROUTES: RouteSpec[] = [
   org("projects", "POST", MANAGER, { suspension: true, permission: "tasks:create" }),
   org("projects/[projectId]", "GET", MEMBER, { extraParams: ["projectId"], permission: "tasks:read" }),
   org("projects/[projectId]", "PATCH", MANAGER, { suspension: true, extraParams: ["projectId"], permission: "tasks:update" }),
+  org("projects/[projectId]/team", "GET", MEMBER, { extraParams: ["projectId"], permission: "tasks:read" }),
+  org("projects/[projectId]/team", "PUT", MANAGER, { suspension: true, extraParams: ["projectId"], permission: "tasks:update" }),
   org("operations/execute", "POST", MEMBER, { suspension: true }),
   org("operations/history", "GET", MEMBER),
   org("operations/undo", "POST", MANAGER, { suspension: true }),

@@ -33,6 +33,11 @@ import {
 import { COMMITTED_ASSIGNMENT_STATUSES, SLOT_OCCUPYING_ASSIGNMENT_STATUSES } from "@/lib/assignment-status";
 import { prisma } from "@/lib/prisma";
 import {
+  getProjectTeamRestriction,
+  isAllowedByProjectTeam,
+  OUTSIDE_PROJECT_TEAM_MESSAGE,
+} from "@/lib/project-staffing";
+import {
   dayOfWeekInTimeZone,
   endOfDayInTimeZone,
   startOfDayInTimeZone,
@@ -264,11 +269,18 @@ export class EligibilityService {
         organizationId: true,
         departmentId: true,
         requiredHeadcount: true,
+        projectId: true,
       },
     });
     if (!task || task.organizationId !== organizationId) {
       throw new Error("Task not found");
     }
+
+    // Project Team staffing narrows the candidate pool for project work.
+    // Enforced here rather than only in ranking, because AI suggestions,
+    // auto-allocation, the weekly scheduler and manual assignment all pass
+    // through this assertion before an assignment row is written.
+    const projectTeam = await getProjectTeamRestriction(task.projectId, organizationId);
 
     const memberships = await prisma.membership.findMany({
       where: { id: { in: membershipIds } },
@@ -308,6 +320,9 @@ export class EligibilityService {
         )
       ) {
         throw new Error("Staff member is not assigned to the task department");
+      }
+      if (!isAllowedByProjectTeam(projectTeam, membershipId)) {
+        throw new Error(OUTSIDE_PROJECT_TEAM_MESSAGE);
       }
     }
 

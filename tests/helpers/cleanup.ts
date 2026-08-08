@@ -14,7 +14,9 @@ export async function cleanDatabase() {
   await prisma.availabilityOverride.deleteMany();
   await prisma.availability.deleteMany();
   await prisma.taskAssignment.deleteMany();
+  await prisma.projectMember.deleteMany();
   await prisma.task.deleteMany();
+  await prisma.project.deleteMany();
   await prisma.workRule.deleteMany();
   await prisma.rolePermission.deleteMany();
   await prisma.role.deleteMany();
