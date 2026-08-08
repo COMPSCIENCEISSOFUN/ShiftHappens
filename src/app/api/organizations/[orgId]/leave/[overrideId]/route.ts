@@ -63,6 +63,15 @@ export async function PATCH(
     );
     return NextResponse.json(reviewed);
   } catch (error) {
+    /*
+     * 403, not 400. The request is well-formed and the caller holds the
+     * permission — what they lack is standing on this particular request, which
+     * is what 403 means. A 400 would read as "you sent something malformed" and
+     * send a manager looking for a typo.
+     */
+    if (error instanceof Error && error.message.includes("your own leave")) {
+      return NextResponse.json({ error: error.message }, { status: 403 });
+    }
     if (error instanceof Error && error.message.includes("already been reviewed")) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }

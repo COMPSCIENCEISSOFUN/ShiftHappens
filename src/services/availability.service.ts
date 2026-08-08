@@ -136,7 +136,7 @@ export class AvailabilityService {
       organizationId,
       userId: actorUserId,
       action: ACTIONS.AVAILABILITY_REVIEW_REQUESTED,
-      entityType: "membership",
+      entityType: "member",
       entityId: membership.id,
     });
 
@@ -298,7 +298,7 @@ export class AvailabilityService {
       organizationId,
       userId: actorUserId,
       action: ACTIONS.CONTRACTED_DAYS_SET,
-      entityType: "membership",
+      entityType: "member",
       entityId: membership.id,
       details: {
         days: schedule
@@ -550,6 +550,28 @@ export class AvailabilityService {
     }
     if (!memberInScope(subject, departmentScope)) {
       throw new Error("Leave request not found");
+    }
+
+    /*
+     * Nobody signs off their own leave.
+     *
+     * This is reachable only because a MANAGER can be full-time. Full-timers
+     * must request time off; managers hold the permission to grant it; and a
+     * manager reviewing their own request passes every other gate here — the
+     * organisation matches, and they are trivially inside their own department
+     * scope. So the request-and-approve flow collapsed into a formality with
+     * extra steps for exactly the people senior enough to need watching.
+     *
+     * Refused rather than silently allowed, and it cannot deadlock: every
+     * organisation has at least one company admin, because whoever created it
+     * became one. A sole manager still has somebody to ask.
+     *
+     * Checked before the pending guard on purpose. "You cannot approve your own
+     * request" is the more useful thing to be told, and it stays true whatever
+     * state the row is in.
+     */
+    if (subject.userId === reviewerUserId) {
+      throw new Error("You cannot review your own leave request");
     }
 
     if (override.status !== "pending") {

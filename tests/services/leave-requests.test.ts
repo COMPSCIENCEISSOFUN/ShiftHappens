@@ -159,6 +159,92 @@ describe("whose leave a reviewer may answer", () => {
     expect(reviewed.status).toBe("approved");
   });
 
+  /*
+   * Reachable only because a MANAGER can be full-time. Full-timers must request
+   * time off, managers hold the permission to grant it, and a manager reviewing
+   * their own request passes every other gate — same organisation, and they are
+   * trivially inside their own department scope. The request-and-approve flow
+   * collapsed into a formality with extra steps for exactly the people senior
+   * enough to need watching.
+   */
+  it("refuses a manager approving their own request", async () => {
+    await prisma.membership.update({
+      where: { id: tenant.manager.membershipId },
+      data: { employmentType: "full_time" },
+    });
+    const request = await askForLeave(tenant.manager.membershipId);
+
+    await expect(
+      service.reviewLeave(
+        request.id,
+        "approved",
+        tenant.manager.userId,
+        tenant.orgId,
+        [tenant.departmentId]
+      )
+    ).rejects.toThrow(/your own leave/);
+  });
+
+  // Rejecting it is the same act of judgement on the same request.
+  it("refuses them rejecting it either", async () => {
+    await prisma.membership.update({
+      where: { id: tenant.manager.membershipId },
+      data: { employmentType: "full_time" },
+    });
+    const request = await askForLeave(tenant.manager.membershipId);
+
+    await expect(
+      service.reviewLeave(
+        request.id,
+        "rejected",
+        tenant.manager.userId,
+        tenant.orgId,
+        [tenant.departmentId]
+      )
+    ).rejects.toThrow(/your own leave/);
+  });
+
+  it("leaves the request untouched when it refuses", async () => {
+    await prisma.membership.update({
+      where: { id: tenant.manager.membershipId },
+      data: { employmentType: "full_time" },
+    });
+    const request = await askForLeave(tenant.manager.membershipId);
+
+    await service
+      .reviewLeave(request.id, "approved", tenant.manager.userId, tenant.orgId, [
+        tenant.departmentId,
+      ])
+      .catch(() => {});
+
+    const row = await prisma.availabilityOverride.findUnique({
+      where: { id: request.id },
+    });
+    expect(row?.status).toBe("pending");
+    expect(row?.reviewedById).toBeNull();
+  });
+
+  /*
+   * And it never deadlocks. Every organisation has at least one company admin —
+   * whoever created it became one — so a sole manager still has somebody to ask.
+   */
+  it("still lets an admin answer that same request", async () => {
+    await prisma.membership.update({
+      where: { id: tenant.manager.membershipId },
+      data: { employmentType: "full_time" },
+    });
+    const request = await askForLeave(tenant.manager.membershipId);
+
+    const reviewed = await service.reviewLeave(
+      request.id,
+      "approved",
+      tenant.admin.userId,
+      tenant.orgId,
+      null
+    );
+    expect(reviewed.status).toBe("approved");
+  });
+
   // An unscoped reviewer is a company admin.
   it("allows an unscoped reviewer", async () => {
     const request = await askForLeave(fullTimer);
