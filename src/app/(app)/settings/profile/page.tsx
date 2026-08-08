@@ -15,7 +15,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { Sparkles } from "lucide-react";
+import { BookOpen, Building2, Calendar, CircleAlert, CircleCheck, Eye, EyeOff, Info, Lock, Sparkles, User, Users } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -30,6 +30,7 @@ import { AlertBanner } from "@/components/ui/alert-banner";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { PageLoading } from "@/components/ui/page-loading";
 import { getSystemRoleLabel } from "@/lib/role-config";
+import { PRIMARY_BUTTON } from "@/components/ui/button-styles";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -131,16 +132,9 @@ function PasswordInput({
         tabIndex={-1}
       >
         {visible ? (
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
-            <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
-            <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
-            <line x1="1" y1="1" x2="23" y2="23" />
-          </svg>
+          <EyeOff className="h-4 w-4" aria-hidden="true" />
         ) : (
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
-            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-            <circle cx="12" cy="12" r="3" />
-          </svg>
+          <Eye className="h-4 w-4" aria-hidden="true" />
         )}
       </button>
     </div>
@@ -324,10 +318,7 @@ export default function ProfilePage() {
             <div className="mt-3 flex flex-wrap justify-center gap-2 sm:justify-start">
               {primaryMembership && (
                 <span className="inline-flex items-center gap-1 rounded-full bg-white/15 px-2.5 py-0.5 text-xs font-medium backdrop-blur-sm">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3 w-3">
-                    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-                    <circle cx="9" cy="7" r="4" />
-                  </svg>
+                  <User className="h-3 w-3" aria-hidden="true" />
                   {getSystemRoleLabel(
                     primaryMembership.role,
                     primaryMembership.employmentType
@@ -337,10 +328,7 @@ export default function ProfilePage() {
 
               {primaryMembership && (
                 <span className="inline-flex items-center gap-1 rounded-full bg-white/15 px-2.5 py-0.5 text-xs font-medium backdrop-blur-sm">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3 w-3">
-                    <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
-                    <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
-                  </svg>
+                  <BookOpen className="h-3 w-3" aria-hidden="true" />
                   {primaryMembership.organization.name}
                 </span>
               )}
@@ -352,30 +340,16 @@ export default function ProfilePage() {
                     : "bg-amber-400/20 text-amber-100"
                 }`}
               >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3 w-3">
-                  {profile.emailVerified ? (
-                    <>
-                      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-                      <polyline points="22 4 12 14.01 9 11.01" />
-                    </>
+                {profile.emailVerified ? (
+                    <CircleCheck className="h-3 w-3" aria-hidden="true" />
                   ) : (
-                    <>
-                      <circle cx="12" cy="12" r="10" />
-                      <line x1="12" y1="8" x2="12" y2="12" />
-                      <line x1="12" y1="16" x2="12.01" y2="16" />
-                    </>
+                    <CircleAlert className="h-3 w-3" aria-hidden="true" />
                   )}
-                </svg>
                 {profile.emailVerified ? "Verified" : "Unverified"}
               </span>
 
               <span className="inline-flex items-center gap-1 rounded-full bg-white/15 px-2.5 py-0.5 text-xs font-medium backdrop-blur-sm">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3 w-3">
-                  <rect x="3" y="4" width="18" height="18" rx="2" />
-                  <line x1="16" y1="2" x2="16" y2="6" />
-                  <line x1="8" y1="2" x2="8" y2="6" />
-                  <line x1="3" y1="10" x2="21" y2="10" />
-                </svg>
+                <Calendar className="h-3 w-3" aria-hidden="true" />
                 Joined {joinedDate}
               </span>
             </div>
@@ -391,20 +365,7 @@ export default function ProfilePage() {
             <CardHeader>
               <div className="flex items-center gap-3">
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-50 dark:bg-indigo-950/30">
-                  <svg
-                    width="18"
-                    height="18"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    viewBox="0 0 24 24"
-                    className="text-indigo-600"
-                  >
-                      <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
-                      <circle cx="12" cy="7" r="4" />
-                  </svg>
+                  <Users className="h-[18px] w-[18px] text-indigo-600" aria-hidden="true" />
                 </div>
                 <div>
                   <CardTitle>Personal Information</CardTitle>
@@ -450,7 +411,7 @@ export default function ProfilePage() {
                       ? "No changes to save"
                       : undefined
                 }
-                className="rounded-lg bg-gradient-to-r from-indigo-600 to-indigo-500 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:from-indigo-700 hover:to-indigo-600 disabled:cursor-default disabled:opacity-45"
+                className={PRIMARY_BUTTON}
               >
                 {nameLoading ? "Saving..." : "Save name"}
               </button>
@@ -464,20 +425,7 @@ export default function ProfilePage() {
             <CardHeader>
               <div className="flex items-center gap-3">
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-50 dark:bg-amber-950/30">
-                  <svg
-                    width="18"
-                    height="18"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    viewBox="0 0 24 24"
-                    className="text-amber-600"
-                  >
-                      <rect width="18" height="11" x="3" y="11" rx="2" ry="2" />
-                      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                  </svg>
+                  <Lock className="h-[18px] w-[18px] text-amber-600" aria-hidden="true" />
                 </div>
                 <div>
                   <CardTitle>Change Password</CardTitle>
@@ -574,7 +522,7 @@ export default function ProfilePage() {
                     ? "Fill in all three password fields"
                     : undefined
                 }
-                className="rounded-lg bg-gradient-to-r from-indigo-600 to-indigo-500 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:from-indigo-700 hover:to-indigo-600 disabled:cursor-default disabled:opacity-45"
+                className={PRIMARY_BUTTON}
               >
                 {passwordLoading ? "Changing..." : "Change password"}
               </button>
@@ -589,21 +537,7 @@ export default function ProfilePage() {
           <CardHeader>
             <div className="flex items-center gap-3">
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-50 dark:bg-violet-950/30">
-                <svg
-                  width="18"
-                  height="18"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  viewBox="0 0 24 24"
-                  className="text-violet-600"
-                >
-                  <path d="M3 21h18" />
-                  <path d="M5 21V7l7-4 7 4v14" />
-                  <path d="M9 9h.01M9 13h.01M9 17h.01M15 9h.01M15 13h.01M15 17h.01" />
-                </svg>
+                <Building2 className="h-[18px] w-[18px] text-violet-600" aria-hidden="true" />
               </div>
               <div>
                 <CardTitle>Organisation Memberships</CardTitle>
@@ -670,21 +604,7 @@ export default function ProfilePage() {
         <CardHeader>
           <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 dark:bg-slate-800/50">
-              <svg
-                width="18"
-                height="18"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                viewBox="0 0 24 24"
-                className="text-slate-600 dark:text-slate-400"
-              >
-                <circle cx="12" cy="12" r="10" />
-                <path d="M12 16v-4" />
-                <path d="M12 8h.01" />
-              </svg>
+              <Info className="h-[18px] w-[18px] text-slate-600 dark:text-slate-400" aria-hidden="true" />
             </div>
             <div>
               <CardTitle>Account Details</CardTitle>
@@ -709,10 +629,7 @@ export default function ProfilePage() {
               <dd className="text-sm">
                 {profile.emailVerified ? (
                   <span className="inline-flex items-center gap-1 text-green-600 dark:text-green-400">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3.5 w-3.5">
-                      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-                      <polyline points="22 4 12 14.01 9 11.01" />
-                    </svg>
+                    <CircleCheck className="h-3.5 w-3.5" aria-hidden="true" />
                     Verified on{" "}
                     {new Date(profile.emailVerified).toLocaleDateString(
                       "en-AU",
@@ -725,11 +642,7 @@ export default function ProfilePage() {
                   </span>
                 ) : (
                   <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3.5 w-3.5">
-                      <circle cx="12" cy="12" r="10" />
-                      <line x1="12" y1="8" x2="12" y2="12" />
-                      <line x1="12" y1="16" x2="12.01" y2="16" />
-                    </svg>
+                    <CircleAlert className="h-3.5 w-3.5" aria-hidden="true" />
                     Not verified
                   </span>
                 )}

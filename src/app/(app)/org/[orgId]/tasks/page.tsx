@@ -30,7 +30,7 @@ import {
 import { PageLoading } from "@/components/ui/page-loading";
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { EmptyState } from "@/components/ui/empty-state";
-import { Lock } from "lucide-react";
+import { Clock, Lock, Plus, Sparkles, SquarePen, Trash2, Users, Zap } from "lucide-react";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { toDateTimeLocalValue } from "@/lib/timezone";
 import { OperatingHoursNotice } from "@/components/tasks/operating-hours-notice";
@@ -47,6 +47,7 @@ import {
 } from "@/lib/composition-rules";
 import { usePermissions } from "@/components/layout/permission-provider";
 import { TASK_LIST_READERS } from "@/lib/permissions";
+import { cn } from "@/lib/utils";
 
 // ============================================================
 // Constants
@@ -1133,7 +1134,7 @@ export default function TasksPage() {
       {/* ──────────────────────────────────────────────── */}
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h2 className="text-2xl font-bold tracking-tight">Tasks</h2>
+          <h2 className="text-xl font-bold tracking-tight sm:text-2xl">Tasks</h2>
           <p className="mt-0.5 text-sm text-muted-foreground">
             Manage and assign shifts across your organization
           </p>
@@ -1150,7 +1151,7 @@ export default function TasksPage() {
                 "Cancel"
               ) : (
                 <>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+                  <Plus className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                   Create Task
                 </>
               )}
@@ -1204,9 +1205,7 @@ export default function TasksPage() {
       {/* ──────────────────────────────────────────────── */}
       <div className="mb-4 flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-1 transition-shadow focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-500/10 dark:focus-within:border-indigo-500 dark:focus-within:ring-indigo-400/10">
         {/* Sparkle icon */}
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="shrink-0 text-indigo-500">
-          <path d="M12 2L14.4 8.4L21 10L14.4 12.4L12 19L9.6 12.4L3 10L9.6 8.4L12 2Z" fill="currentColor" opacity="0.8" />
-        </svg>
+        <Sparkles className="h-[18px] w-[18px] shrink-0 text-indigo-500" aria-hidden="true" />
         <Input
           placeholder='Try: "I need 2 kitchen staff tomorrow morning for prep"'
           value={naturalInput}
@@ -1220,7 +1219,7 @@ export default function TasksPage() {
           size="sm"
           onClick={onParseNaturalLanguage}
           disabled={parsing || !naturalInput.trim()}
-          className="shrink-0 gap-1 bg-gradient-to-r from-indigo-600 to-violet-700 text-white hover:opacity-90"
+          className={cn(PRIMARY_BUTTON, "shrink-0")}
         >
           {parsing ? "Parsing..." : "AI Create"}
         </Button>
@@ -1286,7 +1285,7 @@ export default function TasksPage() {
           <div className="border-t-[3px] border-t-indigo-600 rounded-t-xl" />
           <form onSubmit={onCreateTask} className="p-5">
             <p className="mb-5 flex items-center gap-2 text-base font-bold">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-indigo-600 dark:text-indigo-400"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+              <Plus className="h-[18px] w-[18px] text-indigo-600 dark:text-indigo-400" aria-hidden="true" />
               New Task
             </p>
 
@@ -1471,7 +1470,7 @@ export default function TasksPage() {
               </div>
 
               <div className="flex gap-2 pt-1 sm:col-span-2">
-                <Button type="submit" disabled={creating} className="bg-gradient-to-r from-indigo-600 to-violet-700 text-white hover:opacity-90">
+                <Button type="submit" disabled={creating} className={PRIMARY_BUTTON}>
                   {creating ? "Creating…" : "Create Task"}
                 </Button>
                 <Button type="button" variant="outline" disabled={creating} onClick={() => setShowCreate(false)}>
@@ -1561,7 +1560,7 @@ export default function TasksPage() {
                       {/* Schedule */}
                       {task.scheduledStart && (
                         <span className="flex items-center gap-1.5">
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0 opacity-60"><circle cx="12" cy="12" r="10" /><path d="M12 6v6l4 2" /></svg>
+                          <Clock className="h-3.5 w-3.5 shrink-0 opacity-60" aria-hidden="true" />
                           {new Date(task.scheduledStart).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
                           {task.scheduledEnd && (
                             <> — {new Date(task.scheduledEnd).toLocaleString([], { hour: "numeric", minute: "2-digit" })}</>
@@ -1650,7 +1649,7 @@ export default function TasksPage() {
                               : "border-border bg-card text-muted-foreground hover:border-indigo-400 hover:bg-indigo-50 hover:text-indigo-600 dark:hover:border-indigo-500 dark:hover:bg-indigo-950 dark:hover:text-indigo-400"
                           }`}
                         >
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><line x1="19" y1="8" x2="19" y2="14" /><line x1="22" y1="11" x2="16" y2="11" /></svg>
+                          <Users className="h-3.5 w-3.5" aria-hidden="true" />
                           Assign
                         </button>
                       )}
@@ -1663,7 +1662,7 @@ export default function TasksPage() {
                           disabled={loadingSuggestions || loadingEligibility}
                           className="flex h-8 items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 text-[12px] font-medium text-muted-foreground transition-colors hover:border-indigo-400 hover:bg-indigo-50 hover:text-indigo-600 dark:hover:border-indigo-500 dark:hover:bg-indigo-950 dark:hover:text-indigo-400"
                         >
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2L14.4 8.4L21 10L14.4 12.4L12 19L9.6 12.4L3 10L9.6 8.4L12 2Z" /></svg>
+                          <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
                           AI Suggest
                         </button>
                       )}
@@ -1679,7 +1678,7 @@ export default function TasksPage() {
                             disabled={autoAssigningId === task.id}
                             className="flex h-8 items-center gap-1.5 rounded-lg border border-indigo-300 bg-card px-2.5 text-[12px] font-medium text-indigo-600 transition-colors hover:bg-indigo-50 disabled:opacity-50 dark:border-indigo-600 dark:text-indigo-400 dark:hover:bg-indigo-950"
                           >
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" /></svg>
+                            <Zap className="h-3 w-3" aria-hidden="true" />
                             {autoAssigningId === task.id ? "Assigning..." : "Auto-assign"}
                           </button>
                         )}
@@ -1721,7 +1720,7 @@ export default function TasksPage() {
                             : "border-border bg-card text-muted-foreground hover:border-indigo-400 hover:bg-indigo-50 hover:text-indigo-600 dark:hover:border-indigo-500 dark:hover:bg-indigo-950 dark:hover:text-indigo-400"
                         }`}
                       >
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
+                        <SquarePen className="h-[13px] w-[13px]" aria-hidden="true" />
                         Edit
                       </button>
                       )}
@@ -1755,7 +1754,7 @@ export default function TasksPage() {
                         onClick={() => onDeleteTask(task.id)}
                         className="flex h-8 items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 text-[12px] font-medium text-muted-foreground transition-colors hover:border-red-300 hover:bg-red-50 hover:text-red-600 dark:hover:border-red-700 dark:hover:bg-red-950 dark:hover:text-red-400"
                       >
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg>
+                        <Trash2 className="h-[13px] w-[13px]" aria-hidden="true" />
                         Delete
                       </button>
                       </>
@@ -2174,7 +2173,7 @@ export default function TasksPage() {
                               onClick={() => fetchSuggestions(task.id)}
                               disabled={loadingSuggestions || loadingEligibility}
                             >
-                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2L14.4 8.4L21 10L14.4 12.4L12 19L9.6 12.4L3 10L9.6 8.4L12 2Z" /></svg>
+                              <Sparkles className="h-3 w-3" aria-hidden="true" />
                               {loadingSuggestions
                                 ? "Loading..."
                                 : suggestions.length > 0 && showSuggestions
@@ -2234,7 +2233,7 @@ export default function TasksPage() {
                                 than presented as picks.
                               */}
                               <p className="mb-2 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
-                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2L14.4 8.4L21 10L14.4 12.4L12 19L9.6 12.4L3 10L9.6 8.4L12 2Z" /></svg>
+                                <Sparkles className="h-[11px] w-[11px]" aria-hidden="true" />
                                 {remainingSlots > 0
                                   ? `AI picks — top ${Math.min(remainingSlots, suggestions.length)} auto-selected`
                                   : "AI ranking — this shift is already full"}
@@ -2550,7 +2549,7 @@ export default function TasksPage() {
                                 assigning ||
                                 selectedMembers.length === 0
                               }
-                              className="bg-gradient-to-r from-indigo-600 to-violet-700 text-white hover:opacity-90"
+                              className={PRIMARY_BUTTON}
                             >
                               {assigning
                                 ? "Assigning…"

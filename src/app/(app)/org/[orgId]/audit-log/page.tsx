@@ -8,13 +8,11 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { ChevronLeft, ChevronRight, ScrollText } from "lucide-react";
+import { AUDIT_ENTITY_LABELS, AUDIT_ENTITY_TYPES } from "@/lib/audit-entities";
+import type { AuditAction } from "@/lib/audit-actions";
+import { Panel } from "@/components/ui/panel";
+import { SECONDARY_BUTTON } from "@/components/ui/button-styles";
 import { PageLoading } from "@/components/ui/page-loading";
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -30,7 +28,19 @@ interface AuditEntry {
   user: { id: string; name: string | null; email: string } | null;
 }
 
-const ACTION_LABELS: Record<string, string> = {
+/**
+ * A readable name for every action.
+ *
+ * `Record<AuditAction, string>` rather than `Record<string, string>`, which is
+ * the whole change: 23 of the 53 actions had no entry here and rendered as raw
+ * strings — a manager saw `certification.verified` and
+ * `membership.contracted_days_set`. Nothing objected, because a loose record
+ * accepts any subset.
+ *
+ * Now adding an action without naming it fails the build. The filter below is
+ * built from this map, so an unnamed action would also have been unfilterable.
+ */
+const ACTION_LABELS: Record<AuditAction, string> = {
   "task.created": "Task created",
   "task.updated": "Task updated",
   "task.deleted": "Task deleted",
@@ -68,6 +78,33 @@ const ACTION_LABELS: Record<string, string> = {
   "role.created": "Role created",
   "role.updated": "Role updated",
   "role.deleted": "Role deleted",
+  "task.recurring_generated": "Recurring shifts generated",
+  "membership.seniority_overridden": "Seniority overridden",
+  "membership.availability_review_requested": "Availability review requested",
+  "membership.contracted_days_set": "Contracted days set",
+  "member.joined": "Member joined",
+  "department.archived": "Department archived",
+  "department.unarchived": "Department restored",
+  "leave.approved": "Leave approved",
+  "leave.rejected": "Leave declined",
+  "certification.submitted": "Certification submitted",
+  "certification.verified": "Certification verified",
+  "certification.rejected": "Certification rejected",
+  "certification.revoked": "Certification revoked",
+  "certification.withdrawn": "Certification withdrawn",
+  "work_rule.created": "Work rule created",
+  "work_rule.updated": "Work rule updated",
+  "work_rule.deleted": "Work rule deleted",
+  "user.password_changed": "Password changed",
+  "user.profile_updated": "Profile updated",
+  "organization.updated": "Organisation updated",
+  "organization.suspended": "Organisation suspended",
+  "organization.reactivated": "Organisation reactivated",
+  "organization.tier_changed": "Plan changed",
+  "subscription.checkout_started": "Checkout started",
+  "subscription.upgraded": "Subscription upgraded",
+  "subscription.updated": "Subscription updated",
+  "subscription.canceled": "Subscription cancelled",
 };
 
 function actionColor(action: string): string {
@@ -190,14 +227,33 @@ export default function AuditLogPage() {
 
   return (
     <div className="max-w-5xl">
-      <h2 className="mb-4 text-2xl font-bold">Audit Log</h2>
+      {/*
+        The house header shape. This page kept `text-2xl font-bold` with no
+        responsive step, so on a phone it rendered a size larger than every
+        other page in the product — and had no subtitle, where every sibling
+        says in one line what the screen is for.
+      */}
+      <div className="mb-4">
+        <h2 className="text-xl font-bold tracking-tight sm:text-2xl">Audit log</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Every change made in this organisation, newest first.
+        </p>
+      </div>
 
       {error && <AlertBanner message={error} variant="error" />}
 
       {/* Filters */}
-      <div className="mb-4 flex gap-3">
+      <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center">
+        {/*
+          `bg-background text-foreground` is the point. A native select with no
+          background token inherits the browser's, so these rendered
+          light-on-light in dark mode and the options were unreadable — the same
+          defect My Tasks carries a comment about having fixed, never propagated
+          here.
+        */}
         <select
-          className="rounded-md border px-3 py-1.5 text-sm"
+          aria-label="Action"
+          className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground"
           value={filterAction}
           onChange={(e) => {
             setFilterAction(e.target.value);
@@ -210,7 +266,8 @@ export default function AuditLogPage() {
           ))}
         </select>
         <select
-          className="rounded-md border px-3 py-1.5 text-sm"
+          aria-label="Entity"
+          className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground"
           value={filterEntity}
           onChange={(e) => {
             setFilterEntity(e.target.value);
@@ -218,32 +275,44 @@ export default function AuditLogPage() {
           }}
         >
           <option value="">All entities</option>
-          <option value="task">Tasks</option>
-          <option value="assignment">Assignments</option>
-          <option value="department">Departments</option>
-          <option value="member">Members</option>
-          <option value="role">Roles</option>
-          <option value="settings">Settings</option>
+          {AUDIT_ENTITY_TYPES.map((value) => (
+            <option key={value} value={value}>
+              {AUDIT_ENTITY_LABELS[value]}
+            </option>
+          ))}
         </select>
-        <span className="flex items-center text-sm text-muted-foreground">
-          {total} entries
-        </span>
       </div>
 
       {/* Log entries */}
       {loading ? (
         <PageLoading />
-      ) : entries.length === 0 ? (
-        <EmptyState title="No audit entries found" />
       ) : (
-        <div className="space-y-2">
-          {entries.map((entry) => (
-            <Card key={entry.id}>
-              <CardContent className="flex items-center gap-4 py-3">
+        <Panel
+          title="Entries"
+          icon={ScrollText}
+          count={total}
+          bodyClassName="divide-y divide-border"
+        >
+          {entries.length === 0 ? (
+            <EmptyState
+              icon={ScrollText}
+              title="Nothing to show"
+              description={
+                filterAction || filterEntity
+                  ? "No entries match those filters."
+                  : "Changes appear here as people make them."
+              }
+            />
+          ) : (
+            entries.map((entry) => (
+              <div
+                key={entry.id}
+                className="flex flex-col gap-1.5 px-4 py-3 sm:flex-row sm:items-center sm:gap-4"
+              >
                 <span
-                  className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${actionColor(entry.action)}`}
+                  className={`w-fit shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${actionColor(entry.action)}`}
                 >
-                  {ACTION_LABELS[entry.action] || entry.action}
+                  {ACTION_LABELS[entry.action as AuditAction] || entry.action}
                 </span>
                 <div className="flex-1 text-sm">
                   <span className="font-medium">
@@ -255,37 +324,39 @@ export default function AuditLogPage() {
                     </span>
                   )}
                 </div>
-                <span className="text-xs text-muted-foreground">
+                <span className="shrink-0 text-xs text-muted-foreground">
                   {new Date(entry.createdAt).toLocaleString()}
                 </span>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+              </div>
+            ))
+          )}
+        </Panel>
       )}
 
       {/* Pagination */}
       {totalPages > 1 && (
         <div className="mt-4 flex items-center justify-between">
-          <Button
-            variant="outline"
-            size="sm"
+          <button
+            type="button"
+            className={SECONDARY_BUTTON}
             disabled={offset === 0}
             onClick={() => setOffset(Math.max(0, offset - limit))}
           >
+            <ChevronLeft className="h-4 w-4" aria-hidden="true" />
             Previous
-          </Button>
-          <span className="text-sm text-muted-foreground">
+          </button>
+          <p className="text-[13px] text-muted-foreground">
             Page {currentPage} of {totalPages}
-          </span>
-          <Button
-            variant="outline"
-            size="sm"
+          </p>
+          <button
+            type="button"
+            className={SECONDARY_BUTTON}
             disabled={offset + limit >= total}
             onClick={() => setOffset(offset + limit)}
           >
             Next
-          </Button>
+            <ChevronRight className="h-4 w-4" aria-hidden="true" />
+          </button>
         </div>
       )}
     </div>

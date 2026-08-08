@@ -18,12 +18,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { NotificationIconBadge } from "@/components/ui/notification-icon";
 import { useParams, useRouter } from "next/navigation";
-import { BellOff, CheckCheck, SearchX } from "lucide-react";
+import { BellOff, CheckCheck, ChevronRight, Search, SearchX } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { PageLoading } from "@/components/ui/page-loading";
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { EmptyState } from "@/components/ui/empty-state";
 import { StatTile } from "@/components/ui/stat-tile";
+import { PRIMARY_BUTTON } from "@/components/ui/button-styles";
 
 interface Notification {
   id: string;
@@ -334,7 +335,7 @@ export default function NotificationsPage() {
         <button
           onClick={handleMarkAllRead}
           disabled={!feed || feed.unreadCount === 0}
-          className="rounded-lg bg-gradient-to-r from-indigo-600 to-indigo-500 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:from-indigo-700 hover:to-indigo-600 disabled:cursor-default disabled:opacity-45"
+          className={PRIMARY_BUTTON}
         >
           Mark all as read
         </button>
@@ -412,19 +413,7 @@ export default function NotificationsPage() {
         </div>
 
         <div className="relative shrink-0 sm:w-56">
-          <svg
-            className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2}
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"
-            />
-          </svg>
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
           <Input
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
@@ -567,19 +556,7 @@ export default function NotificationsPage() {
                         )}
                         {/* Faintly visible by default: touch devices have no
                             hover, so a hover-only chevron never appears there. */}
-                        <svg
-                          className="text-muted-foreground opacity-40 transition-opacity sm:opacity-0 sm:group-hover:opacity-60"
-                          width="15"
-                          height="15"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          aria-hidden="true"
-                        >
-                          <path d="m9 18 6-6-6-6" />
-                        </svg>
+                        <ChevronRight className="h-[15px] w-[15px] text-muted-foreground opacity-40 transition-opacity sm:opacity-0 sm:group-hover:opacity-60" aria-hidden="true" />
                       </div>
                     </div>
                   );

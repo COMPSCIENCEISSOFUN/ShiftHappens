@@ -19,7 +19,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
-import { FileX2, SearchX, ShieldCheck } from "lucide-react";
+import { FileText, FileX2, Search, SearchX, ShieldCheck } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { PageLoading } from "@/components/ui/page-loading";
 import { AlertBanner } from "@/components/ui/alert-banner";
@@ -40,6 +40,9 @@ import {
   type CertificationDisplayState,
 } from "@/lib/certification-display";
 import { usePermissions } from "@/components/layout/permission-provider";
+import { PRIMARY_BUTTON } from "@/components/ui/button-styles";
+import { cn } from "@/lib/utils";
+import { canBeRostered } from "@/lib/role-config";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -574,7 +577,9 @@ export default function CertificationsPage() {
   const membersWithoutCerts = (members ?? []).filter(
     (member) =>
       member.status === "active" &&
-      (member.role === "staff" || member.role === "manager") &&
+      // `canBeRostered` spelled out by hand. Correct today, and it would not
+      // follow if ROSTERABLE_ROLES ever changed.
+      canBeRostered(member.role) &&
       !membershipIdsWithCerts.has(member.id)
   );
 
@@ -658,7 +663,7 @@ export default function CertificationsPage() {
         {counts.pending > 0 && (
           <button
             onClick={() => setFilter("pending")}
-            className="shrink-0 self-start rounded-lg bg-gradient-to-r from-indigo-600 to-indigo-500 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:from-indigo-700 hover:to-indigo-600"
+            className={cn(PRIMARY_BUTTON, "shrink-0 self-start")}
           >
             Review {counts.pending} pending
           </button>
@@ -751,19 +756,7 @@ export default function CertificationsPage() {
         </div>
 
         <div className="relative shrink-0 sm:w-60">
-          <svg
-            className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2}
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"
-            />
-          </svg>
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
           <Input
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
@@ -1054,20 +1047,7 @@ export default function CertificationsPage() {
                               rel="noopener noreferrer"
                               className="mt-2 inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-indigo-600 hover:underline dark:text-indigo-400"
                             >
-                              <svg
-                                width="13"
-                                height="13"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                aria-hidden="true"
-                              >
-                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                                <path d="M14 2v6h6" />
-                              </svg>
+                              <FileText className="h-[13px] w-[13px]" aria-hidden="true" />
                               View submitted document
                             </a>
                           )}

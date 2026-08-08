@@ -20,7 +20,7 @@ import { useParams } from "next/navigation";
 import { CalendarAssignModal } from "@/components/calendar/calendar-assign-modal";
 import { PageLoading } from "@/components/ui/page-loading";
 import { EmptyState } from "@/components/ui/empty-state";
-import { Lock } from "lucide-react";
+import { LayoutGrid, Lock } from "lucide-react";
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { occupiesSlot } from "@/lib/assignment-status";
@@ -984,7 +984,7 @@ export default function CalendarPage() {
             onClick={() => setShowCoverage(!showCoverage)}
             className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs transition-colors ${showCoverage ? "border-green-300 dark:border-green-800 bg-green-50/60 dark:bg-green-950/30 text-green-700 dark:text-green-400" : "border-border bg-card text-muted-foreground"}`}
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /></svg>
+            <LayoutGrid className="h-3.5 w-3.5" aria-hidden="true" />
             Coverage
           </button>
           <select

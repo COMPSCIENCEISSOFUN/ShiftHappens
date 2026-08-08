@@ -20,7 +20,7 @@ import { AlertBanner } from "@/components/ui/alert-banner";
 import { StatTile } from "@/components/ui/stat-tile";
 import { EmptyState } from "@/components/ui/empty-state";
 import { usePermissions } from "@/components/layout/permission-provider";
-import { Lock } from "lucide-react";
+import { Download, Lock, Upload } from "lucide-react";
 import * as XLSX from "xlsx";
 import {
   INVITABLE_ROLES,
@@ -31,6 +31,7 @@ import {
   ROLE_ALIASES,
   EMPLOYMENT_ALIASES,
 } from "@/lib/import-config";
+import { PRIMARY_BUTTON } from "@/components/ui/button-styles";
 
 // ─── Types ────────────────────────────────────────────────────
 
@@ -797,11 +798,7 @@ export default function MemberImportPage() {
               />
               {/* Upload icon */}
               <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-100 dark:bg-indigo-900/30">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-indigo-600 dark:text-indigo-400">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                  <polyline points="17 8 12 3 7 8" />
-                  <line x1="12" y1="3" x2="12" y2="15" />
-                </svg>
+                <Upload className="h-6 w-6 text-indigo-600 dark:text-indigo-400" strokeWidth={1.5} aria-hidden="true" />
               </div>
               {referenceReady ? (
                 <>
@@ -831,11 +828,7 @@ export default function MemberImportPage() {
                 onClick={downloadTemplate}
                 className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-indigo-400 hover:text-foreground"
               >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-muted-foreground">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                  <polyline points="7 10 12 15 17 10" />
-                  <line x1="12" y1="15" x2="12" y2="3" />
-                </svg>
+                <Download className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
                 Download Template
               </button>
               <p className="text-[11px] text-muted-foreground">
@@ -1182,7 +1175,7 @@ export default function MemberImportPage() {
                   <button
                     onClick={handleImport}
                     disabled={importableCount === 0}
-                    className="rounded-lg bg-gradient-to-r from-indigo-600 to-indigo-500 px-4 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:from-indigo-700 hover:to-indigo-600 disabled:cursor-not-allowed disabled:opacity-40"
+                    className={PRIMARY_BUTTON}
                   >
                     Import {importableCount} member{importableCount !== 1 ? "s" : ""}
                   </button>
@@ -1255,7 +1248,7 @@ export default function MemberImportPage() {
 
             <button
               onClick={() => router.push(`/org/${orgId}/members`)}
-              className="rounded-lg bg-gradient-to-r from-indigo-600 to-indigo-500 px-4 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:from-indigo-700 hover:to-indigo-600"
+              className={PRIMARY_BUTTON}
             >
               Back to Members
             </button>

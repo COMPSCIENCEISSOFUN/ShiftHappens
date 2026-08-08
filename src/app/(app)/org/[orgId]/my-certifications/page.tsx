@@ -17,7 +17,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { ShieldCheck } from "lucide-react";
+import { FileText, ShieldCheck } from "lucide-react";
 import { PageLoading } from "@/components/ui/page-loading";
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -26,7 +26,7 @@ import { CertificationStateIcon } from "@/components/ui/certification-state-icon
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { StatTile } from "@/components/ui/stat-tile";
 import { Input } from "@/components/ui/input";
-import { SECONDARY_BUTTON } from "@/components/ui/button-styles";
+import { PRIMARY_BUTTON, SECONDARY_BUTTON } from "@/components/ui/button-styles";
 import {
   EXPIRY_WARNING_DAYS,
   REJECTION_REASON_LABELS,
@@ -38,6 +38,7 @@ import {
   relativeTime,
   type CertificationDisplayState,
 } from "@/lib/certification-display";
+import { cn } from "@/lib/utils";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -386,7 +387,7 @@ export default function MyCertificationsPage() {
         {!formOpen && (
           <button
             onClick={() => openForm()}
-            className="shrink-0 self-start rounded-lg bg-gradient-to-r from-indigo-600 to-indigo-500 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:from-indigo-700 hover:to-indigo-600"
+            className={cn(PRIMARY_BUTTON, "shrink-0 self-start")}
           >
             + Add certification
           </button>
@@ -567,7 +568,7 @@ export default function MyCertificationsPage() {
             <button
               type="submit"
               disabled={submitting}
-              className="rounded-lg bg-gradient-to-r from-indigo-600 to-indigo-500 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:from-indigo-700 hover:to-indigo-600 disabled:cursor-default disabled:opacity-45"
+              className={PRIMARY_BUTTON}
             >
               {submitting ? "Submitting…" : "Submit for review"}
             </button>
@@ -641,7 +642,7 @@ export default function MyCertificationsPage() {
             !formOpen && certifications.length === 0 ? (
               <button
                 onClick={() => openForm()}
-                className="rounded-lg bg-gradient-to-r from-indigo-600 to-indigo-500 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:from-indigo-700 hover:to-indigo-600"
+                className={PRIMARY_BUTTON}
               >
                 Add your first certification
               </button>
@@ -748,20 +749,7 @@ export default function MyCertificationsPage() {
                       rel="noopener noreferrer"
                       className="mt-2 inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-indigo-600 hover:underline dark:text-indigo-400"
                     >
-                      <svg
-                        width="13"
-                        height="13"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        aria-hidden="true"
-                      >
-                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                        <path d="M14 2v6h6" />
-                      </svg>
+                      <FileText className="h-[13px] w-[13px]" aria-hidden="true" />
                       View your document
                     </a>
                   )}
