@@ -129,7 +129,19 @@ export class EligibilityService {
         )
       );
     }
+    const projectTeam = await getProjectTeamRestriction(
+      task.projectId,
+      organizationId
+    );
 
+    if (projectTeam !== null) {
+      eligibleMembers = eligibleMembers.filter((member) =>
+        isAllowedByProjectTeam(
+          projectTeam,
+          member.id
+        )
+      );
+    }
     // Load all overrides for this task once, grouped by member.
     const overridesByMember = await this.getOverrideMap(taskId);
 

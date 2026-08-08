@@ -1556,7 +1556,7 @@ export default function TasksPage() {
                       // Split members into eligible / ineligible for grouped display
                       const eligibleMembers = members.filter((m) => {
                         const elig = eligibility[m.id];
-                        return elig ? elig.eligible : true;
+                        return elig ? elig.eligible : false;
                       });
                       const ineligibleMembers = members.filter((m) => {
                         const elig = eligibility[m.id];
