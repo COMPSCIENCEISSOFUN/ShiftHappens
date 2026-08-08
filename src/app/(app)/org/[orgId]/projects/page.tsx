@@ -819,14 +819,17 @@ export default function ProjectsPage() {
                     </p>
 
                     <Button
-                      asChild
                       size="sm"
+                      nativeButton={
+                        false
+                      }
+                      render={
+                        <Link
+                          href={`/org/${orgId}/projects/${project.id}`}
+                        />
+                      }
                     >
-                      <Link
-                        href={`/org/${orgId}/projects/${project.id}`}
-                      >
-                        View project
-                      </Link>
+                      View project
                     </Button>
                   </div>
                 </article>

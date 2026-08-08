@@ -32,12 +32,33 @@ import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 import { DEFAULT_EMPLOYMENT_TYPE, canBeRostered, isFullTime } from "@/lib/role-config";
 import { localDateInTimeZone, timeOfDayInTimeZone } from "@/lib/timezone";
 import {
+<<<<<<< HEAD
   DEFAULT_DAY_START_HOUR,
   businessDayRange,
   businessWeekRange,
   overlapHours,
 } from "@/lib/business-day";
 import { occupiesSlot, occupyingStatusFilter } from "@/lib/assignment-status";
+=======
+  DEFAULT_EMPLOYMENT_TYPE,
+  isAssignableSystemRole,
+  normalizeEmploymentType,
+  requiresManagedAvailability,
+} from "@/lib/role-config";
+import { COMMITTED_ASSIGNMENT_STATUSES, SLOT_OCCUPYING_ASSIGNMENT_STATUSES } from "@/lib/assignment-status";
+import { prisma } from "@/lib/prisma";
+import {
+  getProjectTeamRestriction,
+  isAllowedByProjectTeam,
+  OUTSIDE_PROJECT_TEAM_MESSAGE,
+} from "@/lib/project-staffing";
+import {
+  dayOfWeekInTimeZone,
+  endOfDayInTimeZone,
+  startOfDayInTimeZone,
+  timeOfDayInTimeZone,
+} from "@/lib/timezone";
+>>>>>>> d79cc88 (wip: project feature 80% done)
 
 interface EligibilityCheck {
   eligible: boolean;
@@ -412,6 +433,7 @@ export class EligibilityService {
    * decision still counts. Someone who rejected or withdrew is not on the
    * shift, so there is nothing about them left to validate.
    */
+<<<<<<< HEAD
   private async committedMembershipIds(taskId: string): Promise<Set<string>> {
     const assignments = await this.assignmentRepo.findByTaskId(taskId);
     return new Set(
@@ -420,6 +442,103 @@ export class EligibilityService {
           occupiesSlot(a.status)
         )
         .map((a) => a.membershipId)
+=======
+  async assertEligibleForAssignment(
+    taskId: string,
+    organizationId: string,
+    membershipIds: string[]
+  ): Promise<void> {
+    if (membershipIds.length === 0) {
+      throw new Error("At least one staff member is required");
+    }
+    if (new Set(membershipIds).size !== membershipIds.length) {
+      throw new Error("Duplicate staff members cannot be assigned in one batch");
+    }
+
+    const task = await prisma.task.findUnique({
+      where: { id: taskId },
+      select: {
+        organizationId: true,
+        departmentId: true,
+        requiredHeadcount: true,
+        projectId: true,
+      },
+    });
+    if (!task || task.organizationId !== organizationId) {
+      throw new Error("Task not found");
+    }
+
+    // Project Team staffing narrows the candidate pool for project work.
+    // Enforced here rather than only in ranking, because AI suggestions,
+    // auto-allocation, the weekly scheduler and manual assignment all pass
+    // through this assertion before an assignment row is written.
+    const projectTeam = await getProjectTeamRestriction(task.projectId, organizationId);
+
+    const memberships = await prisma.membership.findMany({
+      where: { id: { in: membershipIds } },
+      include: {
+        user: { select: { isPlatformAdmin: true } },
+        departmentMemberships: { select: { departmentId: true } },
+      },
+    });
+    const membershipsById = new Map(
+      memberships.map((membership) => [membership.id, membership])
+    );
+
+    for (const membershipId of membershipIds) {
+      const membership = membershipsById.get(membershipId);
+      if (!membership || membership.organizationId !== organizationId) {
+        throw new Error("Staff member does not belong to this organization");
+      }
+      if (membership.status !== "active") {
+        throw new Error("Inactive staff cannot be assigned to tasks");
+      }
+      if (membership.user.isPlatformAdmin) {
+        throw new Error("Platform Admins cannot be assigned to tasks");
+      }
+      if (membership.role === "company_admin") {
+        throw new Error("Company Admins cannot be assigned to tasks");
+      }
+      if (membership.role === "manager") {
+        throw new Error("Managers cannot be assigned to tasks");
+      }
+      if (!isAssignableSystemRole(membership.role)) {
+        throw new Error("Only Staff Members can be assigned to tasks");
+      }
+      if (
+        task.departmentId &&
+        !membership.departmentMemberships.some(
+          (department) => department.departmentId === task.departmentId
+        )
+      ) {
+        throw new Error("Staff member is not assigned to the task department");
+      }
+      if (!isAllowedByProjectTeam(projectTeam, membershipId)) {
+        throw new Error(OUTSIDE_PROJECT_TEAM_MESSAGE);
+      }
+    }
+
+    const existingAssignments = await prisma.taskAssignment.findMany({
+      where: { taskId, membershipId: { in: membershipIds } },
+      select: { membershipId: true },
+    });
+    if (existingAssignments.length > 0) {
+      throw new Error("Staff member already has an assignment for this task");
+    }
+
+    const activeCount = await this.assignmentRepo.countActiveByTaskId(taskId);
+    if (activeCount + membershipIds.length > task.requiredHeadcount) {
+      throw new Error(
+        `Assignment exceeds required headcount of ${task.requiredHeadcount}`
+      );
+    }
+
+    const eligibility = await this.checkEligibilityForTask(taskId, organizationId, {
+      membershipIds,
+    });
+    const eligibilityById = new Map(
+      eligibility.map((candidate) => [candidate.membershipId, candidate])
+>>>>>>> d79cc88 (wip: project feature 80% done)
     );
   }
 

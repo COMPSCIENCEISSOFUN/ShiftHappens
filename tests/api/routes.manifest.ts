@@ -164,6 +164,7 @@ export const ROUTES: RouteSpec[] = [
   org("work-rules/[ruleId]", "DELETE", ADMIN, { suspension: true, extraParams: ["ruleId"] }),
 
   // ── Tasks ───────────────────────────────────────────────────────────
+<<<<<<< HEAD
   org("tasks", "GET", MANAGER),
   org("tasks", "POST", MANAGER, { suspension: true }),
   org("tasks/[taskId]", "GET", MEMBER, { extraParams: ["taskId"] }),
@@ -198,6 +199,31 @@ export const ROUTES: RouteSpec[] = [
   }),
   org("tasks/parse", "POST", MANAGER, { suspension: true }),
   org("recurring-tasks/generate", "POST", MANAGER, { suspension: true }),
+=======
+  org("tasks", "GET", MEMBER, { permission: "tasks:read" }),
+  org("tasks", "POST", MANAGER, { suspension: true, permission: "tasks:create" }),
+  org("tasks/[taskId]", "GET", MEMBER, { extraParams: ["taskId"], permission: "tasks:read" }),
+  org("tasks/[taskId]", "PATCH", MANAGER, { suspension: true, extraParams: ["taskId"], permission: "tasks:update" }),
+  org("tasks/[taskId]", "DELETE", MANAGER, { suspension: true, extraParams: ["taskId"], permission: "tasks:delete" }),
+  org("tasks/[taskId]/assign", "POST", MANAGER, { suspension: true, extraParams: ["taskId"], permission: "tasks:assign" }),
+  org("tasks/[taskId]/auto-allocate", "POST", MANAGER, { extraParams: ["taskId"], permission: "allocation:auto_allocate" }),
+  org("tasks/[taskId]/eligibility", "GET", MANAGER, { extraParams: ["taskId"], permission: "eligibility:view" }),
+  org("tasks/[taskId]/eligibility/override", "POST", MANAGER, { extraParams: ["taskId"], permission: "eligibility:override" }),
+  org("tasks/[taskId]/suggest", "GET", MANAGER, { extraParams: ["taskId"], permission: "allocation:use_suggestions" }),
+  org("tasks/assignments/[assignmentId]", "DELETE", MANAGER, { extraParams: ["assignmentId"], permission: "tasks:assign" }),
+  org("tasks/parse", "POST", MANAGER, { permission: "tasks:create" }),
+  org("tasks/execute", "POST", MANAGER, { suspension: true, permission: "tasks:create" }),
+  org("projects", "GET", MEMBER, { permission: "tasks:read" }),
+  org("projects", "POST", MANAGER, { suspension: true, permission: "tasks:create" }),
+  org("projects/[projectId]", "GET", MEMBER, { extraParams: ["projectId"], permission: "tasks:read" }),
+  org("projects/[projectId]", "PATCH", MANAGER, { suspension: true, extraParams: ["projectId"], permission: "tasks:update" }),
+  org("projects/[projectId]/team", "GET", MEMBER, { extraParams: ["projectId"], permission: "tasks:read" }),
+  org("projects/[projectId]/team", "PUT", MANAGER, { suspension: true, extraParams: ["projectId"], permission: "tasks:update" }),
+  org("operations/execute", "POST", MEMBER, { suspension: true }),
+  org("operations/history", "GET", MEMBER),
+  org("operations/undo", "POST", MANAGER, { suspension: true }),
+  org("recurring-tasks/generate", "POST", MANAGER, { permission: "tasks:create" }),
+>>>>>>> d79cc88 (wip: project feature 80% done)
 
   // ── Scheduling & availability ───────────────────────────────────────
   org("auto-schedule", "POST", ADMIN, { suspension: true }),
