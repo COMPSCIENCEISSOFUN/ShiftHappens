@@ -135,10 +135,13 @@ async function seedAll(tx: Tx) {
    * is the correct outcome — the permission granted nothing, so removing it
    * takes nothing away — but it is a destructive write against production
    * data, so both counts are reported below rather than just the permissions'.
-   * A role composed ENTIRELY of retired names becomes an empty role, and an
-   * empty custom role means "nothing" by design, so its holders end up with no
-   * permissions rather than falling back to their system bundle. Worth knowing
-   * before the run, which is why the count is printed.
+   * A role composed ENTIRELY of retired names becomes an empty role. That used
+   * to be the dangerous case — an empty role meant "nothing", so its holders
+   * were left with no permissions at all rather than falling back to their
+   * system bundle. Custom roles add rather than replace now, so an emptied role
+   * is merely inert and its holders keep everything their system role gives
+   * them. The count is still printed: a role that silently stopped granting
+   * what somebody composed it for is worth knowing about either way.
    */
   const doomed = await tx.permission.findMany({
     where: { name: { notIn: permissions.map((p) => p.name) } },
