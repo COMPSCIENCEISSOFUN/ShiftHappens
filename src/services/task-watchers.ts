@@ -13,24 +13,41 @@
  * and the other would not, and nobody would notice because both would keep
  * sending notifications to somebody.
  *
- * ## The scoping rule, and why it is not "every manager"
+ * ## Who, and why it is a permission rather than a job title
+ *
+ * This asked `role !== "manager"`, which is the authorisation model the
+ * permission catalogue replaced everywhere else. It made the notification list
+ * unreachable by the feature that is supposed to govern it: a member given a
+ * custom role with `tasks:assign` — the person whose actual job is to fix the
+ * shift this message is about — was not told, because their title was wrong.
+ * A manager whose custom role removed it was told anyway.
+ *
+ * The question the notification asks is "who can put this right", and the
+ * answer to that is `tasks:assign`. Anyone who can move people on and off the
+ * task should hear that its people no longer fit; anyone who cannot is being
+ * handed a problem they have no way to act on.
+ *
+ * ## The scoping rule, and why it is not "everyone who can assign"
  *
  * These notifications name a staff member and a task title. That is precisely
  * the data a department-scoped manager is not allowed to read from any
  * reporting endpoint — so sending it to them through the notification table
  * would reintroduce, by a side door, the leak that scoping closed at the front.
  *
- * Recipients are therefore:
+ * Scope is `departmentScopeFor`, the same helper every route uses, so this
+ * cannot come to disagree with them about who is scoped to what. `null` is
+ * unrestricted — a company admin — and an array is that member's departments.
  *
- *   - every active company admin, who is unscoped by design; plus
- *   - every active manager who belongs to the task's department.
- *
- * A task with NO department reaches company admins only. That matches
+ * A task with NO department reaches unrestricted members only. That matches
  * `AccessService.isTaskInScope`, which refuses a scoped manager a
- * department-less task: if nobody's scope contains it, no scoped manager
- * owns it.
+ * department-less task: if nobody's scope contains it, no scoped member owns
+ * it. An empty array is therefore not "everything" but "nothing", which is the
+ * distinction that keeps "manager of the kitchen" from quietly becoming
+ * "manager of everything".
  */
 import { MembershipRepository } from "@/repositories/membership.repository";
+import { departmentScopeFor } from "@/lib/department-scope";
+import { permissionsOf } from "@/lib/permissions";
 
 const membershipRepo = new MembershipRepository();
 
@@ -43,17 +60,12 @@ export async function taskWatcherUserIds(
 
   return members
     .filter((m) => m.status === "active")
+    .filter((m) => permissionsOf(m).has("tasks:assign"))
     .filter((m) => {
-      if (m.role === "company_admin") return true;
-      if (m.role !== "manager") return false;
-      // An unscoped manager — one in no department — is not treated as
-      // universal. Being in no department means owning no shifts, not owning
-      // all of them; the permissive reading is how "manager of the kitchen"
-      // quietly becomes "manager of everything".
+      const scope = departmentScopeFor(m);
+      if (scope === null) return true;
       if (departmentId === null) return false;
-      return (m.departmentMemberships ?? []).some(
-        (dm) => dm.department.id === departmentId
-      );
+      return scope.includes(departmentId);
     })
     .map((m) => m.userId);
 }

@@ -38,18 +38,12 @@ import {
   isDepartmentInScope,
   type ScopableMembership,
 } from "@/lib/department-scope";
-import { effectivePermissions } from "@/lib/permissions";
+import {
+  permissionsOf,
+  type PermissionedMembership,
+} from "@/lib/permissions";
 
-/**
- * The shape `permissionsFor` reads. Structural rather than the Prisma type, so
- * a test can hand it a literal without constructing a whole membership row.
- */
-export interface PermissionedMembership {
-  role: string;
-  customRole?: {
-    rolePermissions: { permission: { name: string } }[];
-  } | null;
-}
+export type { PermissionedMembership };
 
 export class AccessService {
   private membershipRepo = new MembershipRepository();
@@ -87,12 +81,14 @@ export class AccessService {
    * role silently behave like no role at all, and an admin who deliberately
    * composed a role that grants nothing would find it granted everything their
    * system role did.
+   *
+   * The rule itself lives in `lib/permissions` so that callers outside Control
+   * — the notification watcher list, which asks it of every member at once —
+   * can reach it without going through an authorisation service that is not
+   * authorising anything. This stays as the name routes already use.
    */
   permissionsFor(membership: PermissionedMembership): Set<string> {
-    const custom = membership.customRole
-      ? membership.customRole.rolePermissions.map((rp) => rp.permission.name)
-      : null;
-    return effectivePermissions(membership.role, custom);
+    return permissionsOf(membership);
   }
 
   /**

@@ -318,6 +318,40 @@ export function effectivePermissions(
   return new Set(ROLE_PERMISSIONS[systemRole] ?? []);
 }
 
+/**
+ * The shape `permissionsOf` reads.
+ *
+ * Structural rather than the Prisma type, so a test can hand it a literal
+ * without building a whole membership row, and so this file stays free of
+ * anything that would drag the database client into a browser bundle.
+ */
+export interface PermissionedMembership {
+  role: string;
+  customRole?: {
+    rolePermissions: { permission: { name: string } }[];
+  } | null;
+}
+
+/**
+ * What a loaded membership is allowed to do.
+ *
+ * The unwrapping — role rows to permission names, absent role to `null` — used
+ * to live on `AccessService`, which meant anything outside Control that needed
+ * a member's permissions had to write it again. `taskWatcherUserIds` needs it
+ * for every member of an organisation at once and never authorises a request,
+ * so reaching it through the access service would have been a second copy of a
+ * three-line rule where the whole point is that there is one.
+ *
+ * The null matters and is not a tidy-up: no custom role falls back to the
+ * system bundle, while a custom role with nothing in it grants nothing.
+ */
+export function permissionsOf(membership: PermissionedMembership): Set<string> {
+  const custom = membership.customRole
+    ? membership.customRole.rolePermissions.map((rp) => rp.permission.name)
+    : null;
+  return effectivePermissions(membership.role, custom);
+}
+
 /** Does this set allow the action? */
 export function hasPermission(
   permissions: ReadonlySet<string>,

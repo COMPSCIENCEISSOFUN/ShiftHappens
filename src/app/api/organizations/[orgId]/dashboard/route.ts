@@ -2,14 +2,44 @@
  * Dashboard API Endpoint (Boundary Layer)
  * GET /api/organizations/[orgId]/dashboard
  *
- * Returns role-specific dashboard data with per-section resilience.
- * Each section is independently nullable — if one query fails,
- * the rest still render. Uses Promise.allSettled for parallel execution.
+ * Returns whichever dashboard sections the caller may see, with per-section
+ * resilience: each section is independently nullable, so one failed query does
+ * not empty the page.
  *
- * Role behavior:
- * - company_admin: full org overview + department workload
- * - manager: department-scoped data + team roster
- * - staff: personal calendar, stats, and certifications
+ * ## Why this stopped branching on the role string
+ *
+ * It used to read:
+ *
+ *     if (role === "staff")         → personal sections only
+ *     if (role === "manager")       → org sections, department-scoped
+ *     if (role === "company_admin") → org sections, plus two org-wide ones
+ *
+ * Permissions were never consulted, on the single largest data surface in the
+ * product — which made the custom-role feature untrue in both directions. An
+ * admin who composed a role deliberately WITHOUT `reports:view` and gave it to
+ * a manager still sent them key metrics, staff utilisation, rejection trends,
+ * coverage and tomorrow's schedule. The permission was removed and nothing
+ * happened. In the other direction a senior staff member granted `reports:view`
+ * got nothing, because the branch never asked.
+ *
+ * Every section is now gated by the permission that owns its data, so the
+ * catalogue governs this endpoint the way it governs every other one. The three
+ * system roles receive exactly what they received before — that is the
+ * contract, and `tests/api/dashboard-permissions.test.ts` pins it.
+ *
+ * ## Permission and scope are separate questions
+ *
+ * Two sections are org-wide by nature: `departmentWorkload` compares
+ * departments against each other, and `certificationSummary` counts across all
+ * of them. Neither can be honestly narrowed to one department, so both need an
+ * UNRESTRICTED caller as well as the permission. `certificationSummary` is the
+ * one where that matters: managers hold `certifications:review` in their
+ * bundle, so gating on the permission alone would newly hand every manager an
+ * org-wide figure — a scoping regression introduced by a permissions fix.
+ *
+ * `teamRoster` is the mirror image: it is a scoped member's view of their own
+ * team, so it needs a scope with departments in it, which is why an admin does
+ * not receive it and did not before.
  *
  * Rate limit tier: relaxed (100 req/min)
  */
@@ -17,6 +47,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { ReportingService } from "@/services/reporting.service";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
 import { AccessService } from "@/services/access.service";
+import { departmentScopeFor } from "@/lib/department-scope";
+import { canBeRostered } from "@/lib/role-config";
 
 const reportingService = new ReportingService();
 const accessService = new AccessService();
@@ -47,65 +79,81 @@ export async function GET(
     }
 
     const role = membership.role;
+    const permissions = accessService.permissionsFor(membership);
+    /*
+     * Read from the membership the guard already loaded, rather than the
+     * separate `getMemberDepartmentIds` round trip this used to make. Same
+     * answer, one less query, and — the reason that matters — the same helper
+     * every other route scopes with, so this endpoint cannot come to disagree
+     * with them about what a member's scope is.
+     */
+    const scope = departmentScopeFor(membership);
+    const unrestricted = scope === null;
 
-    // ---- Staff: personal dashboard ----
-    if (role === "staff") {
+    const response: Record<string, unknown> = { role };
+
+    /*
+     * The caller's own shifts, stats and certificates.
+     *
+     * Not a permission: `canBeRostered` is a structural fact about who the
+     * engine will consider for a shift, stated once in `role-config` precisely
+     * so a fourth caller cannot quietly disagree with the three that already
+     * enforce it. Admins are excluded because they can hold no shifts, so the
+     * section would render empty for them by construction — and self-service
+     * data needs no permission, which is why the twelve self-service entries
+     * were retired from the catalogue.
+     */
+    if (canBeRostered(role)) {
       try {
-        const staffData = await reportingService.getStaffDashboardData(
+        response.staffData = await reportingService.getStaffDashboardData(
           membership.id,
           orgId
         );
-        return NextResponse.json({ role, staffData });
       } catch (error) {
         console.error("[Dashboard Staff Error]", error);
-        return NextResponse.json({ role, staffData: null });
+        response.staffData = null;
       }
     }
 
-    // ---- Admin / Manager: org-level dashboard ----
-    // Manager views are scoped to their departments (BCE: route → service → repo)
-    let departmentIds: string[] | undefined;
-    if (role === "manager") {
-      departmentIds = await reportingService.getMemberDepartmentIds(
-        membership.id
-      );
+    if (permissions.has("reports:view")) {
+      // `undefined` is org-wide; an array scopes, and an EMPTY array scopes to
+      // nothing. That last case is a member with the permission and no
+      // department, who correctly sees no one else's data.
+      const departmentIds = scope ?? undefined;
+
+      const [
+        needsAttentionResult,
+        keyMetricsResult,
+        tomorrowsScheduleResult,
+        completionChartResult,
+        staffUtilizationResult,
+        rejectionTrendsResult,
+        taskSummaryResult,
+        coverageSummaryResult,
+      ] = await Promise.allSettled([
+        reportingService.getNeedsAttention(orgId, departmentIds),
+        reportingService.getKeyMetrics(orgId, departmentIds),
+        reportingService.getTomorrowsSchedule(orgId, departmentIds),
+        reportingService.getCompletionChart(orgId, departmentIds),
+        reportingService.getStaffUtilization(orgId, departmentIds),
+        reportingService.getRejectionTrends(orgId, departmentIds),
+        reportingService.getTaskSummary(orgId, departmentIds),
+        reportingService.getCoverageSummary(orgId, departmentIds),
+      ]);
+
+      response.needsAttention = extractResult(needsAttentionResult, "NeedsAttention");
+      response.keyMetrics = extractResult(keyMetricsResult, "KeyMetrics");
+      response.tomorrowsSchedule = extractResult(tomorrowsScheduleResult, "TomorrowsSchedule");
+      response.completionChart = extractResult(completionChartResult, "CompletionChart");
+      response.staffUtilization = extractResult(staffUtilizationResult, "StaffUtilization");
+      response.rejectionTrends = extractResult(rejectionTrendsResult, "RejectionTrends");
+      response.taskSummary = extractResult(taskSummaryResult, "TaskSummary");
+      response.coverageSummary = extractResult(coverageSummaryResult, "CoverageSummary");
     }
 
-    // Parallel fetch — 8 shared sections for admin and manager
-    const [
-      needsAttentionResult,
-      keyMetricsResult,
-      tomorrowsScheduleResult,
-      completionChartResult,
-      staffUtilizationResult,
-      rejectionTrendsResult,
-      taskSummaryResult,
-      coverageSummaryResult,
-    ] = await Promise.allSettled([
-      reportingService.getNeedsAttention(orgId, departmentIds),
-      reportingService.getKeyMetrics(orgId, departmentIds),
-      reportingService.getTomorrowsSchedule(orgId, departmentIds),
-      reportingService.getCompletionChart(orgId, departmentIds),
-      reportingService.getStaffUtilization(orgId, departmentIds),
-      reportingService.getRejectionTrends(orgId, departmentIds),
-      reportingService.getTaskSummary(orgId, departmentIds),
-      reportingService.getCoverageSummary(orgId, departmentIds),
-    ]);
-
-    const response: Record<string, unknown> = {
-      role,
-      needsAttention: extractResult(needsAttentionResult, "NeedsAttention"),
-      keyMetrics: extractResult(keyMetricsResult, "KeyMetrics"),
-      tomorrowsSchedule: extractResult(tomorrowsScheduleResult, "TomorrowsSchedule"),
-      completionChart: extractResult(completionChartResult, "CompletionChart"),
-      staffUtilization: extractResult(staffUtilizationResult, "StaffUtilization"),
-      rejectionTrends: extractResult(rejectionTrendsResult, "RejectionTrends"),
-      taskSummary: extractResult(taskSummaryResult, "TaskSummary"),
-      coverageSummary: extractResult(coverageSummaryResult, "CoverageSummary"),
-    };
-
-    // Role-specific section (resilient — failure doesn't affect shared sections)
-    if (role === "company_admin") {
+    // Compares departments against one another, so it means nothing to someone
+    // who can only see one of them.
+    if (permissions.has("reports:view") && unrestricted) {
       try {
         response.departmentWorkload =
           await reportingService.getDepartmentWorkload(orgId);
@@ -113,8 +161,11 @@ export async function GET(
         console.error("[Dashboard DepartmentWorkload Error]", error);
         response.departmentWorkload = null;
       }
+    }
 
-      // Certifications are org-wide (not department-scoped), so admin only.
+    // Certifications are counted org-wide and cannot be narrowed to a
+    // department, so the permission alone is not enough — see the header.
+    if (permissions.has("certifications:review") && unrestricted) {
       try {
         response.certificationSummary =
           await reportingService.getCertificationSummary(orgId);
@@ -122,12 +173,17 @@ export async function GET(
         console.error("[Dashboard CertificationSummary Error]", error);
         response.certificationSummary = null;
       }
-    } else if (role === "manager" && departmentIds?.length) {
+    }
+
+    // A scoped member's view of their own team. An unrestricted caller has no
+    // "own team", which is why an admin does not get this one.
+    if (
+      permissions.has("calendar:view_team") &&
+      scope !== null &&
+      scope.length > 0
+    ) {
       try {
-        response.teamRoster = await reportingService.getTeamRoster(
-          orgId,
-          departmentIds
-        );
+        response.teamRoster = await reportingService.getTeamRoster(orgId, scope);
       } catch (error) {
         console.error("[Dashboard TeamRoster Error]", error);
         response.teamRoster = null;

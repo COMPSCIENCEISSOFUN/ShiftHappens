@@ -27,7 +27,7 @@ export class MembershipRepository {
    */
   async findActiveOrgStatuses(userId: string): Promise<string[]> {
     const memberships = await prisma.membership.findMany({
-      where: { userId, status: "active" },
+      where: { userId },
       select: { organization: { select: { status: true } } },
     });
     return memberships.map((m) => m.organization.status);
@@ -38,6 +38,23 @@ export class MembershipRepository {
    * and department assignments. Used by Company Admin and Manager
    * for user management views.
    */
+  /**
+   * The organisations a user is an ACTIVE member of, ids only.
+   *
+   * Written for audit fan-out. Account events — a password change, a profile
+   * edit — happen outside any organisation, but `AuditLog.organizationId` is
+   * required, so the event has to be recorded against each organisation with a
+   * legitimate interest in it. Deactivated memberships are excluded: an
+   * organisation somebody has left has no claim on their account activity.
+   */
+  async findActiveOrganizationIds(userId: string): Promise<string[]> {
+    const rows = await prisma.membership.findMany({
+      where: { userId, status: "active" },
+      select: { organizationId: true },
+    });
+    return rows.map((r) => r.organizationId);
+  }
+
   async findByOrgId(organizationId: string) {
     return prisma.membership.findMany({
       where: { organizationId },
@@ -58,8 +75,28 @@ export class MembershipRepository {
             },
           },
         },
+        /*
+         * The permission names come with it.
+         *
+         * `taskWatcherUserIds` asks what every member of an organisation may
+         * do, and the members screen needs the same to say what a custom role
+         * adds. Without them here both would have to re-query per member — the
+         * N+1 this include exists to avoid.
+         *
+         * Costs one extra query for the whole `findMany` rather than one per
+         * row, and carries permission NAMES only, so the callers that do not
+         * use it (eligibility, seniority, hour alerts, composition) pay a
+         * bounded amount rather than a per-member one.
+         */
         customRole: {
-          select: { id: true, name: true, displayLabel: true },
+          select: {
+            id: true,
+            name: true,
+            displayLabel: true,
+            rolePermissions: {
+              select: { permission: { select: { name: true } } },
+            },
+          },
         },
       },
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
