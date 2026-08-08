@@ -137,7 +137,7 @@ export class SeniorityService {
       organizationId,
       userId: actorUserId,
       action: ACTIONS.SENIORITY_OVERRIDDEN,
-      entityType: "membership",
+      entityType: "member",
       entityId: membershipId,
       details: { from: membership.seniorityOverride ?? null, to: level },
     });

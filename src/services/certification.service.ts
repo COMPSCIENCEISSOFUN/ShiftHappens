@@ -53,14 +53,42 @@ export class CertificationService {
   private notificationService = new NotificationService();
 
   /** Submits a new certification */
-  async create(membershipId: string, input: CreateCertificationInput) {
-    return this.certRepo.create({
+  /**
+   * A member submits a certificate for review.
+   *
+   * `context` exists only so this can be audited. Verification, rejection,
+   * revocation and withdrawal all wrote an audit row; submission did not — so
+   * the log could tell you a certificate had been verified with no record of it
+   * ever arriving, which is the one step that says who claimed the
+   * qualification in the first place. `CERTIFICATION_SUBMITTED` had been
+   * declared for months with nothing raising it.
+   *
+   * Passed in rather than looked up: the route already holds both, and a query
+   * to recover what the caller knows is a query for nothing.
+   */
+  async create(
+    membershipId: string,
+    input: CreateCertificationInput,
+    context: { organizationId: string; userId: string }
+  ) {
+    const cert = await this.certRepo.create({
       membershipId,
       name: input.name,
       issuedDate: new Date(input.issuedDate),
       expiryDate: input.expiryDate ? new Date(input.expiryDate) : undefined,
       documentUrl: input.documentUrl,
     });
+
+    void this.auditService.log({
+      organizationId: context.organizationId,
+      userId: context.userId,
+      action: ACTIONS.CERTIFICATION_SUBMITTED,
+      entityType: "certification",
+      entityId: cert.id,
+      details: { name: cert.name, expiryDate: input.expiryDate ?? null },
+    });
+
+    return cert;
   }
 
   /**

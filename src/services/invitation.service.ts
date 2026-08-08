@@ -19,9 +19,11 @@ import { MembershipRepository } from "@/repositories/membership.repository";
 import { UserRepository } from "@/repositories/user.repository";
 import { AvailabilityService } from "@/services/availability.service";
 import { isFullTime } from "@/lib/role-config";
+import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 
 export class InvitationService {
   private invitationRepo = new InvitationRepository();
+  private auditService = new AuditLogService();
   private membershipRepo = new MembershipRepository();
   private userRepo = new UserRepository();
   private availabilityService = new AvailabilityService();
@@ -114,6 +116,24 @@ export class InvitationService {
       organizationId: invitation.organizationId,
       role: invitation.role,
       employmentType: invitationEmploymentType ?? undefined,
+    });
+
+    /*
+     * Somebody joining the organisation.
+     *
+     * `member.invited` was already logged when the invitation went out, so the
+     * log recorded the offer and not the acceptance — leaving no answer to
+     * "when did this person actually get access", which is the question that
+     * matters after the fact. The invitation may also have sat unaccepted for
+     * weeks, so the two events are not interchangeable.
+     */
+    void this.auditService.log({
+      organizationId: invitation.organizationId,
+      userId: user!.id,
+      action: ACTIONS.MEMBER_JOINED,
+      entityType: "member",
+      entityId: membership.id,
+      details: { role: invitation.role, email: invitation.email },
     });
 
     /*

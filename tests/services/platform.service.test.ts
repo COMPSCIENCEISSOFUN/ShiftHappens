@@ -63,21 +63,21 @@ describe("PlatformService", () => {
     it("suspends an active organization", async () => {
       const org = await orgRepo.create({ name: "Org A", slug: "org-a" }, userId);
 
-      const updated = await platformService.toggleOrganizationStatus(org.id);
+      const updated = await platformService.toggleOrganizationStatus(org.id, userId);
       expect(updated.status).toBe("suspended");
     });
 
     it("activates a suspended organization", async () => {
       const org = await orgRepo.create({ name: "Org A", slug: "org-a" }, userId);
-      await platformService.toggleOrganizationStatus(org.id);
+      await platformService.toggleOrganizationStatus(org.id, userId);
 
-      const updated = await platformService.toggleOrganizationStatus(org.id);
+      const updated = await platformService.toggleOrganizationStatus(org.id, userId);
       expect(updated.status).toBe("active");
     });
 
     it("throws for non-existent org", async () => {
       await expect(
-        platformService.toggleOrganizationStatus("nonexistent")
+        platformService.toggleOrganizationStatus("nonexistent", userId)
       ).rejects.toThrow("Organization not found");
     });
   });
@@ -113,7 +113,7 @@ describe("PlatformService", () => {
     it("suspended org status persists after toggle", async () => {
       const org = await orgRepo.create({ name: "Org A", slug: "org-a" }, userId);
 
-      const suspended = await platformService.toggleOrganizationStatus(org.id);
+      const suspended = await platformService.toggleOrganizationStatus(org.id, userId);
       expect(suspended.status).toBe("suspended");
 
       // Verify it's actually suspended in DB
@@ -124,7 +124,7 @@ describe("PlatformService", () => {
     it("org members count is preserved after suspension", async () => {
       const org = await orgRepo.create({ name: "Org A", slug: "org-a" }, userId);
 
-      await platformService.toggleOrganizationStatus(org.id);
+      await platformService.toggleOrganizationStatus(org.id, userId);
 
       const found = await platformService.getOrganizationById(org.id);
       expect(found.status).toBe("suspended");

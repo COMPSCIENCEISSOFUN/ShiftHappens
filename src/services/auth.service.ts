@@ -15,6 +15,7 @@
  *   to prevent email enumeration attacks
  */
 import bcrypt from "bcryptjs";
+import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 import crypto from "crypto";
 import { UserRepository } from "@/repositories/user.repository";
 import { TokenRepository } from "@/repositories/token.repository";
@@ -25,6 +26,7 @@ export class AuthService {
   private userRepo = new UserRepository();
   private tokenRepo = new TokenRepository();
   private emailService = new EmailService();
+  private auditService = new AuditLogService();
 
   /**
    * Registers a new user:
@@ -166,6 +168,25 @@ export class AuthService {
     const hashedPassword = await bcrypt.hash(input.password, 12);
     await this.userRepo.updateProfile(user.id, { hashedPassword });
     await this.tokenRepo.deletePasswordResetToken(input.token);
+
+    /*
+     * The completion, not the request.
+     *
+     * `requestPasswordReset` is deliberately NOT logged: anyone can raise one
+     * for any address, so a log of requests records what strangers typed rather
+     * than what happened to the account — and it would fill an admin's audit
+     * page with events no member of their organisation caused.
+     *
+     * A password actually changing is different, and it is the event an admin
+     * would look for after a suspected compromise. Fanned out to the user's
+     * organisations, since this flow has none of its own.
+     */
+    await this.auditService.logForUser({
+      userId: user.id,
+      action: ACTIONS.USER_PASSWORD_CHANGED,
+      entityType: "user",
+      details: { via: "reset_link" },
+    });
 
     return user;
   }

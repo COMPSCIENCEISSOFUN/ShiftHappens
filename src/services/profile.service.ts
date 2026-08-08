@@ -7,9 +7,11 @@
  */
 import bcrypt from "bcryptjs";
 import { UserRepository } from "@/repositories/user.repository";
+import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 
 export class ProfileService {
   private userRepo = new UserRepository();
+  private auditService = new AuditLogService();
 
   /** Retrieves safe user profile data (excludes hashedPassword) */
   async getProfile(userId: string) {
@@ -98,6 +100,34 @@ export class ProfileService {
     }
 
     const updated = await this.userRepo.updateProfile(userId, updateData);
+
+    /*
+     * Two events, because they answer different questions. A name change is
+     * housekeeping; a password change is the thing somebody looks for after a
+     * suspected compromise, and burying it inside "profile updated" would make
+     * it findable only by reading the details of every edit.
+     *
+     * `changed` names the fields rather than carrying their values — an audit
+     * row recording somebody's new name is a copy of data that already lives on
+     * the user, and one recording anything about a password would be worse.
+     */
+    if (updateData.hashedPassword) {
+      await this.auditService.logForUser({
+        userId,
+        action: ACTIONS.USER_PASSWORD_CHANGED,
+        entityType: "user",
+        details: { via: "profile" },
+      });
+    }
+
+    if (updateData.name) {
+      await this.auditService.logForUser({
+        userId,
+        action: ACTIONS.USER_PROFILE_UPDATED,
+        entityType: "user",
+        details: { changed: ["name"] },
+      });
+    }
 
     return {
       id: updated.id,

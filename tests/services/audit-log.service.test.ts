@@ -103,7 +103,7 @@ describe("log", () => {
       auditService.log({
         organizationId: tenant.orgId,
         action: ACTIONS.MEMBER_INVITED,
-        entityType: "membership",
+        entityType: "member",
       })
     ).resolves.toBeUndefined();
 

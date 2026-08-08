@@ -76,7 +76,10 @@ export async function POST(
       );
     }
 
-    const cert = await certService.create(membership.id, parsed.data);
+    const cert = await certService.create(membership.id, parsed.data, {
+      organizationId: orgId,
+      userId: user.id,
+    });
     return NextResponse.json(cert, { status: 201 });
   } catch {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

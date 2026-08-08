@@ -10,80 +10,35 @@
  * audit failures from breaking business operations.
  */
 import { AuditLogRepository } from "@/repositories/audit-log.repository";
+import { MembershipRepository } from "@/repositories/membership.repository";
+import type { AuditEntityType } from "@/lib/audit-entities";
+import type { AuditAction } from "@/lib/audit-actions";
 
-const ACTIONS = {
-  // Tasks
-  TASK_CREATED: "task.created",
-  TASK_UPDATED: "task.updated",
-  TASK_DELETED: "task.deleted",
-  TASK_ASSIGNED: "task.assigned",
-  TASK_UNASSIGNED: "task.unassigned",
-  RECURRING_TASKS_GENERATED: "task.recurring_generated",
-  // Assignments
-  ASSIGNMENT_ACCEPTED: "assignment.accepted",
-  ASSIGNMENT_REJECTED: "assignment.rejected",
-  ASSIGNMENT_CLOCKED_IN: "assignment.clocked_in",
-  ASSIGNMENT_CLOCKED_OUT: "assignment.clocked_out",
-  ASSIGNMENT_COMPLETED: "assignment.completed",
-  ASSIGNMENT_DECLINE_REQUESTED: "assignment.decline_requested",
-  ASSIGNMENT_DECLINE_APPROVED: "assignment.decline_approved",
-  ASSIGNMENT_DECLINE_DENIED: "assignment.decline_denied",
-  ASSIGNMENT_WITHDRAWAL_REQUESTED: "assignment.withdrawal_requested",
-  ASSIGNMENT_WITHDRAWAL_APPROVED: "assignment.withdrawal_approved",
-  ASSIGNMENT_WITHDRAWAL_DENIED: "assignment.withdrawal_denied",
-  ASSIGNMENT_RATED: "assignment.rated",
-  ASSIGNMENT_CLOCK_CORRECTED: "assignment.clock_corrected",
-  ELIGIBILITY_OVERRIDDEN: "assignment.eligibility_overridden",
-  SENIORITY_OVERRIDDEN: "membership.seniority_overridden",
-  AVAILABILITY_REVIEW_REQUESTED: "membership.availability_review_requested",
-  CONTRACTED_DAYS_SET: "membership.contracted_days_set",
-  // Members
-  MEMBER_INVITED: "member.invited",
-  MEMBER_ROLE_CHANGED: "member.role_changed",
-  MEMBER_ACTIVATED: "member.activated",
-  MEMBER_DEACTIVATED: "member.deactivated",
-  // Departments
-  DEPARTMENT_CREATED: "department.created",
-  DEPARTMENT_UPDATED: "department.updated",
-  DEPARTMENT_ARCHIVED: "department.archived",
-  DEPARTMENT_UNARCHIVED: "department.unarchived",
-  DEPARTMENT_DELETED: "department.deleted",
-  LEAVE_APPROVED: "leave.approved",
-  LEAVE_REJECTED: "leave.rejected",
-  // Certifications
-  CERTIFICATION_SUBMITTED: "certification.submitted",
-  CERTIFICATION_VERIFIED: "certification.verified",
-  CERTIFICATION_REJECTED: "certification.rejected",
-  CERTIFICATION_REVOKED: "certification.revoked",
-  CERTIFICATION_WITHDRAWN: "certification.withdrawn",
-  // Settings
-  SETTINGS_UPDATED: "settings.updated",
-  // Roles
-  ROLE_CREATED: "role.created",
-  ROLE_UPDATED: "role.updated",
-  ROLE_DELETED: "role.deleted",
-  // Work Rules
-  WORK_RULE_CREATED: "work_rule.created",
-  WORK_RULE_UPDATED: "work_rule.updated",
-  WORK_RULE_DELETED: "work_rule.deleted",
-  // Auth
-  USER_REGISTERED: "user.registered",
-  USER_LOGGED_IN: "user.logged_in",
-  // Organization
-  ORGANIZATION_UPDATED: "organization.updated",
-  // Billing / subscription
-  CHECKOUT_STARTED: "subscription.checkout_started",
-  SUBSCRIPTION_UPGRADED: "subscription.upgraded",
-  SUBSCRIPTION_UPDATED: "subscription.updated",
-  SUBSCRIPTION_CANCELED: "subscription.canceled",
-} as const;
+/*
+ * Re-exported so the ~50 service call sites keep one import for the audit
+ * vocabulary. The definitions live in `lib` because the audit PAGE needs them
+ * and is a client component.
+ */
+export { ACTIONS, type AuditAction } from "@/lib/audit-actions";
 
-export type AuditAction = (typeof ACTIONS)[keyof typeof ACTIONS];
 
-export { ACTIONS };
+
+
+/*
+ * Re-exported so services keep one import for the audit vocabulary. The
+ * definitions live in `lib` because the audit PAGE needs them too, and it is a
+ * client component — importing them from here would pull the repository, and
+ * therefore Prisma, into the browser bundle.
+ */
+export {
+  AUDIT_ENTITY_TYPES,
+  AUDIT_ENTITY_LABELS,
+  type AuditEntityType,
+} from "@/lib/audit-entities";
 
 export class AuditLogService {
   private auditRepo = new AuditLogRepository();
+  private membershipRepo = new MembershipRepository();
 
   /**
    * Records an audit event. Fire-and-forget — errors are
@@ -93,7 +48,7 @@ export class AuditLogService {
     organizationId: string;
     userId?: string;
     action: AuditAction;
-    entityType: string;
+    entityType: AuditEntityType;
     entityId?: string;
     details?: Record<string, unknown>;
     ipAddress?: string;
@@ -103,6 +58,46 @@ export class AuditLogService {
     } catch (error) {
       console.error("[AuditLog Error]", error);
     }
+  }
+
+  /**
+   * Records an account event against every organisation the user belongs to.
+   *
+   * Password changes and profile edits happen outside any organisation, and
+   * `AuditLog.organizationId` is required — so the choice is between not
+   * recording them, inventing a nullable column that the org-scoped read would
+   * never surface, or writing one row per organisation with a legitimate
+   * interest. The third is the only one that puts the event in front of
+   * somebody who can act on it.
+   *
+   * A user in no organisation produces no rows, which is correct: there is
+   * nobody to tell.
+   *
+   * Failures are swallowed per `log`, so one organisation's write failing
+   * cannot lose the others.
+   */
+  async logForUser(params: {
+    userId: string;
+    action: AuditAction;
+    entityType: AuditEntityType;
+    details?: Record<string, unknown>;
+  }) {
+    const organizationIds = await this.membershipRepo.findActiveOrganizationIds(
+      params.userId
+    );
+
+    await Promise.all(
+      organizationIds.map((organizationId) =>
+        this.log({
+          organizationId,
+          userId: params.userId,
+          action: params.action,
+          entityType: params.entityType,
+          entityId: params.userId,
+          details: params.details,
+        })
+      )
+    );
   }
 
   /** Retrieves audit logs with filters */

@@ -55,13 +55,17 @@ export async function PATCH(
     if (body.subscriptionTier) {
       const updated = await platformService.updateOrganizationTier(
         orgId,
-        body.subscriptionTier
+        body.subscriptionTier,
+        admin.id
       );
       return NextResponse.json(updated);
     }
 
     // Default: toggle status (backward compatible)
-    const updated = await platformService.toggleOrganizationStatus(orgId);
+    const updated = await platformService.toggleOrganizationStatus(
+      orgId,
+      admin.id
+    );
     return NextResponse.json(updated);
   } catch (error) {
     if (error instanceof Error) {

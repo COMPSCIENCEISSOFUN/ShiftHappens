@@ -76,22 +76,30 @@ beforeEach(async () => {
 
 /** A pending submission for the staff member. */
 async function submit(name = "Food Safety", expiryDate?: string) {
-  return certService.create(membershipId, {
-    name,
-    issuedDate: "2026-01-15T00:00:00.000Z",
-    ...(expiryDate ? { expiryDate } : {}),
-  });
+  return certService.create(
+    membershipId,
+    {
+      name,
+      issuedDate: "2026-01-15T00:00:00.000Z",
+      ...(expiryDate ? { expiryDate } : {}),
+    },
+    { organizationId: orgId, userId: staffUserId }
+  );
 }
 
 /** A verified certification, optionally expiring in `daysFromNow`. */
 async function verifiedCert(name = "Food Safety", daysFromNow?: number) {
-  const cert = await certService.create(membershipId, {
-    name,
-    issuedDate: "2026-01-01T00:00:00.000Z",
-    ...(daysFromNow !== undefined
-      ? { expiryDate: new Date(Date.now() + daysFromNow * DAY_MS).toISOString() }
-      : {}),
-  });
+  const cert = await certService.create(
+    membershipId,
+    {
+      name,
+      issuedDate: "2026-01-01T00:00:00.000Z",
+      ...(daysFromNow !== undefined
+        ? { expiryDate: new Date(Date.now() + daysFromNow * DAY_MS).toISOString() }
+        : {}),
+    },
+    { organizationId: orgId, userId: staffUserId }
+  );
   await certService.updateStatus(cert.id, orgId, "verified", adminUserId);
   return cert;
 }

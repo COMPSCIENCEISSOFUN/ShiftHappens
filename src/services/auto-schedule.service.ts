@@ -1510,7 +1510,7 @@ Use the exact task numbers (1, 2, 3...) and staff letters (A, B, C...) from abov
 
     await this.auditService.log({
       organizationId, userId: confirmedById,
-      action: ACTIONS.TASK_ASSIGNED, entityType: "auto-schedule",
+      action: ACTIONS.TASK_ASSIGNED, entityType: "assignment",
       details: { assignmentsCreated: created.length, totalPlanned: assignments.length, status: assignmentStatus, rejectedCrossTenant: rejected.length, skippedOverCapacity: overCapacity.length, skippedComposition: brokeComposition.length, skippedIneligible: noLongerEligible.length, allocationProvider: provider ?? null },
     });
 
