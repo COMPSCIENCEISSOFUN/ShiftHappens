@@ -2,7 +2,6 @@
  * Roles Management Page (Boundary Layer)
  *
  * Company admins define custom roles and the permissions attached to them.
- * System roles are shown but cannot be edited or deleted.
  *
  * ## On the visual language
  *
@@ -25,13 +24,46 @@
  *    kept its old permissions while the UI reported success. Creating already
  *    refused an empty selection; editing now refuses it too, for the same
  *    reason and with the same message.
+ *
+ * ## What a role means, as of 2026-08-08
+ *
+ * A custom role ADDS to the holder's system-role permissions; it cannot take
+ * anything away. This screen used to describe the opposite by omission — it
+ * listed what a role granted and said nothing about the twelve permissions
+ * that handing it to a manager silently removed. Two things here exist because
+ * of that: the sentence above each chip list saying what the role does to a
+ * staff member and to a manager, and the empty-role warning, which has now been
+ * true in three different ways and is worth reading rather than assuming.
  */
 "use client";
 
 import { useEffect, useState } from "react";
 import { usePermissions } from "@/components/layout/permission-provider";
 import { useParams } from "next/navigation";
-import { KeyRound, Lock, Pencil, Plus, ShieldCheck, Trash2, X } from "lucide-react";
+import {
+  Award,
+  Building,
+  Building2,
+  CalendarDays,
+  ChartColumn,
+  ClipboardList,
+  CreditCard,
+  KeyRound,
+  Lock,
+  Pencil,
+  Plus,
+  Scale,
+  ScrollText,
+  Settings,
+  Shield,
+  ShieldCheck,
+  Sparkles,
+  Trash2,
+  UserCheck,
+  Users,
+  X,
+  type LucideIcon,
+} from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PageLoading } from "@/components/ui/page-loading";
@@ -88,6 +120,51 @@ interface Role {
 
 
 /**
+ * How each permission category is shown: a readable name and an icon.
+ *
+ * The category came straight off the catalogue row, so the picker printed
+ * `work_rules` and `organization` at an admin — a database value used as a
+ * label, which is the same defect as the permission chips printing
+ * `tasks:assign`. Fourteen unlabelled boxes of similar-looking text is also
+ * simply hard to scan; the icon is what makes a category findable at a glance,
+ * which is the whole reason the rest of the application uses one per section.
+ *
+ * Here rather than beside the catalogue in `lib/permissions.ts`, even though
+ * that is where `AUDIT_ENTITY_LABELS` lives, because these carry lucide
+ * components. That file is imported by services, and putting an icon set behind
+ * it would pull React components into every server bundle that asks what a
+ * permission means.
+ *
+ * A category with no entry falls back to its raw name rather than disappearing:
+ * adding a permission in a new category should look unstyled, not invisible.
+ */
+const CATEGORY_PRESENTATION: Record<
+  string,
+  { label: string; icon: LucideIcon }
+> = {
+  departments: { label: "Departments", icon: Building2 },
+  members: { label: "Members", icon: Users },
+  tasks: { label: "Tasks & shifts", icon: ClipboardList },
+  eligibility: { label: "Eligibility", icon: UserCheck },
+  allocation: { label: "Allocation", icon: Sparkles },
+  reports: { label: "Reports", icon: ChartColumn },
+  calendar: { label: "Calendar", icon: CalendarDays },
+  settings: { label: "Settings", icon: Settings },
+  roles: { label: "Roles", icon: Shield },
+  organization: { label: "Organisation", icon: Building },
+  audit: { label: "Audit log", icon: ScrollText },
+  work_rules: { label: "Work rules", icon: Scale },
+  certifications: { label: "Certifications", icon: Award },
+  billing: { label: "Billing", icon: CreditCard },
+};
+
+function categoryPresentation(category: string) {
+  return (
+    CATEGORY_PRESENTATION[category] ?? { label: category, icon: KeyRound }
+  );
+}
+
+/**
  * The permission picker, grouped by category.
  *
  * One component for both forms. It was duplicated before — 25 lines of
@@ -142,11 +219,32 @@ function PermissionPicker({
         </p>
       ) : (
         <div className="grid gap-2 sm:grid-cols-2">
-          {categories.map((category) => (
+          {categories.map((category) => {
+            const { icon: CategoryIcon, label } = categoryPresentation(category);
+            const chosen = grouped[category].filter((p) =>
+              selected.includes(p.id)
+            ).length;
+
+            return (
             <div key={category} className="rounded-lg border border-border p-3">
-              <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                {category}
-              </p>
+              <div className="mb-1.5 flex items-center justify-between gap-2">
+                <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  <CategoryIcon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                  {label}
+                </p>
+                {/*
+                  Per-category count. The single "N selected" above the picker
+                  answers "how big is this role"; composing one is a question
+                  per area — "have I given them everything they need for
+                  tasks?" — and with fourteen categories on screen that is not
+                  answerable by counting ticks.
+                */}
+                {chosen > 0 && (
+                  <span className="shrink-0 rounded-full bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">
+                    {chosen}
+                  </span>
+                )}
+              </div>
               <div className="space-y-1">
                 {grouped[category].map((perm) => {
                   /*
@@ -185,7 +283,8 @@ function PermissionPicker({
                 })}
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
@@ -451,8 +550,28 @@ export default function RolesPage() {
   }
 
   const grouped = groupedPermissions();
+  /*
+   * `isSystemRole` rows do not exist.
+   *
+   * The column is on `Role`, three services guard against editing, deleting or
+   * assigning such a row, and this page carried a "System" stat tile and a
+   * lock badge for them — but a grep of the whole repository finds nothing that
+   * ever writes `isSystemRole: true` except tests. No seed, no service, no
+   * migration. So the tile always read 0 and the badge could never render,
+   * while the page's own header claimed system roles were "shown but cannot be
+   * edited".
+   *
+   * The UI is gone. The SERVICE guards stay: they are three lines, they are
+   * exercised by `role.service.test.ts` and `user-management.service.test.ts`
+   * against rows those suites create deliberately, and they are what would hold
+   * if the system roles ever were seeded — which is a real option, discussed
+   * and deferred rather than ruled out. Tested defence in depth is worth
+   * keeping; an unreachable screen is not.
+   *
+   * The filter itself stays too, so a seeded system role would be excluded from
+   * the editable list rather than appearing with an Edit button.
+   */
   const customRoles = roles.filter((r) => !r.isSystemRole);
-  const systemRoles = roles.filter((r) => r.isSystemRole);
   const formOpen = showCreate || editingId !== null;
 
   return (
@@ -483,20 +602,23 @@ export default function RolesPage() {
         </button>
       </div>
 
-      {/* ── Stat tiles ── */}
-      <div className="mb-4 grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">
+      {/*
+        ── Stat tiles ──
+
+        Three, not four. The "System" tile counted rows nothing creates, so it
+        read 0 on every organisation that has ever existed — a quarter of the
+        summary devoted to a constant.
+
+        The detail line on Custom now says what a role DOES rather than where it
+        came from, because "roles you defined" was the only thing on this screen
+        distinguishing them from the system ones that were never there.
+      */}
+      <div className="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-3 sm:gap-3">
         <StatTile
-          label="Custom"
+          label="Custom roles"
           value={customRoles.length}
-          detail="roles you defined"
+          detail="each adds to a system role"
           accentColour={STAT_ACCENT.indigo}
-        />
-        <StatTile
-          label="System"
-          value={systemRoles.length}
-          detail="built in, not editable"
-          accentColour={STAT_ACCENT.slate}
-          valueColour="text-muted-foreground"
         />
         <StatTile
           label="Permissions"
@@ -586,7 +708,7 @@ export default function RolesPage() {
         )}
 
         {/* ── Roles list ── */}
-        {roles.length === 0 ? (
+        {customRoles.length === 0 ? (
           // A failed load leaves the list empty too — the banner above already
           // explains that, so don't also claim there are no roles.
           error ? null : (
@@ -604,7 +726,7 @@ export default function RolesPage() {
           )
         ) : (
           <div className="space-y-3">
-            {roles.map((role) =>
+            {customRoles.map((role) =>
               editingId === role.id ? (
                 <Panel key={role.id} title={`Editing ${role.displayLabel}`} icon={Pencil}>
                   <form
@@ -664,12 +786,6 @@ export default function RolesPage() {
                         <h3 className="text-[14px] font-semibold">
                           {role.displayLabel}
                         </h3>
-                        {role.isSystemRole && (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-medium text-blue-700 dark:bg-blue-900 dark:text-blue-300">
-                            <Lock className="h-3 w-3" aria-hidden="true" />
-                            System
-                          </span>
-                        )}
                       </div>
                       {/*
                         The stored `name` used to be printed here as a code
@@ -685,24 +801,22 @@ export default function RolesPage() {
                       )}
                     </div>
 
-                    {!role.isSystemRole && (
-                      <div className="flex shrink-0 gap-1.5">
-                        <button
-                          onClick={() => startEditing(role)}
-                          className={SECONDARY_BUTTON}
-                        >
-                          <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
-                          Edit
-                        </button>
-                        <button
-                          onClick={() => setDeleteTarget(role)}
-                          className={DANGER_GHOST_BUTTON}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-                          Delete
-                        </button>
-                      </div>
-                    )}
+                    <div className="flex shrink-0 gap-1.5">
+                      <button
+                        onClick={() => startEditing(role)}
+                        className={SECONDARY_BUTTON}
+                      >
+                        <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => setDeleteTarget(role)}
+                        className={DANGER_GHOST_BUTTON}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                        Delete
+                      </button>
+                    </div>
                   </div>
 
                   <div className="p-4">
@@ -713,32 +827,64 @@ export default function RolesPage() {
                     </p>
                     {role.rolePermissions.length === 0 ? (
                       /*
-                        This used to read "Anyone holding it can sign in and see
-                        nothing else", which was written when permissions were
-                        not enforced at all and was wrong in the other
-                        direction: the holder kept everything their system role
-                        gave them. Now that a custom role REPLACES the system
-                        role's bundle, an empty one really does grant nothing —
-                        so the warning is finally true, and worth stating
-                        plainly because it is almost certainly a mistake.
+                        Third wording, and the first two were each true when
+                        written. Before permissions were enforced at all this
+                        said the holder could "sign in and see nothing else",
+                        which was wrong — they kept their system role's access.
+                        While a custom role REPLACED that bundle it really did
+                        grant nothing, and the warning said so. Roles add now,
+                        so an empty one is simply inert.
+
+                        Kept as a warning rather than deleted: an empty role is
+                        still almost certainly a mistake, and "it does nothing"
+                        is the useful thing to say about it.
                       */
                       <p className="text-[12px] text-amber-700 dark:text-amber-400">
-                        This role grants nothing. Anyone holding it keeps their
-                        sign-in and nothing else — not even the task list their
-                        system role would normally give them.
+                        This role has no effect. Anyone holding it keeps exactly
+                        the permissions of their system role and gains nothing.
                       </p>
                     ) : (
-                      <div className="flex flex-wrap gap-1">
-                        {role.rolePermissions.map((rp) => (
-                          <span
-                            key={rp.permission.id}
-                            title={rp.permission.description}
-                            className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground"
-                          >
-                            {rp.permission.name}
-                          </span>
-                        ))}
-                      </div>
+                      <>
+                        {/*
+                          What the role DOES, which the chip list alone never
+                          said. The two sentences are the same rule read from
+                          each end, and both are worth printing because an admin
+                          composing a role is thinking about one person at a
+                          time: `STAFF_PERMISSIONS` is empty, so on a staff
+                          member this list is the whole of their access, while a
+                          manager keeps their bundle underneath it.
+
+                          This is also where the old model was invisible. A
+                          reader of this card could not tell that handing the
+                          role to a manager took twelve permissions away.
+                        */}
+                        <p className="mb-2 text-[12px] text-muted-foreground">
+                          Added to whatever the member&rsquo;s system role
+                          already allows. On a staff member, who holds nothing by
+                          default, this list is everything they can do; a manager
+                          keeps the manager permissions as well.
+                        </p>
+                        <div className="flex flex-wrap gap-1">
+                          {role.rolePermissions.map((rp) => (
+                            /*
+                              The description, not the name. `tasks:assign` is
+                              an identifier for the catalogue and this screen is
+                              read by whoever runs the venue — the picker above
+                              has always shown descriptions, so the two halves
+                              of one page named the same thing two ways. The
+                              slug moves to the tooltip, where somebody
+                              debugging can still reach it.
+                            */
+                            <span
+                              key={rp.permission.id}
+                              title={rp.permission.name}
+                              className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground"
+                            >
+                              {rp.permission.description}
+                            </span>
+                          ))}
+                        </div>
+                      </>
                     )}
                   </div>
                 </div>

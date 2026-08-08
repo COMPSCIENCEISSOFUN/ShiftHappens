@@ -15,9 +15,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { Mail, Sparkles,
-  Lock,
-} from "lucide-react";
+import { Lock, Mail, Search, Sparkles } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PageLoading } from "@/components/ui/page-loading";
@@ -25,7 +23,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { StatTile } from "@/components/ui/stat-tile";
-import { SYSTEM_ROLE_LABELS, EMPLOYMENT_TYPE_LABELS, DEFAULT_EMPLOYMENT_TYPE } from "@/lib/role-config";
+import { SYSTEM_ROLE_LABELS, EMPLOYMENT_TYPE_LABELS, DEFAULT_EMPLOYMENT_TYPE, canBeRostered } from "@/lib/role-config";
 import {
   SENIORITY_LABEL,
   type SeniorityAssessment,
@@ -34,6 +32,8 @@ import { filterMembers, hasActiveFilters as checkActiveFilters } from "@/lib/mem
 import { usePermissions } from "@/components/layout/permission-provider";
 import { MEMBER_LIST_READERS } from "@/lib/permissions";
 import { MemberEditDrawer } from "@/components/members/member-edit-drawer";
+import { PRIMARY_BUTTON, SECONDARY_BUTTON } from "@/components/ui/button-styles";
+import { cn } from "@/lib/utils";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -315,7 +315,22 @@ export default function MembersPage() {
           email: formData.get("email"),
           role: formData.get("role"),
           departmentId: formData.get("departmentId") || undefined,
-          employmentType: formData.get("role") === "staff" ? (formData.get("employmentType") || DEFAULT_EMPLOYMENT_TYPE) : undefined,
+          /*
+            Sent for anyone who can be ROSTERED, not only for staff.
+            
+            This asked `role === "staff"`, so every manager invited through the
+            app arrived with the field blank — and blank reads as casual
+            everywhere. A salaried duty manager therefore came in able to set
+            their own availability and take days off without asking, which is
+            the loophole the contracted-days work exists to close, reopened at
+            the front door.
+            
+            Admins are still excluded: they cannot be put on a shift, so the
+            field would have nothing to act on.
+          */
+          employmentType: canBeRostered(String(formData.get("role")))
+            ? formData.get("employmentType") || DEFAULT_EMPLOYMENT_TYPE
+            : undefined,
         }),
       });
       const result = await res.json().catch(() => ({}));
@@ -423,8 +438,14 @@ export default function MembersPage() {
     managers: members.filter((m) => m.role === "manager").length,
     staff: members.filter((m) => m.role === "staff").length,
   };
-  const ftCount = members.filter((m) => m.role === "staff" && m.employmentType === "full_time").length;
-  const casualCount = members.filter((m) => m.role === "staff" && (m.employmentType === DEFAULT_EMPLOYMENT_TYPE || !m.employmentType)).length;
+  /*
+   * Everyone who can be rostered, not only staff. These filtered on `staff`, so
+   * a venue with three full-time managers saw them in neither tile — the two
+   * numbers were presented as a breakdown of the workforce and silently omitted
+   * part of it.
+   */
+  const ftCount = members.filter((m) => canBeRostered(m.role) && m.employmentType === "full_time").length;
+  const casualCount = members.filter((m) => canBeRostered(m.role) && (m.employmentType === DEFAULT_EMPLOYMENT_TYPE || !m.employmentType)).length;
 
   // ── Filter members ──
   const currentFilters = { search, role: filterRole, employmentType: filterEmpType, departmentId: filterDept, status: filterStatus };
@@ -472,7 +493,7 @@ export default function MembersPage() {
               </Link>
               <button
                 onClick={() => setShowInvite(!showInvite)}
-                className={`rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-colors ${showInvite ? "border border-border bg-card text-muted-foreground hover:text-foreground" : "bg-gradient-to-r from-indigo-600 to-indigo-500 text-white shadow-sm hover:from-indigo-700 hover:to-indigo-600"}`}
+                className={showInvite ? SECONDARY_BUTTON : PRIMARY_BUTTON}
               >
                 {showInvite ? "Cancel" : "+ Invite User"}
               </button>
@@ -485,7 +506,16 @@ export default function MembersPage() {
       <div className="mb-4 grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">
         <StatTile label="Team" value={members.length} detail={`${roleBreakdown.admins} admin · ${roleBreakdown.managers} mgr · ${roleBreakdown.staff} staff`} accentColour="rgba(99,102,241,.08)" />
         <StatTile label="Pending" value={pendingInvitations.length} detail="invitations" accentColour="rgba(245,158,11,.08)" valueColour={pendingInvitations.length > 0 ? "text-amber-600 dark:text-amber-400" : ""} />
-        <StatTile label="Employment" value={roleBreakdown.staff} detail={`${ftCount} full-time · ${casualCount} casual`} accentColour="rgba(59,130,246,.08)" />
+        {/*
+          The headline is the ROSTERABLE count, not the staff count.
+          
+          It was `roleBreakdown.staff` while the detail line beneath it now
+          counts managers too, so the two disagreed: "12" over "5 full-time · 10
+          casual". A tile whose own two numbers do not reconcile is worse than
+          one that is merely wrong, because a reader cannot tell which half to
+          believe.
+        */}
+        <StatTile label="Employment" value={ftCount + casualCount} detail={`${ftCount} full-time · ${casualCount} casual`} accentColour="rgba(59,130,246,.08)" />
         <StatTile label="Status" value={activeCount} detail={`${activeCount} active · ${inactiveCount} inactive`} accentColour="rgba(34,197,94,.08)" valueColour="text-green-600 dark:text-green-400" />
       </div>
 
@@ -495,9 +525,7 @@ export default function MembersPage() {
       {/* ── Search & Filters ── */}
       <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center">
         <div className="relative flex-1">
-          <svg className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
-          </svg>
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
           <Input
             placeholder="Search by name or email..."
             value={search}
@@ -583,7 +611,7 @@ export default function MembersPage() {
                   <option value="manager">Manager</option>
                 </select>
               </div>
-              {inviteRole === "staff" && (
+              {canBeRostered(inviteRole) && (
                 <div className="space-y-1.5">
                   <Label htmlFor="invite-emptype" className="text-xs">Employment Type</Label>
                   <select id="invite-emptype" name="employmentType" className="h-9 w-full rounded-lg border border-border bg-background px-3 text-sm" defaultValue={DEFAULT_EMPLOYMENT_TYPE}>
@@ -603,7 +631,7 @@ export default function MembersPage() {
                 </select>
               </div>
             </div>
-            <button type="submit" disabled={inviting} className="mt-3 rounded-lg bg-gradient-to-r from-indigo-600 to-indigo-500 px-4 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:from-indigo-700 hover:to-indigo-600 disabled:cursor-not-allowed disabled:opacity-60">
+            <button type="submit" disabled={inviting} className={cn(PRIMARY_BUTTON, "mt-3")}>
               {inviting ? "Sending…" : "Send Invitation"}
             </button>
           </form>
@@ -675,16 +703,42 @@ export default function MembersPage() {
                       <div className="flex flex-wrap items-center gap-1.5">
                         <StatusBadge value={member.role} palette="role" />
                         {member.customRole && (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-purple-100 px-2 py-0.5 text-[10px] font-medium text-purple-700 dark:bg-purple-900/40 dark:text-purple-300">
-                            <Sparkles className="h-3 w-3 shrink-0" aria-hidden="true" />
-                            {member.customRole.displayLabel}
-                          </span>
+                          <>
+                            {/*
+                              The "+" is the whole point of this element.
+
+                              Two badges side by side say nothing about how they
+                              combine, and while a custom role REPLACED the
+                              system bundle they combined the opposite way to
+                              how this reads — a manager beside "Shift Lead"
+                              held only what Shift Lead granted. Roles add now,
+                              so the reading is correct, and saying it costs one
+                              character.
+                            */}
+                            <span
+                              aria-hidden="true"
+                              className="text-[11px] font-medium text-muted-foreground"
+                            >
+                              +
+                            </span>
+                            <span className="inline-flex items-center gap-1 rounded-full bg-purple-100 px-2 py-0.5 text-[10px] font-medium text-purple-700 dark:bg-purple-900/40 dark:text-purple-300">
+                              <Sparkles className="h-3 w-3 shrink-0" aria-hidden="true" />
+                              {member.customRole.displayLabel}
+                            </span>
+                          </>
                         )}
                       </div>
                     </td>
                     <td className="px-4 py-3">
                       <span className="text-[12px] text-muted-foreground">
-                        {member.role === "staff"
+                        {/*
+                          A dash meant "not applicable", and it was shown for
+                          every manager — who can be rostered, and for whom the
+                          field decides whether they set their own availability.
+                          The dash belongs to admins, who genuinely have no
+                          employment type because they are never on a shift.
+                        */}
+                        {canBeRostered(member.role)
                           ? EMPLOYMENT_TYPE_LABELS[member.employmentType || DEFAULT_EMPLOYMENT_TYPE]
                           : "—"}
                       </span>
@@ -785,7 +839,12 @@ export default function MembersPage() {
                     <p className="truncate text-xs text-muted-foreground">{member.user.email}</p>
                     <div className="mt-2 flex flex-wrap items-center gap-1.5">
                       <StatusBadge value={member.role} palette="role" />
-                      {member.role === "staff" && member.employmentType && (
+                      {/*
+                        The mobile half of the same fix. `&& member.employmentType`
+                        is kept: on this narrow layout an unset value is better
+                        left off than shown as an assumed "Casual" beside a name.
+                      */}
+                      {canBeRostered(member.role) && member.employmentType && (
                         <span className="rounded-full bg-blue-100 dark:bg-blue-900/40 px-2 py-0.5 text-[10px] font-medium text-blue-700 dark:text-blue-300">
                           {EMPLOYMENT_TYPE_LABELS[member.employmentType || DEFAULT_EMPLOYMENT_TYPE]}
                         </span>

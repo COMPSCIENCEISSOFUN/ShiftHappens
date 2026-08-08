@@ -217,14 +217,12 @@ describe("what each member gets asked", () => {
   });
 
   /*
-   * `effectivePermissions` REPLACES the system bundle when a custom role is
-   * present — a manager holding a role with three permissions ticked has three
-   * permissions, not the manager bundle plus three. That is deliberate, and it
-   * is the only way a role can take something away. But it is invisible, and a
-   * purple chip sitting next to "Manager" reads as an addition, so the panel
-   * says which it is.
+   * This asserted the opposite while a custom role REPLACED the system bundle.
+   * The panel has to say which way the two combine, because a purple chip
+   * beside "Manager" says nothing about it — and for eight months it read as an
+   * addition while being a replacement.
    */
-  it("says a custom role replaces the system bundle rather than adding to it", () => {
+  it("tells a manager the role adds to their bundle", () => {
     renderDrawer({
       member: member({
         role: "manager",
@@ -232,7 +230,27 @@ describe("what each member gets asked", () => {
       }),
     });
 
-    expect(screen.getByText(/Replaces the Manager permissions/)).toBeInTheDocument();
+    expect(screen.getByText(/Adds to the Manager permissions/)).toBeInTheDocument();
+    expect(screen.queryByText(/Replaces/)).not.toBeInTheDocument();
+  });
+
+  /*
+   * The other half, and not merely a reworded duplicate: a staff member holds
+   * nothing by default, so their role IS their access. That is how a strict
+   * role gets built now that nothing can be subtracted, and telling a manager
+   * "adds to the Staff permissions" would name a bundle that is empty.
+   */
+  it("tells a staff member the role is the whole of what they can do", () => {
+    renderDrawer({
+      member: member({
+        role: "staff",
+        customRole: { id: "cr1", name: "shift_lead", displayLabel: "Shift Lead" },
+      }),
+    });
+
+    expect(
+      screen.getByText(/Staff hold no permissions by default/)
+    ).toBeInTheDocument();
   });
 
   it("offers to remove one that is already held", async () => {

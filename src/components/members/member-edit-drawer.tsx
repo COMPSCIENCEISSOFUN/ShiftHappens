@@ -227,18 +227,35 @@ export function MemberEditDrawer({
                     )}
                   </div>
                   {/*
-                    Said out loud because the chip on its own implies the
-                    opposite. `effectivePermissions` REPLACES the system bundle
-                    when a custom role is present — a manager holding a role with
-                    three permissions ticked has three permissions, not the
-                    manager bundle plus three. That is deliberate (it is the only
-                    way a role can take something away) but it is invisible, and
-                    a chip sitting next to "Manager" reads as an addition.
+                    This said the opposite until custom roles became additive,
+                    and it was correct at the time: a role REPLACED the system
+                    bundle, so a manager holding one with three permissions
+                    ticked had three permissions rather than the bundle plus
+                    three. The chip beside "Manager" read as an addition and was
+                    the reverse.
+
+                    Now the chip is honest and the sentence explains what
+                    "plus" means, which differs by role and is worth spelling
+                    out rather than leaving the reader to work out. A staff
+                    member holds nothing by default — `STAFF_PERMISSIONS` is
+                    empty — so their role is the whole of what they can do,
+                    which is how a strict role is built. A manager keeps their
+                    bundle underneath.
                   */}
                   <p className="mt-1.5 text-[11px] text-muted-foreground">
-                    Replaces the {SYSTEM_ROLE_LABELS[member.role] ?? member.role}{" "}
-                    permissions rather than adding to them — this member can do
-                    exactly what this role allows.
+                    {member.role === "manager" ? (
+                      <>
+                        Adds to the{" "}
+                        {SYSTEM_ROLE_LABELS[member.role] ?? member.role}{" "}
+                        permissions — this member keeps everything a manager can
+                        do, and gains what this role allows.
+                      </>
+                    ) : (
+                      <>
+                        Staff hold no permissions by default, so this member can
+                        do exactly what this role allows.
+                      </>
+                    )}
                   </p>
                 </div>
               ) : customRoles.length === 0 ? (
