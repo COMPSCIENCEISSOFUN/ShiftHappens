@@ -21,6 +21,7 @@ import {
   dateInputToIso,
   daysUntilExpiry,
   formatCertDate,
+  isExpiryNotifyDay,
   isoToDateInput,
   relativeTime,
 } from "@/lib/certification-display";
@@ -305,5 +306,49 @@ describe("certification display helpers", () => {
     it("returns a dash for an unparseable value", () => {
       expect(relativeTime("not a date", NOW)).toBe("—");
     });
+  });
+});
+
+/**
+ * When an expiring certificate is worth mentioning.
+ *
+ * The scan runs daily and suppressed a repeat only within the same day, so a
+ * certificate entering the 30-day window produced roughly thirty notifications
+ * — one every morning until it expired. The docstring called that "idempotent
+ * within a day", which was true and was the problem.
+ */
+describe("isExpiryNotifyDay", () => {
+  it("flags the marks and nothing between them", () => {
+    expect(isExpiryNotifyDay(30)).toBe(true);
+    expect(isExpiryNotifyDay(14)).toBe(true);
+    expect(isExpiryNotifyDay(7)).toBe(true);
+    expect(isExpiryNotifyDay(3)).toBe(true);
+    expect(isExpiryNotifyDay(1)).toBe(true);
+    // The day it actually expires, which is the one that costs eligibility.
+    expect(isExpiryNotifyDay(0)).toBe(true);
+
+    for (const quiet of [29, 20, 15, 8, 5, 2]) {
+      expect(isExpiryNotifyDay(quiet), `${quiet} days should be quiet`).toBe(false);
+    }
+  });
+
+  /*
+   * The whole point. Walking every day of the window must produce a handful of
+   * notifications, not one per day — asserted as a count rather than by listing
+   * the marks again, so adding a mark is a deliberate change to this number.
+   */
+  it("turns a month of daily messages into six", () => {
+    const days = Array.from({ length: EXPIRY_WARNING_DAYS + 1 }, (_, i) => i);
+    expect(days.filter(isExpiryNotifyDay)).toHaveLength(6);
+  });
+
+  it("says nothing about a certificate with no expiry date", () => {
+    expect(isExpiryNotifyDay(null)).toBe(false);
+  });
+
+  // Outside the warning window entirely — the scan does not fetch these, but
+  // the predicate should not claim them either.
+  it("says nothing beyond the warning window", () => {
+    expect(isExpiryNotifyDay(45)).toBe(false);
   });
 });

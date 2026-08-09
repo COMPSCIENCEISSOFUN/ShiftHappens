@@ -11,6 +11,7 @@ import { NotificationRepository } from "@/repositories/notification.repository";
 import { OrganizationRepository } from "@/repositories/organization.repository";
 import { UserRepository } from "@/repositories/user.repository";
 import { cleanDatabase } from "../helpers/cleanup";
+import { prisma } from "@/lib/prisma";
 
 const notificationRepo = new NotificationRepository();
 const orgRepo = new OrganizationRepository();
@@ -282,12 +283,44 @@ describe("NotificationRepository", () => {
 
       const counts = await notificationRepo.countByType(userId, orgId);
 
-      expect(counts["task_assigned"]).toBe(2);
-      expect(counts["cert_verified"]).toBe(1);
+      expect(counts.all["task_assigned"]).toBe(2);
+      expect(counts.all["cert_verified"]).toBe(1);
     });
 
     it("returns an empty object when there are none", async () => {
-      expect(await notificationRepo.countByType(userId, orgId)).toEqual({});
+      expect(await notificationRepo.countByType(userId, orgId)).toEqual({
+        all: {},
+        unread: {},
+      });
+    });
+
+    /*
+     * The unread half, which is what "Needs action" is summed from.
+     *
+     * That tile used the all-time counts, so a rejection read months ago kept
+     * contributing to a number telling you something was waiting — it never
+     * went down as you dealt with things, which is the only behaviour it
+     * needed.
+     */
+    it("counts the unread ones separately, from the same rows", async () => {
+      await seed({ type: "assignment_rejected" });
+      const read = await seed({ type: "assignment_rejected" });
+      await notificationRepo.markAsRead(read.id);
+
+      const counts = await notificationRepo.countByType(userId, orgId);
+
+      expect(counts.all["assignment_rejected"]).toBe(2);
+      expect(counts.unread["assignment_rejected"]).toBe(1);
+    });
+
+    it("omits a type entirely from unread once everything is read", async () => {
+      const only = await seed({ type: "hour_limit_warning" });
+      await notificationRepo.markAsRead(only.id);
+
+      const counts = await notificationRepo.countByType(userId, orgId);
+
+      expect(counts.all["hour_limit_warning"]).toBe(1);
+      expect(counts.unread["hour_limit_warning"]).toBeUndefined();
     });
   });
 
@@ -434,5 +467,95 @@ describe("NotificationRepository", () => {
         await notificationRepo.existsSince(userId, orgId, "hour_limit_warning", since)
       ).toBe(false);
     });
+  });
+});
+
+/**
+ * Paging over a feed that grows at the head.
+ *
+ * Offset paging asked for "twenty rows in", so three notifications arriving
+ * between page one and "load older" shifted every row down three places —
+ * re-serving rows already on screen and skipping three that were never shown.
+ * On a page whose whole job is "have I missed anything", dropping rows silently
+ * is the wrong failure.
+ */
+describe("keyset paging", () => {
+  /** Rows written far enough apart to have distinct timestamps. */
+  async function page(size: number, cursor?: { createdAt: Date; id: string }) {
+    return notificationRepo.findByUserId(userId, orgId, size, 0, {}, cursor);
+  }
+
+  it("continues from the row it was given, not from a position", async () => {
+    for (let i = 0; i < 6; i++) await seed({ title: `Notice ${i}` });
+
+    const first = await page(3);
+    const last = first[first.length - 1];
+
+    // Three more arrive at the head while the reader is reading.
+    for (let i = 0; i < 3; i++) await seed({ title: `Late ${i}` });
+
+    const second = await page(3, { createdAt: last.createdAt, id: last.id });
+
+    const overlap = second.filter((n) => first.some((f) => f.id === n.id));
+    expect(overlap, "a row was served twice").toEqual([]);
+    expect(second.map((n) => n.title)).toEqual(["Notice 2", "Notice 1", "Notice 0"]);
+  });
+
+  /*
+   * The tie case, and the reason the cursor carries the id as well.
+   * `createdAt` is `timestamp(3)`, and one action notifying several people
+   * writes them in the same millisecond routinely — a cursor on the timestamp
+   * alone would skip the rest of a tied group.
+   */
+  it("does not skip rows sharing the cursor's timestamp", async () => {
+    const sameInstant = new Date();
+    for (let i = 0; i < 4; i++) {
+      await prisma.notification.create({
+        data: {
+          userId,
+          organizationId: orgId,
+          type: "task_assigned",
+          title: `Tied ${i}`,
+          message: "Same millisecond",
+          createdAt: sameInstant,
+        },
+      });
+    }
+
+    const first = await page(2);
+    const last = first[first.length - 1];
+    const second = await page(2, { createdAt: last.createdAt, id: last.id });
+
+    const ids = [...first, ...second].map((n) => n.id);
+    expect(new Set(ids).size, "a tied row was served twice").toBe(4);
+  });
+
+  it("returns nothing once the cursor reaches the oldest row", async () => {
+    await seed({ title: "Only one" });
+    const [only] = await page(5);
+
+    expect(await page(5, { createdAt: only.createdAt, id: only.id })).toEqual([]);
+  });
+
+  // The cursor must not widen the filter it is paging through.
+  it("keeps the filter applied while paging", async () => {
+    for (let i = 0; i < 3; i++) await seed({ type: "cert_expiring" });
+    for (let i = 0; i < 3; i++) await seed({ type: "task_assigned" });
+
+    const first = await notificationRepo.findByUserId(userId, orgId, 2, 0, {
+      types: ["cert_expiring"],
+    });
+    const last = first[first.length - 1];
+    const second = await notificationRepo.findByUserId(
+      userId,
+      orgId,
+      5,
+      0,
+      { types: ["cert_expiring"] },
+      { createdAt: last.createdAt, id: last.id }
+    );
+
+    expect(second.every((n) => n.type === "cert_expiring")).toBe(true);
+    expect(first.length + second.length).toBe(3);
   });
 });

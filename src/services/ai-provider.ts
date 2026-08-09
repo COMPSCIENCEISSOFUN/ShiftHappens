@@ -17,6 +17,15 @@ export interface StaffCandidate {
   availableHours: string;
   departmentHistory: number;
   /**
+   * A manager's manual seniority level for this member, or null.
+   *
+   * Raises the department-experience score to what the equivalent shift count
+   * would have scored — see `pinnedExperienceFloor`. Not sent to the providers:
+   * the prompt already carries the raw history count, and a second experience
+   * number would invite the model to double-count one fact.
+   */
+  pinnedSeniority?: string | null;
+  /**
    * How tightly this member's free window wraps the shift, 0–1.
    *
    * 1 is an exact match; somebody free all week for a four-hour shift is near

@@ -34,6 +34,7 @@ import {
 } from "@/lib/composition-rules";
 import { occupiesSlot, wasWorked } from "@/lib/assignment-status";
 import { canBeRostered } from "@/lib/role-config";
+import { assignmentRefusalFor } from "@/lib/task-status";
 
 export class TaskService {
   private taskRepo = new TaskRepository();
@@ -275,6 +276,20 @@ export class TaskService {
     const eligibilityMayHaveChanged =
       scheduleChanged || departmentChanged || certificationsChanged;
 
+    /*
+     * Who was ALREADY stranded, read before the write.
+     *
+     * Without it the notifier reports everyone currently ineligible, so an edit
+     * that stranded nobody new still names somebody who has been ineligible
+     * since last week, and three tweaks in a row send three identical messages.
+     *
+     * Only paid for when the edit could actually change eligibility — the
+     * common case, a title or description change, adds no query at all.
+     */
+    const alreadyIneligible = eligibilityMayHaveChanged
+      ? await this.ineligibleAssigneeIds(taskId, orgId)
+      : new Set<string>();
+
     const updated = await this.taskRepo.update(taskId, {
       title: input.title,
       description: input.description,
@@ -339,26 +354,82 @@ export class TaskService {
 
     // Any edit that can invalidate an assignment — a new time, a new
     // department, new certification requirements — gets the managers' check.
-    // Deliberately outside the reschedule branch: a department change sends no
-    // staff notification but is exactly as capable of stranding someone.
+    //
+    // A department change is in the list on caution rather than evidence. It
+    // was added believing it "swaps the work rules that apply"; it does not —
+    // `filterApplicableRules` matches a rule's department against the MEMBER's
+    // departments, not the task's — and nothing else it touches feeds the gate
+    // either. It costs one eligibility run on an uncommon edit and is already
+    // wired for the day department-targeted rules key off the task, which
+    // `eligibility-committed-members` pins as silence in the meantime.
     // Fire-and-forget, and skipped for a cancellation, where the assignments
     // are moot anyway.
     if (!nowCancelled && eligibilityMayHaveChanged) {
-      void this.notifyManagersOfIneligibleAssignees(taskId, orgId, updated.title);
+      void this.notifyManagersOfIneligibleAssignees(
+        taskId,
+        orgId,
+        updated.title,
+        alreadyIneligible
+      );
     }
 
     return updated;
   }
 
   /**
-   * Re-runs eligibility for a task and alerts managers about any staff who are
-   * STILL ASSIGNED but no longer eligible (e.g. after a reschedule).
+   * Everyone currently assigned to this task who fails eligibility.
+   *
+   * Read BEFORE an update so the notifier can tell a newly stranded member from
+   * one who was already stranded before the edit — see
+   * `notifyManagersOfIneligibleAssignees`.
+   *
+   * Returns an empty set on any failure. This runs on the way to saving a
+   * legitimate edit, and a baseline that could throw would let a notification
+   * concern block the write it exists to describe.
+   */
+  private async ineligibleAssigneeIds(
+    taskId: string,
+    orgId: string
+  ): Promise<Set<string>> {
+    try {
+      const verdicts = await this.eligibilityService.checkEligibilityForTask(
+        taskId,
+        orgId
+      );
+      return new Set(
+        verdicts.filter((v) => !v.eligible).map((v) => v.membershipId)
+      );
+    } catch {
+      return new Set<string>();
+    }
+  }
+
+  /**
+   * Re-runs eligibility for a task and alerts managers about staff who are
+   * still assigned and have NEWLY become ineligible.
    * Fire-and-forget — never blocks or fails the update.
+   *
+   * ## Why a baseline, and why this used not to have one
+   *
+   * It reported everyone currently ineligible, with nothing to compare against.
+   * So three consecutive tweaks to a task's certification requirements sent
+   * three identical notifications naming the same people, and an edit that
+   * stranded nobody new still told every watcher about somebody who had been
+   * stranded since last week.
+   *
+   * The availability side already worked this way — `notifyNewlyIneligible`
+   * diffs before against after, and its own docblock argues that alerting on
+   * "everyone currently ineligible" is the wrong thing. Both paths write the
+   * same `staff_ineligible` type against the same task, so a watcher could
+   * receive two notifications about one shift from two origins that disagreed
+   * about what was worth saying.
    */
   private async notifyManagersOfIneligibleAssignees(
     taskId: string,
     orgId: string,
-    taskTitle: string
+    taskTitle: string,
+    /** Who was already ineligible before the edit. */
+    alreadyIneligible: ReadonlySet<string>
   ) {
     try {
       const task = await this.taskRepo.findById(taskId);
@@ -379,7 +450,11 @@ export class TaskService {
       );
 
       const nowIneligible = eligibility.filter(
-        (e) => assignedIds.has(e.membershipId) && !e.eligible
+        (e) =>
+          assignedIds.has(e.membershipId) &&
+          !e.eligible &&
+          // Already broken before this edit, so this edit is not the news.
+          !alreadyIneligible.has(e.membershipId)
       );
       if (nowIneligible.length === 0) return;
 
@@ -562,6 +637,20 @@ export class TaskService {
         `Assignment exceeds required headcount of ${task.requiredHeadcount}`
       );
     }
+
+    /*
+     * The task's own state, which nothing here used to consult.
+     *
+     * Seven checks ran on the PERSON — exists, active, right tenant, not an
+     * admin, not already on it, within headcount, no conflict — and none on the
+     * shift. So a cancelled shift still took people, which contradicts the
+     * reason cancelling exists: `delete` refuses a task with assignments and
+     * cancels it instead, so the record survives as "this was real and is not
+     * happening". Somebody rostered onto it afterwards is on a shift the board
+     * shows as cancelled and nobody is counting.
+     */
+    const closed = assignmentRefusalFor(task.status);
+    if (closed) throw new Error(closed);
 
     for (const membId of uniqueIds) {
       const membership = await this.membershipRepo.findById(membId);

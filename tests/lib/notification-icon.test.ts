@@ -34,7 +34,6 @@ import {
   CircleX,
   ClipboardList,
   Clock,
-  Lock,
   LogOut,
   ShieldCheck,
   ShieldAlert,
@@ -42,35 +41,24 @@ import {
   Undo2,
   UserCheck,
 } from "lucide-react";
+import { NOTIFICATION_TYPE_LIST } from "@/lib/notification-types";
 
 /**
- * Every type the icon table covers.
+ * Every type there is, imported rather than typed out.
  *
- * Hardcoded rather than imported from `NOTIFICATION_TYPES`: that constant lives
- * in `notification.service.ts`, which pulls in the repositories and therefore
- * `PrismaClient`, and this file has no business needing a database URL to check
- * a lookup table. The cost of hardcoding is the drift this list is meant to
- * catch, which is why the `cert_expiring` case at the bottom of this file
- * exists — it pins the one place the two lists already disagree.
+ * This list used to be hardcoded, and its own comment explained why: the
+ * constant lived in `notification.service.ts`, which pulls in the repositories
+ * and therefore `PrismaClient`, and a lookup-table test has no business needing
+ * a database URL. The reason was sound and the consequence was that the guard
+ * drifted exactly as the thing it guarded did — it omitted the decline
+ * lifecycle, low ratings, availability nudges, all four leave types and both
+ * backfill types, which is to say every type that had actually gone missing.
+ *
+ * The vocabulary now lives in `lib/notification-types`, which the browser reads
+ * and which touches no database, so the guard can be what it was always meant
+ * to be: a comparison against the real list.
  */
-const KNOWN_TYPES = [
-  "task_assigned",
-  "task_rescheduled",
-  "task_cancelled",
-  "task_unassigned",
-  "task_completed",
-  "assignment_accepted",
-  "assignment_rejected",
-  "withdrawal_requested",
-  "withdrawal_approved",
-  "withdrawal_denied",
-  "cert_verified",
-  "cert_rejected",
-  "cert_expiring",
-  "hour_limit_warning",
-  "staff_ineligible",
-  "org_suspended",
-] as const;
+const KNOWN_TYPES = NOTIFICATION_TYPE_LIST;
 
 describe("notificationIcon — known types", () => {
   it.each([
@@ -89,7 +77,6 @@ describe("notificationIcon — known types", () => {
     ["cert_expiring", ShieldAlert],
     ["hour_limit_warning", Clock],
     ["staff_ineligible", TriangleAlert],
-    ["org_suspended", Lock],
   ])("maps %s to the expected icon", (type, expected) => {
     expect(notificationIcon(type).Icon).toBe(expected);
   });
@@ -150,6 +137,24 @@ describe("notificationIcon — the collision guard", () => {
    */
   const DELIBERATE_DUPLICATES = [
     ["task_cancelled", "task_unassigned"],
+    /*
+     * The decline lifecycle mirrors the withdrawal lifecycle, shape for shape.
+     *
+     * These three pairs only became visible when this file stopped hardcoding
+     * its own list of types and started reading the real one — the guard had
+     * drifted in exactly the direction it was written to catch.
+     *
+     * Kept identical rather than split. From the reader's point of view both
+     * lifecycles are the same three beats: somebody wants off a shift, and it
+     * was allowed or it was not. What separates them is whether the member had
+     * accepted first, which changes what the SYSTEM does — a denied decline
+     * returns to pending, a denied withdrawal returns to accepted — and not
+     * what the reader is being told. The badge text already says which, so the
+     * icon repeating it would buy nothing and cost three more shapes to learn.
+     */
+    ["decline_requested", "withdrawal_requested"],
+    ["decline_approved", "withdrawal_approved"],
+    ["decline_denied", "withdrawal_denied"],
   ] as const;
 
   it.each(DELIBERATE_DUPLICATES)(
@@ -174,16 +179,27 @@ describe("notificationIcon — the collision guard", () => {
       else seen.set(key, type);
     }
 
-    expect(collisions).toEqual(
-      DELIBERATE_DUPLICATES.map(([a, b]) => [a, b])
-    );
+    /*
+     * Compared as unordered pairs. The detector names them in whichever order
+     * the type list happens to visit, which is not something this test has an
+     * opinion about — it broke on exactly that when the list stopped being
+     * hardcoded here and started coming from the source of truth.
+     */
+    const asSet = (pairs: readonly (readonly [string, string])[]) =>
+      pairs.map(([a, b]) => [a, b].sort().join("+")).sort();
+
+    expect(asSet(collisions)).toEqual(asSet(DELIBERATE_DUPLICATES));
   });
 
   it("keeps types that share a tint distinguishable by shape", () => {
-    // cert_rejected and staff_ineligible both use TriangleAlert but different
-    // tints; withdrawal_denied and org_suspended both use the red tint but
-    // different shapes. Either axis alone is fine — this asserts the pairs that
-    // share one axis genuinely differ on the other.
+    // Either axis alone is fine — this asserts that pairs sharing one axis
+    // genuinely differ on the other, which is what makes them tellable apart at
+    // a glance.
+    //
+    // `cert_rejected` and `staff_ineligible` share the TriangleAlert shape and
+    // differ in tint. `backfill_needed` and `task_cancelled` share the red tint
+    // and differ in shape — the second pair used to be `withdrawal_denied` and
+    // `org_suspended`, and the latter no longer exists.
     expect(notificationIcon("cert_rejected").Icon).toBe(
       notificationIcon("staff_ineligible").Icon
     );
@@ -191,11 +207,11 @@ describe("notificationIcon — the collision guard", () => {
       notificationIcon("staff_ineligible").tint
     );
 
-    expect(notificationIcon("withdrawal_denied").tint).toBe(
-      notificationIcon("org_suspended").tint
+    expect(notificationIcon("backfill_needed").tint).toBe(
+      notificationIcon("task_cancelled").tint
     );
-    expect(notificationIcon("withdrawal_denied").Icon).not.toBe(
-      notificationIcon("org_suspended").Icon
+    expect(notificationIcon("backfill_needed").Icon).not.toBe(
+      notificationIcon("task_cancelled").Icon
     );
   });
 

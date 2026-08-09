@@ -22,108 +22,33 @@ import { SettingsRepository } from "@/repositories/settings.repository";
 import { startOfDayInTimeZone } from "@/lib/timezone";
 
 /** Notification type constants */
-export const NOTIFICATION_TYPES = {
-  TASK_ASSIGNED: "task_assigned",
-  TASK_UNASSIGNED: "task_unassigned",
-  TASK_CANCELLED: "task_cancelled",
-  TASK_RESCHEDULED: "task_rescheduled",
-  STAFF_INELIGIBLE: "staff_ineligible",
-  HOUR_LIMIT_WARNING: "hour_limit_warning",
-  ASSIGNMENT_ACCEPTED: "assignment_accepted",
-  ASSIGNMENT_REJECTED: "assignment_rejected",
-  TASK_COMPLETED: "task_completed",
-  DECLINE_REQUESTED: "decline_requested",
-  DECLINE_APPROVED: "decline_approved",
-  DECLINE_DENIED: "decline_denied",
-  WITHDRAWAL_REQUESTED: "withdrawal_requested",
-  WITHDRAWAL_APPROVED: "withdrawal_approved",
-  WITHDRAWAL_DENIED: "withdrawal_denied",
-  SHIFT_RATED_LOW: "shift_rated_low",
-  AVAILABILITY_REVIEW_REQUESTED: "availability_review_requested",
-  LEAVE_REQUESTED: "leave_requested",
-  LEAVE_APPROVED: "leave_approved",
-  LEAVE_REJECTED: "leave_rejected",
-  CERT_VERIFIED: "cert_verified",
-  CERT_REJECTED: "cert_rejected",
-  CERT_EXPIRING: "cert_expiring",
-  ORG_SUSPENDED: "org_suspended",
-  /*
-   * Approved leave has opened a hole in a shift and nobody is filling it.
-   *
-   * Distinct from STAFF_INELIGIBLE, which says somebody assigned can no longer
-   * work — this says they have already been REMOVED and the shift is short. The
-   * two used to be the same message because approving leave did not unassign
-   * anybody; once it did, "no longer eligible" stopped describing what had
-   * happened.
-   */
-  BACKFILL_NEEDED: "backfill_needed",
-  /*
-   * A replacement has been found and ASKED. Never "assigned" — a backfill is
-   * always an offer, even in auto mode, because the person being offered it
-   * may be a full-timer whose all-week availability was set by default rather
-   * than by them.
-   */
-  BACKFILL_OFFERED: "backfill_offered",
-} as const;
-
-/**
- * User-facing groupings for the notification feed's filter pills.
- * Presentation vocabulary lives here rather than in the page so the API and
- * the UI cannot drift apart on what "Alerts" means.
+/*
+ * The vocabulary lives in `lib/notification-types` and is re-exported here.
+ *
+ * Every one of these was declared in this file, which imports the repository
+ * and therefore Prisma — so the notifications page and the bell could not read
+ * them and kept their own copies. Four hand-written lists of the same thing,
+ * already drifted. Re-exported rather than moved outright so the ~30 services
+ * that write notifications keep importing the name they always have.
+ *
+ * Same arrangement as `audit-log.service`, for the same reason.
  */
-export const NOTIFICATION_CATEGORIES = {
-  task: [
-    NOTIFICATION_TYPES.TASK_ASSIGNED,
-    NOTIFICATION_TYPES.TASK_UNASSIGNED,
-    NOTIFICATION_TYPES.TASK_CANCELLED,
-    NOTIFICATION_TYPES.TASK_RESCHEDULED,
-    NOTIFICATION_TYPES.TASK_COMPLETED,
-  ],
-  assignment: [
-    NOTIFICATION_TYPES.ASSIGNMENT_ACCEPTED,
-    NOTIFICATION_TYPES.ASSIGNMENT_REJECTED,
-    NOTIFICATION_TYPES.DECLINE_REQUESTED,
-    NOTIFICATION_TYPES.DECLINE_APPROVED,
-    NOTIFICATION_TYPES.DECLINE_DENIED,
-    NOTIFICATION_TYPES.WITHDRAWAL_REQUESTED,
-    NOTIFICATION_TYPES.WITHDRAWAL_APPROVED,
-    NOTIFICATION_TYPES.WITHDRAWAL_DENIED,
-    NOTIFICATION_TYPES.AVAILABILITY_REVIEW_REQUESTED,
-    NOTIFICATION_TYPES.LEAVE_REQUESTED,
-    NOTIFICATION_TYPES.LEAVE_APPROVED,
-    NOTIFICATION_TYPES.LEAVE_REJECTED,
-    NOTIFICATION_TYPES.BACKFILL_OFFERED,
-  ],
-  certification: [
-    NOTIFICATION_TYPES.CERT_VERIFIED,
-    NOTIFICATION_TYPES.CERT_REJECTED,
-    NOTIFICATION_TYPES.CERT_EXPIRING,
-  ],
-  alert: [
-    NOTIFICATION_TYPES.HOUR_LIMIT_WARNING,
-    NOTIFICATION_TYPES.STAFF_INELIGIBLE,
-    NOTIFICATION_TYPES.SHIFT_RATED_LOW,
-    NOTIFICATION_TYPES.ORG_SUSPENDED,
-    NOTIFICATION_TYPES.BACKFILL_NEEDED,
-  ],
-} as const;
+export {
+  NOTIFICATION_TYPES,
+  NOTIFICATION_CATEGORIES,
+  NOTIFICATION_LABELS,
+  NOTIFICATION_TYPE_LIST,
+  NEEDS_ACTION_TYPES,
+  type NotificationType,
+  type NotificationCategory,
+} from "@/lib/notification-types";
 
-export type NotificationCategory = keyof typeof NOTIFICATION_CATEGORIES;
-
-/**
- * Types that represent something gone wrong which the recipient is expected to
- * do something about — surfaced as the "Needs action" tile.
- */
-export const NEEDS_ACTION_TYPES: string[] = [
-  NOTIFICATION_TYPES.CERT_EXPIRING,
-  NOTIFICATION_TYPES.ASSIGNMENT_REJECTED,
-  NOTIFICATION_TYPES.HOUR_LIMIT_WARNING,
-  NOTIFICATION_TYPES.CERT_REJECTED,
-  NOTIFICATION_TYPES.WITHDRAWAL_REQUESTED,
-  NOTIFICATION_TYPES.STAFF_INELIGIBLE,
-  // An unfilled shift is the definition of something needing action.
-  NOTIFICATION_TYPES.BACKFILL_NEEDED,
-];
+import {
+  NOTIFICATION_TYPES,
+  NOTIFICATION_CATEGORIES,
+  NEEDS_ACTION_TYPES,
+  type NotificationCategory,
+} from "@/lib/notification-types";
 
 /**
  * Maps a notification type to the toggle in CompanySettings.notificationPreferences
@@ -146,6 +71,14 @@ export interface NotificationFeedOptions {
   search?: string;
   limit?: number;
   offset?: number;
+  /**
+   * The last row the client already holds, for "load older".
+   *
+   * Both are needed together — see `getFeed`. Supplied as strings because they
+   * arrive from a query string.
+   */
+  beforeCreatedAt?: string;
+  beforeId?: string;
 }
 
 export interface NotificationFeed {
@@ -159,6 +92,8 @@ export interface NotificationFeed {
   unreadCount: number;
   todayCount: number;
   needsActionCount: number;
+  /** ISO instant the organisation's day began. See `getFeed`. */
+  todayStart: string;
   counts: {
     all: number;
     unread: number;
@@ -334,6 +269,22 @@ export class NotificationService {
     const limit = Math.min(Math.max(options.limit ?? 20, 1), 50);
     const offset = Math.max(options.offset ?? 0, 0);
 
+    /*
+     * The cursor for "load older": the last row the client already has.
+     *
+     * Both halves are required. A cursor carrying only the timestamp would skip
+     * the rest of a tied group — `createdAt` is `timestamp(3)` and one action
+     * notifying several people writes them in the same millisecond routinely —
+     * so a half-supplied cursor is ignored rather than half-applied.
+     */
+    const before =
+      options.beforeCreatedAt && options.beforeId
+        ? {
+            createdAt: new Date(options.beforeCreatedAt),
+            id: options.beforeId,
+          }
+        : undefined;
+
     const filter: NotificationFilter = {
       types: options.category
         ? [...NOTIFICATION_CATEGORIES[options.category]]
@@ -354,7 +305,8 @@ export class NotificationService {
           organizationId,
           limit,
           offset,
-          filter
+          filter,
+          before
         ),
         this.notificationRepo.countMatching(userId, organizationId, filter),
         this.notificationRepo.countUnread(userId, organizationId),
@@ -363,17 +315,50 @@ export class NotificationService {
       ]);
 
     const sumTypes = (types: readonly string[]) =>
-      types.reduce((total, type) => total + (byType[type] ?? 0), 0);
+      types.reduce((total, type) => total + (byType.all[type] ?? 0), 0);
 
-    const all = Object.values(byType).reduce((sum, count) => sum + count, 0);
+    const all = Object.values(byType.all).reduce((sum, count) => sum + count, 0);
+
+    /*
+     * "Needs action" counts only what is still UNREAD.
+     *
+     * It was summed from the all-time counts, so a rejection read months ago
+     * kept contributing to a tile that says something is waiting for you — the
+     * number never went down as you dealt with things, which is the only
+     * behaviour it needed to have.
+     */
+    const needsActionCount = NEEDS_ACTION_TYPES.reduce(
+      (total, type) => total + (byType.unread[type] ?? 0),
+      0
+    );
 
     return {
       notifications,
       total,
-      hasMore: offset + notifications.length < total,
+      /*
+       * With a cursor there is no offset to add, so a full page is the signal
+       * that more may exist. It can be one request optimistic — a page that
+       * happens to end exactly on the boundary shows the button once more and
+       * then reports nothing further — which is the harmless direction. The
+       * alternative, counting rows older than the cursor, is a second query on
+       * every scroll to avoid one wasted click.
+       */
+      hasMore: before
+        ? notifications.length === limit
+        : offset + notifications.length < total,
       unreadCount,
       todayCount,
-      needsActionCount: sumTypes(NEEDS_ACTION_TYPES),
+      needsActionCount,
+      /*
+       * The instant "today" started, so the page can group its date headings by
+       * the same boundary the tile counted against.
+       *
+       * The tile used the organisation's timezone and the headings used the
+       * browser's local midnight, so for any reader outside Singapore the two
+       * described different sets — a notification could sit under "Yesterday"
+       * while being counted in "Today".
+       */
+      todayStart: since.toISOString(),
       counts: {
         all,
         unread: unreadCount,

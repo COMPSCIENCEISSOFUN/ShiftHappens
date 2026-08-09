@@ -42,7 +42,8 @@ import {
   CircleX,
   ClipboardList,
   Clock,
-  Lock,
+  CalendarOff,
+  CalendarX2,
   LogOut,
   ShieldAlert,
   CalendarCheck,
@@ -51,8 +52,11 @@ import {
   TriangleAlert,
   Undo2,
   UserCheck,
+  UserPlus,
+  UserSearch,
   type LucideIcon,
 } from "lucide-react";
+import type { NotificationType } from "@/lib/notification-types";
 
 export interface NotificationIcon {
   Icon: LucideIcon;
@@ -79,7 +83,18 @@ const AMBER = {
   tone: "text-amber-600 dark:text-amber-400",
 };
 
-const NOTIFICATION_ICON: Record<string, NotificationIcon> = {
+/*
+ * `Record<NotificationType, …>`, not `Record<string, …>`.
+ *
+ * With a plain string key, five types had no row and fell through to the
+ * generic bell — every leave and backfill notification. A test was supposed to
+ * catch that, and could not: its list of "known types" was itself typed out by
+ * hand and had drifted in the same direction.
+ *
+ * Keyed on the union, adding a notification type without choosing an icon fails
+ * the build. Nothing to remember, and nothing to keep in step.
+ */
+const NOTIFICATION_ICON: Record<NotificationType, NotificationIcon> = {
   task_assigned: { Icon: ClipboardList, ...INDIGO },
   task_rescheduled: { Icon: CalendarClock, ...INDIGO },
   task_cancelled: { Icon: Ban, ...RED },
@@ -114,7 +129,22 @@ const NOTIFICATION_ICON: Record<string, NotificationIcon> = {
   // A request, not a warning — nothing is wrong, a manager is asking the
   // person who owns the constraint to confirm it still holds.
   availability_review_requested: { Icon: CalendarCheck, ...INDIGO },
-  org_suspended: { Icon: Lock, ...RED },
+
+  /*
+   * Leave and cover — the five types that had no row at all and fell through to
+   * the generic bell, which is what a `Record<string, …>` allowed and a
+   * `Record<NotificationType, …>` does not.
+   *
+   * Calendar glyphs for leave, because that is what a member is looking at when
+   * they ask for it. People glyphs for backfill, because it is about finding
+   * somebody rather than about a date: a magnifying glass while the shift is
+   * still short, a plus once a replacement has been asked.
+   */
+  leave_requested: { Icon: CalendarOff, ...AMBER },
+  leave_approved: { Icon: CalendarCheck, ...GREEN },
+  leave_rejected: { Icon: CalendarX2, ...RED },
+  backfill_needed: { Icon: UserSearch, ...RED },
+  backfill_offered: { Icon: UserPlus, ...INDIGO },
 };
 
 const UNKNOWN: NotificationIcon = {
@@ -133,8 +163,11 @@ const UNKNOWN: NotificationIcon = {
  * entirely — the same trap already fixed in `certification-state-icon.tsx`.
  */
 export function notificationIcon(type: string): NotificationIcon {
+  // Still takes a plain string: types arrive from `res.json()` and a signature
+  // demanding the union would be defeated by the first cast written to make the
+  // build pass. The cast is here, once, where the fallback covers it.
   return Object.prototype.hasOwnProperty.call(NOTIFICATION_ICON, type)
-    ? NOTIFICATION_ICON[type]
+    ? NOTIFICATION_ICON[type as NotificationType]
     : UNKNOWN;
 }
 

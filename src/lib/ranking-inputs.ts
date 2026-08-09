@@ -118,3 +118,49 @@ export function certificationRelevance(
 export function describeShiftWindow(shift: { start: Date; end: Date }): string {
   return `${timeOfDayInTimeZone(shift.start)}–${timeOfDayInTimeZone(shift.end)}`;
 }
+
+/**
+ * The department-experience score a MANUALLY PINNED seniority is worth.
+ *
+ * ## The gap this closes
+ *
+ * Department experience is scored from shifts worked in that department, which
+ * is the right measure and is blind in exactly one case: somebody experienced
+ * elsewhere. That is precisely the case `seniorityOverride` exists for — the
+ * demo data even names them, "an external hire, no local history" — and until
+ * now the pin reached the composition rules and stopped there. The engine went
+ * on ranking a pinned Senior as a complete novice, because the only thing it
+ * counted was a history this organisation had never seen.
+ *
+ * ## Why a floor rather than a replacement
+ *
+ * It raises a score, never lowers one. A member pinned "experienced" who has
+ * since worked forty shifts here has earned the higher number the count gives
+ * them, and a pin set months ago should not pull them back down. Pinning
+ * somebody "junior" is likewise not a demotion in the ranking — the level bands
+ * describe how much somebody can be trusted with, which composition rules act
+ * on, and using them to push a candidate DOWN the list would be a second
+ * meaning nobody asked for.
+ *
+ * ## Where the numbers come from
+ *
+ * They are the scores the equivalent shift COUNT would produce under the
+ * default thresholds: experienced starts at 10 completed shifts, which falls in
+ * the 80 band, and senior at 40, which is the 100 band. So a pin puts somebody
+ * where their assessed level would have put them if they had earned it here,
+ * rather than at an invented number.
+ *
+ * `null` for no pin and for "junior", both meaning "nothing to add" — a junior
+ * pin implies no floor above the 30 that zero history already scores.
+ */
+export const PINNED_EXPERIENCE_FLOOR: Record<string, number> = {
+  experienced: 80,
+  senior: 100,
+};
+
+export function pinnedExperienceFloor(
+  level: string | null | undefined
+): number | null {
+  if (!level) return null;
+  return PINNED_EXPERIENCE_FLOOR[level] ?? null;
+}

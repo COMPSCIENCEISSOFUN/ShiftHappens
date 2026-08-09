@@ -18,6 +18,8 @@
 import { useEffect, useState, useRef } from "react";
 import { NotificationIconBadge } from "@/components/ui/notification-icon";
 import { useRouter } from "next/navigation";
+import { notificationHref } from "@/lib/notification-links";
+import { usePermissions } from "@/components/layout/permission-provider";
 
 interface Notification {
   id: string;
@@ -47,6 +49,7 @@ function timeAgo(dateStr: string): string {
 
 
 export function NotificationBell({ orgId }: { orgId?: string }) {
+  const { can } = usePermissions();
   const router = useRouter();
   const [unreadCount, setUnreadCount] = useState(0);
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -120,59 +123,74 @@ export function NotificationBell({ orgId }: { orgId?: string }) {
   }
 
   async function handleNotificationClick(notification: Notification) {
-    // Mark as read
+    /*
+     * Checked and rolled back, like the page already did.
+     *
+     * This fired the PATCH, ignored the result, and decremented the badge
+     * regardless — so a 403 or a 500 still cleared the dot and the count. It
+     * self-corrected within thirty seconds at the next poll, which is why it
+     * survived: the symptom was a number that was briefly wrong and then
+     * mysteriously right again.
+     */
     if (!notification.isRead) {
+      const before = notification.isRead;
+      setNotifications((prev) =>
+        prev.map((n) => (n.id === notification.id ? { ...n, isRead: true } : n))
+      );
+      setUnreadCount((prev) => Math.max(0, prev - 1));
+
       try {
-        await fetch(
+        const res = await fetch(
           `/api/organizations/${orgId}/notifications/${notification.id}/read`,
           { method: "PATCH" }
         );
+        if (!res.ok) throw new Error("mark-read refused");
+      } catch {
         setNotifications((prev) =>
           prev.map((n) =>
-            n.id === notification.id ? { ...n, isRead: true } : n
+            n.id === notification.id ? { ...n, isRead: before } : n
           )
         );
-        setUnreadCount((prev) => Math.max(0, prev - 1));
-      } catch {
-        // Silent fail
+        setUnreadCount((prev) => prev + 1);
       }
     }
 
-    // Navigate to relevant page
-    if (orgId && notification.entityType && notification.entityId) {
-      switch (notification.entityType) {
-        case "task":
-          router.push(`/org/${orgId}/tasks`);
-          break;
-        case "assignment":
-          router.push(`/org/${orgId}/my-tasks`);
-          break;
-        case "certification":
-          // Every certification notification goes to the person who HOLDS the
-          // certificate (see notifyDecision / notifyExpiring), never to a
-          // reviewer. The org-wide page is admin/manager-gated, so sending a
-          // staff member there landed them on a 403.
-          router.push(`/org/${orgId}/my-certifications`);
-          break;
-        default:
-          break;
-      }
+    /*
+     * The shared resolver, which the notifications page also uses.
+     *
+     * This switch and the page's had been written separately and disagreed:
+     * the page knew what to do with an hour-limit warning and this did nothing,
+     * and neither had a case for `availability`, so four leave notifications
+     * were unclickable in both.
+     *
+     * The `entityId` requirement is gone too. It was never used to build a URL
+     * — both switches read only `entityType` — so demanding it meant a
+     * notification with a blank id silently refused to navigate for no reason
+     * a reader could see.
+     */
+    if (orgId) {
+      const href = notificationHref(notification.type, orgId, can);
+      if (href) router.push(href);
     }
 
     setIsOpen(false);
   }
 
   async function handleMarkAllRead() {
+    const previous = notifications;
+    const previousCount = unreadCount;
+    setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
+    setUnreadCount(0);
+
     try {
-      await fetch(`/api/organizations/${orgId}/notifications/mark-all-read`, {
-        method: "POST",
-      });
-      setNotifications((prev) =>
-        prev.map((n) => ({ ...n, isRead: true }))
+      const res = await fetch(
+        `/api/organizations/${orgId}/notifications/mark-all-read`,
+        { method: "POST" }
       );
-      setUnreadCount(0);
+      if (!res.ok) throw new Error("mark-all-read refused");
     } catch {
-      // Silent fail
+      setNotifications(previous);
+      setUnreadCount(previousCount);
     }
   }
 

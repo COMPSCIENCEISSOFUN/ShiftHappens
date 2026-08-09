@@ -262,7 +262,22 @@ export class UserManagementService {
 
     const actor = await this.requireActor(organizationId, performedById);
 
-    if (actor.id === target.id) {
+    /*
+     * You cannot change your OWN ROLE — but everything else about yourself is
+     * fine, and this refused all of it.
+     *
+     * The member drawer sends the whole shape on every edit, so assigning
+     * yourself to a department or setting your own employment type arrives here
+     * carrying `role` unchanged. This threw on the id comparison alone, so an
+     * admin could not put themselves in a department at all: they got a red
+     * "You cannot change your own role" for an action that changed no role.
+     *
+     * The guard exists to stop somebody promoting themselves or removing their
+     * own admin rights and locking the organisation out of its own settings.
+     * Neither is possible when the role is the one they already hold, so the
+     * comparison is what the rule was always about.
+     */
+    if (actor.id === target.id && newRole !== target.role) {
       throw new Error("You cannot change your own role");
     }
 

@@ -122,15 +122,38 @@ export class AvailabilityService {
       if (!inScope) throw new Error("Member not found");
     }
 
-    await this.notificationService.notify(
-      organizationId,
+    /*
+     * One nudge a day, per member.
+     *
+     * This had no guard of any kind: the button posts, the service writes, so a
+     * manager clicking it four times sent four identical rows, and two managers
+     * who both noticed the same stale availability sent two. The member is
+     * being asked to do a five-minute task — repeating the ask within a day
+     * adds nothing and reads as nagging.
+     *
+     * Silently satisfied rather than refused. The manager's intent is "make
+     * sure they have been asked", which is already true; an error would tell
+     * them off for something that had worked.
+     */
+    const alreadyAsked = await this.notificationService.wasNotifiedSince(
       targetUserId,
+      organizationId,
       NOTIFICATION_TYPES.AVAILABILITY_REVIEW_REQUESTED,
-      "Please review your availability",
-      `${requestedByName} asked you to check your weekly availability is still right.`,
-      "availability",
+      new Date(Date.now() - 24 * 60 * 60 * 1000),
       membership.id
     );
+
+    if (!alreadyAsked) {
+      await this.notificationService.notify(
+        organizationId,
+        targetUserId,
+        NOTIFICATION_TYPES.AVAILABILITY_REVIEW_REQUESTED,
+        "Please review your availability",
+        `${requestedByName} asked you to check your weekly availability is still right.`,
+        "availability",
+        membership.id
+      );
+    }
 
     await this.auditService.log({
       organizationId,

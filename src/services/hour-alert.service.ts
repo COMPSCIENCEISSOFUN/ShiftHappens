@@ -29,8 +29,28 @@ import { MembershipRepository } from "@/repositories/membership.repository";
 /** A member is "approaching" a limit at this fraction of it. */
 export const APPROACHING_THRESHOLD = 0.8;
 
-/** Don't re-send the same alert about a member within this window. */
-export const ALERT_COOLDOWN_HOURS = 12;
+/**
+ * Don't re-send the same alert about a member within this window.
+ *
+ * ## Why it is longer than a day
+ *
+ * It was 12 hours, and the scan runs daily (`vercel.json`, `0 0 * * *`). A
+ * cooldown shorter than the schedule can never suppress a scheduled run, so it
+ * suppressed nothing: a member over a WEEKLY limit on Monday generated a fresh
+ * alert every morning until Sunday — and so did every admin and manager in the
+ * organisation, because the manager copy fans out to all of them. The guard
+ * looked like throttling and was decoration.
+ *
+ * Three days is the smallest value that both survives the daily run and leaves
+ * a genuinely separate breach audible. Somebody over a daily limit on Monday
+ * and again on Thursday is two facts and gets two alerts; over it Monday and
+ * Tuesday is one situation the manager already knows about.
+ *
+ * `tests/services/hour-alert.service.test.ts` asserts this exceeds the cron
+ * interval declared in `vercel.json`, so changing the schedule to something
+ * more frequent fails the suite rather than quietly restoring daily spam.
+ */
+export const ALERT_COOLDOWN_HOURS = 72;
 
 export type AlertSeverity = "ok" | "approaching" | "exceeded";
 

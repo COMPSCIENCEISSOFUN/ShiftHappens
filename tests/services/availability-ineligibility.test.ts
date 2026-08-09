@@ -20,8 +20,11 @@ import { EligibilityService } from "@/services/eligibility.service";
 import { prisma } from "@/lib/prisma";
 import { cleanDatabase } from "../helpers/cleanup";
 import { createTenant, type Tenant } from "../helpers/fixtures";
+import { TaskService } from "@/services/task.service";
+import { eventuallyAtLeast, pauseForAbsence } from "../helpers/settle";
 
 const availability = new AvailabilityService();
+const tasks = new TaskService();
 
 let tenant: Tenant;
 let otherDept: string;
@@ -345,5 +348,69 @@ describe("it never costs the staff member their save", () => {
       where: { taskId: task.id },
     });
     expect(assignment.status).toBe("accepted");
+  });
+});
+
+/**
+ * Editing a task twice does not tell the managers twice.
+ *
+ * `notifyManagersOfIneligibleAssignees` reported everyone currently
+ * ineligible, with nothing to compare against — so three tweaks to a task's
+ * certification requirements sent three identical notifications naming the same
+ * people, and an edit that stranded nobody new still named somebody who had
+ * been stranded since last week.
+ *
+ * The availability path already diffed before against after and its docblock
+ * argues that alerting on "everyone currently ineligible" is wrong. Both write
+ * the same `staff_ineligible` type against the same task, so the two origins
+ * disagreed about what was worth saying.
+ */
+describe("repeated edits to a task with a stranded assignee", () => {
+  async function ineligibleNotifications() {
+    return prisma.notification.findMany({ where: { type: "staff_ineligible" } });
+  }
+
+  it("names them once, not once per edit", async () => {
+    const task = await prisma.task.create({
+      data: {
+        organizationId: tenant.orgId,
+        departmentId: tenant.departmentId,
+        title: "Needs a certificate",
+        requiredHeadcount: 1,
+        status: "open",
+        createdById: tenant.admin.userId,
+        scheduledStart: new Date(Date.now() + 86_400_000),
+        scheduledEnd: new Date(Date.now() + 86_400_000 + 4 * 3_600_000),
+      },
+    });
+    await prisma.taskAssignment.create({
+      data: {
+        taskId: task.id,
+        membershipId: tenant.staff.membershipId,
+        status: "accepted",
+        assignedById: tenant.admin.userId,
+      },
+    });
+
+    // Strands them: they hold no certificates at all.
+    await tasks.update(
+      task.id,
+      tenant.orgId,
+      { requiredCertifications: ["Food Safety"] }
+    );
+    const afterFirst = await eventuallyAtLeast(ineligibleNotifications);
+    expect(afterFirst.length).toBeGreaterThan(0);
+    const countAfterFirst = afterFirst.length;
+
+    // A second edit that changes the requirement again. They were already
+    // stranded, so this is not news about them.
+    await tasks.update(
+      task.id,
+      tenant.orgId,
+      { requiredCertifications: ["Food Safety", "First Aid"] }
+    );
+    await pauseForAbsence();
+
+    expect(await ineligibleNotifications()).toHaveLength(countAfterFirst);
   });
 });

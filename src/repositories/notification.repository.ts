@@ -88,13 +88,49 @@ export class NotificationRepository {
     organizationId: string,
     limit = 20,
     offset = 0,
-    filter: NotificationFilter = {}
+    filter: NotificationFilter = {},
+    /**
+     * The last row of the previous page, for keyset paging.
+     *
+     * ## Why a cursor and not just the offset
+     *
+     * The feed grows at the head. Ask for rows 20–39, have three notifications
+     * arrive while you read, and every row shifts down three places — so "Load
+     * older" re-appends rows already on screen and skips three that were never
+     * shown. On a page whose whole job is "have I missed anything", silently
+     * dropping rows is the wrong failure.
+     *
+     * Keyset asks "older than this exact row" instead of "twenty rows in", so
+     * arrivals at the head cannot move the boundary. The comparison is on
+     * `(createdAt, id)` — the same pair the ordering uses, which is what makes
+     * it exact: `createdAt` is `timestamp(3)`, so ties are routine when one
+     * action notifies several people at once, and a cursor on the timestamp
+     * alone would skip the rest of a tied group.
+     *
+     * `offset` stays for the callers that page a STABLE list. Passing both is a
+     * caller error; the cursor wins, because it is the one that is correct.
+     */
+    before?: { createdAt: Date; id: string }
   ) {
+    const where = this.buildWhere(userId, organizationId, filter);
+
     return prisma.notification.findMany({
-      where: this.buildWhere(userId, organizationId, filter),
+      where: before
+        ? {
+            AND: [
+              where,
+              {
+                OR: [
+                  { createdAt: { lt: before.createdAt } },
+                  { createdAt: before.createdAt, id: { lt: before.id } },
+                ],
+              },
+            ],
+          }
+        : where,
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: limit,
-      skip: offset,
+      skip: before ? 0 : offset,
     });
   }
 
@@ -121,25 +157,38 @@ export class NotificationRepository {
   }
 
   /**
-   * Counts notifications per type in one round trip.
+   * Counts notifications per type, and per type again for the unread ones, in
+   * one round trip.
+   *
    * The filter pills need a count each; issuing one query per pill would be
    * five queries that can disagree with one another under concurrent writes.
+   *
+   * The unread half exists because "Needs action" was summed from the ALL
+   * counts, so a rejection read months ago still counted toward a tile telling
+   * you something wanted your attention — the number never went down as you
+   * dealt with things, which is the one behaviour that tile has to have.
+   * Grouping by `isRead` as well answers both questions without a second query,
+   * and the two cannot disagree because they come from the same rows.
    */
   async countByType(
     userId: string,
     organizationId: string
-  ): Promise<Record<string, number>> {
+  ): Promise<{ all: Record<string, number>; unread: Record<string, number> }> {
     const rows = await prisma.notification.groupBy({
-      by: ["type"],
+      by: ["type", "isRead"],
       where: { userId, organizationId },
-      _count: { type: true },
+      _count: { _all: true },
     });
 
-    const counts: Record<string, number> = {};
+    const all: Record<string, number> = {};
+    const unread: Record<string, number> = {};
     for (const row of rows) {
-      counts[row.type] = row._count.type;
+      all[row.type] = (all[row.type] ?? 0) + row._count._all;
+      if (!row.isRead) {
+        unread[row.type] = (unread[row.type] ?? 0) + row._count._all;
+      }
     }
-    return counts;
+    return { all, unread };
   }
 
   /** Counts notifications created at or after `since` */

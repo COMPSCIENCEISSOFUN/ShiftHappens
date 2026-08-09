@@ -203,7 +203,8 @@ describe("SchedulerService.runCertificationExpiry", () => {
         membershipId: staff.membershipId,
         name: "First Aid",
         issuedDate: new Date("2026-01-01"),
-        expiryDate: new Date(Date.now() + 10 * DAY_MS),
+        // 7 days, one of `EXPIRY_NOTIFY_DAYS` — the scan is quiet between marks.
+        expiryDate: new Date(Date.now() + 7 * DAY_MS),
         status: "verified",
       },
     });

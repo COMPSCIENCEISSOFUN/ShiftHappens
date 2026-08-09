@@ -25,6 +25,31 @@ import {
 /** How far ahead an expiring certification is worth warning about. */
 export const EXPIRY_WARNING_DAYS = 30;
 
+/**
+ * The days-remaining marks at which a member is told about an expiring
+ * certificate.
+ *
+ * The scan runs daily and only suppressed a repeat within the SAME day, so a
+ * certificate entering the 30-day window produced roughly thirty notifications
+ * — one every morning until it expired — and a member holding three expiring
+ * certificates got ninety. The docstring called that "idempotent within a day",
+ * which was true and was the problem.
+ *
+ * Five marks instead, tightening as the date approaches: a month's notice to
+ * book the course, a fortnight, a week, then daily-ish urgency at the end. The
+ * same fact is worth saying more often as it gets closer to costing somebody
+ * their eligibility, and not at all in between.
+ *
+ * Descending so the array reads the way the countdown runs.
+ */
+export const EXPIRY_NOTIFY_DAYS = [30, 14, 7, 3, 1, 0] as const;
+
+/** Is today one of the marks at which this certificate should be flagged? */
+export function isExpiryNotifyDay(daysRemaining: number | null): boolean {
+  if (daysRemaining === null) return false;
+  return (EXPIRY_NOTIFY_DAYS as readonly number[]).includes(daysRemaining);
+}
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**

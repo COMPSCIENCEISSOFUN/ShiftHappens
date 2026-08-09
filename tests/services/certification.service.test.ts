@@ -360,8 +360,16 @@ describe("CertificationService", () => {
   });
 
   describe("notifyExpiring", () => {
+    /*
+     * Seven days, because that is one of `EXPIRY_NOTIFY_DAYS`.
+     *
+     * These fixtures used ten, which worked only while EVERY day inside the
+     * 30-day window sent a notification — which is precisely the bug: a
+     * certificate entering the window produced about thirty messages. The scan
+     * is quiet between the marks now, so a fixture has to sit on one.
+     */
     it("warns the holder once per certificate", async () => {
-      const cert = await verifiedCert("First Aid", 10);
+      const cert = await verifiedCert("First Aid", 7);
 
       const result = await certService.notifyExpiring(orgId);
 
@@ -378,7 +386,7 @@ describe("CertificationService", () => {
     });
 
     it("is idempotent within the day, so extra cron runs are harmless", async () => {
-      await verifiedCert("First Aid", 10);
+      await verifiedCert("First Aid", 7);
 
       await certService.notifyExpiring(orgId);
       const second = await certService.notifyExpiring(orgId);
@@ -399,7 +407,7 @@ describe("CertificationService", () => {
     });
 
     it("respects the organisation's notification preference", async () => {
-      await verifiedCert("First Aid", 10);
+      await verifiedCert("First Aid", 7);
       await prisma.companySettings.upsert({
         where: { organizationId: orgId },
         create: {

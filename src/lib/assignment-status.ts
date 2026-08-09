@@ -119,6 +119,43 @@ export function occupiesSlot(status: string): boolean {
   return !(RELEASED_STATUSES as readonly string[]).includes(status);
 }
 
+/**
+ * Statuses an assignment can only be in if it was accepted at some point.
+ *
+ * Clocking in requires `accepted` — `clockIn` refuses anything else — so these
+ * are the only rows that can legitimately carry a clock time, and therefore the
+ * only ones a clock CORRECTION can be about.
+ *
+ * Derived by exclusion rather than listed, for the reason this whole module
+ * exists: a hand-written list is how "which statuses count" came to be written
+ * seven times with three of them disagreeing. The three excluded here are the
+ * ones reachable without ever accepting — `pending` has not been answered,
+ * `rejected` was refused, and `decline_requested` is a refusal awaiting a
+ * decision, which starts from `pending` and returns there if denied.
+ *
+ * `withdrawn` IS included even though it releases the slot: a member can clock
+ * in and then ask to leave, so those times exist and may need correcting. The
+ * safe direction is offering a manager a control they do not need rather than
+ * hiding one they do.
+ */
+export const NEVER_ACCEPTED_STATUSES = [
+  "pending",
+  "rejected",
+  "decline_requested",
+] as const;
+
+/**
+ * Could this assignment hold clock times?
+ *
+ * The tasks page offered "Add times" on every assignment regardless of status,
+ * so a manager was invited to record hours against a shift somebody had
+ * REJECTED — inventing attendance for a person who was never on it, on the
+ * field every hours total and capacity figure is built from.
+ */
+export function canHoldClockTimes(status: string): boolean {
+  return !(NEVER_ACCEPTED_STATUSES as readonly string[]).includes(status);
+}
+
 /** How many of these assignments hold a slot. The headcount numerator. */
 export function countOccupied(
   assignments: readonly { status: string }[]

@@ -46,6 +46,8 @@ export async function GET(
       search: searchParams.get("search") ?? undefined,
       limit: searchParams.get("limit") ?? undefined,
       offset: searchParams.get("offset") ?? undefined,
+      beforeCreatedAt: searchParams.get("beforeCreatedAt") ?? undefined,
+      beforeId: searchParams.get("beforeId") ?? undefined,
     });
 
     if (!parsed.success) {
@@ -61,6 +63,8 @@ export async function GET(
       search: parsed.data.search,
       limit: parsed.data.limit,
       offset: parsed.data.offset,
+      beforeCreatedAt: parsed.data.beforeCreatedAt,
+      beforeId: parsed.data.beforeId,
     });
 
     return NextResponse.json(feed);

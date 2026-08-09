@@ -573,6 +573,18 @@ export const notificationFeedQuerySchema = z.object({
   search: z.string().trim().max(100).optional(),
   limit: z.coerce.number().int().min(1).max(50).default(20),
   offset: z.coerce.number().int().min(0).default(0),
+  /*
+   * The keyset cursor for "load older" — the last row the client already has.
+   *
+   * `datetime` rather than a loose string: an unparseable value would become
+   * `new Date(NaN)`, and every comparison against NaN is false, so the query
+   * would silently return nothing and the page would report it had reached the
+   * end. A 400 says what happened.
+   *
+   * `offset` stays for the first page and for callers paging a stable list.
+   */
+  beforeCreatedAt: z.string().datetime().optional(),
+  beforeId: z.string().min(1).max(64).optional(),
 });
 
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;

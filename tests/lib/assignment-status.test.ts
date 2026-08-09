@@ -11,11 +11,64 @@ import {
   ASSIGNMENT_STATUSES,
   OCCUPYING_STATUSES,
   RELEASED_STATUSES,
+  canHoldClockTimes,
   countOccupied,
   occupiesSlot,
   occupyingStatusFilter,
   remainingSlots,
 } from "@/lib/assignment-status";
+
+describe("canHoldClockTimes", () => {
+  /*
+   * The bug: the tasks page gated "Add times" on the permission alone, so it
+   * appeared beside a REJECTED assignment. A manager could record hours for
+   * somebody who was never on the shift, against the column every hours total
+   * and capacity figure is built from.
+   */
+  it("refuses the three statuses that were never accepted", () => {
+    expect(canHoldClockTimes("pending")).toBe(false);
+    expect(canHoldClockTimes("rejected")).toBe(false);
+    expect(canHoldClockTimes("decline_requested")).toBe(false);
+  });
+
+  it("allows the ones that follow an acceptance", () => {
+    expect(canHoldClockTimes("accepted")).toBe(true);
+    expect(canHoldClockTimes("clocked_out")).toBe(true);
+    expect(canHoldClockTimes("completed")).toBe(true);
+    expect(canHoldClockTimes("withdrawal_requested")).toBe(true);
+  });
+
+  /*
+   * Withdrawn releases the slot but still allows correction, which is the one
+   * place this predicate and `occupiesSlot` deliberately disagree: a member can
+   * clock in and then ask to leave, so the times exist. Asserted explicitly so
+   * the divergence reads as a decision rather than an oversight.
+   */
+  it("allows a withdrawn assignment, unlike occupiesSlot", () => {
+    expect(canHoldClockTimes("withdrawn")).toBe(true);
+    expect(occupiesSlot("withdrawn")).toBe(false);
+  });
+
+  /*
+   * Every status in the lifecycle is decided one way or the other. A status
+   * added later without a decision here would default to allowed, so this is
+   * the test that notices.
+   */
+  it("has an answer for every status in the lifecycle", () => {
+    for (const status of ASSIGNMENT_STATUSES) {
+      expect(typeof canHoldClockTimes(status)).toBe("boolean");
+    }
+    const allowed = ASSIGNMENT_STATUSES.filter(canHoldClockTimes);
+    expect(allowed).toHaveLength(ASSIGNMENT_STATUSES.length - 3);
+  });
+
+  // Unknown statuses are allowed, matching `occupiesSlot`'s reasoning: the
+  // safe direction is offering a manager a control they do not need rather
+  // than hiding one they do.
+  it("allows an unrecognised status", () => {
+    expect(canHoldClockTimes("something_new")).toBe(true);
+  });
+});
 
 describe("occupiesSlot", () => {
   it("releases the slot only for rejected and withdrawn", () => {

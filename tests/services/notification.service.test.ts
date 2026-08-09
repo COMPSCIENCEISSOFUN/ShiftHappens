@@ -143,9 +143,9 @@ describe("NotificationService", () => {
       await notificationService.notifyMany(
         orgId,
         [userId, otherUserId],
-        NOTIFICATION_TYPES.ORG_SUSPENDED,
-        "Organization suspended",
-        "Your organization has been suspended"
+        NOTIFICATION_TYPES.STAFF_INELIGIBLE,
+        "Assigned staff no longer eligible",
+        "Two people on tonight's shift no longer qualify"
       );
 
       expect(await notificationService.getNotifications(userId, orgId)).toHaveLength(1);
@@ -473,7 +473,16 @@ describe("NotificationService", () => {
       expect(NOTIFICATION_TYPES.ASSIGNMENT_REJECTED).toBe("assignment_rejected");
       expect(NOTIFICATION_TYPES.CERT_VERIFIED).toBe("cert_verified");
       expect(NOTIFICATION_TYPES.CERT_REJECTED).toBe("cert_rejected");
-      expect(NOTIFICATION_TYPES.ORG_SUSPENDED).toBe("org_suspended");
+      /*
+       * `org_suspended` used to be asserted here. It was declared, categorised,
+       * given an icon and a label, and no code path ever raised it — and it
+       * could not usefully have: suspending an organisation blocks its members
+       * from signing in, so the notification would only ever have been readable
+       * by somebody unable to log in and read it. Removed rather than wired.
+       */
+      expect(
+        (NOTIFICATION_TYPES as Record<string, string>).ORG_SUSPENDED
+      ).toBeUndefined();
     });
   });
 });

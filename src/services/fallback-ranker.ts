@@ -45,6 +45,7 @@
  * reorders people for reasons nobody can name.
  */
 import type { StaffCandidate, RankedStaff } from "./ai-provider";
+import { pinnedExperienceFloor } from "@/lib/ranking-inputs";
 import {
   DEFAULT_WEIGHTS,
   normaliseWeights,
@@ -109,7 +110,10 @@ export class FallbackRanker {
     const scored = candidates.map((c) => {
       const hoursScore = this.scoreHours(c.hoursWorkedToday, c.maxHours);
       const certScore = this.scoreCertifications(c.certificationRelevance);
-      const deptScore = this.scoreDepartmentExperience(c.departmentHistory);
+      const deptScore = this.scoreDepartmentExperience(
+        c.departmentHistory,
+        c.pinnedSeniority
+      );
       const availScore = this.scoreAvailability(c.availabilityFit);
 
       const totalScore = Math.round(
@@ -186,11 +190,23 @@ export class FallbackRanker {
    * Bucketed rather than linear — the difference between 0 and 3 shifts matters
    * far more than the difference between 40 and 43.
    */
-  private static scoreDepartmentExperience(history: number): number {
-    if (history === 0) return 30;
-    if (history <= 3) return 60;
-    if (history <= 10) return 80;
-    return 100;
+  private static scoreDepartmentExperience(
+    history: number,
+    pinnedSeniority?: string | null
+  ): number {
+    const earned =
+      history === 0 ? 30 : history <= 3 ? 60 : history <= 10 ? 80 : 100;
+
+    /*
+     * A manager's pin is a floor, never a ceiling.
+     *
+     * The count is blind to experience gained somewhere else, which is the one
+     * case the pin exists for. Taking the higher of the two means an external
+     * hire marked Senior stops being ranked as a novice, while somebody who has
+     * since earned a higher count keeps it.
+     */
+    const floor = pinnedExperienceFloor(pinnedSeniority);
+    return floor === null ? earned : Math.max(earned, floor);
   }
 
   /**

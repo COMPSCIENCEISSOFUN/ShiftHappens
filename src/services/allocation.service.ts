@@ -31,6 +31,7 @@ import { EligibilityService } from "./eligibility.service";
 import { CertificationRepository } from "@/repositories/certification.repository";
 import { SettingsRepository } from "@/repositories/settings.repository";
 import { TaskRepository } from "@/repositories/task.repository";
+import { MembershipRepository } from "@/repositories/membership.repository";
 import { TaskAssignmentRepository } from "@/repositories/task-assignment.repository";
 import { AvailabilityRepository } from "@/repositories/availability.repository";
 import { TaskService } from "./task.service";
@@ -41,6 +42,7 @@ export class AllocationService {
   private certRepo = new CertificationRepository();
   private settingsRepo = new SettingsRepository();
   private taskRepo = new TaskRepository();
+  private membershipRepo = new MembershipRepository();
   private assignmentRepo = new TaskAssignmentRepository();
   private availRepo = new AvailabilityRepository();
   private taskService = new TaskService();
@@ -253,6 +255,18 @@ export class AllocationService {
         ? { start: task.scheduledStart, end: task.scheduledEnd }
         : null;
 
+    /*
+     * Loaded once for the pool, same as `departmentCerts` above — one query for
+     * everybody rather than one per candidate.
+     *
+     * A pin is the only signal the engine has about experience gained at
+     * another employer, and until this it reached composition rules and nothing
+     * else, so the ranking treated an external hire marked Senior as a novice.
+     */
+    const pinnedSeniority = await this.membershipRepo.getSeniorityOverrides(
+      eligibleStaff.map((e) => e.membershipId)
+    );
+
     const candidates: StaffCandidate[] = [];
     for (const staff of eligibleStaff) {
       candidates.push(
@@ -262,7 +276,8 @@ export class AllocationService {
           settings.workingDayHours,
           task.departmentId,
           departmentCerts,
-          shift
+          shift,
+          pinnedSeniority[staff.membershipId] ?? null
         )
       );
     }
@@ -328,7 +343,9 @@ export class AllocationService {
     /** Certifications any task in this department asks for. Empty = none. */
     departmentCerts: string[] = [],
     /** The shift being filled, or null when it has no scheduled time. */
-    shift: { start: Date; end: Date } | null = null
+    shift: { start: Date; end: Date } | null = null,
+    /** A manager's manual seniority level, or null. Floors the experience score. */
+    pinnedSeniority: string | null = null
   ): Promise<StaffCandidate> {
     // Get hours worked in last 24h
     const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
@@ -373,6 +390,7 @@ export class AllocationService {
       certifications: certNames,
       availableHours,
       departmentHistory,
+      pinnedSeniority,
       availabilityFit: availabilityFit(availability, shift),
       certificationRelevance: certificationRelevance(certNames, departmentCerts),
     };

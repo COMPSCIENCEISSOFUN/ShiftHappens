@@ -130,3 +130,70 @@ describe("requestAvailabilityReview", () => {
     ).rejects.toThrow("Member not found");
   });
 });
+
+/**
+ * One nudge a day.
+ *
+ * There was no guard at all: the button posts, the service writes. A manager
+ * clicking it four times sent four identical rows, and two managers who both
+ * noticed the same stale availability sent two. The member is being asked to do
+ * a five-minute task; repeating the ask within a day reads as nagging.
+ */
+describe("asking twice", () => {
+  it("does not send a second notification the same day", async () => {
+    await availability.requestAvailabilityReview(
+      tenant.orgId,
+      tenant.staff.userId,
+      "Mia Manager",
+      tenant.manager.userId
+    );
+    await availability.requestAvailabilityReview(
+      tenant.orgId,
+      tenant.staff.userId,
+      "Sam Supervisor",
+      tenant.manager.userId
+    );
+
+    const rows = await prisma.notification.findMany({
+      where: {
+        userId: tenant.staff.userId,
+        type: "availability_review_requested",
+      },
+    });
+    expect(rows).toHaveLength(1);
+  });
+
+  /*
+   * Satisfied, not refused. The manager's intent is "make sure they have been
+   * asked", which is already true — an error would tell them off for something
+   * that had worked.
+   */
+  it("succeeds rather than throwing", async () => {
+    await availability.requestAvailabilityReview(
+      tenant.orgId, tenant.staff.userId, "Mia", tenant.manager.userId
+    );
+    await expect(
+      availability.requestAvailabilityReview(
+        tenant.orgId, tenant.staff.userId, "Mia", tenant.manager.userId
+      )
+    ).resolves.not.toThrow();
+  });
+
+  /*
+   * The cooldown is per member, not per organisation — two different people
+   * with stale availability are two separate asks and both should be made.
+   */
+  it("still asks a different member", async () => {
+    await availability.requestAvailabilityReview(
+      tenant.orgId, tenant.staff.userId, "Mia", tenant.admin.userId
+    );
+    await availability.requestAvailabilityReview(
+      tenant.orgId, tenant.manager.userId, "Mia", tenant.admin.userId
+    );
+
+    const rows = await prisma.notification.findMany({
+      where: { type: "availability_review_requested" },
+    });
+    expect(rows).toHaveLength(2);
+  });
+});

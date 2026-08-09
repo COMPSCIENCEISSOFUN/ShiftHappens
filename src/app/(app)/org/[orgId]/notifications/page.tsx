@@ -25,6 +25,12 @@ import { AlertBanner } from "@/components/ui/alert-banner";
 import { EmptyState } from "@/components/ui/empty-state";
 import { StatTile } from "@/components/ui/stat-tile";
 import { PRIMARY_BUTTON } from "@/components/ui/button-styles";
+import {
+  NOTIFICATION_LABELS,
+  type NotificationType,
+} from "@/lib/notification-types";
+import { notificationHref } from "@/lib/notification-links";
+import { usePermissions } from "@/components/layout/permission-provider";
 
 interface Notification {
   id: string;
@@ -53,6 +59,8 @@ interface Feed {
   unreadCount: number;
   todayCount: number;
   needsActionCount: number;
+  /** ISO instant the organisation's day began — see `groupFor`. */
+  todayStart: string;
   counts: FeedCounts;
 }
 
@@ -80,30 +88,14 @@ const FILTER_NOUNS: Record<FilterKey, string> = {
 };
 
 
-const CATEGORY_LABELS: Record<string, string> = {
-  task_assigned: "Task",
-  task_unassigned: "Task",
-  task_cancelled: "Task",
-  task_rescheduled: "Task",
-  task_completed: "Task",
-  assignment_accepted: "Assignment",
-  assignment_rejected: "Assignment",
-  withdrawal_requested: "Assignment",
-  withdrawal_approved: "Assignment",
-  withdrawal_denied: "Assignment",
-  // The decline lifecycle — `notification-icon.tsx` picked all three up when
-  // they were added; this map did not, so they rendered as "Update".
-  decline_requested: "Assignment",
-  decline_approved: "Assignment",
-  decline_denied: "Assignment",
-  cert_verified: "Certification",
-  cert_rejected: "Certification",
-  hour_limit_warning: "Alert",
-  staff_ineligible: "Alert",
-  shift_rated_low: "Alert",
-  availability_review_requested: "Assignment",
-  org_suspended: "Alert",
-};
+/*
+ * The badge label map used to be written out here, covered twenty of the
+ * twenty-five types, and fell back to "Update" for the rest — so a
+ * `leave_approved` row sat under the Assignments pill wearing a badge that said
+ * "Update". It now comes from `lib/notification-types`, as a `Record` over the
+ * type union, so a new type without a label fails the build rather than
+ * quietly rendering as "Update".
+ */
 
 function timeAgo(dateStr: string): string {
   const seconds = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
@@ -118,14 +110,23 @@ function timeAgo(dateStr: string): string {
 }
 
 /**
- * Buckets a notification by the viewer's local calendar day.
- * Deliberately client-side: "Today" in a date heading should mean the day the
- * person reading it is having, which the browser already knows.
+ * Buckets a notification by the organisation's day, not the browser's.
+ *
+ * This used to take the reader's local midnight, on the reasoning that "Today"
+ * should mean the day the person reading it is having. Defensible on its own —
+ * and the "Today" TILE above the list counts against the organisation's
+ * timezone, so for anybody outside it the two described different sets. A
+ * notification could sit under the "Yesterday" heading while being counted in
+ * the "Today" number, which reads as a broken page rather than as two
+ * defensible definitions.
+ *
+ * The boundary now comes from the server, which is the only way the count and
+ * the headings can agree by construction rather than by both being changed at
+ * the same time.
  */
-function groupFor(dateStr: string): string {
+function groupFor(dateStr: string, todayStart: string): string {
   const date = new Date(dateStr);
-  const startOfToday = new Date();
-  startOfToday.setHours(0, 0, 0, 0);
+  const startOfToday = new Date(todayStart);
 
   if (date >= startOfToday) return "Today";
 
@@ -142,6 +143,7 @@ function groupFor(dateStr: string): string {
 
 
 export default function NotificationsPage() {
+  const { can } = usePermissions();
   const params = useParams();
   const router = useRouter();
   const orgId = params.orgId as string;
@@ -151,7 +153,6 @@ export default function NotificationsPage() {
   const [filter, setFilter] = useState<FilterKey>("all");
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
-  const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [busyIds, setBusyIds] = useState<string[]>([]);
@@ -166,16 +167,27 @@ export default function NotificationsPage() {
     return () => clearTimeout(timer);
   }, [searchInput]);
 
+  /**
+   * Load a page.
+   *
+   * `after` is the last row already on screen, and its presence is what makes
+   * this "load older" rather than "reload". Offset paging asked for rows 20–39
+   * of a list that grows at the head, so three notifications arriving while you
+   * read shifted everything down three places — re-appending rows already shown
+   * and skipping three that were never shown at all. On a page whose job is
+   * "have I missed anything", losing rows is the wrong failure.
+   */
   const fetchFeed = useCallback(
-    async (nextOffset: number, append: boolean) => {
+    async (after: Notification | null, append: boolean) => {
       const currentRequest = ++requestId.current;
       if (append) setLoadingMore(true);
 
       try {
-        const query = new URLSearchParams({
-          limit: String(PAGE_SIZE),
-          offset: String(nextOffset),
-        });
+        const query = new URLSearchParams({ limit: String(PAGE_SIZE) });
+        if (after) {
+          query.set("beforeCreatedAt", new Date(after.createdAt).toISOString());
+          query.set("beforeId", after.id);
+        }
         if (filter === "unread") query.set("unread", "true");
         else if (filter !== "all") query.set("category", filter);
         if (search) query.set("search", search);
@@ -189,10 +201,17 @@ export default function NotificationsPage() {
         if (currentRequest !== requestId.current) return; // superseded
 
         setFeed(data);
-        setItems((prev) =>
-          append ? [...prev, ...data.notifications] : data.notifications
-        );
-        setOffset(nextOffset);
+        /*
+         * Deduped on append anyway. The cursor makes an overlap impossible in
+         * the ordinary case, but two "load older" clicks can still race, and a
+         * duplicate key in a React list is a rendering bug rather than a
+         * cosmetic one.
+         */
+        setItems((prev) => {
+          if (!append) return data.notifications;
+          const seen = new Set(prev.map((n) => n.id));
+          return [...prev, ...data.notifications.filter((n) => !seen.has(n.id))];
+        });
         setError(null);
       } catch {
         if (currentRequest !== requestId.current) return;
@@ -211,7 +230,7 @@ export default function NotificationsPage() {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronising with an external system, which is what effects are for: refetches the feed when the filter or search term changes
     setLoading(true);
-    fetchFeed(0, false);
+    fetchFeed(null, false);
   }, [fetchFeed]);
 
   /** Marks one notification read and reconciles every counter it appears in. */
@@ -262,26 +281,21 @@ export default function NotificationsPage() {
   async function handleRowClick(notification: Notification) {
     void markRead(notification);
 
-    if (!notification.entityType) return;
-    switch (notification.entityType) {
-      case "task":
-        router.push(`/org/${orgId}/tasks`);
-        break;
-      case "assignment":
-        router.push(`/org/${orgId}/my-tasks`);
-        break;
-      case "certification":
-        // Certification notifications are only ever sent to the holder, and the
-        // org-wide page is admin/manager-gated — a staff member following one
-        // there got a 403. Their own list works for every role.
-        router.push(`/org/${orgId}/my-certifications`);
-        break;
-      case "membership":
-        router.push(`/org/${orgId}/members`);
-        break;
-      default:
-        break;
-    }
+    /*
+     * One resolver, shared with the bell.
+     *
+     * This was a switch on `entityType` and the bell had its own, written
+     * separately — so they had drifted apart in both directions, and neither
+     * had a case for `availability` at all, leaving four leave notifications
+     * unclickable. Keying on the TYPE also lets "leave requested" and "leave
+     * approved" go to different pages, which `entityType` cannot express since
+     * both carry "availability".
+     *
+     * `can` is passed in so the destination is chosen against the same
+     * permissions the destination page will check a moment later.
+     */
+    const href = notificationHref(notification.type, orgId, can);
+    if (href) router.push(href);
   }
 
   async function handleMarkAllRead() {
@@ -298,11 +312,11 @@ export default function NotificationsPage() {
       );
       if (!res.ok) throw new Error("Request failed");
       // If the user is filtered to Unread, those rows no longer belong here.
-      if (filter === "unread") fetchFeed(0, false);
+      if (filter === "unread") fetchFeed(null, false);
     } catch {
       setItems(previous);
       setError("Could not mark all as read");
-      fetchFeed(0, false);
+      fetchFeed(null, false);
     }
   }
 
@@ -311,10 +325,18 @@ export default function NotificationsPage() {
   const counts = feed?.counts;
   const countFor = (key: FilterKey) => counts?.[key] ?? 0;
 
+  /*
+   * Falls back to the browser's midnight only before the first response has
+   * landed, when there is nothing to group anyway. Defaulting to it permanently
+   * would quietly reinstate the mismatch this exists to remove.
+   */
+  const todayStart =
+    feed?.todayStart ?? new Date(new Date().setHours(0, 0, 0, 0)).toISOString();
+
   // Group the loaded rows by day, preserving the server's newest-first order.
   const groups: { label: string; items: Notification[] }[] = [];
   for (const item of items) {
-    const label = groupFor(item.createdAt);
+    const label = groupFor(item.createdAt, todayStart);
     const last = groups[groups.length - 1];
     if (last && last.label === label) last.items.push(item);
     else groups.push({ label, items: [item] });
@@ -531,7 +553,7 @@ export default function NotificationsPage() {
                         </p>
                         <p className="mt-1.5 flex items-center gap-2 text-[11px] text-muted-foreground/75">
                           <span className="rounded border border-border px-1.5 text-[9.5px] font-semibold uppercase tracking-wide">
-                            {CATEGORY_LABELS[notification.type] ?? "Update"}
+                            {NOTIFICATION_LABELS[notification.type as NotificationType] ?? "Update"}
                           </span>
                           {timeAgo(notification.createdAt)}
                         </p>
@@ -568,7 +590,7 @@ export default function NotificationsPage() {
           {feed?.hasMore && (
             <div className="flex justify-center pt-1">
               <button
-                onClick={() => fetchFeed(offset + PAGE_SIZE, true)}
+                onClick={() => fetchFeed(items[items.length - 1] ?? null, true)}
                 disabled={loadingMore}
                 className="rounded-lg border border-border bg-card px-4 py-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
               >

@@ -9,7 +9,7 @@
  * - Work-rule limits (max_hours_daily) are picked up, not just the break rule
  */
 import { describe, it, expect, beforeEach } from "vitest";
-import { HourAlertService } from "@/services/hour-alert.service";
+import { ALERT_COOLDOWN_HOURS, HourAlertService } from "@/services/hour-alert.service";
 import { OrganizationRepository } from "@/repositories/organization.repository";
 import { UserRepository } from "@/repositories/user.repository";
 import { TaskRepository } from "@/repositories/task.repository";
@@ -263,5 +263,46 @@ describe("HourAlertService", () => {
       expect(result.alerted[0].membershipId).toBe(staffMembershipId);
       expect(await hourNotifications(staffUserId)).toHaveLength(1);
     });
+  });
+});
+
+/**
+ * The cooldown has to outlast the schedule.
+ *
+ * It was 12 hours while the scan ran daily, so it could never suppress a
+ * scheduled run — a member over a WEEKLY limit on Monday produced a fresh alert
+ * every morning until Sunday, and the manager copy fans out to every admin and
+ * manager in the organisation, so the daily volume was
+ * `at-risk staff × (managers + 1)`.
+ *
+ * Asserted against `vercel.json` rather than a number written here, because a
+ * constant repeating the schedule is exactly how the two came to disagree.
+ */
+describe("the alert cooldown and the cron schedule", () => {
+  it("is longer than the interval between scheduled scans", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const vercel = JSON.parse(
+      readFileSync(join(process.cwd(), "vercel.json"), "utf8")
+    ) as { crons: { path: string; schedule: string }[] };
+
+    const cron = vercel.crons.find((c) => c.path === "/api/cron");
+    expect(cron, "no /api/cron entry in vercel.json").toBeTruthy();
+
+    // "m h dom mon dow". Only the daily shape is interpreted; anything else
+    // fails loudly rather than being guessed at.
+    const [minute, hour, dom, mon, dow] = cron!.schedule.split(" ");
+    expect(
+      [dom, mon, dow].every((f) => f === "*") &&
+        !minute.includes("*") &&
+        !hour.includes("*"),
+      `cooldown check only understands a daily schedule, got "${cron!.schedule}"`
+    ).toBe(true);
+
+    const intervalHours = 24;
+    expect(
+      ALERT_COOLDOWN_HOURS,
+      "a cooldown shorter than the schedule suppresses nothing"
+    ).toBeGreaterThan(intervalHours);
   });
 });

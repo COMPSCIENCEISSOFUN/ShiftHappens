@@ -41,6 +41,7 @@ import {
 } from "@/lib/composition-rules";
 import { occupiesSlot } from "@/lib/assignment-status";
 import { isDepartmentInScope } from "@/lib/department-scope";
+import { acceptsAssignments } from "@/lib/task-status";
 import { aiTimeoutSignal, hasApiKey } from "@/lib/ai-limits";
 import { FallbackRanker } from "@/services/fallback-ranker";
 import { availabilityFit, certificationRelevance } from "@/lib/ranking-inputs";
@@ -1300,12 +1301,27 @@ Use the exact task numbers (1, 2, 3...) and staff letters (A, B, C...) from abov
       this.taskRepo.findManyByIdsInOrg(draftTaskIds, organizationId),
       this.membershipRepo.findManyByIdsInOrg(draftMembershipIds, organizationId),
     ]);
-    const inScopeTasks =
+    /*
+     * Scope, and then state.
+     *
+     * A draft is generated from tasks with `status: "open"`, but it is confirmed
+     * later — sometimes days later — and a shift cancelled in between is still
+     * named in the draft rows the client sends back. Dropping it here rather
+     * than writing the assignment matches `assignStaff`, which refuses the same
+     * thing on the single-assignment path; the two used to disagree, and this
+     * is exactly the window where the disagreement showed.
+     *
+     * Filtered out rather than reported as a rejection: the shift being called
+     * off is not something the manager confirming the week did wrong, and it
+     * would land in a list headed as refusals.
+     */
+    const inScopeTasks = (
       departmentScope === undefined || departmentScope === null
         ? ownTasks
         : ownTasks.filter((t) =>
             isDepartmentInScope(t.departmentId, departmentScope)
-          );
+          )
+    ).filter((t) => acceptsAssignments(t.status));
     const ownTaskIds = new Set(inScopeTasks.map((t) => t.id));
     const ownMemberIds = new Set(ownMembers.map((m) => m.id));
     const taskById = new Map(inScopeTasks.map((t) => [t.id, t]));

@@ -243,11 +243,17 @@ export class TaskRepository {
       // `departmentId` and the scheduled window because a scoped caller must be
       // refused rows outside their departments, and because the person-level
       // re-check at confirm needs to know when each shift actually runs.
+      //
+      // `status` because a draft is generated from open tasks and confirmed
+      // later — sometimes days later — so a shift cancelled in between is still
+      // named in the rows the client sends back, and writing an assignment onto
+      // it would contradict the cancellation.
       select: {
         id: true,
         requiredHeadcount: true,
         compositionRules: true,
         departmentId: true,
+        status: true,
         title: true,
         scheduledStart: true,
         scheduledEnd: true,

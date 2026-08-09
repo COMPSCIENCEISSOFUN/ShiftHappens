@@ -36,6 +36,7 @@ import type { CreateCertificationInput } from "@/lib/validations";
 import {
   EXPIRY_WARNING_DAYS,
   REJECTION_REASON_LABELS,
+  isExpiryNotifyDay,
 } from "@/lib/certification-display";
 
 // The warning window and the reason labels are shared with the certification
@@ -336,8 +337,21 @@ export class CertificationService {
    * expires, so without this a staff member simply stops being offered work
    * they are qualified for and nobody knows why.
    *
-   * Idempotent within a day: `wasNotifiedSince` suppresses a repeat for the
-   * same certificate, so extra cron runs are harmless.
+   * ## Once a day was the bug, not the guarantee
+   *
+   * `wasNotifiedSince` still suppresses a repeat within the same day, so extra
+   * cron runs remain harmless — but that was the ONLY limit, and the scan runs
+   * daily, so a certificate entering the 30-day window produced roughly thirty
+   * notifications. The docstring described that as idempotent, which it was,
+   * and it was still a month of identical morning messages.
+   *
+   * Now the member is told at the marks in `EXPIRY_NOTIFY_DAYS` — a month out,
+   * a fortnight, a week, then three days, one, and the day itself — so the
+   * warning tightens as it approaches costing them their eligibility and says
+   * nothing in between. Five or six messages instead of thirty.
+   *
+   * A certificate whose expiry falls between two runs is not skipped: the marks
+   * are checked against days REMAINING, and the daily scan visits every day.
    */
   async notifyExpiring(
     organizationId: string,
@@ -350,15 +364,6 @@ export class CertificationService {
     for (const cert of expiring) {
       const userId = cert.membership.userId;
 
-      const already = await this.notificationService.wasNotifiedSince(
-        userId,
-        organizationId,
-        NOTIFICATION_TYPES.CERT_EXPIRING,
-        since,
-        cert.id
-      );
-      if (already) continue;
-
       const daysLeft = cert.expiryDate
         ? Math.max(
             0,
@@ -369,6 +374,19 @@ export class CertificationService {
             )
           )
         : null;
+
+      // Computed BEFORE the dedupe query, so a day that is not a mark costs no
+      // database round trip at all — on a normal morning that is every row.
+      if (!isExpiryNotifyDay(daysLeft)) continue;
+
+      const already = await this.notificationService.wasNotifiedSince(
+        userId,
+        organizationId,
+        NOTIFICATION_TYPES.CERT_EXPIRING,
+        since,
+        cert.id
+      );
+      if (already) continue;
 
       await this.notificationService.notifyIfEnabled(
         organizationId,

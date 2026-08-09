@@ -163,18 +163,21 @@ describe("assigned members are always evaluated", () => {
 
 /* ------------------------------------------------------------------ */
 
-describe("the manager is warned after a department change", () => {
+describe("the manager is warned when an edit strands somebody", () => {
   it("reports an assigned member who no longer fits", async () => {
-    // Before the fix this was the worst case: the check ran on exactly this
-    // update, found nobody to look at, and said nothing.
     const t = await task(tenant.departmentId);
     await assign(t.id, tenant.staff.membershipId);
+    // Full-time, so an unwritten day reads as open and they fit the shift as
+    // created. The notifier reports who this EDIT stranded, so a member who was
+    // already ineligible would prove nothing.
     await prisma.membership.update({
       where: { id: tenant.staff.membershipId },
-      data: { employmentType: "casual" },
+      data: { employmentType: "full_time" },
     });
 
-    await taskService.update(t.id, tenant.orgId, { departmentId: otherDept });
+    await taskService.update(t.id, tenant.orgId, {
+      requiredCertifications: ["Food Safety Level 2"],
+    });
 
     // Fire-and-forget, so give the notification a moment to land.
     await vi.waitFor(async () => {
@@ -253,13 +256,25 @@ describe("widening does not leak into suggestions", () => {
 /* ------------------------------------------------------------------ */
 
 describe("which edits trigger the managers' check", () => {
-  /** Assigns a casual member with no availability — ineligible on any shift. */
-  async function strandedAssignment(departmentId: string | null = tenant.departmentId) {
+  /**
+   * A member who FITS the shift as created, so an edit can strand them.
+   *
+   * This used to be the opposite — a casual with no availability, ineligible on
+   * any shift, named `strandedAssignment`. That worked while the notifier
+   * reported everyone currently ineligible, and stopped working the moment it
+   * started reporting only people the EDIT stranded: a member who was already
+   * ineligible before the change is not news about the change.
+   *
+   * Full-time, because an unwritten day reads as open for them, so they are
+   * available for the shift `task()` creates without having to seed seven
+   * availability rows per test.
+   */
+  async function fittingAssignment(departmentId: string | null = tenant.departmentId) {
     const t = await task(departmentId);
     await assign(t.id, tenant.staff.membershipId);
     await prisma.membership.update({
       where: { id: tenant.staff.membershipId },
-      data: { employmentType: "casual" },
+      data: { employmentType: "full_time" },
     });
     return t;
   }
@@ -269,31 +284,48 @@ describe("which edits trigger the managers' check", () => {
   }
 
   it("fires on a schedule change", async () => {
-    const t = await strandedAssignment();
-    const { start, end } = future(14);
-
+    const t = await fittingAssignment();
+    // Stretched to 23 hours, well past the organisation's 8-hour working day.
+    // The member fitted the shift as created and cannot fit this one, which is
+    // exactly what the managers need telling about.
+    const { start } = future(14);
     await taskService.update(t.id, tenant.orgId, {
       scheduledStart: start.toISOString(),
-      scheduledEnd: end.toISOString(),
+      scheduledEnd: new Date(start.getTime() + 23 * 3_600_000).toISOString(),
     });
 
     await vi.waitFor(async () => expect(await alertCount()).toBeGreaterThan(0));
   });
 
-  it("fires on a department change", async () => {
-    // Was silent before: the trigger hung off the schedule alone, so moving a
-    // task between departments — which swaps the work rules that apply — went
-    // unchecked.
-    const t = await strandedAssignment();
+  /*
+   * A department change runs the check and, as the engine stands, can never
+   * find anybody newly stranded.
+   *
+   * The trigger was added on the reasoning that moving a task between
+   * departments "swaps the work rules that apply". It does not:
+   * `filterApplicableRules` matches a rule's `departmentId` against the
+   * MEMBER's departments, not the task's, so moving the task changes which
+   * rules apply to nobody. Nor does it change availability, certificates, hours
+   * or conflicts — and the engine deliberately keeps evaluating members who are
+   * already assigned, so the department filter does not drop them either.
+   *
+   * Kept as a trigger anyway: it costs one eligibility run on an uncommon edit,
+   * and the day department-targeted rules key off the task instead, this is
+   * already wired. Asserted as SILENCE rather than deleted, so that day shows
+   * up here as a failing test rather than as a surprise.
+   */
+  it("runs on a department change and finds nobody newly stranded", async () => {
+    const t = await fittingAssignment();
 
     await taskService.update(t.id, tenant.orgId, { departmentId: otherDept });
 
-    await vi.waitFor(async () => expect(await alertCount()).toBeGreaterThan(0));
+    await pauseForAbsence(300); // absence — see helpers/settle
+    expect(await alertCount()).toBe(0);
   });
 
   it("fires when the required certifications change", async () => {
     // The third way to strand someone: demand a qualification they lack.
-    const t = await strandedAssignment();
+    const t = await fittingAssignment();
 
     await taskService.update(t.id, tenant.orgId, {
       requiredCertifications: ["Food Safety Level 2"],
@@ -302,10 +334,35 @@ describe("which edits trigger the managers' check", () => {
     await vi.waitFor(async () => expect(await alertCount()).toBeGreaterThan(0));
   });
 
+  /*
+   * The other half of the same rule, and the one that used to be missing: an
+   * edit that changes eligibility but strands NOBODY NEW must also be silent.
+   * Without this, "fires on a certifications change" passes just as well
+   * against a notifier that alerts on every edit regardless.
+   */
+  it("stays quiet when the same person was already stranded", async () => {
+    const t = await fittingAssignment();
+    // Strand them first, and let that alert land.
+    await taskService.update(t.id, tenant.orgId, {
+      requiredCertifications: ["Food Safety Level 2"],
+    });
+    await vi.waitFor(async () => expect(await alertCount()).toBeGreaterThan(0));
+    const afterFirst = await alertCount();
+
+    // A second edit to the same requirement. They are no worse off than they
+    // were a moment ago, so there is nothing to say.
+    await taskService.update(t.id, tenant.orgId, {
+      requiredCertifications: ["Food Safety Level 2", "First Aid"],
+    });
+    await pauseForAbsence(300);
+
+    expect(await alertCount()).toBe(afterFirst);
+  });
+
   it("stays quiet for an edit that cannot affect eligibility", async () => {
     // Renaming a shift changes nothing about who can work it. Alerting here
     // would train managers to ignore the notification.
-    const t = await strandedAssignment();
+    const t = await fittingAssignment();
 
     await taskService.update(t.id, tenant.orgId, { title: "Evening shift (busy)" });
 
@@ -337,7 +394,7 @@ describe("which edits trigger the managers' check", () => {
   it("stays quiet when the task is being cancelled", async () => {
     // The assignments are moot — warning that a cancelled shift's staff are
     // ineligible is noise about something nobody needs to act on.
-    const t = await strandedAssignment();
+    const t = await fittingAssignment();
 
     await taskService.update(t.id, tenant.orgId, { status: "cancelled" });
 

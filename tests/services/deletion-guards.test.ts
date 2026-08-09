@@ -426,3 +426,84 @@ describe("permissions the plan cannot honour", () => {
     expect(catalogue.length).toBeGreaterThan(0);
   });
 });
+
+/**
+ * A cancelled shift stops taking people.
+ *
+ * The counterpart to the guard above. `delete` refuses a task with assignments
+ * and cancels it instead, so the record survives as "this was real and is not
+ * happening" — and then `assignStaff` would happily roster somebody onto it,
+ * because it checked seven things about the member and nothing about the task.
+ */
+describe("assigning to a task that is no longer open", () => {
+  it("refuses a cancelled shift, and says how to undo it", async () => {
+    const task = await prisma.task.create({
+      data: {
+        organizationId: tenant.orgId,
+        departmentId: tenant.departmentId,
+        title: "Cancelled shift",
+        requiredHeadcount: 1,
+        status: "cancelled",
+        createdById: tenant.admin.userId,
+      },
+    });
+
+    await expect(
+      tasks.assignStaff(
+        task.id,
+        tenant.orgId,
+        [tenant.staff.membershipId],
+        tenant.admin.userId
+      )
+    ).rejects.toThrow(/cancelled/i);
+  });
+
+  it("refuses a completed shift", async () => {
+    const task = await prisma.task.create({
+      data: {
+        organizationId: tenant.orgId,
+        departmentId: tenant.departmentId,
+        title: "Finished shift",
+        requiredHeadcount: 1,
+        status: "completed",
+        createdById: tenant.admin.userId,
+      },
+    });
+
+    await expect(
+      tasks.assignStaff(
+        task.id,
+        tenant.orgId,
+        [tenant.staff.membershipId],
+        tenant.admin.userId
+      )
+    ).rejects.toThrow(/completed/i);
+  });
+
+  /*
+   * Cover arriving mid-shift is ordinary and must still work — the guard is
+   * about terminal states, not about "not open". Without this the two above
+   * would pass just as well against a rule that refused everything but `open`.
+   */
+  it("still allows a shift already in progress", async () => {
+    const task = await prisma.task.create({
+      data: {
+        organizationId: tenant.orgId,
+        departmentId: tenant.departmentId,
+        title: "Running shift",
+        requiredHeadcount: 1,
+        status: "in_progress",
+        createdById: tenant.admin.userId,
+      },
+    });
+
+    await expect(
+      tasks.assignStaff(
+        task.id,
+        tenant.orgId,
+        [tenant.staff.membershipId],
+        tenant.admin.userId
+      )
+    ).resolves.toBeDefined();
+  });
+});
