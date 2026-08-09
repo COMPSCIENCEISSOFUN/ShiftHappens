@@ -26,6 +26,8 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Archive, CheckCheck, Loader2, Lock, RefreshCw, Search, SquarePen, Trash2, Users } from "lucide-react";
 import { StatTile } from "@/components/ui/stat-tile";
 import { usePermissions } from "@/components/layout/permission-provider";
+import { usePlan } from "@/components/layout/plan-provider";
+import { LimitNotice } from "@/components/ui/plan-gate";
 import { DEPARTMENT_LIST_READERS } from "@/lib/permissions";
 import { PRIMARY_BUTTON, SECONDARY_BUTTON } from "@/components/ui/button-styles";
 import { cn } from "@/lib/utils";
@@ -398,6 +400,7 @@ export default function DepartmentsPage() {
    * are held to everywhere else.
    */
   const { can, canAny } = usePermissions();
+  const plan = usePlan();
   const canCreate = can("departments:create");
   const canUpdate = can("departments:update");
   const canDelete = can("departments:delete");
@@ -718,12 +721,17 @@ export default function DepartmentsPage() {
           </p>
         </div>
         {canCreate && (
-          <button
-            onClick={() => setShowCreate(!showCreate)}
-            className={showCreate ? SECONDARY_BUTTON : PRIMARY_BUTTON}
-          >
-            {showCreate ? "Cancel" : "+ New Department"}
-          </button>
+          <div className="flex items-center gap-2.5">
+            <LimitNotice resource="departments" noun="departments" />
+            {/* Disabled at the cap, not refused on save. Cancel stays live. */}
+            <button
+              onClick={() => setShowCreate(!showCreate)}
+              disabled={!showCreate && plan.atLimit("departments")}
+              className={`${showCreate ? SECONDARY_BUTTON : PRIMARY_BUTTON} disabled:cursor-not-allowed disabled:opacity-50`}
+            >
+              {showCreate ? "Cancel" : "+ New Department"}
+            </button>
+          </div>
         )}
       </div>
 

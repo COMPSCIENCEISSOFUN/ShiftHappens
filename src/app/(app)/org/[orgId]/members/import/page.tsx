@@ -20,6 +20,8 @@ import { AlertBanner } from "@/components/ui/alert-banner";
 import { StatTile } from "@/components/ui/stat-tile";
 import { EmptyState } from "@/components/ui/empty-state";
 import { usePermissions } from "@/components/layout/permission-provider";
+import { usePlan } from "@/components/layout/plan-provider";
+import { PlanLocked } from "@/components/ui/plan-gate";
 import { Download, Lock, Upload } from "lucide-react";
 import * as XLSX from "xlsx";
 import {
@@ -91,6 +93,7 @@ export default function MemberImportPage() {
 
   // ─── State ──────────────────────────────────────────────────
   const { can } = usePermissions();
+  const plan = usePlan();
   const [phase, setPhase] = useState<Phase>("upload");
   const [departments, setDepartments] = useState<Department[]>([]);
   const [memberLimit, setMemberLimit] = useState<number | null>(null);
@@ -734,6 +737,30 @@ export default function MemberImportPage() {
         icon={Lock}
         title="You don't have access to member import"
         description="Importing members requires the Invite members permission. Ask a company admin if you need it."
+      />
+    );
+  }
+
+  /*
+   * The plan, checked here rather than at submit.
+   *
+   * `POST /members/import` refuses without `mass_import` and always has. The
+   * page did not, so a Free organisation could upload a spreadsheet, map every
+   * column, review a validated preview of a hundred rows, and be told at the
+   * final button that the feature needs Pro. The enforcement was right and the
+   * order was wrong — the whole cost of the feature was spent before the
+   * refusal.
+   *
+   * After the permission check, for the same reason as the Roles page: somebody
+   * who cannot invite members at all should be told that, not offered a plan.
+   */
+  if (!plan.has("mass_import")) {
+    return (
+      <PlanLocked
+        feature="mass_import"
+        title="Bulk imports"
+        description="They add a whole team from one spreadsheet instead of inviting people one at a time."
+        orgId={orgId}
       />
     );
   }

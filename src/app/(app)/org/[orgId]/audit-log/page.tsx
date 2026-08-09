@@ -17,6 +17,8 @@ import { PageLoading } from "@/components/ui/page-loading";
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { EmptyState } from "@/components/ui/empty-state";
 import { usePermissions } from "@/components/layout/permission-provider";
+import { usePlan } from "@/components/layout/plan-provider";
+import { PlanLocked } from "@/components/ui/plan-gate";
 
 interface AuditEntry {
   id: string;
@@ -92,6 +94,8 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   "certification.rejected": "Certification rejected",
   "certification.revoked": "Certification revoked",
   "certification.withdrawn": "Certification withdrawn",
+  "certification_type.added": "Certificate added to list",
+  "certification_type.removed": "Certificate removed from list",
   "work_rule.created": "Work rule created",
   "work_rule.updated": "Work rule updated",
   "work_rule.deleted": "Work rule deleted",
@@ -131,6 +135,8 @@ function actionColor(action: string): string {
 
 export default function AuditLogPage() {
   const { can } = usePermissions();
+  const plan = usePlan();
+  const planIncludesAuditLog = plan.has("audit_log");
 
   const params = useParams();
   const orgId = params.orgId as string;
@@ -190,9 +196,13 @@ export default function AuditLogPage() {
   }
 
   useEffect(() => {
+    // Nothing to ask for when the plan does not include the feature — the
+    // route would answer 403, and the page already knows that before its
+    // first render.
+    if (!planIncludesAuditLog) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronising with an external system, which is what effects are for: loads the log from the server on mount and whenever the filters change
     fetchLogs();
-  }, [orgId, offset, filterAction, filterEntity]);
+  }, [orgId, offset, filterAction, filterEntity, planIncludesAuditLog]);
 
 
   const totalPages = Math.ceil(total / limit);
@@ -206,21 +216,37 @@ export default function AuditLogPage() {
    * Not a security boundary. The routes enforce this independently; this
    * is so the product does not offer what it will refuse.
    */
-  if (planRefusal) {
-    return (
-      <div className="w-full">
-        <EmptyState
-          title="The audit log is an Enterprise feature"
-          description={planRefusal}
-        />
-      </div>
-    );
-  }
-
   if (!can("audit:view")) {
     return (
       <div className="w-full">
         <EmptyState title="The audit log is available to company admins" description="It records every change made in the organisation, so access is kept narrow." />
+      </div>
+    );
+  }
+
+  /*
+   * Permission first, then plan — the reverse of the order the route guard
+   * uses, and deliberately.
+   *
+   * The guard checks the plan first because that decides the STATUS CODE. A
+   * page is deciding what to SAY, and the two questions have different best
+   * answers: telling a member without `audit:view` that they need Enterprise
+   * names a plan they cannot buy and would still not get in, while hiding the
+   * real reason.
+   *
+   * Both checks stay. `plan.has` is known before the first render, so the page
+   * no longer fires a request it knows will be refused; `planRefusal` is the
+   * SERVER's answer, kept because if the two ever disagree the server wins.
+   */
+  if (!plan.has("audit_log") || planRefusal) {
+    return (
+      <div className="w-full">
+        <PlanLocked
+          feature="audit_log"
+          title="Audit logs"
+          description="Every change in the organisation is recorded either way — this is what lets you read them."
+          orgId={orgId}
+        />
       </div>
     );
   }

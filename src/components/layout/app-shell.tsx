@@ -28,6 +28,8 @@
  */
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { PermissionProvider } from "@/components/layout/permission-provider";
+import { PlanProvider } from "@/components/layout/plan-provider";
+import type { SubscriptionTier } from "@/lib/subscription-tiers";
 
 export interface AppShellProps {
   user: { name: string | null; email: string };
@@ -39,6 +41,14 @@ export interface AppShellProps {
   customRoleLabel?: string;
   /** The caller's effective permissions IN `orgId`, never in some other org. */
   permissions: string[];
+  /**
+   * The organisation's plan.
+   *
+   * Defaulted rather than required, because the org-agnostic pages that render
+   * this chrome have no plan to report. Free is the restricted end, so a
+   * missing value hides tier-gated links rather than offering them.
+   */
+  tier?: SubscriptionTier;
   children: React.ReactNode;
 }
 
@@ -50,9 +60,17 @@ export function AppShell({
   employmentType,
   customRoleLabel,
   permissions,
+  tier = "free",
   children,
 }: AppShellProps) {
   return (
+    /*
+      The plan wraps the SIDEBAR as well as the page, which the permission
+      context does not need to: the menu hides two tier-gated destinations, and
+      reading that from anywhere else would be a second source for the same
+      answer — the arrangement this component exists to prevent.
+    */
+    <PlanProvider orgId={orgId} tier={tier}>
     <div className="flex min-h-screen">
       <AppSidebar
         user={user}
@@ -75,5 +93,6 @@ export function AppShell({
         </PermissionProvider>
       </main>
     </div>
+    </PlanProvider>
   );
 }

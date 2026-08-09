@@ -51,6 +51,10 @@ import { OrganizationService } from "@/services/organization.service";
 import { ProfileService } from "@/services/profile.service";
 import { RoleService } from "@/services/role.service";
 import { AppShell } from "@/components/layout/app-shell";
+import {
+  SUBSCRIPTION_TIERS,
+  type SubscriptionTier,
+} from "@/lib/subscription-tiers";
 import { OrgSuspendedBanner } from "@/components/layout/org-suspended-banner";
 
 const accessService = new AccessService();
@@ -116,6 +120,21 @@ export default async function OrgLayout({
       }
       customRoleLabel={customRoleLabel}
       permissions={permissions}
+      /*
+       * The plan, from the organisation this layout already loaded for the
+       * suspension check — so it costs no query and is correct on the first
+       * paint. The sidebar used to fetch it, which meant every page load
+       * briefly offered two links the plan did not include.
+       *
+       * Validated rather than cast: the column is a plain string, and an
+       * unrecognised value must fall back to the RESTRICTED end. Trusting it
+       * would let a typo in the database unlock Enterprise features.
+       */
+      tier={
+        SUBSCRIPTION_TIERS.includes(org.subscriptionTier as SubscriptionTier)
+          ? (org.subscriptionTier as SubscriptionTier)
+          : "free"
+      }
     >
       {children}
     </AppShell>

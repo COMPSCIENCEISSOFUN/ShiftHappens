@@ -58,6 +58,8 @@ import {
   DANGER_GHOST_BUTTON,
 } from "@/components/ui/button-styles";
 import { usePermissions } from "@/components/layout/permission-provider";
+import { usePlan } from "@/components/layout/plan-provider";
+import { LimitNotice } from "@/components/ui/plan-gate";
 
 /* ------------------------------------------------------------------ */
 /*  Types and constants                                                */
@@ -88,21 +90,36 @@ interface Department {
   name: string;
 }
 
+/*
+ * Two kinds of rule wearing one name.
+ *
+ * `break_interval` is about REST — time off between shifts. The other two are
+ * about TOTAL HOURS. They were all described as though they were the same kind
+ * of thing ("cap hours in a single day"), which left an admin unable to tell
+ * why one of them asked for two numbers and the others asked for one.
+ *
+ * The daily one also needs saying out loud that its "day" is the business day,
+ * which starts at the organisation's opening hour rather than at midnight —
+ * that is what `operatingHoursStart` means, and a rule measuring a window
+ * nobody expects is worse than no rule.
+ */
 const RULE_TYPES = [
   {
     value: "break_interval",
     label: "Break interval",
-    description: "Require time off between shifts, after a long one",
+    description:
+      "Rest between shifts. After someone works a long shift, they need a set number of hours off before the next one.",
   },
   {
     value: "max_hours_daily",
     label: "Max hours (daily)",
-    description: "Cap hours in a single day",
+    description:
+      "A ceiling on hours in one business day, which starts at your opening hour rather than at midnight.",
   },
   {
     value: "max_hours_weekly",
     label: "Max hours (weekly)",
-    description: "Cap hours across a week",
+    description: "A ceiling on hours across one business week.",
   },
 ];
 
@@ -131,6 +148,7 @@ const SELECT_CLASS =
 
 export default function WorkRulesPage() {
   const { can } = usePermissions();
+  const plan = usePlan();
   const params = useParams();
   const orgId = params.orgId as string;
 
@@ -400,27 +418,47 @@ export default function WorkRulesPage() {
           <h2 className="text-xl font-bold tracking-tight sm:text-2xl">
             Work Rules
           </h2>
+          {/*
+            Says where the OTHER hours limit lives.
+
+            An organisation-wide daily cap sits in Settings under "Working day",
+            and these rules are checked on top of it — so an admin who set 8
+            there and is refused by a rule saying 6 has no way, from either
+            screen, to see that both were consulted. Naming it here and naming
+            these there is the cheap half of the fix; merging the two is a
+            change to the eligibility engine and was deliberately not made.
+          */}
           <p className="mt-0.5 text-[13px] text-muted-foreground">
-            Break intervals and hour limits. Staff who would breach a rule are
-            marked ineligible when you assign work
+            Rest between shifts, and ceilings on total hours. Anyone who would
+            breach a rule is marked ineligible when you assign work.
+          </p>
+          <p className="mt-1 text-[12px] text-muted-foreground">
+            These are checked <em>in addition to</em> the organisation-wide daily
+            limit in Settings &rarr; Working day. Rules can be narrowed to one
+            department or role; the setting always applies to everybody.
           </p>
         </div>
-        <button
-          onClick={() => (showForm ? closeForm() : openCreateForm())}
-          className={showForm ? SECONDARY_BUTTON : PRIMARY_BUTTON}
-        >
-          {showForm ? (
-            <>
-              <X className="h-3.5 w-3.5" aria-hidden="true" />
-              Cancel
-            </>
-          ) : (
-            <>
-              <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-              New Rule
-            </>
-          )}
-        </button>
+        <div className="flex items-center gap-2.5">
+          <LimitNotice resource="work_rules" noun="rules" />
+          {/* Disabled at the cap, not refused on save. Cancel stays live. */}
+          <button
+            onClick={() => (showForm ? closeForm() : openCreateForm())}
+            disabled={!showForm && plan.atLimit("work_rules")}
+            className={`${showForm ? SECONDARY_BUTTON : PRIMARY_BUTTON} disabled:cursor-not-allowed disabled:opacity-50`}
+          >
+            {showForm ? (
+              <>
+                <X className="h-3.5 w-3.5" aria-hidden="true" />
+                Cancel
+              </>
+            ) : (
+              <>
+                <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                New Rule
+              </>
+            )}
+          </button>
+        </div>
       </div>
 
       {/* ── Stat tiles ── */}
