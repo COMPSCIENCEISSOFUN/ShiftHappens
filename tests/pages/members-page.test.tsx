@@ -29,8 +29,17 @@ vi.mock("next/navigation", () => ({
 // The page renders a "you don't have access" state without these, so the mock
 // grants everything — what is under test is which ROLES the page counts and
 // asks about, not who may see it.
+//
+// `editable` is for the one case that needs a reader who may look but not
+// change: `canAny` still answers true, or the page would refuse them entirely.
+let editable = true;
 vi.mock("@/components/layout/permission-provider", () => ({
-  usePermissions: () => ({ can: () => true, canAny: () => true, loading: false }),
+  usePermissions: () => ({
+    can: (permission: string) =>
+      editable || !permission.startsWith("members:"),
+    canAny: () => true,
+    loading: false,
+  }),
 }));
 
 function member(overrides: Record<string, unknown> = {}) {
@@ -64,6 +73,7 @@ function mockApi(members: unknown[]) {
 }
 
 beforeEach(() => {
+  editable = true;
   vi.restoreAllMocks();
 });
 
@@ -250,5 +260,185 @@ describe("the invite form asks everyone who can be rostered", () => {
       role: "manager",
       employmentType: "full_time",
     });
+  });
+});
+
+/**
+ * What the page says when an edit fails.
+ *
+ * Four handlers each did `const r = await res.json()` and fell back to a bare
+ * "Something went wrong". That covers two completely different situations — the
+ * server refused and said why, or the response was not JSON at all — and
+ * reported them identically, so a refusal somebody could act on looked the same
+ * as a dev server that had failed to recompile.
+ */
+describe("a failed edit says which fault occurred", () => {
+  function apiThatFails(response: Partial<Response> & { json: () => Promise<unknown> }) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init?: RequestInit) => {
+        if (init?.method === "PATCH") {
+          return Promise.resolve(response as Response);
+        }
+        const body = String(url).includes("/members/seniority")
+          ? []
+          : String(url).includes("/members")
+            ? [member({ role: "manager" })]
+            : [];
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve(body),
+        } as Response);
+      })
+    );
+  }
+
+  async function openDrawerAndToggleRole() {
+    render(<MembersPage />);
+    await screen.findAllByText("Alex Rivera");
+    await userEvent.click(screen.getAllByRole("button", { name: /edit/i })[0]);
+    await userEvent.selectOptions(screen.getByLabelText("Role"), "staff");
+  }
+
+  it("shows the server's own reason when there is one", async () => {
+    apiThatFails({
+      ok: false,
+      status: 403,
+      json: () => Promise.resolve({ error: "You cannot change your own role" }),
+    });
+
+    await openDrawerAndToggleRole();
+
+    expect(
+      await screen.findByText("You cannot change your own role")
+    ).toBeInTheDocument();
+  });
+
+  /*
+   * The case that produced an unactionable message. A 500 carrying an HTML
+   * error page — a build failure, a proxy timeout — made `res.json()` throw,
+   * and the catch reported it as "Something went wrong", which points nowhere.
+   */
+  it("says the response was unreadable rather than blaming nothing in particular", async () => {
+    apiThatFails({
+      ok: false,
+      status: 500,
+      json: () => Promise.reject(new SyntaxError("Unexpected token <")),
+    });
+
+    await openDrawerAndToggleRole();
+
+    const message = await screen.findByText(/no readable error/i);
+    expect(message.textContent).toContain("500");
+    expect(screen.queryByText("Something went wrong")).not.toBeInTheDocument();
+  });
+
+  // A refusal with a status but no `error` field still names the status, so the
+  // reader has something to quote.
+  it("falls back to the status code when the body says nothing", async () => {
+    apiThatFails({ ok: false, status: 409, json: () => Promise.resolve({}) });
+
+    await openDrawerAndToggleRole();
+
+    expect(await screen.findByText(/\(409\)/)).toBeInTheDocument();
+  });
+});
+
+/**
+ * The Actions column, and where its job went.
+ *
+ * Every row carried one button, "Edit", opening the drawer the row already
+ * opened on click — a whole column, on every row, duplicating the row itself.
+ *
+ * It was not decoration, though, and that is the part worth pinning. Its
+ * comment said so: a `<tr onClick>` cannot be reached by keyboard, and making
+ * the row focusable turns every cell into a tab stop. The button WAS the
+ * keyboard path. Deleting the column without moving that job would have made
+ * the drawer — and therefore every edit on this page — mouse-only, which no
+ * screenshot would show.
+ *
+ * The name carries it now. It is where somebody would click anyway.
+ */
+describe("opening a member without an Actions column", () => {
+  it("has no Actions column", async () => {
+    mockApi([member()]);
+    render(<MembersPage />);
+
+    await screen.findAllByText("Alex Rivera");
+    expect(
+      screen.queryByRole("columnheader", { name: /actions/i })
+    ).not.toBeInTheDocument();
+  });
+
+  /*
+   * A button, not a row handler — which is the whole point. `getByRole` only
+   * finds it if it is genuinely focusable and announced as a control, so this
+   * is the keyboard path being asserted rather than described.
+   */
+  it("makes the member's name the control", async () => {
+    mockApi([member()]);
+    render(<MembersPage />);
+
+    await screen.findAllByText("Alex Rivera");
+    expect(
+      screen.getByRole("button", { name: "Edit Alex Rivera" })
+    ).toBeInTheDocument();
+  });
+
+  it("opens the drawer from it", async () => {
+    mockApi([member()]);
+    render(<MembersPage />);
+
+    await screen.findAllByText("Alex Rivera");
+    await userEvent.click(screen.getByRole("button", { name: "Edit Alex Rivera" }));
+
+    expect(
+      screen.getByRole("dialog", { name: "Edit Alex Rivera" })
+    ).toBeInTheDocument();
+  });
+
+  // The actual claim: reachable without a mouse. `userEvent.tab()` walks the
+  // real focus order, so this fails if the name is a <p> with a click handler.
+  it("reaches it by keyboard", async () => {
+    mockApi([member()]);
+    render(<MembersPage />);
+
+    await screen.findAllByText("Alex Rivera");
+    const control = screen.getByRole("button", { name: "Edit Alex Rivera" });
+
+    control.focus();
+    await userEvent.keyboard("{Enter}");
+
+    expect(
+      screen.getByRole("dialog", { name: "Edit Alex Rivera" })
+    ).toBeInTheDocument();
+  });
+
+  /*
+   * Somebody who may READ the member list but change nothing gets plain text.
+   * A control that opens a drawer of disabled fields is an invitation to a
+   * dead end, and the drawer's own guards are about WHICH field, not whether
+   * to be here at all.
+   */
+  it("leaves the name as text for a reader who cannot edit", async () => {
+    editable = false;
+    mockApi([member()]);
+    render(<MembersPage />);
+
+    await screen.findAllByText("Alex Rivera");
+    expect(screen.queryByRole("button", { name: /Edit Alex Rivera/ })).toBeNull();
+  });
+
+  // Falls back to the email, because a member invited but not yet signed up has
+  // no name — and "Edit Unnamed" beside three others says nothing.
+  it("names an unnamed member by their email", async () => {
+    mockApi([member({ user: { id: "u1", name: null, email: "alex@example.com" } })]);
+    render(<MembersPage />);
+
+    await screen.findAllByText("alex@example.com");
+    expect(
+      screen.getByRole("button", { name: "Edit alex@example.com" })
+    ).toBeInTheDocument();
   });
 });

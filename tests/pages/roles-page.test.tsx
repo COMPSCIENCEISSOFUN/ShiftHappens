@@ -25,9 +25,43 @@ vi.mock("next/navigation", () => ({
 }));
 
 let granted = true;
+/*
+ * Which permissions the READER holds, when a test cares.
+ *
+ * Null means "everything", which is the company-admin case and what almost
+ * every test on this page wants. A list is the delegate case: somebody given
+ * `roles:manage` through a custom role, who can open this screen and must not
+ * be offered permissions they do not hold themselves.
+ */
+let held: string[] | null = null;
+/*
+ * The plan, mocked alongside the permissions.
+ *
+ * This page is now behind two gates. Almost every test here is about what the
+ * page SAYS once you are through them, so the default is a plan that includes
+ * custom roles and a usage well under the cap — the tests that care about
+ * either set it themselves.
+ */
+let planTier: "free" | "pro" | "enterprise" = "pro";
+let customRoleUsage = 0;
+vi.mock("@/components/layout/plan-provider", () => ({
+  usePlan: () => ({
+    tier: planTier,
+    tierName: planTier === "free" ? "Free" : planTier === "pro" ? "Pro" : "Enterprise",
+    has: (feature: string) =>
+      planTier !== "free" &&
+      (feature !== "audit_log" || planTier === "enterprise"),
+    requiredTier: () => "pro",
+    limitFor: () => (planTier === "enterprise" ? null : 10),
+    usageOf: () => customRoleUsage,
+    atLimit: () => planTier !== "enterprise" && customRoleUsage >= 10,
+  }),
+}));
+
 vi.mock("@/components/layout/permission-provider", () => ({
   usePermissions: () => ({
-    can: () => granted,
+    can: (permission: string) =>
+      held === null ? granted : granted && held.includes(permission),
     canAny: () => granted,
     loading: false,
   }),
@@ -110,6 +144,9 @@ function newRoleButton() {
 
 beforeEach(() => {
   granted = true;
+  held = null;
+  planTier = "pro";
+  customRoleUsage = 0;
   vi.restoreAllMocks();
 });
 
@@ -366,5 +403,310 @@ describe("who may be here", () => {
       await screen.findByText(/Roles are managed by company admins/)
     ).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Shift Lead" })).toBeNull();
+  });
+});
+
+/**
+ * What a delegate is offered.
+ *
+ * `roles:manage` is delegable, and until now the picker showed the whole
+ * catalogue to whoever held it — so a manager given the role builder could tick
+ * `billing:manage`, save, and hold it on the next request. The refusal lives in
+ * `RoleService.assertMayGrantPermissions`, because the endpoint takes whatever
+ * list of ids it is sent and a disabled checkbox stops a mistake rather than a
+ * request. This is the sign next to that fence.
+ *
+ * Nothing here fires for a company admin, who holds the whole catalogue.
+ */
+describe("permissions the author does not hold", () => {
+  /** The checkbox for a permission, found by the text beside it. */
+  function box(description: string) {
+    return screen
+      .getByText(description)
+      .closest("label")!
+      .querySelector("input") as HTMLInputElement;
+  }
+
+  it("disables the box and says why", async () => {
+    held = ["roles:manage", "tasks:assign"];
+    mockApi([]);
+    render(<RolesPage />);
+
+    await screen.findAllByRole("button", { name: /new role/i });
+    await userEvent.click(newRoleButton());
+
+    expect(box("View, create, update and delete work rules").disabled).toBe(true);
+    expect(screen.getByText(/not yours to grant/i)).toBeInTheDocument();
+  });
+
+  it("leaves the ones they do hold alone", async () => {
+    held = ["roles:manage", "tasks:assign"];
+    mockApi([]);
+    render(<RolesPage />);
+
+    await screen.findAllByRole("button", { name: /new role/i });
+    await userEvent.click(newRoleButton());
+
+    expect(box("Assign staff to tasks").disabled).toBe(false);
+  });
+
+  it("offers an admin the whole catalogue", async () => {
+    mockApi([]);
+    render(<RolesPage />);
+
+    await screen.findAllByRole("button", { name: /new role/i });
+    await userEvent.click(newRoleButton());
+
+    expect(box("View, create, update and delete work rules").disabled).toBe(false);
+    expect(screen.queryByText(/not yours to grant/i)).not.toBeInTheDocument();
+  });
+
+  /*
+   * The server checks only what is being ADDED — removing a permission grants
+   * nobody anything — so a box that is already ticked has to stay clickable
+   * even when the editor does not hold it. Disabling it would refuse an edit
+   * the server would have accepted, and would trap an admin-built role in a
+   * state whoever inherits it cannot reduce.
+   */
+  it("keeps an already-granted one editable so it can be removed", async () => {
+    held = ["roles:manage", "tasks:assign"];
+    mockApi([role({ rolePermissions: [{ permission: ASSIGN }, { permission: RULES }] })]);
+    render(<RolesPage />);
+
+    await screen.findByRole("heading", { name: "Shift Lead" });
+    await userEvent.click(screen.getByRole("button", { name: /edit/i }));
+
+    const rules = box("View, create, update and delete work rules");
+    expect(rules.checked).toBe(true);
+    expect(rules.disabled).toBe(false);
+  });
+
+  // Both reasons can apply at once. "Enterprise plan" is the one the reader can
+  // act on, and two greyed badges on one line say less than either alone.
+  it("prefers the plan badge when a permission is also out of plan", async () => {
+    held = ["roles:manage"];
+    mockApi([]);
+    render(<RolesPage />);
+
+    await screen.findAllByRole("button", { name: /new role/i });
+    await userEvent.click(newRoleButton());
+
+    expect(
+      within(screen.getByText("View audit logs").closest("label")!).getByText(
+        /Enterprise plan/i
+      )
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByText("View audit logs").closest("label")!).queryByText(
+        /not yours to grant/i
+      )
+    ).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * The delete confirmation.
+ *
+ * It said "Anyone currently holding this role loses the permissions it grants"
+ * — true of every custom role ever created, and so no help in deciding whether
+ * to press the button. Two facts change that decision and neither was on
+ * screen: how many people hold it, and whether the reader is one of them.
+ *
+ * The second is the one this was written for. `customRoleId` is
+ * `onDelete: SetNull`, so deleting a role you wear strips it from you as well —
+ * and if `roles:manage` came to you through that role, you have just deleted
+ * your own way back to this page.
+ */
+describe("what the delete confirmation says", () => {
+  it("counts the people who lose the role", async () => {
+    mockApi([role({ memberCount: 3 })]);
+    render(<RolesPage />);
+
+    await screen.findByRole("heading", { name: "Shift Lead" });
+    await userEvent.click(screen.getByRole("button", { name: /delete/i }));
+
+    expect(screen.getByText(/3 members hold this role/)).toBeInTheDocument();
+  });
+
+  it("uses the singular for one", async () => {
+    mockApi([role({ memberCount: 1 })]);
+    render(<RolesPage />);
+
+    await screen.findByRole("heading", { name: "Shift Lead" });
+    await userEvent.click(screen.getByRole("button", { name: /delete/i }));
+
+    expect(screen.getByText(/1 member holds this role/)).toBeInTheDocument();
+  });
+
+  // Nobody wearing it is the safe case, and saying so is what makes the other
+  // two readings mean something.
+  it("says plainly when nobody holds it", async () => {
+    mockApi([role({ memberCount: 0 })]);
+    render(<RolesPage />);
+
+    await screen.findByRole("heading", { name: "Shift Lead" });
+    await userEvent.click(screen.getByRole("button", { name: /delete/i }));
+
+    expect(screen.getByText(/Nobody currently holds this role/)).toBeInTheDocument();
+  });
+
+  it("warns the reader when they hold it themselves", async () => {
+    mockApi([role({ memberCount: 2, heldByCaller: true })]);
+    render(<RolesPage />);
+
+    await screen.findByRole("heading", { name: "Shift Lead" });
+    await userEvent.click(screen.getByRole("button", { name: /delete/i }));
+
+    expect(screen.getByText(/You are one of them/)).toBeInTheDocument();
+  });
+
+  it("does not warn somebody who does not hold it", async () => {
+    mockApi([role({ memberCount: 2, heldByCaller: false })]);
+    render(<RolesPage />);
+
+    await screen.findByRole("heading", { name: "Shift Lead" });
+    await userEvent.click(screen.getByRole("button", { name: /delete/i }));
+
+    expect(screen.queryByText(/You are one of them/)).not.toBeInTheDocument();
+  });
+
+  // The card carries the same figure, so the number is visible before the
+  // dialog rather than only at the moment of committing to it.
+  it("shows the reach on the card as well", async () => {
+    mockApi([role({ memberCount: 3, heldByCaller: true })]);
+    render(<RolesPage />);
+
+    await screen.findByRole("heading", { name: "Shift Lead" });
+    const text = card("Shift Lead").textContent ?? "";
+
+    expect(text).toMatch(/3 members/);
+    expect(text).toMatch(/including you/i);
+  });
+});
+
+/**
+ * The second gate.
+ *
+ * Custom roles are Pro and above, enforced by `enforceFeatureAccess` in the
+ * service — and only there. A Free organisation saw the full builder: fourteen
+ * categories of checkboxes, a working New Role button, a name and description
+ * to fill in. The refusal arrived on save, after all of it.
+ *
+ * The cap is the same defect one step along. Pro allows ten roles and the
+ * eleventh was refused the same way, having already been composed.
+ */
+describe("when the plan does not include custom roles", () => {
+  it("says so instead of showing the builder", async () => {
+    planTier = "free";
+    mockApi([]);
+    render(<RolesPage />);
+
+    expect(await screen.findByText(/need the Pro plan/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /new role/i })).toBeNull();
+  });
+
+  // The tier is named because "Pro" is actionable and "unavailable" is not, and
+  // the reader is told where they stand so the sentence is a comparison.
+  it("names the plan they are on as well as the one they need", async () => {
+    planTier = "free";
+    mockApi([]);
+    render(<RolesPage />);
+
+    expect(await screen.findByText(/on Free/)).toBeInTheDocument();
+  });
+
+  it("offers a way to act on it", async () => {
+    planTier = "free";
+    mockApi([]);
+    render(<RolesPage />);
+
+    expect(await screen.findByRole("link", { name: /view plans/i })).toHaveAttribute(
+      "href",
+      "/org/org1/settings"
+    );
+  });
+
+  /*
+   * The permission check comes FIRST, and this is what pins the order. Telling
+   * somebody without `roles:manage` that they need a better plan names a
+   * purchase that would not let them in either, while hiding the real reason.
+   */
+  it("tells a member without the permission about the permission, not the plan", async () => {
+    planTier = "free";
+    granted = false;
+    mockApi([]);
+    render(<RolesPage />);
+
+    expect(
+      await screen.findByText(/managed by company admins/i)
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/need the Pro plan/i)).toBeNull();
+  });
+});
+
+describe("when the organisation is at its role limit", () => {
+  it("disables New Role rather than refusing on save", async () => {
+    customRoleUsage = 10;
+    mockApi([role()]);
+    render(<RolesPage />);
+
+    await screen.findByRole("heading", { name: "Shift Lead" });
+    expect(newRoleButton()).toBeDisabled();
+  });
+
+  it("shows how many of the allowance are used", async () => {
+    customRoleUsage = 10;
+    mockApi([role()]);
+    render(<RolesPage />);
+
+    await screen.findByRole("heading", { name: "Shift Lead" });
+    expect(screen.getByText(/10 of 10 roles/)).toBeInTheDocument();
+    expect(screen.getByText(/limit reached/)).toBeInTheDocument();
+  });
+
+  // Shown from the first one used, not only when full — a cap you can see
+  // approaching is a decision, one you meet is a refusal.
+  it("shows the figure below the limit too", async () => {
+    customRoleUsage = 3;
+    mockApi([role()]);
+    render(<RolesPage />);
+
+    await screen.findByRole("heading", { name: "Shift Lead" });
+    expect(screen.getByText(/3 of 10 roles/)).toBeInTheDocument();
+    expect(screen.queryByText(/limit reached/)).toBeNull();
+  });
+
+  it("leaves the button alone below the limit", async () => {
+    customRoleUsage = 9;
+    mockApi([role()]);
+    render(<RolesPage />);
+
+    await screen.findByRole("heading", { name: "Shift Lead" });
+    expect(newRoleButton()).toBeEnabled();
+  });
+
+  /*
+   * Editing an existing role is not creating one, and neither is closing a form
+   * that is already open — so being full must not lock the reader out of
+   * changing what they already have.
+   */
+  it("still allows editing a role that exists", async () => {
+    customRoleUsage = 10;
+    mockApi([role()]);
+    render(<RolesPage />);
+
+    await screen.findByRole("heading", { name: "Shift Lead" });
+    expect(screen.getByRole("button", { name: /edit/i })).toBeEnabled();
+  });
+
+  it("says nothing about a limit on an unlimited plan", async () => {
+    planTier = "enterprise";
+    customRoleUsage = 40;
+    mockApi([role()]);
+    render(<RolesPage />);
+
+    await screen.findByRole("heading", { name: "Shift Lead" });
+    expect(screen.queryByText(/of 10 roles/)).toBeNull();
+    expect(newRoleButton()).toBeEnabled();
   });
 });

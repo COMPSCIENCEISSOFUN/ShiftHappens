@@ -287,3 +287,38 @@ describe("getting out of it", () => {
     ).toBeInTheDocument();
   });
 });
+
+/**
+ * Where a refusal appears.
+ *
+ * It rendered as a banner at the top of the PAGE — behind this panel, two
+ * hundred pixels above whatever had just been clicked, and still sitting there
+ * after the drawer was closed and the reader had moved on to somebody else. An
+ * error that outlives the thing it is about reads as a broken page rather than
+ * as a refused action.
+ */
+describe("an error from the last edit", () => {
+  it("is shown inside the drawer", () => {
+    renderDrawer({ error: "You cannot change your own role" });
+
+    expect(
+      screen.getByText("You cannot change your own role")
+    ).toBeInTheDocument();
+  });
+
+  it("shows nothing when there is no error", () => {
+    renderDrawer();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  // Dismissable, because the reader may want to keep editing and the message
+  // has already been read.
+  it("can be dismissed without closing the drawer", async () => {
+    const onDismissError = vi.fn();
+    renderDrawer({ error: "Something went wrong", onDismissError });
+
+    await userEvent.click(screen.getByRole("button", { name: /dismiss/i }));
+
+    expect(onDismissError).toHaveBeenCalled();
+  });
+});

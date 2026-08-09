@@ -30,6 +30,8 @@ import {
 } from "@/lib/seniority";
 import { filterMembers, hasActiveFilters as checkActiveFilters } from "@/lib/member-filters";
 import { usePermissions } from "@/components/layout/permission-provider";
+import { usePlan } from "@/components/layout/plan-provider";
+import { LimitNotice } from "@/components/ui/plan-gate";
 import { MEMBER_LIST_READERS } from "@/lib/permissions";
 import { MemberEditDrawer } from "@/components/members/member-edit-drawer";
 import { PRIMARY_BUTTON, SECONDARY_BUTTON } from "@/components/ui/button-styles";
@@ -104,6 +106,33 @@ function avatarColour(name: string | null): string {
 /* ------------------------------------------------------------------ */
 
 
+
+/**
+ * The reason a request failed, phrased so somebody can act on it.
+ *
+ * Four handlers on this page each did `const r = await res.json()` and fell
+ * back to a bare "Something went wrong" in their catch. That message covers two
+ * completely different situations — the server refused and said why, or the
+ * response was not JSON at all — and reports them identically, so a refusal a
+ * reader could have fixed looks the same as a dev server that failed to
+ * recompile.
+ *
+ * `res.json()` is the part that throws. A 500 carrying an HTML error page, a
+ * proxy timeout, a build error in development: all of them reach the catch
+ * block and none of them are "something went wrong", they are "the server did
+ * not answer in the shape this page expects", which is worth saying because it
+ * points somewhere completely different.
+ */
+async function failureFrom(res: Response, fallback: string): Promise<string> {
+  try {
+    const body = await res.json();
+    if (typeof body?.error === "string") return body.error;
+  } catch {
+    return `${fallback} — the server returned ${res.status} with no readable error. If this persists, check the server logs.`;
+  }
+  return `${fallback} (${res.status})`;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Main Page                                                          */
 /* ------------------------------------------------------------------ */
@@ -130,6 +159,7 @@ export default function MembersPage() {
    */
   const { can, canAny } = usePermissions();
   const canInvite = can("members:invite");
+  const plan = usePlan();
   const canUpdateRole = can("members:update_role");
   const canDeactivate = can("members:deactivate");
   // Its own permission, and a default manager holds it without holding any of
@@ -333,14 +363,19 @@ export default function MembersPage() {
             : undefined,
         }),
       });
+      // Already tolerant of a non-JSON body, unlike the four handlers below —
+      // which is where the shared helper came from.
       const result = await res.json().catch(() => ({}));
-      if (!res.ok) { setError(result.error || "Failed to send invitation"); return; }
+      if (!res.ok) {
+        setError(result.error || `Failed to send invitation (${res.status})`);
+        return;
+      }
       setSuccess(`Invitation sent to ${formData.get("email")}`);
       setShowInvite(false);
       form.reset();
       fetchInvitations();
     } catch {
-      setError("Something went wrong");
+      setError("Could not reach the server. Check your connection and try again.");
     } finally {
       setInviting(false);
     }
@@ -350,9 +385,9 @@ export default function MembersPage() {
     setError(null);
     try {
       const res = await fetch(`/api/organizations/${orgId}/members/${userId}/toggle-status`, { method: "POST" });
-      if (!res.ok) { const r = await res.json(); setError(r.error || "Failed to update status"); return; }
+      if (!res.ok) { setError(await failureFrom(res, "Failed to update status")); return; }
       fetchMembers();
-    } catch { setError("Something went wrong"); }
+    } catch { setError("Could not reach the server. Check your connection and try again."); }
   }
 
   async function onUpdateRole(userId: string, newRole: string, departmentIds?: string[]) {
@@ -365,9 +400,9 @@ export default function MembersPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      if (!res.ok) { const r = await res.json(); setError(r.error || "Failed to update"); return; }
+      if (!res.ok) { setError(await failureFrom(res, "Failed to update")); return; }
       fetchMembers();
-    } catch { setError("Something went wrong"); }
+    } catch { setError("Could not reach the server. Check your connection and try again."); }
   }
 
   /**
@@ -408,9 +443,9 @@ export default function MembersPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ role: member.role, employmentType: empType }),
       });
-      if (!res.ok) { const r = await res.json(); setError(r.error || "Failed to update"); return; }
+      if (!res.ok) { setError(await failureFrom(res, "Failed to update")); return; }
       fetchMembers();
-    } catch { setError("Something went wrong"); }
+    } catch { setError("Could not reach the server. Check your connection and try again."); }
   }
 
   async function onUpdateCustomRole(userId: string, customRoleId: string | null) {
@@ -423,9 +458,9 @@ export default function MembersPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ role: member.role, customRoleId }),
       });
-      if (!res.ok) { const r = await res.json(); setError(r.error || "Failed to update custom role"); return; }
+      if (!res.ok) { setError(await failureFrom(res, "Failed to update custom role")); return; }
       fetchMembers();
-    } catch { setError("Something went wrong"); }
+    } catch { setError("Could not reach the server. Check your connection and try again."); }
   }
 
   // ── Stat counts (always computed from full list, not filtered) ──
@@ -486,14 +521,33 @@ export default function MembersPage() {
           {/* Bulk import is the same endpoint permission as a single invite. */}
           {canInvite && (
             <>
-              <Link href={`/org/${orgId}/members/import`}>
-                <button className="rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-indigo-400 hover:text-foreground">
-                  Import Members
-                </button>
-              </Link>
+              <LimitNotice resource="members" noun="members" />
+              {/*
+                Hidden without the plan, not disabled.
+
+                The rule the sidebar already follows: do not offer what cannot
+                be done. Import has no page to land on without `mass_import` —
+                it would open straight onto its own locked state — so a button
+                here would be a link to a refusal. The plan is still
+                discoverable, on the plans page in Settings, which is where a
+                decision about it is actually made.
+              */}
+              {plan.has("mass_import") && (
+                <Link href={`/org/${orgId}/members/import`}>
+                  <button className="rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-indigo-400 hover:text-foreground">
+                    Import Members
+                  </button>
+                </Link>
+              )}
+              {/*
+                At the member cap, inviting is refused by `enforceResourceLimit`
+                — after the email address has been typed and the role chosen.
+                Cancel stays live: closing a form is not creating anything.
+              */}
               <button
                 onClick={() => setShowInvite(!showInvite)}
-                className={showInvite ? SECONDARY_BUTTON : PRIMARY_BUTTON}
+                disabled={!showInvite && plan.atLimit("members")}
+                className={`${showInvite ? SECONDARY_BUTTON : PRIMARY_BUTTON} disabled:cursor-not-allowed disabled:opacity-50`}
               >
                 {showInvite ? "Cancel" : "+ Invite User"}
               </button>
@@ -519,7 +573,18 @@ export default function MembersPage() {
         <StatTile label="Status" value={activeCount} detail={`${activeCount} active · ${inactiveCount} inactive`} accentColour="rgba(34,197,94,.08)" valueColour="text-green-600 dark:text-green-400" />
       </div>
 
-      {error && <AlertBanner message={error} variant="error" />}
+      {/*
+        Only when the drawer is closed. An edit made inside the drawer reports
+        its refusal in there, next to the control that was refused — a banner up
+        here would be behind the panel and above the fold.
+      */}
+      {error && editingId === null && (
+        <AlertBanner
+          message={error}
+          variant="error"
+          onDismiss={() => setError(null)}
+        />
+      )}
       {success && <AlertBanner message={success} variant="success" />}
 
       {/* ── Search & Filters ── */}
@@ -651,13 +716,12 @@ export default function MembersPage() {
                 <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Seniority</th>
                 <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Department</th>
                 <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Status</th>
-                <th className="px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Actions</th>
               </tr>
             </thead>
             <tbody>
               {filteredMembers.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-10 text-center">
+                  <td colSpan={6} className="px-4 py-10 text-center">
                     <p className="text-sm text-muted-foreground">
                       {hasActiveFilters ? "No members match your filters" : "No members yet"}
                     </p>
@@ -690,7 +754,35 @@ export default function MembersPage() {
                         </div>
                         <div className="min-w-0">
                           <div className="flex items-center gap-1.5">
-                            <p className="truncate text-[13px] font-medium">{member.user.name || "Unnamed"}</p>
+                            {/*
+                              The name IS the control, now that the Actions
+                              column is gone.
+
+                              The row carries an onClick for convenience, and
+                              that is all it can carry: a `<tr onClick>` cannot
+                              be reached by keyboard, and making the row itself
+                              focusable turns every cell into a tab stop. The
+                              Edit button used to be the real control for that
+                              reason — removing the column without moving the
+                              control would have made the drawer mouse-only.
+                              A person's name is where somebody would click
+                              anyway.
+
+                              `aria-label` rather than the bare name, because
+                              "Alex Rivera, button" does not say what pressing
+                              it does.
+                            */}
+                            {canEditAnything ? (
+                              <button
+                                onClick={() => setEditingId(member.id)}
+                                aria-label={`Edit ${member.user.name || member.user.email}`}
+                                className="truncate rounded text-left text-[13px] font-medium underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500"
+                              >
+                                {member.user.name || "Unnamed"}
+                              </button>
+                            ) : (
+                              <p className="truncate text-[13px] font-medium">{member.user.name || "Unnamed"}</p>
+                            )}
                             {isSelf && (
                               <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">you</span>
                             )}
@@ -780,23 +872,6 @@ export default function MembersPage() {
                     </td>
                     <td className="px-4 py-3">
                       <StatusBadge value={member.status} palette="membershipStatus" />
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      {/*
-                        The row is clickable for convenience, but this button is
-                        the real control: a <tr> with an onClick cannot be
-                        reached by keyboard, and "make the row focusable" turns
-                        every cell into a tab stop.
-                      */}
-                      {canEditAnything && (
-                        <button
-                          onClick={() => setEditingId(member.id)}
-                          aria-label={`Edit ${member.user.name || member.user.email}`}
-                          className="rounded-lg border border-border px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:border-indigo-400 hover:text-indigo-600 dark:hover:border-indigo-500 dark:hover:text-indigo-400"
-                        >
-                          Edit
-                        </button>
-                      )}
                     </td>
                   </tr>
                 );
@@ -961,6 +1036,8 @@ export default function MembersPage() {
           <MemberEditDrawer
             orgId={orgId}
             member={editing}
+            error={error}
+            onDismissError={() => setError(null)}
             departments={departments}
             customRoles={customRoles}
             seniority={seniority[editing.id]}
@@ -978,7 +1055,16 @@ export default function MembersPage() {
             onUpdateSeniority={onUpdateSeniority}
             onToggleDepartment={onToggleDepartment}
             onToggleStatus={onToggleStatus}
-            onClose={() => setEditingId(null)}
+            onClose={() => {
+              /*
+                A refusal is about the edit that was just refused. Carrying it
+                out of the drawer and leaving it on the page under a heading
+                about somebody else is how "You cannot change your own role"
+                ended up sitting above a member list forever.
+              */
+              setError(null);
+              setEditingId(null);
+            }}
           />
         );
       })()}

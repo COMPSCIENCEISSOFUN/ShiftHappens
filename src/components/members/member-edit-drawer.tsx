@@ -18,6 +18,7 @@ import {
   SYSTEM_ROLE_LABELS,
   canBeRostered,
 } from "@/lib/role-config";
+import { AlertBanner } from "@/components/ui/alert-banner";
 import { ContractedDaysEditor } from "@/components/members/contracted-days-editor";
 import { SENIORITY_LEVELS, SENIORITY_LABEL, type SeniorityAssessment } from "@/lib/seniority";
 
@@ -59,6 +60,8 @@ export interface DrawerMember {
 export function MemberEditDrawer({
   orgId,
   member,
+  error,
+  onDismissError,
   departments,
   customRoles,
   seniority,
@@ -82,6 +85,16 @@ export function MemberEditDrawer({
   customRoles: { id: string; displayLabel: string }[];
   seniority?: SeniorityAssessment;
   isSelf: boolean;
+  /**
+   * A refusal from the last edit made in here, shown inside the drawer.
+   *
+   * It used to render as a banner at the top of the page — behind the drawer,
+   * two hundred pixels above whatever the reader had just clicked, and still
+   * there after they closed the drawer and moved on. An error that outlives the
+   * thing it is about reads as a broken page rather than as a refused action.
+   */
+  error?: string | null;
+  onDismissError?: () => void;
   canUpdateRole: boolean;
   canUpdateSeniority: boolean;
   canDeactivate: boolean;
@@ -173,6 +186,25 @@ export function MemberEditDrawer({
             <X className="h-4 w-4" aria-hidden="true" />
           </button>
         </div>
+
+        {/*
+          Refusals belong where the action was.
+
+          This rendered as a banner at the top of the PAGE — behind this panel,
+          two hundred pixels above whatever had just been clicked, and still
+          sitting there after the drawer was closed and the reader had moved on.
+          An error that outlives the thing it is about reads as a broken page
+          rather than as a refused action.
+        */}
+        {error && (
+          <div className="px-5 pt-4">
+            <AlertBanner
+              message={error}
+              variant="error"
+              onDismiss={onDismissError}
+            />
+          </div>
+        )}
 
         <div className="space-y-5 px-5 py-4">
           {/* ── Role ─────────────────────────────────────────── */}

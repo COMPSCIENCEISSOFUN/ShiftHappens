@@ -69,6 +69,8 @@ import { Label } from "@/components/ui/label";
 import { PageLoading } from "@/components/ui/page-loading";
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { EmptyState } from "@/components/ui/empty-state";
+import { PlanLocked, LimitNotice } from "@/components/ui/plan-gate";
+import { usePlan } from "@/components/layout/plan-provider";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { StatTile, STAT_ACCENT } from "@/components/ui/stat-tile";
 import { Panel } from "@/components/ui/panel";
@@ -109,13 +111,55 @@ interface Role {
   description: string | null;
   isSystemRole: boolean;
   rolePermissions: RolePermission[];
+  /** How many members hold it. Absent on responses predating the field. */
+  memberCount?: number;
+  /**
+   * Whether the reader is one of them.
+   *
+   * Answered by the server, because this page knows only the caller's
+   * permission NAMES — matching the role's label against the chip in the
+   * sidebar would be inferring identity from a string two roles could share.
+   */
+  heldByCaller?: boolean;
 }
 
 /* ------------------------------------------------------------------ */
 /*  Shared page furniture                                              */
 /* ------------------------------------------------------------------ */
 
+/**
+ * What the delete confirmation actually says.
+ *
+ * It read "Anyone currently holding this role loses the permissions it grants"
+ * — true of every custom role ever created, and so no help at all in deciding
+ * whether to press the button. Two facts change that answer, and neither was
+ * on screen.
+ *
+ * The first is reach: three people is a different decision from nobody.
+ *
+ * The second is the one this was written for. `Membership.customRoleId` is
+ * `onDelete: SetNull`, so deleting a role you HOLD strips it from you like
+ * anyone else — and if `roles:manage` came to you through that role, you have
+ * just deleted your own way back to this page. Recoverable, but only by a
+ * company admin, and the old wording gave no hint it was about to happen.
+ */
+export function deletionWarning(role: Role | null): string {
+  if (!role) return "";
 
+  const count = role.memberCount ?? 0;
+  const reach =
+    count === 0
+      ? "Nobody currently holds this role."
+      : count === 1
+        ? "1 member holds this role and loses the permissions it grants."
+        : `${count} members hold this role and lose the permissions it grants.`;
+
+  const self = role.heldByCaller
+    ? " You are one of them — if this role is what lets you manage roles, you will not be able to undo this yourself."
+    : "";
+
+  return `${reach}${self} This cannot be undone.`;
+}
 
 
 
@@ -184,6 +228,21 @@ function PermissionPicker({
   state: "loading" | "loaded" | "empty" | "failed" | "forbidden";
 }) {
   const categories = Object.keys(grouped).sort();
+
+  /*
+   * The author's own permissions, so the picker can stop offering what the
+   * server will refuse.
+   *
+   * The refusal itself lives in `RoleService.assertMayGrantPermissions` and has
+   * to, because the endpoint accepts any list of ids from anyone holding
+   * `roles:manage` — a disabled checkbox stops a mistake, not a request. This
+   * is the sign next to the fence.
+   *
+   * A company admin holds the whole catalogue, so nothing greys out for one.
+   * This appears only for somebody who was DELEGATED `roles:manage` through a
+   * custom role, which is precisely the case the server check was written for.
+   */
+  const { can } = usePermissions();
 
   return (
     <div className="space-y-2">
@@ -255,28 +314,58 @@ function PermissionPicker({
                     organisation able to see it. Enforcement was always correct;
                     the builder just did not say so.
                   */
-                  const locked = perm.available === false;
+                  const planLocked = perm.available === false;
+                  const isSelected = selected.includes(perm.id);
+                  /*
+                    Not held by the author, and not already in the role.
+
+                    The second half is what keeps this honest. The server checks
+                    only what is being ADDED — removing a permission grants
+                    nobody anything — so a box that is already ticked stays
+                    clickable even when the author does not hold it. Disabling
+                    it would refuse an edit the server would have accepted,
+                    which is a UI lying in the safe direction rather than being
+                    right. It also means an admin-built role stays reducible by
+                    whoever inherits it.
+                  */
+                  const notMine = !isSelected && !can(perm.name);
+                  const locked = planLocked || notMine;
                   return (
                     <label
                       key={perm.id}
                       className={`flex items-start gap-2 text-[12px] ${
                         locked ? "cursor-not-allowed opacity-60" : "cursor-pointer"
                       }`}
+                      title={
+                        notMine
+                          ? "You do not hold this permission, so you cannot put it in a role."
+                          : undefined
+                      }
                     >
                       <input
                         type="checkbox"
-                        checked={selected.includes(perm.id)}
+                        checked={isSelected}
                         onChange={() => onToggle(perm.id)}
                         disabled={locked}
                         className="mt-0.5 accent-indigo-600"
                       />
                       <span>
                         {perm.description}
-                        {locked && (
+                        {/*
+                          The plan badge wins when both apply. "Enterprise plan"
+                          is the one the reader can do something about, and
+                          stacking two greyed badges on one line says less than
+                          either alone.
+                        */}
+                        {planLocked ? (
                           <span className="ml-1.5 inline-flex items-center rounded-[4px] bg-muted px-1.5 py-0.5 align-middle text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                             {perm.requiredTier ?? "upgrade"} plan
                           </span>
-                        )}
+                        ) : notMine ? (
+                          <span className="ml-1.5 inline-flex items-center rounded-[4px] bg-muted px-1.5 py-0.5 align-middle text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                            not yours to grant
+                          </span>
+                        ) : null}
                       </span>
                     </label>
                   );
@@ -297,6 +386,7 @@ function PermissionPicker({
 
 export default function RolesPage() {
   const { can } = usePermissions();
+  const plan = usePlan();
   const params = useParams();
   const orgId = params.orgId as string;
 
@@ -549,6 +639,30 @@ export default function RolesPage() {
     );
   }
 
+  /*
+   * The plan, after the permission and before anything else.
+   *
+   * Same order the route guard uses, and for the same reason: a member without
+   * `roles:manage` should be told they lack the permission, not offered an
+   * upgrade they cannot buy and would not benefit from.
+   *
+   * This page previously showed the full builder on a Free organisation —
+   * fourteen categories of checkboxes, a working New Role button — and refused
+   * on save. The refusal was correct; offering the work first was not.
+   */
+  if (!plan.has("custom_roles")) {
+    return (
+      <div className="w-full">
+        <PlanLocked
+          feature="custom_roles"
+          title="Custom roles"
+          description="They let you grant a precise set of permissions to one person without changing their role."
+          orgId={orgId}
+        />
+      </div>
+    );
+  }
+
   const grouped = groupedPermissions();
   /*
    * `isSystemRole` rows do not exist.
@@ -584,22 +698,35 @@ export default function RolesPage() {
             Define what each kind of team member is allowed to do
           </p>
         </div>
-        <button
-          onClick={() => (formOpen ? closeForms() : startCreating())}
-          className={formOpen ? SECONDARY_BUTTON : PRIMARY_BUTTON}
-        >
-          {formOpen ? (
-            <>
-              <X className="h-3.5 w-3.5" aria-hidden="true" />
-              Cancel
-            </>
-          ) : (
-            <>
-              <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-              New Role
-            </>
-          )}
-        </button>
+        <div className="flex items-center gap-2.5">
+          <LimitNotice resource="custom_roles" noun="roles" />
+          {/*
+            Disabled at the cap rather than refused on save. The plan limit was
+            enforced only by `enforceResourceLimit` in the service, so the
+            eleventh role on a Pro organisation could be named, described and
+            composed before anything mentioned there was a maximum.
+
+            Cancel is never disabled: closing a form you already opened is not
+            creating anything.
+          */}
+          <button
+            onClick={() => (formOpen ? closeForms() : startCreating())}
+            disabled={!formOpen && plan.atLimit("custom_roles")}
+            className={`${formOpen ? SECONDARY_BUTTON : PRIMARY_BUTTON} disabled:cursor-not-allowed disabled:opacity-50`}
+          >
+            {formOpen ? (
+              <>
+                <X className="h-3.5 w-3.5" aria-hidden="true" />
+                Cancel
+              </>
+            ) : (
+              <>
+                <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                New Role
+              </>
+            )}
+          </button>
+        </div>
       </div>
 
       {/*
@@ -717,7 +844,11 @@ export default function RolesPage() {
               description="Create a role to define what a group of people can do."
               icon={KeyRound}
               action={
-                <button onClick={startCreating} className={PRIMARY_BUTTON}>
+                <button
+                  onClick={startCreating}
+                  disabled={plan.atLimit("custom_roles")}
+                  className={`${PRIMARY_BUTTON} disabled:cursor-not-allowed disabled:opacity-50`}
+                >
                   <Plus className="h-3.5 w-3.5" aria-hidden="true" />
                   New Role
                 </button>
@@ -820,10 +951,28 @@ export default function RolesPage() {
                   </div>
 
                   <div className="p-4">
-                    <p className="mb-2 flex items-center gap-1.5 text-[12px] font-medium text-muted-foreground">
-                      <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
-                      {role.rolePermissions.length} permission
-                      {role.rolePermissions.length !== 1 ? "s" : ""}
+                    <p className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] font-medium text-muted-foreground">
+                      <span className="flex items-center gap-1.5">
+                        <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
+                        {role.rolePermissions.length} permission
+                        {role.rolePermissions.length !== 1 ? "s" : ""}
+                      </span>
+                      {/*
+                        Reach, beside size. A role with fourteen permissions and
+                        nobody wearing it is a draft; the same role on nine
+                        people is the thing to be careful with, and the card
+                        could not tell them apart.
+                      */}
+                      <span className="flex items-center gap-1.5">
+                        <Users className="h-3.5 w-3.5" aria-hidden="true" />
+                        {role.memberCount ?? 0} member
+                        {(role.memberCount ?? 0) !== 1 ? "s" : ""}
+                        {role.heldByCaller && (
+                          <span className="rounded-[4px] bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">
+                            including you
+                          </span>
+                        )}
+                      </span>
                     </p>
                     {role.rolePermissions.length === 0 ? (
                       /*
@@ -897,7 +1046,7 @@ export default function RolesPage() {
       <ConfirmDialog
         open={deleteTarget !== null}
         title={`Delete "${deleteTarget?.displayLabel}"?`}
-        description="Anyone currently holding this role loses the permissions it grants. This cannot be undone."
+        description={deletionWarning(deleteTarget)}
         confirmLabel="Delete role"
         variant="destructive"
         loading={deleting}

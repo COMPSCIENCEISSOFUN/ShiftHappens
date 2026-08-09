@@ -35,7 +35,11 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { toDateTimeLocalValue } from "@/lib/timezone";
 import { OperatingHoursNotice } from "@/components/tasks/operating-hours-notice";
 import { reasonLabel } from "@/lib/decline-reasons";
-import { countOccupied, remainingSlots as slotsLeft } from "@/lib/assignment-status";
+import {
+  countOccupied,
+  remainingSlots as slotsLeft,
+  canHoldClockTimes,
+} from "@/lib/assignment-status";
 import { CompositionRulesEditor } from "@/components/tasks/composition-rules-editor";
 import { PendingLeaveFlag } from "@/components/tasks/pending-leave-flag";
 import {
@@ -46,6 +50,12 @@ import {
   type CompositionRule,
 } from "@/lib/composition-rules";
 import { usePermissions } from "@/components/layout/permission-provider";
+import {
+  CertificationPicker,
+  type CertificationOption,
+} from "@/components/certifications/certification-picker";
+import { usePlan } from "@/components/layout/plan-provider";
+import { LimitNotice } from "@/components/ui/plan-gate";
 import { TASK_LIST_READERS } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
 
@@ -100,13 +110,17 @@ function describeRecurrenceOf(raw: string | null): string | null {
   return pattern ? describeRecurrence(pattern) : null;
 }
 
-/** Splits a comma-separated certifications input into a clean list of names. */
-function parseCertList(raw: string | null): string[] {
-  if (!raw) return [];
-  return raw
-    .split(",")
-    .map((c) => c.trim())
-    .filter(Boolean);
+/**
+ * Adds or removes one certificate name from a selection.
+ *
+ * Case-insensitive, because that is how eligibility compares them: a task
+ * carrying "food safety" from before the list existed must be un-toggled by
+ * the "Food Safety" chip rather than gaining a second copy of itself.
+ */
+function toggleCert(current: string[], name: string): string[] {
+  const key = name.trim().toLowerCase();
+  const without = current.filter((c) => c.trim().toLowerCase() !== key);
+  return without.length === current.length ? [...current, name.trim()] : without;
 }
 
 /** Initials from a name string, e.g. "Sarah Lim" → "SL". */
@@ -295,6 +309,7 @@ export default function TasksPage() {
    * offered and what will be allowed come from one source.
    */
   const { can, canAny } = usePermissions();
+  const plan = usePlan();
   const canCreate = can("tasks:create");
   const canUpdate = can("tasks:update");
   const canDelete = can("tasks:delete");
@@ -352,6 +367,15 @@ export default function TasksPage() {
   // than as form fields — FormData would flatten them to strings.
   const [createComposition, setCreateComposition] = useState<CompositionRule[]>([]);
   const [editComposition, setEditComposition] = useState<CompositionRule[]>([]);
+  /*
+   * Required certificates, for the same reason as the composition rules above:
+   * a selection is not a form field. They were a comma-separated text box until
+   * the organisation gained a list of recognised names — see
+   * `CertificationPicker` for why that box was the bug.
+   */
+  const [certTypes, setCertTypes] = useState<CertificationOption[]>([]);
+  const [createCerts, setCreateCerts] = useState<string[]>([]);
+  const [editCerts, setEditCerts] = useState<string[]>([]);
   const [editSchedule, setEditSchedule] = useState({ start: "", end: "" });
 
   // ── Data fetching ────────────────────────────────
@@ -362,6 +386,7 @@ export default function TasksPage() {
     fetchMembers();
     fetchSettings();
     fetchOperatingHours();
+    fetchCertificationTypes();
   }, [orgId]);
 
   /**
@@ -377,6 +402,25 @@ export default function TasksPage() {
    * when this fails in a deployed environment that message is the only clue
    * anyone gets.
    */
+  /**
+   * The organisation's recognised certificates.
+   *
+   * Readable by any member, because the staff member's own certificate screen
+   * shows the same list as suggestions — see the route's docblock. A failure
+   * leaves the list empty, and the picker says so rather than rendering an
+   * unexplained blank.
+   */
+  async function fetchCertificationTypes() {
+    try {
+      const res = await fetch(`/api/organizations/${orgId}/certification-types`);
+      if (!res.ok) return;
+      setCertTypes(await res.json());
+    } catch {
+      // Non-fatal: a task can still be created without a certificate
+      // requirement, and one already on a task is shown regardless.
+    }
+  }
+
   async function fetchTasks() {
     try {
       const res = await fetch(`/api/organizations/${orgId}/tasks`);
@@ -662,8 +706,14 @@ export default function TasksPage() {
       requiredHeadcount: Number(formData.get("requiredHeadcount")) || 1,
     };
 
-    // Required certifications — comma-separated names, e.g. "Food Safety, RSA".
-    const createCerts = parseCertList(formData.get("requiredCertifications") as string);
+    /*
+     * Required certifications come from component state, not the form.
+     *
+     * They were a comma-separated text box until the organisation gained a list
+     * of recognised certificates — see `CertificationPicker`. Same reason the
+     * composition rules below are not in the form: a FormData round-trip would
+     * flatten a structured selection into a string.
+     */
     if (createCerts.length > 0) taskData.requiredCertifications = createCerts;
 
     // Composition rules live in component state rather than the form, because
@@ -713,6 +763,17 @@ export default function TasksPage() {
       }
 
       setShowCreate(false);
+      /*
+       * Clear the selections the form does NOT own.
+       *
+       * The text inputs are reset by React when the form unmounts; these two
+       * live in component state, so without this the next task opened the form
+       * already carrying the previous one's certificate requirements and
+       * composition rules — silently, since both render as chips rather than as
+       * text somebody would notice.
+       */
+      setCreateCerts([]);
+      setCreateComposition([]);
       setSuccess(
         repeatFreq
           ? "Recurring task created — upcoming occurrences generated"
@@ -903,7 +964,7 @@ export default function TasksPage() {
       priority: formData.get("editPriority"),
       requiredHeadcount: Number(formData.get("editHeadcount")) || 1,
       // Always send the parsed list so clearing the field removes requirements.
-      requiredCertifications: parseCertList(formData.get("editRequiredCertifications") as string),
+      requiredCertifications: editCerts,
       // Sent unconditionally for the same reason: an omitted key means "leave
       // them alone", so removing the last rule would otherwise never save.
       compositionRules: editComposition,
@@ -1140,11 +1201,18 @@ export default function TasksPage() {
           </p>
         </div>
         <div className="flex gap-2">
+          {canCreate && <LimitNotice resource="active_tasks" noun="active tasks" />}
           {canCreate && (
+            /*
+              The cap counts tasks that are neither completed nor cancelled, so
+              finishing work frees capacity — which is why the figure beside
+              this button says "active tasks" rather than "tasks".
+            */
             <Button
               variant="outline"
               size="sm"
               className="gap-1.5"
+              disabled={!showCreate && plan.atLimit("active_tasks")}
               onClick={() => setShowCreate(!showCreate)}
             >
               {showCreate ? (
@@ -1303,6 +1371,16 @@ export default function TasksPage() {
                   placeholder="What needs to be done..."
                 />
               </div>
+              {/*
+                ── The three short answers, on one line ──
+
+                Department, Priority and Headcount are a select, a select and a
+                number. In the outer two-column grid the third one landed beside
+                the certification picker, so a one-line input sat next to a
+                block five rows tall and left a hole under itself. Their own
+                three-column row keeps short things with short things.
+              */}
+              <div className="grid gap-4 sm:col-span-2 sm:grid-cols-3">
               <div className="space-y-1.5">
                 <Label htmlFor="departmentId" className="text-xs font-semibold text-muted-foreground">Department</Label>
                 <select
@@ -1334,17 +1412,17 @@ export default function TasksPage() {
                 <Label htmlFor="requiredHeadcount" className="text-xs font-semibold text-muted-foreground">Required headcount</Label>
                 <Input id="requiredHeadcount" name="requiredHeadcount" type="number" min={1} max={50} defaultValue={1} />
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="requiredCertifications" className="text-xs font-semibold text-muted-foreground">Required certifications</Label>
-                <Input id="requiredCertifications" name="requiredCertifications" placeholder="e.g. Food Safety, RSA" />
-                <p className="text-[11px] text-muted-foreground">Comma-separated. Leave blank for none.</p>
               </div>
-              <div className="space-y-1.5">
-                <CompositionRulesEditor
-                  rules={createComposition}
-                  onChange={setCreateComposition}
-                />
-              </div>
+              {/*
+                ── Where the shift sits in time ──
+
+                Start and End are ONE decision and belong side by side. They
+                were separated by the two tall fields above them: a two-column
+                grid gives every child one cell, so the certification picker and
+                the composition editor — both several rows high — pushed Start
+                to the right of one row and End to the left of the next.
+                Diagonally opposite, with the thing they bracket in between.
+              */}
               <div className="space-y-1.5">
                 <Label htmlFor="scheduledStart" className="text-xs font-semibold text-muted-foreground">Start time</Label>
                 <Input
@@ -1373,6 +1451,31 @@ export default function TasksPage() {
                   end={createSchedule.end}
                   operatingHoursStart={opStart}
                   operatingHoursEnd={opEnd}
+                />
+              </div>
+
+              {/*
+                ── The two wide ones, full width ──
+
+                A chip cloud and a rule builder. Both grow — the picker with the
+                number of recognised certificates, the editor with each rule
+                added — so pairing either with a single-line field guarantees
+                one of the two looks abandoned. Given the whole row they simply
+                use it.
+              */}
+              <div className="space-y-1.5 sm:col-span-2">
+                <CertificationPicker
+                  options={certTypes}
+                  selected={createCerts}
+                  onToggle={(name) => setCreateCerts(toggleCert(createCerts, name))}
+                  orgId={orgId}
+                  canManageList={can("certifications:review")}
+                />
+              </div>
+              <div className="space-y-1.5 sm:col-span-2">
+                <CompositionRulesEditor
+                  rules={createComposition}
+                  onChange={setCreateComposition}
                 />
               </div>
 
@@ -1713,6 +1816,12 @@ export default function TasksPage() {
                           setEditComposition(
                             opening ? parseCompositionRules(task.compositionRules) : []
                           );
+                          // Seeded the same way and for the same reason: an
+                          // edit that opened with an empty selection would
+                          // delete the task's requirements on save.
+                          setEditCerts(
+                            opening ? [...(task.requiredCertifications ?? [])] : []
+                          );
                         }}
                         className={`flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-[12px] font-medium transition-colors ${
                           editingTaskId === task.id
@@ -1802,15 +1911,19 @@ export default function TasksPage() {
                               <Input name="editHeadcount" type="number" min={1} max={50} defaultValue={task.requiredHeadcount} />
                             </div>
                             <div className="space-y-1">
-                              <Label className="text-xs font-semibold text-muted-foreground">Required certifications</Label>
-                              <Input name="editRequiredCertifications" defaultValue={(task.requiredCertifications || []).join(", ")} placeholder="e.g. Food Safety, RSA" />
+                              <CertificationPicker
+                                options={certTypes}
+                                selected={editCerts}
+                                onToggle={(name) => setEditCerts(toggleCert(editCerts, name))}
+                                orgId={orgId}
+                                canManageList={can("certifications:review")}
+                              />
                             </div>
                             <div className="space-y-1.5">
                               <CompositionRulesEditor
                                 rules={editComposition}
                                 onChange={setEditComposition}
                               />
-                              <p className="text-[11px] text-muted-foreground">Comma-separated. Clear the field to remove all requirements.</p>
                             </div>
                             <div className="space-y-1">
                               <Label className="text-xs font-semibold text-muted-foreground">Start time</Label>
@@ -1876,7 +1989,21 @@ export default function TasksPage() {
                                     Out: {new Date(a.clockOutTime).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
                                   </span>
                                 )}
-                                {canCorrectClock && (
+                                {/*
+                                  Permission AND status. This was gated on the
+                                  permission alone, so "Add times" appeared
+                                  beside a REJECTED assignment — inviting a
+                                  manager to record hours for somebody who was
+                                  never on the shift, against the column every
+                                  hours total and capacity figure is built from.
+
+                                  `canHoldClockTimes` rather than a status list
+                                  written here: clocking in requires `accepted`,
+                                  and the rule belongs beside the other
+                                  status questions rather than in an eighth
+                                  hand-rolled copy.
+                                */}
+                                {canCorrectClock && canHoldClockTimes(a.status) && (
                                   <button
                                     type="button"
                                     className="text-[11px] text-muted-foreground hover:text-foreground hover:underline"
@@ -1924,7 +2051,15 @@ export default function TasksPage() {
                                 nothing here is `required`. The service refuses
                                 the combinations that are not.
                               */}
-                              {correctingId === a.id && (
+                              {/*
+                                The status guard is repeated here, not only on
+                                the button. The list refreshes after every
+                                action, so a row whose decline is approved while
+                                this form is open becomes `rejected` underneath
+                                it — and an open form outlives the control that
+                                opened it.
+                              */}
+                              {correctingId === a.id && canHoldClockTimes(a.status) && (
                                 <form
                                   className="ml-9 mt-2 space-y-2 rounded-lg border border-border bg-muted/30 p-3"
                                   onSubmit={(e) => {
