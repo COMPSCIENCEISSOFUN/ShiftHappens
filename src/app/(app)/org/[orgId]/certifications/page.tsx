@@ -40,6 +40,10 @@ import {
   type CertificationDisplayState,
 } from "@/lib/certification-display";
 import { usePermissions } from "@/components/layout/permission-provider";
+import {
+  RecognisedList,
+  type RecognisedCertification,
+} from "@/components/certifications/recognised-list";
 import { PRIMARY_BUTTON } from "@/components/ui/button-styles";
 import { cn } from "@/lib/utils";
 import { canBeRostered } from "@/lib/role-config";
@@ -337,6 +341,10 @@ export default function CertificationsPage() {
   // empty one — the difference decides whether the Uncertified badge shows a
   // number or a dash. Reporting 0 for a failed request would be a lie.
   const [members, setMembers] = useState<Member[] | null>(null);
+  // The organisation's recognised certificate names — the vocabulary a shift
+  // may require, edited from the panel below the queue.
+  const [types, setTypes] = useState<RecognisedCertification[]>([]);
+  const [typesBusy, setTypesBusy] = useState(false);
   /**
    * Initial filter, honouring `?status=` on the way in.
    *
@@ -417,11 +425,84 @@ export default function CertificationsPage() {
     }
   }, [orgId]);
 
+  /** The organisation's recognised certificate names. */
+  const fetchTypes = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/organizations/${orgId}/certification-types`);
+      const data = await res.json();
+      setTypes(res.ok && Array.isArray(data) ? data : []);
+    } catch {
+      setTypes([]);
+    }
+  }, [orgId]);
+
   useEffect(() => {
-    // Parallel: the member list is not a prerequisite for the certifications.
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronising with an external system, which is what effects are for: loads certifications and members from the server on mount
-    void Promise.all([fetchCertifications(), fetchMembers()]);
-  }, [fetchCertifications, fetchMembers]);
+    // Parallel: neither the member list nor the recognised names is a
+    // prerequisite for the certifications themselves.
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronising with an external system, which is what effects are for: loads certifications, members and the recognised list from the server on mount
+    void Promise.all([fetchCertifications(), fetchMembers(), fetchTypes()]);
+  }, [fetchCertifications, fetchMembers, fetchTypes]);
+
+  /**
+   * Adds a name to the organisation's list.
+   *
+   * The refusal that matters is a duplicate, and the server answers 409 with
+   * the name in the message — including for one that differs only in case,
+   * which is stricter than the database index and has to be, since eligibility
+   * lower-cases both sides before comparing.
+   */
+  async function handleAddType(name: string) {
+    setTypesBusy(true);
+    try {
+      const res = await fetch(`/api/organizations/${orgId}/certification-types`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error || "Could not add that certificate");
+        return;
+      }
+      setError(null);
+      setSuccess(`"${name}" added to the list`);
+      await fetchTypes();
+    } catch {
+      setError("Could not add that certificate");
+    } finally {
+      setTypesBusy(false);
+    }
+  }
+
+  /**
+   * Removes one, unless a shift still requires it.
+   *
+   * The server refuses with a count in that case, and the count is the whole
+   * value of the message: removing a name does not break the shifts that
+   * require it, but it does mean the next person to edit one would silently
+   * drop the requirement the picker can no longer represent.
+   */
+  async function handleRemoveType(type: { id: string; name: string }) {
+    setTypesBusy(true);
+    try {
+      const res = await fetch(
+        `/api/organizations/${orgId}/certification-types/${type.id}`,
+        { method: "DELETE" }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error || "Could not remove that certificate");
+        return;
+      }
+      setError(null);
+      setSuccess(`"${type.name}" removed from the list`);
+      await fetchTypes();
+    } catch {
+      setError("Could not remove that certificate");
+    } finally {
+      setTypesBusy(false);
+    }
+  }
 
   /** Verify a pending certification. No reason needed. */
   async function handleVerify(cert: Certification) {
@@ -686,6 +767,26 @@ export default function CertificationsPage() {
           onDismiss={() => setSuccess(null)}
         />
       )}
+
+      {/*
+        The organisation's vocabulary, above the queue.
+
+        It is the setting the rest of the screen depends on: a shift can only
+        require a name that appears here, and a member recording a certificate
+        is shown the same list. Reading it first is reading the definitions
+        before the cases — and on an organisation that has not filled it in yet,
+        having it at the bottom would leave the one thing that needs doing below
+        everything that cannot be done until it is.
+      */}
+      <div className="mb-4">
+        <RecognisedList
+          types={types}
+          onAdd={handleAddType}
+          onRemove={handleRemoveType}
+          canManage={can("certifications:review")}
+          busy={typesBusy}
+        />
+      </div>
 
       {/* ── Stat tiles ── */}
       <div className="mb-4 grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">

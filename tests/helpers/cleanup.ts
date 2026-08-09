@@ -10,6 +10,9 @@ export async function cleanDatabase() {
   await prisma.auditLog.deleteMany();
   await prisma.eligibilityOverride.deleteMany();
   await prisma.certification.deleteMany();
+  // Before Organization, which it cascades from — the order in this file is a
+  // dependency order, not an alphabetical one.
+  await prisma.certificationType.deleteMany();
   await prisma.availabilityOverride.deleteMany();
   await prisma.availability.deleteMany();
   await prisma.taskAssignment.deleteMany();

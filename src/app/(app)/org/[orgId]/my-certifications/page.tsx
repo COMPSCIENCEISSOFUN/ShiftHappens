@@ -134,6 +134,21 @@ export default function MyCertificationsPage() {
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  /*
+   * The organisation's recognised certificate names, offered as suggestions.
+   *
+   * SUGGESTIONS, not a closed list. A shift may only require a name the
+   * organisation recognises — a requirement spelled wrong is a shift nobody can
+   * fill — but a certificate nobody requires is still a true fact about a
+   * person, and somebody holding a forklift licence the organisation has never
+   * listed must have somewhere to put it.
+   *
+   * Picking from the list is what stops the two vocabularies drifting: this
+   * field and the task form's requirement box are compared by lower-cased
+   * string equality, and until now nothing brought them together. The app's own
+   * placeholders disagreed — "Food Safety Level 2" here, "Food Safety" there.
+   */
+  const [suggestions, setSuggestions] = useState<string[]>([]);
 
   const [withdrawTarget, setWithdrawTarget] = useState<MyCertification | null>(
     null
@@ -177,10 +192,26 @@ export default function MyCertificationsPage() {
     }
   }, [orgId]);
 
+  const fetchSuggestions = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/organizations/${orgId}/certification-types`);
+      const data = await res.json();
+      setSuggestions(
+        res.ok && Array.isArray(data)
+          ? data.map((t: { name: string }) => t.name)
+          : []
+      );
+    } catch {
+      // No suggestions is the same as none configured: the field still works,
+      // because this side was never closed.
+      setSuggestions([]);
+    }
+  }, [orgId]);
+
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronising with an external system, which is what effects are for: loads the member's certifications from the server on mount
-    void fetchCertifications();
-  }, [fetchCertifications]);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronising with an external system, which is what effects are for: loads the member's certifications and the organisation's recognised names from the server on mount
+    void Promise.all([fetchCertifications(), fetchSuggestions()]);
+  }, [fetchCertifications, fetchSuggestions]);
 
   /**
    * Opens the form blank, or prefilled from the certificate being replaced.
@@ -488,9 +519,31 @@ export default function MyCertificationsPage() {
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
                 maxLength={200}
                 required
-                placeholder="e.g. Food Safety Level 2"
+                list="recognised-certifications"
+                placeholder={suggestions[0] ?? "e.g. Food Safety Level 2"}
                 className="h-9 w-full rounded-lg border border-border bg-background px-3 text-[13px] outline-none focus:border-indigo-400"
               />
+              {/*
+                A datalist rather than a select: typing still works, which is
+                the whole point of leaving this side open. Choosing a suggestion
+                is what keeps the spelling identical to what a shift can ask
+                for.
+
+                The placeholder is the first recognised name when there is one.
+                A hard-coded example that no shift could require is what made
+                this field disagree with the task form in the first place.
+              */}
+              <datalist id="recognised-certifications">
+                {suggestions.map((name) => (
+                  <option key={name} value={name} />
+                ))}
+              </datalist>
+              {suggestions.length > 0 && (
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Start typing to pick one your organisation recognises — that is
+                  what lets a shift match it. You can still enter something else.
+                </p>
+              )}
             </div>
 
             <div>

@@ -212,6 +212,20 @@ export const ROUTES: RouteSpec[] = [
   org("certifications/[certId]", "POST", MANAGER, { suspension: true, extraParams: ["certId"] }),
   org("certifications/[certId]", "DELETE", MEMBER, { suspension: true, extraParams: ["certId"] }),
   org("my-certifications", "GET", MEMBER),
+  /*
+   * The organisation's list of recognised certificates.
+   *
+   * GET is MEMBER on purpose. A staff member recording a certificate of their
+   * own is shown this list as suggestions, so gating the read on
+   * `certifications:review` would hide it from half the people it exists to
+   * keep in agreement.
+   */
+  org("certification-types", "GET", MEMBER),
+  org("certification-types", "POST", MANAGER, { suspension: true }),
+  org("certification-types/[typeId]", "DELETE", MANAGER, {
+    suspension: true,
+    extraParams: ["typeId"],
+  }),
 
   // ── Personal views ──────────────────────────────────────────────────
   org("my-tasks", "GET", MEMBER),

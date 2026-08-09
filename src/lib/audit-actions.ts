@@ -65,6 +65,11 @@ export const ACTIONS = {
   CERTIFICATION_REJECTED: "certification.rejected",
   CERTIFICATION_REVOKED: "certification.revoked",
   CERTIFICATION_WITHDRAWN: "certification.withdrawn",
+  // The organisation's list of recognised certificates — the vocabulary, not
+  // anybody's individual certificate. Audited because it decides what every
+  // future shift is able to require.
+  CERTIFICATION_TYPE_ADDED: "certification_type.added",
+  CERTIFICATION_TYPE_REMOVED: "certification_type.removed",
   // Settings
   SETTINGS_UPDATED: "settings.updated",
   // Roles

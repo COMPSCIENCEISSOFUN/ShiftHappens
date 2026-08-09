@@ -60,6 +60,7 @@ model Organization {
   auditLogs        AuditLog[]
   workRules        WorkRule[]
   notifications    Notification[]
+  certificationTypes CertificationType[]
 }
 
 model Membership {
@@ -524,6 +525,48 @@ model Certification {
 
   @@index([membershipId])
   @@index([status])
+}
+
+/// The certificates an organisation recognises — its vocabulary, not its rules.
+///
+/// `Certification.name` is typed by the STAFF MEMBER and
+/// `Task.requiredCertifications` is typed by the MANAGER, and eligibility
+/// compares the two by lower-cased string equality. Nothing ever brought those
+/// two vocabularies together, so the app's own placeholders disagreed — "e.g.
+/// Food Safety Level 2" on one screen, "e.g. Food Safety, RSA" on the other.
+/// Follow both hints and the holder is silently ineligible for a shift they are
+/// qualified for, and told they are "Missing required certification(s): Food
+/// Safety" while holding one.
+///
+/// This table is the shared list both sides draw from. It is deliberately NOT
+/// referenced by id from either place: the task column stays a `String[]` and
+/// the member row keeps its own `name`, so adopting it needed no data
+/// migration and no change to the matching rule. The cost is that renaming an
+/// entry does not follow into rows already written — recorded rather than
+/// solved.
+///
+/// The two sides use it differently, and that asymmetry is the design:
+///   - a TASK may only require a name on this list, because a requirement
+///     spelled wrong is a shift nobody can fill
+///   - a MEMBER may still submit anything, because a certificate nobody
+///     requires is simply a true fact about a person
+model CertificationType {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  /// Postgres compares these case-SENSITIVELY, so this stops "Food Safety"
+  /// twice and not "Food Safety" beside "food safety". Eligibility lower-cases
+  /// before comparing, so those two would be one certificate wearing two
+  /// entries. `CertificationTypeService` enforces the case-insensitive rule;
+  /// this is the backstop, following `Role`'s split between a database
+  /// constraint on the slug and a service check on the label.
+  @@unique([organizationId, name])
+  @@index([organizationId])
 }
 
 model EligibilityOverride {
