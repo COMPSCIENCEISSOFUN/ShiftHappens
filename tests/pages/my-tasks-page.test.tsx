@@ -290,3 +290,86 @@ describe("an empty plate", () => {
     expect(screen.queryByText(/in My History/i)).not.toBeInTheDocument();
   });
 });
+
+/**
+ * A withdrawal request whose shift has already been and gone.
+ *
+ * The list was built from STATUS alone — no date anywhere in it — so a request
+ * a manager never answered stayed on the member's plate indefinitely. A demo
+ * account opened in August read "Awaiting your manager's decision" against a
+ * shift from 30 May, on the one screen whose whole job is answering "am I on
+ * tonight".
+ *
+ * A pending withdrawal is on the MANAGER's plate, not the member's: they have
+ * asked and can do nothing further. It appears here so they can see the request
+ * is open, and once the shift has passed there is nothing left to see.
+ */
+describe("a withdrawal request that outlived its shift", () => {
+  const past = {
+    scheduledStart: "2026-05-30T04:00:00.000Z",
+    scheduledEnd: "2026-05-30T10:00:00.000Z",
+  };
+
+  it("is gone from the plate", async () => {
+    mockApi([
+      assignment({
+        status: "withdrawal_requested",
+        task: { ...assignment().task, title: "Bar shift — 30 May", ...past },
+      }),
+    ]);
+    render(<MyTasksPage />);
+
+    await screen.findByText(/No shifts waiting on you/i);
+    expect(screen.queryByText("Bar shift — 30 May")).not.toBeInTheDocument();
+  });
+
+  // The live case, which is the whole reason the row is shown at all.
+  it("stays while the shift is still to come", async () => {
+    mockApi([
+      assignment({
+        status: "withdrawal_requested",
+        task: { ...assignment().task, title: "Friday evening service" },
+      }),
+    ]);
+    render(<MyTasksPage />);
+
+    expect(await screen.findByText("Friday evening service")).toBeInTheDocument();
+  });
+
+  /*
+   * An ACCEPTED shift in the past deliberately stays. Same shape, different
+   * answer: the member may still need to clock in and record it, and hiding it
+   * would take away their only way to. What decides it is whether anything is
+   * left for THEM to do.
+   */
+  it("does not take a past accepted shift with it", async () => {
+    mockApi([
+      assignment({
+        status: "accepted",
+        task: { ...assignment().task, title: "Unrecorded shift", ...past },
+      }),
+    ]);
+    render(<MyTasksPage />);
+
+    expect(await screen.findByText("Unrecorded shift")).toBeInTheDocument();
+  });
+
+  // A shift with no schedule cannot have passed. Dropping it would hide a live
+  // request because nobody had said when it was.
+  it("keeps one whose shift has no end time", async () => {
+    mockApi([
+      assignment({
+        status: "withdrawal_requested",
+        task: {
+          ...assignment().task,
+          title: "Unscheduled cover",
+          scheduledStart: null,
+          scheduledEnd: null,
+        },
+      }),
+    ]);
+    render(<MyTasksPage />);
+
+    expect(await screen.findByText("Unscheduled cover")).toBeInTheDocument();
+  });
+});

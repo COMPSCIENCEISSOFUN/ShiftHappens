@@ -190,6 +190,43 @@ function ReasonSelect({ name }: { name: string }) {
 /*  Main Page                                                          */
 /* ------------------------------------------------------------------ */
 
+/**
+ * A withdrawal request whose shift has already ended.
+ *
+ * ## Why this leaves the page
+ *
+ * This list is what is on the MEMBER's plate. A pending withdrawal is on the
+ * MANAGER's — the member has asked and can do nothing further — and it appears
+ * here only so they can see the request is still open. Once the shift has been
+ * and gone, that information is stale: the shift was either covered or it was
+ * not, and no answer now changes either.
+ *
+ * The list was filtered by STATUS alone, with no date anywhere in it, so a
+ * request a manager never answered stayed on the member's plate forever. A demo
+ * account opened in August showed "Awaiting your manager's decision" against a
+ * shift from 30 May, on the one screen whose whole job is answering "am I on
+ * tonight".
+ *
+ * ## Why only a withdrawal
+ *
+ * The same shape applies to an ACCEPTED shift that was never clocked into, and
+ * that one deliberately stays. The member may still need to record it, and
+ * hiding it would remove their only way to. The difference is whether there is
+ * anything left for them to do.
+ *
+ * A missing end time keeps the row: a shift with no schedule cannot have
+ * passed, and dropping it would hide a live request on the grounds that nobody
+ * had said when it was.
+ */
+function isStaleWithdrawal(assignment: {
+  status: string;
+  task: { scheduledEnd: string | null };
+}): boolean {
+  if (assignment.status !== "withdrawal_requested") return false;
+  if (!assignment.task.scheduledEnd) return false;
+  return new Date(assignment.task.scheduledEnd).getTime() < Date.now();
+}
+
 export default function MyTasksPage() {
   const params = useParams();
   const orgId = params.orgId as string;
@@ -401,7 +438,9 @@ export default function MyTasksPage() {
    * parameter; if a member ever accumulates thousands of shifts it becomes one.
    */
   const live = assignments.filter(
-    (a) => !["completed", "rejected", "withdrawn"].includes(a.status)
+    (a) =>
+      !["completed", "rejected", "withdrawn"].includes(a.status) &&
+      !isStaleWithdrawal(a)
   );
 
   /*

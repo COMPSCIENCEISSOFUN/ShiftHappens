@@ -1053,7 +1053,53 @@ async function seedAll(tx: Tx) {
     });
   }
 
-  console.log("Created 5 tasks for tomorrow");
+  /*
+   * One upcoming shift with a LIVE withdrawal request on it.
+   *
+   * The five above are deliberately unassigned — they are what the allocation
+   * engine is demonstrated against. So without this there was nowhere in the
+   * demo for a genuinely pending withdrawal to live, and the only ones present
+   * sat on shifts from months earlier, permanently unanswered.
+   *
+   * A separate task rather than an assignment on one of the five, so the "here
+   * are five open shifts to allocate" story stays intact.
+   */
+  const pendingStart = new Date(tomorrow);
+  pendingStart.setHours(18);
+  const pendingEnd = new Date(tomorrow);
+  pendingEnd.setHours(23);
+
+  const pendingWithdrawalTask = await tx.task.create({
+    data: {
+      title: "Bar — Friday evening service",
+      description: "Covered shift with an outstanding withdrawal request",
+      organizationId: orgId,
+      departmentId: departments[1]?.id ?? departments[0].id,
+      priority: "high",
+      requiredHeadcount: 1,
+      scheduledStart: pendingStart,
+      scheduledEnd: pendingEnd,
+      createdById: adminUser.id,
+    },
+  });
+
+  await tx.taskAssignment.create({
+    data: {
+      taskId: pendingWithdrawalTask.id,
+      // Jordan — Bar, casual, and the transport reasons in the history are
+      // already theirs, so the demo tells one story rather than three.
+      membershipId: staffMembershipIds[3],
+      assignedById: adminUser.id,
+      status: "withdrawal_requested",
+      withdrawalReason: "transport_issues",
+      withdrawalNotes:
+        "Last bus goes before we close — can someone else take the late finish?",
+      withdrawalRequestedAt: new Date(),
+      acceptedAt: new Date(Date.now() - 26 * 60 * 60 * 1000),
+    },
+  });
+
+  console.log("Created 5 tasks for tomorrow, plus one with a pending withdrawal");
 
   // ============================================================
   // Company settings
@@ -1202,13 +1248,54 @@ async function seedAll(tx: Tx) {
         // withdrawals that existed all fell outside the 30-day reporting
         // window, so the notice figure rendered an em dash on a database that
         // did contain withdrawals.
+        // Set when a withdrawal was REQUESTED AND DENIED — the member worked
+        // the shift, and the request stays on the row for reporting.
+        let deniedWithdrawal: {
+          withdrawalReason: string;
+          withdrawalNotes: string;
+          withdrawalRequestedAt: Date;
+        } | null = null;
+
         const withdrew = seed % 17 === 0;
         if (withdrew) {
+          /*
+           * RESOLVED, because the shift has already happened.
+           *
+           * These were all seeded as `withdrawal_requested` and left there, so
+           * a demo account opened in August showed "Awaiting your manager's
+           * decision" on a shift from 30 May — and My Tasks lists by status
+           * with no date test, so they never left the member's plate. A request
+           * about a shift that has been and gone is not pending; it either got
+           * covered or it did not.
+           *
+           * Two outcomes, because both are real and the screens read
+           * differently for each. Approved becomes `withdrawn`, which releases
+           * the slot — the member did not work it. Denied reverts to the
+           * accepted path and the shift is worked like any other, which is what
+           * `TaskAssignmentService` does when a manager says no.
+           *
+           * `withdrawalRequestedAt` is kept either way. Every reporting panel
+           * reads that TIMESTAMP rather than the status, so resolving these
+           * costs the withdrawal-notice figure nothing.
+           */
+          const approved = seed % 2 === 0;
+          if (!approved) {
+            // Denied: they worked it. Falls through to the completed path
+            // below, carrying the request so the reporting window still sees
+            // it.
+            deniedWithdrawal = {
+              withdrawalReason: withdrawalReasonFor(seed),
+              withdrawalNotes: withdrawalNoteFor(seed),
+              withdrawalRequestedAt: new Date(
+                start.getTime() - (2 + (seed % 20)) * 60 * 60 * 1000
+              ),
+            };
+          } else {
           historyAssignments.push({
             taskId,
             membershipId: member.membershipId,
             assignedById: adminUser.id,
-            status: "withdrawal_requested",
+            status: "withdrawn",
             withdrawalReason: withdrawalReasonFor(seed),
             // The notes, not the enum, are what the themes panel can read:
             // "transport_issues" on eleven rows is a GROUP BY, while the words
@@ -1222,6 +1309,7 @@ async function seedAll(tx: Tx) {
             ...provenance,
           });
           return;
+          }
         }
 
         const clockIn = new Date(start);
@@ -1244,6 +1332,7 @@ async function seedAll(tx: Tx) {
           clockOutTime: clockOut,
           createdAt: offeredAt,
           acceptedAt,
+          ...(deniedWithdrawal ?? {}),
           ...(rating !== null
             ? {
                 satisfactionRating: rating,
@@ -1419,6 +1508,54 @@ async function seedAll(tx: Tx) {
     },
   });
   console.log("Platform admin ready");
+
+  // ============================================================
+  // Recognised certificates
+  // ============================================================
+  /*
+   * The organisation's certificate vocabulary, derived from what this seed has
+   * just written rather than listed again here.
+   *
+   * Derived on purpose: a hard-coded list would be a fourth place naming these
+   * certificates, and the first one to drift from the other three. The names
+   * come from the member certifications and task requirements above, so the
+   * demo cannot contain a shift requiring something the picker does not offer —
+   * which is the exact state this whole feature exists to make impossible.
+   *
+   * Inline rather than calling `CertificationTypeService`, because everything
+   * in this file runs inside one interactive transaction and the service holds
+   * its own client.
+   */
+  const certificateNames = new Map<string, string>();
+  const [seededCerts, seededTasks] = await Promise.all([
+    tx.certification.findMany({
+      where: { membership: { organizationId: org.id } },
+      select: { name: true },
+    }),
+    tx.task.findMany({
+      where: { organizationId: org.id },
+      select: { requiredCertifications: true },
+    }),
+  ]);
+  const noteName = (raw: string) => {
+    const name = raw.trim();
+    if (name && !certificateNames.has(name.toLowerCase())) {
+      certificateNames.set(name.toLowerCase(), name);
+    }
+  };
+  seededCerts.forEach((c) => noteName(c.name));
+  seededTasks.forEach((t) => (t.requiredCertifications ?? []).forEach(noteName));
+
+  for (const name of certificateNames.values()) {
+    await tx.certificationType.upsert({
+      where: { organizationId_name: { organizationId: org.id, name } },
+      update: {},
+      create: { organizationId: org.id, name },
+    });
+  }
+  console.log(
+    `Recognised certificates: ${certificateNames.size} (${[...certificateNames.values()].join(", ")})`
+  );
 
   // ============================================================
   // Summary
