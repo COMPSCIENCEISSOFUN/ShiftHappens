@@ -22,6 +22,7 @@
 
 import {
   asPercentages,
+  asWholePercentages,
   DEFAULT_WEIGHTS,
   MAX_SHARE,
   rebalanceWeights,
@@ -380,7 +381,22 @@ export default function SettingsPage() {
       setTaskAcceptanceMode(data.taskAcceptanceMode);
       // The service hands these back already parsed, so the screen never has an
       // opinion about a malformed column.
-      if (data.smartAllocationWeights) setWeights(data.smartAllocationWeights);
+      /*
+       * Converted to shares on the way in, not stored raw.
+       *
+       * This panel shows a percentage beside each label and a slider handle set
+       * from the stored number. Those are the same thing only while the four
+       * total 100 — which every save guarantees, and which data arriving any
+       * other way does not. The ranker normalises, so 60/50/50/40 is a
+       * perfectly valid way to express 30/25/25/20, and loading it raw would
+       * have shown labels reading 30/25/25/20 beside handles at 60/50/50/40.
+       *
+       * Ratios are preserved exactly, so this changes nobody's rankings — only
+       * whether the screen can contradict itself.
+       */
+      if (data.smartAllocationWeights) {
+        setWeights(asWholePercentages(data.smartAllocationWeights));
+      }
       setWorkingDayHours(String(data.workingDayHours));
       setExperiencedThreshold(String(data.experiencedShiftThreshold ?? 10));
       setSeniorThreshold(String(data.seniorShiftThreshold ?? 40));
@@ -1187,12 +1203,32 @@ export default function SettingsPage() {
                   unreachable one.
                 */}
                 <div className="space-y-2">
-                  <Label>Working day</Label>
+                  <Label>Standard working day</Label>
                   <p className="text-[11px] text-muted-foreground">
                     How long one person may work in a day. Used for the
                     eligibility hours check, hour warnings, and every capacity
                     figure in reporting — a team of six on an eight-hour day
                     reads as 336 hours of capacity a week.
+                  </p>
+                  {/*
+                    The other half of the cross-reference, the work-rules page
+                    carrying the first.
+
+                    Three things cap hours — this one, a `max_hours_daily` rule
+                    and a `max_hours_weekly` rule — over three different windows,
+                    so they are not duplicates and merging them would lose real
+                    checks. What was missing is that neither screen admitted the
+                    other existed, so an admin who set 8 here and was refused by
+                    a rule saying 6 had nowhere to see that both applied.
+
+                    "Rolling 24 hours" is stated because it is the one that
+                    surprises: this window follows the shift, while a daily rule
+                    measures the business day.
+                  */}
+                  <p className="text-[11px] text-muted-foreground">
+                    Measured over a rolling 24 hours and applied to everyone.
+                    Work rules can add tighter daily or weekly limits for a
+                    department or role, and both are checked.
                   </p>
                   {/*
                     Labelled "Working day", not "Break rule", although the column

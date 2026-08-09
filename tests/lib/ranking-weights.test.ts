@@ -21,6 +21,7 @@ import {
   describeWeightsForPrompt,
   normaliseWeights,
   parseWeights,
+  asWholePercentages,
   rebalanceWeights,
   type RankingWeights,
   weightsProblem,
@@ -311,5 +312,137 @@ describe("rebalanceWeights", () => {
         expect(weightsProblem(rebalanceWeights(DEFAULT_WEIGHTS, key, value))).toBeNull();
       }
     }
+  });
+});
+
+/**
+ * Turning stored ratios into the shares the settings panel shows.
+ *
+ * That screen puts two numbers on every row: the percentage beside the label,
+ * which is always a SHARE, and the slider handle, which is the stored value.
+ * They are the same thing only while the four total 100 — which every save
+ * through the screen guarantees, and which data arriving any other way does
+ * not.
+ *
+ * And the library permits the difference on purpose: the ranker normalises, so
+ * 60/50/50/40 is a legitimate way to store 30/25/25/20. Loaded raw, that set
+ * opened the panel with labels reading 30/25/25/20 beside handles at
+ * 60/50/50/40 — two of them jammed against the cap — under a header saying
+ * "Total 200%". Nothing ranked wrongly; the screen contradicted itself.
+ */
+describe("asWholePercentages", () => {
+  const total = (w: RankingWeights) =>
+    WEIGHT_KEYS.reduce((sum, k) => sum + w[k], 0);
+
+  it("leaves a set that already totals 100 alone", () => {
+    expect(asWholePercentages(DEFAULT_WEIGHTS)).toEqual(DEFAULT_WEIGHTS);
+  });
+
+  // The case from the docblock: the same ratios stored twice as large.
+  it("reduces a doubled set to the shares it represents", () => {
+    expect(
+      asWholePercentages({
+        workload: 60,
+        availability: 50,
+        certifications: 50,
+        department: 40,
+      })
+    ).toEqual(DEFAULT_WEIGHTS);
+  });
+
+  it("scales a set stored far too small", () => {
+    expect(
+      asWholePercentages({
+        workload: 3,
+        availability: 2.5,
+        certifications: 2.5,
+        department: 2,
+      })
+    ).toEqual(DEFAULT_WEIGHTS);
+  });
+
+  /*
+   * Exactly 100, which `asPercentages` does not promise — it rounds each key
+   * independently, so three equal weights give 33/33/33 and a header reading
+   * 99%. This is the whole reason the panel could not simply reuse it.
+   */
+  it("totals exactly 100 where independent rounding would not", () => {
+    const thirds = {
+      workload: 1,
+      availability: 1,
+      certifications: 1,
+      department: 0,
+    };
+
+    expect(total(asWholePercentages(thirds))).toBe(100);
+  });
+
+  it("totals exactly 100 across a range of awkward inputs", () => {
+    const cases: RankingWeights[] = [
+      { workload: 1, availability: 1, certifications: 1, department: 1 },
+      { workload: 7, availability: 11, certifications: 13, department: 17 },
+      { workload: 1, availability: 0, certifications: 0, department: 2 },
+      { workload: 99, availability: 1, certifications: 1, department: 1 },
+      { workload: 0.1, availability: 0.2, certifications: 0.3, department: 0.4 },
+    ];
+
+    for (const weights of cases) {
+      expect(total(asWholePercentages(weights))).toBe(100);
+    }
+  });
+
+  /*
+   * The point of the conversion is that it changes NOTHING about ranking. The
+   * ranker multiplies by normalised fractions, so a set and its share form must
+   * normalise to the same numbers.
+   */
+  it("preserves the ratios the ranker actually uses", () => {
+    const stored = {
+      workload: 60,
+      availability: 50,
+      certifications: 50,
+      department: 40,
+    };
+
+    expect(normaliseWeights(asWholePercentages(stored))).toEqual(
+      normaliseWeights(stored)
+    );
+  });
+
+  it("keeps a zero at zero rather than rounding it up", () => {
+    const result = asWholePercentages({
+      workload: 8,
+      availability: 1,
+      certifications: 1,
+      department: 0,
+    });
+
+    expect(result.department).toBe(0);
+    expect(total(result)).toBe(100);
+  });
+
+  // All zeroes is unrankable, and `normaliseWeights` already falls back to the
+  // defaults rather than dividing by zero. Pinned here because this function is
+  // what the settings page hands its stored value to, unvalidated.
+  it("falls back to the defaults for an unrankable set", () => {
+    expect(
+      asWholePercentages({
+        workload: 0,
+        availability: 0,
+        certifications: 0,
+        department: 0,
+      })
+    ).toEqual(DEFAULT_WEIGHTS);
+  });
+
+  it("is idempotent", () => {
+    const once = asWholePercentages({
+      workload: 7,
+      availability: 11,
+      certifications: 13,
+      department: 17,
+    });
+
+    expect(asWholePercentages(once)).toEqual(once);
   });
 });

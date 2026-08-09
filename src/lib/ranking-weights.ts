@@ -147,6 +147,63 @@ export function asPercentages(weights: RankingWeights): Record<WeightKey, number
 }
 
 /**
+ * The same ratios, expressed as whole numbers totalling exactly 100.
+ *
+ * ## Why the settings screen needs this on load
+ *
+ * That panel shows two numbers per row: the percentage beside the label, which
+ * is `asPercentages` and therefore always a SHARE, and the slider handle, which
+ * is the raw stored value. Editing the screen keeps them identical, because
+ * every save writes a rebalanced set totalling 100 — so they only come apart on
+ * data that arrived some other way.
+ *
+ * They can, though, and legitimately: the ranker normalises, so 30/25/25/20 and
+ * 60/50/50/40 rank identically and the library deliberately permits both. A set
+ * stored as the latter would open the panel with labels reading 30/25/25/20,
+ * handles sitting at 60/50/50/40 — two of them jammed against the cap — and a
+ * header saying "Total 200%". Nothing would rank wrongly; the screen would
+ * simply be arguing with itself, with no way to tell which half to believe.
+ *
+ * Converting on the way in removes the possibility rather than papering over
+ * it: after this the raw values ARE the shares.
+ *
+ * ## Why not just `asPercentages`
+ *
+ * It rounds each key independently, so three equal weights give 33/33/33 and a
+ * header reading 99%. Here the remainder is handed to the keys with the largest
+ * fractional parts — the standard largest-remainder method — rather than dumped
+ * on a fixed key, which would quietly favour the same dimension every time.
+ */
+export function asWholePercentages(weights: RankingWeights): RankingWeights {
+  const normalised = normaliseWeights(weights);
+
+  const exact = WEIGHT_KEYS.map((key) => ({
+    key,
+    value: normalised[key] * 100,
+  }));
+  const floors = exact.map((e) => ({ ...e, floor: Math.floor(e.value) }));
+  const remainder = 100 - floors.reduce((sum, e) => sum + e.floor, 0);
+
+  // Ties settle by the catalogue's own order, so the result is deterministic
+  // rather than dependent on the sort's stability.
+  const order = [...floors].sort(
+    (a, b) =>
+      b.value - b.floor - (a.value - a.floor) ||
+      WEIGHT_KEYS.indexOf(a.key) - WEIGHT_KEYS.indexOf(b.key)
+  );
+
+  const result = {} as RankingWeights;
+  floors.forEach((e) => {
+    result[e.key] = e.floor;
+  });
+  for (let i = 0; i < remainder; i++) {
+    result[order[i % order.length].key] += 1;
+  }
+
+  return result;
+}
+
+/**
  * Move one priority and absorb the difference across the others, keeping the
  * total at exactly 100.
  *
