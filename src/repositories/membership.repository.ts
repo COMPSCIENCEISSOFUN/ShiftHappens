@@ -225,6 +225,18 @@ export class MembershipRepository {
     });
   }
 
+  /**
+   * How many members hold a custom role, active or not.
+   *
+   * Deliberately not filtered to active members. Deleting the role sets
+   * `customRoleId` to null on every row that points at it, so a deactivated
+   * member loses it just as permanently as anyone else — and they are the ones
+   * nobody would think to re-grant it to on reactivation.
+   */
+  async countByCustomRole(customRoleId: string): Promise<number> {
+    return prisma.membership.count({ where: { customRoleId } });
+  }
+
   /** Sets or clears a member's custom role assignment */
   async updateCustomRole(membershipId: string, customRoleId: string | null) {
     return prisma.membership.update({

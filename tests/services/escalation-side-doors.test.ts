@@ -19,6 +19,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { UserManagementService } from "@/services/user-management.service";
 import { AccessService } from "@/services/access.service";
+import { RoleService } from "@/services/role.service";
 import { prisma } from "@/lib/prisma";
 import { inviteUserSchema } from "@/lib/validations";
 import { cleanDatabase } from "../helpers/cleanup";
@@ -360,5 +361,415 @@ describe("the two halves of a role change succeed or fail together", () => {
 
     const membership = await access.getMembership(tenant.staff.userId, tenant.orgId);
     expect(membership?.role).toBe("staff");
+  });
+});
+
+/**
+ * Editing yourself, without changing your role.
+ *
+ * The drawer sends the whole shape on every edit, so assigning yourself to a
+ * department or setting your own employment type arrives carrying `role`
+ * unchanged. The guard threw on the id comparison alone, so an admin could not
+ * put themselves in a department at all — they got "You cannot change your own
+ * role" for an action that changed no role.
+ */
+describe("a member editing their own record", () => {
+  it("may put themselves in a department", async () => {
+    await expect(
+      service.updateMemberRole(
+        tenant.admin.userId,
+        tenant.orgId,
+        { role: "company_admin", departmentIds: [tenant.departmentId] },
+        tenant.admin.userId
+      )
+    ).resolves.toBeDefined();
+
+    const memberships = await prisma.departmentMembership.findMany({
+      where: { membershipId: tenant.admin.membershipId },
+    });
+    expect(memberships).toHaveLength(1);
+  });
+
+  it("may set their own employment type", async () => {
+    await expect(
+      service.updateMemberRole(
+        tenant.manager.userId,
+        tenant.orgId,
+        { role: "manager", employmentType: "full_time" },
+        tenant.manager.userId
+      )
+    ).resolves.toBeDefined();
+  });
+
+  /*
+   * And the rule the guard is actually for still holds. Promoting yourself is
+   * the escalation it exists to stop; demoting yourself is how the last admin
+   * locks the organisation out of its own settings.
+   */
+  it("still cannot promote themselves", async () => {
+    await expect(
+      service.updateMemberRole(
+        tenant.manager.userId,
+        tenant.orgId,
+        { role: "company_admin" },
+        tenant.manager.userId
+      )
+    ).rejects.toThrow(/your own role/i);
+  });
+
+  it("still cannot demote themselves", async () => {
+    await expect(
+      service.updateMemberRole(
+        tenant.admin.userId,
+        tenant.orgId,
+        { role: "staff" },
+        tenant.admin.userId
+      )
+    ).rejects.toThrow(/your own role/i);
+  });
+});
+
+/**
+ * The side door that made all of the above optional.
+ *
+ * `assertCustomRoleAssignable` refuses to hand somebody a role carrying more
+ * than the assigner holds. It runs on ASSIGN, and for eight months that was the
+ * only place it ran — so nobody needed to assign anything. Give a manager
+ * `roles:manage` and they open the role they are already wearing, tick
+ * `billing:manage`, and save. `effectivePermissions` reads a role's permissions
+ * live on every request, so they hold it on the next page load: no second
+ * person, no assign call, not even a sign-out.
+ *
+ * These are written from the same side as the tests above — the actor holds
+ * only what the screen would give them, and the assertion is that the SERVER
+ * refuses, not that the picker greys the box out.
+ */
+describe("a role cannot be built larger than its author", () => {
+  const roles = new RoleService();
+
+  /** The ids behind a set of permission names. */
+  async function ids(...names: string[]) {
+    const found = await prisma.permission.findMany({
+      where: { name: { in: names } },
+      select: { id: true },
+    });
+    if (found.length !== names.length) {
+      throw new Error(`seed missing one of: ${names.join(", ")}`);
+    }
+    return found.map((p) => p.id);
+  }
+
+  describe("on create", () => {
+    it("refuses a delegate writing in a permission they do not hold", async () => {
+      await grant(tenant.manager.userId, ["roles:manage"]);
+
+      await expect(
+        roles.create(
+          {
+            displayLabel: "Overreach",
+            permissionIds: await ids("tasks:create", "billing:manage"),
+          },
+          tenant.orgId,
+          tenant.manager.userId
+        )
+      ).rejects.toThrow("You cannot grant permissions you do not hold");
+    });
+
+    it("names the permission that was refused", async () => {
+      await grant(tenant.manager.userId, ["roles:manage"]);
+
+      await expect(
+        roles.create(
+          {
+            displayLabel: "Overreach",
+            permissionIds: await ids("billing:manage"),
+          },
+          tenant.orgId,
+          tenant.manager.userId
+        )
+      ).rejects.toThrow(/billing:manage/);
+    });
+
+    // Delegating a NARROWER role is what the permission is for, and a guard
+    // that blocked this would leave `roles:manage` doing nothing.
+    it("allows a delegate building within their own means", async () => {
+      await grant(tenant.manager.userId, ["roles:manage"]);
+
+      const role = await roles.create(
+        {
+          displayLabel: "Task Helper",
+          permissionIds: await ids("tasks:create"),
+        },
+        tenant.orgId,
+        tenant.manager.userId
+      );
+
+      expect(role.rolePermissions).toHaveLength(1);
+    });
+
+    it("never constrains a company admin", async () => {
+      const all = await prisma.permission.findMany({ select: { id: true } });
+
+      const role = await roles.create(
+        { displayLabel: "Everything", permissionIds: all.map((p) => p.id) },
+        tenant.orgId,
+        tenant.admin.userId
+      );
+
+      expect(role.rolePermissions).toHaveLength(all.length);
+    });
+
+    /*
+     * The seed builds roles with no human behind them, and would be unable to
+     * create an admin role if an absent actor were treated as an actor holding
+     * nothing.
+     */
+    it("skips the check when no actor is named", async () => {
+      const role = await roles.create(
+        { displayLabel: "Seeded", permissionIds: await ids("billing:manage") },
+        tenant.orgId
+      );
+
+      expect(role.rolePermissions).toHaveLength(1);
+    });
+
+    it("refuses an actor who is not a member of the organisation", async () => {
+      const outsider = await createTenant("outsider");
+
+      await expect(
+        roles.create(
+          { displayLabel: "Foreign", permissionIds: await ids("tasks:create") },
+          tenant.orgId,
+          outsider.admin.userId
+        )
+      ).rejects.toThrow("Not authorized to manage roles");
+    });
+  });
+
+  describe("on update", () => {
+    /*
+     * The attack itself, in the shape it would actually be carried out: the
+     * role being edited is the one the editor is wearing, so the permission
+     * they add lands on themselves.
+     */
+    it("refuses adding to the role the editor is wearing", async () => {
+      const worn = await grant(tenant.manager.userId, ["roles:manage"]);
+
+      await expect(
+        roles.update(
+          worn.id,
+          tenant.orgId,
+          { permissionIds: await ids("roles:manage", "billing:manage") },
+          tenant.manager.userId
+        )
+      ).rejects.toThrow("You cannot grant permissions you do not hold");
+    });
+
+    it("leaves the role untouched when it refuses", async () => {
+      const worn = await grant(tenant.manager.userId, ["roles:manage"]);
+
+      await roles
+        .update(
+          worn.id,
+          tenant.orgId,
+          {
+            displayLabel: "Renamed too",
+            permissionIds: await ids("roles:manage", "billing:manage"),
+          },
+          tenant.manager.userId
+        )
+        .catch(() => {});
+
+      const after = await roles.getById(worn.id, tenant.orgId);
+      expect(after!.rolePermissions).toHaveLength(1);
+      expect(after!.displayLabel).toBe("Custom");
+    });
+
+    it("refuses adding to somebody else's role just the same", async () => {
+      await grant(tenant.manager.userId, ["roles:manage"]);
+      const other = await roles.create(
+        { displayLabel: "Helper", permissionIds: await ids("tasks:create") },
+        tenant.orgId,
+        tenant.admin.userId
+      );
+
+      await expect(
+        roles.update(
+          other.id,
+          tenant.orgId,
+          { permissionIds: await ids("tasks:create", "audit:view") },
+          tenant.manager.userId
+        )
+      ).rejects.toThrow("You cannot grant permissions you do not hold");
+    });
+
+    /*
+     * The form resends the whole permission list on every save, so judging an
+     * edit on everything submitted would refuse a rename over permissions
+     * nobody touched — the same failure the self-role guard had when it
+     * compared ids instead of comparing the role to the role.
+     */
+    it("allows renaming a role that already reaches past its editor", async () => {
+      await grant(tenant.manager.userId, ["roles:manage"]);
+      const built = await roles.create(
+        {
+          displayLabel: "Auditor",
+          permissionIds: await ids("audit:view", "tasks:create"),
+        },
+        tenant.orgId,
+        tenant.admin.userId
+      );
+
+      const updated = await roles.update(
+        built.id,
+        tenant.orgId,
+        {
+          displayLabel: "Auditor (renamed)",
+          permissionIds: built.rolePermissions.map((rp) => rp.permissionId),
+        },
+        tenant.manager.userId
+      );
+
+      expect(updated.displayLabel).toBe("Auditor (renamed)");
+    });
+
+    /*
+     * Removal grants nobody anything. Checking it would trap a role in a state
+     * its current editor is not allowed to reduce, which is the opposite of
+     * what the guard is for.
+     */
+    it("allows removing a permission the editor does not hold", async () => {
+      await grant(tenant.manager.userId, ["roles:manage"]);
+      const built = await roles.create(
+        {
+          displayLabel: "Auditor",
+          permissionIds: await ids("audit:view", "tasks:create"),
+        },
+        tenant.orgId,
+        tenant.admin.userId
+      );
+
+      const updated = await roles.update(
+        built.id,
+        tenant.orgId,
+        { permissionIds: await ids("tasks:create") },
+        tenant.manager.userId
+      );
+
+      expect(updated.rolePermissions).toHaveLength(1);
+    });
+
+    // An edit that touches only the label sends no permission list at all, and
+    // must not be judged against one.
+    it("allows an edit that sends no permissions", async () => {
+      await grant(tenant.manager.userId, ["roles:manage"]);
+      const built = await roles.create(
+        { displayLabel: "Auditor", permissionIds: await ids("audit:view") },
+        tenant.orgId,
+        tenant.admin.userId
+      );
+
+      const updated = await roles.update(
+        built.id,
+        tenant.orgId,
+        { description: "Reads the log" },
+        tenant.manager.userId
+      );
+
+      expect(updated.rolePermissions).toHaveLength(1);
+    });
+  });
+});
+
+/**
+ * Deleting the role you are wearing.
+ *
+ * `Membership.customRoleId` is `onDelete: SetNull`, so this is survivable by
+ * construction: the membership stays, the link blanks, and the holder falls
+ * back to their system bundle. It is allowed — stripping the role from its
+ * holders is what deleting one MEANS — but it is irreversible for the person
+ * doing it if `roles:manage` was what the role granted, which is why the count
+ * is recorded and the confirmation now says so.
+ */
+describe("deleting a role that people are wearing", () => {
+  const roles = new RoleService();
+
+  it("blanks the link without removing anybody from the organisation", async () => {
+    const worn = await grant(tenant.manager.userId, ["roles:manage"]);
+
+    await roles.delete(worn.id, tenant.orgId, tenant.manager.userId);
+
+    const after = await access.getMembership(tenant.manager.userId, tenant.orgId);
+    expect(after).not.toBeNull();
+    expect(after!.customRoleId).toBeNull();
+  });
+
+  // The permissions the role carried go with it — including, here, the one
+  // that allowed the deletion in the first place.
+  it("takes back what the role granted", async () => {
+    const worn = await grant(tenant.manager.userId, ["roles:manage"]);
+
+    await roles.delete(worn.id, tenant.orgId, tenant.manager.userId);
+
+    const after = await access.getMembership(tenant.manager.userId, tenant.orgId);
+    expect(access.permissionsFor(after!).has("roles:manage")).toBe(false);
+  });
+
+  /*
+   * Counted before the delete, which is the only moment it can be counted:
+   * afterwards every row that pointed at the role has been blanked and there
+   * is no record anywhere of who lost what.
+   */
+  it("records how many people lost it", async () => {
+    const role = await prisma.role.create({
+      data: {
+        organizationId: tenant.orgId,
+        name: "shared",
+        displayLabel: "Shared",
+        rolePermissions: {
+          create: (
+            await prisma.permission.findMany({
+              where: { name: "tasks:create" },
+              select: { id: true },
+            })
+          ).map((p) => ({ permissionId: p.id })),
+        },
+      },
+    });
+    for (const userId of [tenant.manager.userId, tenant.staff.userId]) {
+      await service.assignCustomRole(userId, tenant.orgId, role.id, tenant.admin.userId);
+    }
+
+    await roles.delete(role.id, tenant.orgId, tenant.admin.userId);
+
+    const entry = await prisma.auditLog.findFirstOrThrow({
+      where: { organizationId: tenant.orgId, action: "role.deleted" },
+      orderBy: { createdAt: "desc" },
+    });
+    expect((entry.details as { holderCount: number }).holderCount).toBe(2);
+  });
+
+  it("records zero for a role nobody was wearing", async () => {
+    const role = await roles.create(
+      {
+        displayLabel: "Unworn",
+        permissionIds: (
+          await prisma.permission.findMany({
+            where: { name: "tasks:create" },
+            select: { id: true },
+          })
+        ).map((p) => p.id),
+      },
+      tenant.orgId,
+      tenant.admin.userId
+    );
+
+    await roles.delete(role.id, tenant.orgId, tenant.admin.userId);
+
+    const entry = await prisma.auditLog.findFirstOrThrow({
+      where: { organizationId: tenant.orgId, action: "role.deleted" },
+      orderBy: { createdAt: "desc" },
+    });
+    expect((entry.details as { holderCount: number }).holderCount).toBe(0);
   });
 });

@@ -15,6 +15,8 @@ import {
   type SubscriptionTier,
 } from "@/lib/subscription-tiers";
 import { RoleRepository } from "@/repositories/role.repository";
+import { MembershipRepository } from "@/repositories/membership.repository";
+import { AccessService } from "@/services/access.service";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 import { WorkRuleRepository } from "@/repositories/work-rule.repository";
 import { uniqueRoleName } from "@/lib/role-slug";
@@ -25,8 +27,63 @@ export class RoleService {
   private workRuleRepo = new WorkRuleRepository();
   private orgRepo = new OrganizationRepository();
   private roleRepo = new RoleRepository();
+  private membershipRepo = new MembershipRepository();
+  private accessService = new AccessService();
   private auditService = new AuditLogService();
   private subscriptionService = new SubscriptionService();
+
+  /**
+   * Refuses to put a permission into a role that the author does not hold.
+   *
+   * ## The hole this closes
+   *
+   * `assertCustomRoleAssignable` in `user-management.service.ts` already
+   * refuses to ASSIGN a role containing permissions the assigner lacks, and its
+   * docblock names the risk exactly: "authority delegated by proxy, by someone
+   * who never had it". That check ran on assign and nowhere else.
+   *
+   * So the whole thing could be walked around without ever assigning anything.
+   * Delegate `roles:manage` to a manager, and they open the role they are
+   * already wearing, tick `billing:manage`, and save. `effectivePermissions`
+   * reads the role's permissions live on the next request, so they hold it
+   * immediately — no second person, no assign step, no sign-out. The guard on
+   * the assign path was left checking the one route nobody needed to take.
+   *
+   * ## Subset, not admin-only
+   *
+   * The same reasoning as the assign-time check: delegating a NARROWER role is
+   * what `roles:manage` is for, and a company admin holds the whole catalogue
+   * so this never constrains one. What it forbids is a role growing beyond its
+   * author.
+   *
+   * ## No actor, no check
+   *
+   * `userId` is optional throughout this service because the seed and other
+   * system paths create roles with no human behind them. Those are trusted by
+   * construction — the alternative is a seed that cannot build an admin role.
+   */
+  private async assertMayGrantPermissions(
+    organizationId: string,
+    permissionIds: readonly string[],
+    userId?: string
+  ) {
+    if (!userId || permissionIds.length === 0) return;
+
+    const actor = await this.membershipRepo.findByUserAndOrg(
+      userId,
+      organizationId
+    );
+    if (!actor) throw new Error("Not authorized to manage roles");
+
+    const held = this.accessService.permissionsFor(actor);
+    const names = await this.roleRepo.permissionNamesByIds(permissionIds);
+    const excess = names.filter((name) => !held.has(name));
+    if (excess.length > 0) {
+      throw new Error(
+        `You cannot grant permissions you do not hold: ${excess.join(", ")}`
+      );
+    }
+  }
 
   /**
    * Creates a new custom role in an organization.
@@ -54,6 +111,14 @@ export class RoleService {
   async create(input: CreateRoleInput, organizationId: string, userId?: string) {
     await this.subscriptionService.enforceFeatureAccess(organizationId, 'custom_roles');
     await this.subscriptionService.enforceResourceLimit(organizationId, 'custom_roles');
+
+    // Every permission, because the role does not exist yet — all of them are
+    // being added.
+    await this.assertMayGrantPermissions(
+      organizationId,
+      input.permissionIds,
+      userId
+    );
 
     const displayLabel = input.displayLabel.trim();
 
@@ -96,9 +161,31 @@ export class RoleService {
     return role;
   }
 
-  /** Retrieves all roles for an organization */
-  async getByOrganization(organizationId: string) {
-    return this.roleRepo.findByOrganizationId(organizationId);
+  /**
+   * Every role in an organisation, with two facts the list cannot work out for
+   * itself: how many people hold each one, and whether the caller is one of
+   * them.
+   *
+   * `heldByCaller` is answered here rather than on the page because the page
+   * only knows the caller's permission NAMES — the provider deliberately
+   * carries nothing else — and comparing a role's label against the chip in the
+   * sidebar would be guessing at identity from a string two people could share.
+   *
+   * Without `userId` — a system path, or a caller outside the org — nobody
+   * holds anything, which is the honest answer rather than a missing field the
+   * UI would have to treat as false anyway.
+   */
+  async getByOrganization(organizationId: string, userId?: string) {
+    const roles = await this.roleRepo.findByOrganizationId(organizationId);
+    const actor = userId
+      ? await this.membershipRepo.findByUserAndOrg(userId, organizationId)
+      : null;
+
+    return roles.map(({ _count, ...role }) => ({
+      ...role,
+      memberCount: _count.memberCustomRoles,
+      heldByCaller: actor?.customRoleId === role.id,
+    }));
   }
 
   /**
@@ -123,6 +210,26 @@ export class RoleService {
 
     if (role.isSystemRole) {
       throw new Error("Cannot modify system roles");
+    }
+
+    /*
+     * Only what is being ADDED, not everything submitted.
+     *
+     * The role form resends the complete permission list on every save, so
+     * checking all of it would refuse a rename — the edit would be judged on
+     * permissions the role already had and nobody was touching. That is the
+     * same failure shape as the self-role guard, which threw "You cannot change
+     * your own role" at an admin putting themselves in a department, because it
+     * compared ids instead of comparing the role to the role.
+     *
+     * Removals are deliberately unchecked. Taking a permission out of a role
+     * grants nobody anything, and refusing it would trap a role in a state its
+     * current editor cannot reduce.
+     */
+    if (input.permissionIds !== undefined) {
+      const current = new Set(role.rolePermissions.map((rp) => rp.permissionId));
+      const added = input.permissionIds.filter((id) => !current.has(id));
+      await this.assertMayGrantPermissions(organizationId, added, userId);
     }
 
     /*
@@ -205,6 +312,19 @@ export class RoleService {
 
     await this.assertNoWorkRulesTargetRole(roleId);
 
+    /*
+     * Counted BEFORE the delete, which is the only moment the number exists.
+     * `Membership.customRoleId` is `onDelete: SetNull`, so the rows survive
+     * with the link blanked — afterwards there is nothing left to count and no
+     * record anywhere of who lost what.
+     *
+     * That is also why this is not a refusal. Stripping a role from its holders
+     * is what deleting one MEANS, and the holders keep their system-role
+     * permissions either way. It is recoverable by re-creating the role and
+     * re-assigning it, and the audit entry is what makes that possible.
+     */
+    const holderCount = await this.membershipRepo.countByCustomRole(roleId);
+
     const deleted = await this.roleRepo.delete(roleId);
 
     await this.auditService.log({
@@ -213,7 +333,7 @@ export class RoleService {
       action: ACTIONS.ROLE_DELETED,
       entityType: "role",
       entityId: roleId,
-      details: { name: role.name },
+      details: { name: role.name, displayLabel: role.displayLabel, holderCount },
     });
 
     return deleted;

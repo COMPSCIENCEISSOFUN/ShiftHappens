@@ -78,9 +78,19 @@ export async function PATCH(
       if (error.message === "Role not found") {
         return NextResponse.json({ error: error.message }, { status: 404 });
       }
-      // 409: the request is well-formed and the role exists — it is the
-      // current state that refuses, and the message names the rules to fix.
-      if (error.message.startsWith("Cannot delete:")) {
+      /*
+       * 403, the same answer `PATCH /members/[userId]` gives for this exact
+       * message. The edit path is the one that matters most: it is where
+       * somebody holding `roles:manage` could add a permission to the role they
+       * are already wearing and hold it on the next request.
+       */
+      if (
+        error.message.startsWith("You cannot grant permissions you do not hold") ||
+        error.message === "Not authorized to manage roles"
+      ) {
+        return NextResponse.json({ error: error.message }, { status: 403 });
+      }
+      if (error.message.startsWith("A role called")) {
         return NextResponse.json({ error: error.message }, { status: 409 });
       }
     }
@@ -112,6 +122,19 @@ export async function DELETE(
       }
       if (error.message === "Role not found") {
         return NextResponse.json({ error: error.message }, { status: 404 });
+      }
+      /*
+       * 409: the request is well-formed and the role exists — it is the current
+       * state that refuses, and the message names the work rules to retarget.
+       *
+       * This branch was written on PATCH, where nothing can raise it:
+       * `assertNoWorkRulesTargetRole` is called from `delete` alone. So the one
+       * refusal it was written for reached the caller as an opaque 500, with
+       * the sentence naming the offending rules discarded on the way — the
+       * exact outcome the service comment says it exists to prevent.
+       */
+      if (error.message.startsWith("Cannot delete:")) {
+        return NextResponse.json({ error: error.message }, { status: 409 });
       }
     }
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

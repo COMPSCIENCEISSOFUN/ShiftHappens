@@ -48,6 +48,22 @@ export async function POST(
     if (error instanceof Error && error.message === "Role name already exists") {
       return NextResponse.json({ error: error.message }, { status: 409 });
     }
+    /*
+     * 403 and not 400, matching what `PATCH /members/[userId]` already answers
+     * for the identical refusal: the request is well-formed and the caller
+     * simply may not make it. A 400 would read as "fix your input" for
+     * something no input can fix.
+     */
+    if (
+      error instanceof Error &&
+      (error.message.startsWith("You cannot grant permissions you do not hold") ||
+        error.message === "Not authorized to manage roles")
+    ) {
+      return NextResponse.json({ error: error.message }, { status: 403 });
+    }
+    if (error instanceof Error && error.message.startsWith("A role called")) {
+      return NextResponse.json({ error: error.message }, { status: 409 });
+    }
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
@@ -78,7 +94,7 @@ export async function GET(
     ]);
     if (!gate.ok) return gate.response;
 
-    const roles = await roleService.getByOrganization(orgId);
+    const roles = await roleService.getByOrganization(orgId, user.id);
     return NextResponse.json(roles);
   } catch {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

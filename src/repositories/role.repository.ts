@@ -67,6 +67,16 @@ export class RoleRepository {
         rolePermissions: {
           include: { permission: true },
         },
+        /*
+         * How many people hold each role.
+         *
+         * The roles list showed a permission count and nothing about reach, so
+         * the delete confirmation could only say "anyone currently holding this
+         * role loses the permissions it grants" — true of every role, and
+         * therefore no help in deciding whether to press the button. A count
+         * turns that sentence into a fact about THIS role.
+         */
+        _count: { select: { memberCustomRoles: true } },
       },
       orderBy: { name: "asc" },
     });
@@ -166,6 +176,28 @@ export class RoleRepository {
       select: { name: true },
     });
     return roles.map((r) => r.name);
+  }
+
+  /**
+   * The names behind a set of permission ids.
+   *
+   * The role forms speak in ids and every authorisation check in the codebase
+   * speaks in names, so something has to translate between them. Doing it here
+   * rather than in the service keeps the query in the Entity layer, and doing
+   * it in one round trip rather than per id keeps a fourteen-permission role
+   * from costing fourteen queries.
+   *
+   * Ids that match nothing are simply absent from the result. The caller is
+   * asking "what would this grant", and an id that names no permission grants
+   * nothing.
+   */
+  async permissionNamesByIds(ids: readonly string[]): Promise<string[]> {
+    if (ids.length === 0) return [];
+    const permissions = await prisma.permission.findMany({
+      where: { id: { in: [...ids] } },
+      select: { name: true },
+    });
+    return permissions.map((p) => p.name);
   }
 
   /** Gets all available permissions (global, not org-scoped) */
