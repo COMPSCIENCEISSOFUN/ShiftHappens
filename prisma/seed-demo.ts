@@ -692,6 +692,137 @@ async function seedAll(tx: Tx) {
   }
 
   // ============================================================
+  // Custom roles
+  // ============================================================
+  /*
+   * Two, because one cannot show what the model actually does.
+   *
+   * A fresh demo had NO custom roles at all, which left the headline feature of
+   * this project describable and not demonstrable: an empty Roles page, and a
+   * permission model that had to be explained rather than opened. Worse, the
+   * guard added on 2026-08-08 — the one refusing a role that grants more than
+   * its author holds — is invisible without somebody who holds `roles:manage`
+   * through a custom role, because a company admin holds the whole catalogue
+   * and is never constrained by it.
+   *
+   * So: one role that ADDS to a staff member, and one that DELEGATES the role
+   * builder to a manager.
+   *
+   * Requires the permission catalogue. `npx prisma db seed` writes it and no
+   * migration does, so a database that has never had it seeded produces roles
+   * with nothing in them — which is why the missing names are named below
+   * rather than silently skipped.
+   */
+  const customRoleData = [
+    {
+      name: "shift_lead",
+      displayLabel: "Shift Lead",
+      description:
+        "A senior floor member who fills gaps in the roster without owning it",
+      holderEmail: "alex@oceangrill.com",
+      /*
+       * Given to STAFF, who hold nothing by default — so this role is the whole
+       * of what Alex can do, which is what makes it a clean demonstration of
+       * "adds to the system bundle" rather than a subtle one.
+       *
+       * Filling a shift, not inventing one: no `tasks:create` or `tasks:delete`.
+       * A shift lead covers the rota somebody else set.
+       *
+       * `calendar:view_team` also demonstrates the sidebar rule keyed on
+       * PERMISSION rather than role — Alex gets Calendar and loses My Schedule,
+       * exactly as a manager does.
+       */
+      permissions: [
+        "tasks:assign",
+        "eligibility:view",
+        "calendar:view_team",
+        "members:request_availability",
+      ],
+    },
+    {
+      name: "rota_manager",
+      displayLabel: "Rota Manager",
+      description:
+        "A manager trusted to compose roles as well as rosters",
+      holderEmail: "marcus@oceangrill.com",
+      /*
+       * The delegate account. Marcus holds the manager bundle already, so the
+       * only thing this ADDS is the role builder — and that is the point: log in
+       * as him, open Roles, and every permission outside a manager's reach is
+       * greyed with "not yours to grant", while `audit:view` shows the
+       * ENTERPRISE PLAN badge instead because the organisation is on Pro.
+       *
+       * Two independent gates, both denying, on one screen, for two different
+       * reasons. That is the RBAC story this project is arguing, visible rather
+       * than described.
+       */
+      permissions: ["roles:manage"],
+    },
+  ];
+
+  const neededPermissions = [
+    ...new Set(customRoleData.flatMap((r) => r.permissions)),
+  ];
+  const permissionRows = await tx.permission.findMany({
+    where: { name: { in: neededPermissions } },
+    select: { id: true, name: true },
+  });
+  const permissionIdByName = new Map(permissionRows.map((p) => [p.name, p.id]));
+
+  const missing = neededPermissions.filter((n) => !permissionIdByName.has(n));
+  if (missing.length > 0) {
+    // Named, not counted. The catalogue comes from `prisma db seed`, and a
+    // database missing it produces empty roles that look like a bug in the
+    // roles page rather than an unseeded table.
+    console.warn(
+      `  ⚠ Permission catalogue is missing ${missing.length} entr${missing.length === 1 ? "y" : "ies"}: ` +
+        `${missing.join(", ")}. Run \`npx prisma db seed\` and re-run this script.`
+    );
+  }
+
+  for (const roleData of customRoleData) {
+    const role = await tx.role.upsert({
+      where: { organizationId_name: { organizationId: orgId, name: roleData.name } },
+      update: {
+        displayLabel: roleData.displayLabel,
+        description: roleData.description,
+      },
+      create: {
+        organizationId: orgId,
+        name: roleData.name,
+        displayLabel: roleData.displayLabel,
+        description: roleData.description,
+      },
+    });
+
+    // Replaced rather than added to, so re-running the seed after editing the
+    // list above does not leave yesterday's permissions attached.
+    await tx.rolePermission.deleteMany({ where: { roleId: role.id } });
+    await tx.rolePermission.createMany({
+      data: roleData.permissions
+        .map((name) => permissionIdByName.get(name))
+        .filter((id): id is string => Boolean(id))
+        .map((permissionId) => ({ roleId: role.id, permissionId })),
+    });
+
+    const holder = await tx.membership.findFirst({
+      where: { organizationId: orgId, user: { email: roleData.holderEmail } },
+      select: { id: true },
+    });
+    if (holder) {
+      await tx.membership.update({
+        where: { id: holder.id },
+        data: { customRoleId: role.id },
+      });
+    }
+  }
+
+  console.log(
+    `Created ${customRoleData.length} custom roles: ` +
+      customRoleData.map((r) => `${r.displayLabel} → ${r.holderEmail}`).join(", ")
+  );
+
+  // ============================================================
   // Certifications
   // ============================================================
   //
