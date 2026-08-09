@@ -1,28 +1,66 @@
 /**
  * Next.js Middleware — Tiered Rate Limiting
- * 
+ *
  * Intercepts all API requests and applies rate limits based on
  * route pattern matching. Non-API routes (pages, assets) pass through.
- * 
+ *
  * Tiers:
- * - Strict (5 req/min): auth endpoints vulnerable to brute force
+ * - Strict (5 req/min): the endpoints where a secret is guessed
  * - Moderate (20 req/min): AI and invitation endpoints
  * - Relaxed (100 req/min): all other API endpoints
- * 
+ *
  * Rate limit headers are set on all API responses:
  * - X-RateLimit-Limit: max requests per window
  * - X-RateLimit-Remaining: requests left in current window
  * - X-RateLimit-Reset: seconds until window resets
+ *
+ * ## `/api/auth` was the whole of Auth.js, not the password check
+ *
+ * The strict list carried the bare prefix `/api/auth`, which is the mount point
+ * for EVERY Auth.js endpoint — issuing a CSRF token, reading the session,
+ * listing providers, signing out — and only one of them, the credentials
+ * callback, has a secret in it to guess. The rest is machinery the client must
+ * call to do anything at all, and it was competing for the same five requests.
+ *
+ * The arithmetic made that fatal rather than merely tight. `signIn()` costs
+ * three requests (`providers`, `csrf`, `callback/credentials`) and `signOut()`
+ * costs two (`csrf`, `signout`) — so signing in and straight back out is five,
+ * the entire minute's allowance, before a mistyped password is considered.
+ *
+ * And the failure was silent. `getCsrfToken()` swallows a failed fetch, logs a
+ * `ClientFetchError` and returns `""`; `signOut` then posts an empty token,
+ * which is rejected, so THE SESSION COOKIE WAS NEVER CLEARED. The browser
+ * redirected to `/login` anyway, `/login` bounced the still-signed-in user to
+ * `/dashboard`, and they landed back where they started. Pressing Log out did
+ * nothing, visibly succeeded, and left a console error with no message in it.
+ *
+ * Development made it constant: with no `x-real-ip` or `x-forwarded-for`,
+ * `getClientIp` returns `"unknown"` and every tab shares one bucket.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { rateLimit } from "@/lib/rate-limit";
 
-/** Route patterns and their rate limit tiers */
+/**
+ * The endpoints where somebody is guessing a secret.
+ *
+ * Each is a password or a single-use token being submitted for checking, which
+ * is the only thing 5-per-minute is the right answer to. `/api/auth/csrf`,
+ * `/api/auth/session`, `/api/auth/signout` and `/api/auth/providers` are
+ * deliberately NOT here — nothing about them can be brute-forced, and they fall
+ * to the relaxed tier with every other read.
+ *
+ * ⚠️ `callback/credentials` is where `signIn()` posts a password, and it is
+ * named exactly rather than by prefix. If the provider is ever renamed, or a
+ * second one added, this list must move with it — a path that matches nothing
+ * removes the protection SILENTLY, which is the dangerous direction. The tests
+ * build their request from the same construction Auth.js uses, so a change
+ * there fails the suite rather than quietly widening the door.
+ */
 const STRICT_PATTERNS = [
   "/api/register",
   "/api/forgot-password",
   "/api/reset-password",
-  "/api/auth",
+  "/api/auth/callback/credentials",
 ];
 
 const MODERATE_PATTERNS = [
@@ -49,14 +87,35 @@ const TIER_LIMITS = {
   relaxed: 100,
 } as const;
 
-function getTier(pathname: string): keyof typeof TIER_LIMITS {
+/**
+ * Which tier a path falls in, and which COUNTER it draws from.
+ *
+ * The two used to be the same thing — one bucket per tier — so the four strict
+ * endpoints shared a single allowance of five. Asking for a password reset
+ * therefore spent the sign-in attempts, and vice versa: a limit described as
+ * "5 sign-in attempts a minute" was nothing of the kind.
+ *
+ * Strict gets a bucket PER PATTERN, because each one protects a different
+ * secret and exhausting one says nothing about the others.
+ *
+ * Moderate deliberately keeps ONE shared bucket. It is not protecting a secret;
+ * it is capping spend on Groq and Gemini, and that budget is shared by
+ * definition. Splitting it per pattern would turn 20 calls a minute into 20 ×
+ * the number of AI endpoints, which is the opposite of what the tier is for.
+ *
+ * Relaxed likewise stays shared — a flood guard over everything else.
+ */
+function classify(pathname: string): {
+  tier: keyof typeof TIER_LIMITS;
+  bucket: string;
+} {
   for (const pattern of STRICT_PATTERNS) {
-    if (pathname.startsWith(pattern)) return "strict";
+    if (pathname.startsWith(pattern)) return { tier: "strict", bucket: pattern };
   }
   for (const pattern of MODERATE_PATTERNS) {
-    if (pathname.includes(pattern)) return "moderate";
+    if (pathname.includes(pattern)) return { tier: "moderate", bucket: "moderate" };
   }
-  return "relaxed";
+  return { tier: "relaxed", bucket: "relaxed" };
 }
 
 /**
@@ -108,9 +167,9 @@ export function middleware(request: NextRequest) {
   }
 
   const ip = getClientIp(request);
-  const tier = getTier(pathname);
+  const { tier, bucket } = classify(pathname);
   const limit = TIER_LIMITS[tier];
-  const key = `${ip}:${tier}`;
+  const key = `${ip}:${bucket}`;
 
   const result = rateLimit(key, limit);
 

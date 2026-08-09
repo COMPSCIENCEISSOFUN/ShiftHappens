@@ -21,20 +21,36 @@ import { NextRequest } from "next/server";
 import { middleware } from "@/middleware";
 import { rateLimit, resetRateLimitStore } from "@/lib/rate-limit";
 
+/**
+ * The path a password is posted to, spelled the way Auth.js builds it.
+ *
+ * `signIn()` composes `${basePath}/callback/${provider}` for a credentials
+ * provider — verified against `node_modules/next-auth/react.js` — and the
+ * middleware's strict list names that exact path rather than the `/api/auth`
+ * prefix it used to carry. Writing it here as one constant is what makes these
+ * tests fail rather than silently pass if the two ever drift: a strict pattern
+ * matching nothing removes the protection without breaking anything.
+ */
+const SIGN_IN_PATH = "/api/auth/callback/credentials";
+
 /** A request to a strict-tier path (5/min) with the given forwarding headers. */
 function request(headers: Record<string, string>) {
-  return new NextRequest("https://example.com/api/auth/callback/credentials", {
+  return new NextRequest(`https://example.com${SIGN_IN_PATH}`, {
     headers: new Headers(headers),
   });
 }
 
 /**
- * How many of a strict tier's 5 requests remain for this IP.
+ * How many of sign-in's 5 requests remain for this IP.
+ *
+ * The bucket is keyed on the PATTERN now, not the tier. Each strict endpoint
+ * protects a different secret, and one shared counter meant a password reset
+ * spent the sign-in attempts.
  *
  * `rateLimit` counts, so calling it consumes one. The caller accounts for that.
  */
 function remainingFor(ip: string): number {
-  return rateLimit(`${ip}:strict`, 5).remaining;
+  return rateLimit(`${ip}:${SIGN_IN_PATH}`, 5).remaining;
 }
 
 beforeEach(() => {
