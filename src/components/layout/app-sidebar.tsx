@@ -23,6 +23,7 @@ import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import { useTheme } from "next-themes";
 import { getSystemRoleLabel, canBeRostered } from "@/lib/role-config";
+import { usePlan } from "@/components/layout/plan-provider";
 
 // ============================================================
 // SVG icon components
@@ -167,6 +168,27 @@ function AvailabilityIcon() {
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={iconClass}>
       <circle cx="12" cy="12" r="10" />
       <polyline points="12 6 12 12 16 14" />
+    </svg>
+  );
+}
+
+/**
+ * A calendar with a person, for the member's own week.
+ *
+ * Deliberately NOT the same glyph as the team `CalendarIcon` above: they sit
+ * three items apart in the same menu and answer different questions — "what is
+ * everyone doing" versus "what am I doing" — so two identical calendars would
+ * make the pair look like a duplicate entry.
+ */
+function MyScheduleIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={iconClass}>
+      <path d="M8 2v4" />
+      <path d="M16 2v4" />
+      <rect width="18" height="18" x="3" y="4" rx="2" />
+      <path d="M3 10h18" />
+      <circle cx="12" cy="15" r="2" />
+      <path d="M9 19a3 3 0 0 1 6 0" />
     </svg>
   );
 }
@@ -320,8 +342,6 @@ export function AppSidebar({
   const pathname = usePathname();
   const { resolvedTheme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
-  const [features, setFeatures] = useState<Record<string, boolean> | null>(null);
-  const [tier, setTier] = useState<{ name: string; displayName: string } | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
   const [pendingLeaveCount, setPendingLeaveCount] = useState(0);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -352,18 +372,17 @@ export function AppSidebar({
     setMobileOpen(false);
   }, [pathname]);
 
-  // Fetch subscription features for sidebar gating
-  useEffect(() => {
-    if (orgId) {
-      fetch(`/api/organizations/${orgId}/subscription`)
-        .then((res) => (res.ok ? res.json() : null))
-        .then((data) => {
-          if (data?.features) setFeatures(data.features);
-          if (data?.tier) setTier({ name: data.tier, displayName: data.displayName });
-        })
-        .catch(() => {});
-    }
-  }, [orgId]);
+  /*
+   * The plan, read rather than fetched.
+   *
+   * This used to request `/subscription` on mount and treat "not answered yet"
+   * as "allowed", so Roles and Audit Log appeared in the menu on every page
+   * load and then disappeared once the answer arrived — a link the reader could
+   * see, and sometimes click, that was never theirs. The tier now arrives from
+   * the server with the rest of the chrome, so the first paint is the right
+   * one and a request per page load goes away with it.
+   */
+  const { has: planHas, tierName } = usePlan();
 
   /*
    * Poll the count of leave awaiting a decision.
@@ -467,6 +486,29 @@ export function AppSidebar({
      */
     if (canBeRostered(role)) {
       overviewItems.push({ href: `/org/${orgId}/my-tasks`, label: "My Tasks", icon: MyTasksIcon });
+      /*
+       * The same shifts as a week rather than a list — for the people who have
+       * no other calendar.
+       *
+       * A list answers "what am I on next"; a grid answers "what does my week
+       * look like" — where the gaps are, whether two shifts are back to back —
+       * and no ordering of a list produces that.
+       *
+       * `!can("calendar:view_team")` because a MANAGER is rostered AND can open
+       * the team calendar, so they were offered two calendars drawing the same
+       * week: this one, and Calendar with their own shifts somewhere among
+       * everyone else's. Only the manager saw the duplication — staff cannot
+       * open Calendar, and an admin is not rostered.
+       *
+       * The subtraction is only safe because Calendar now carries a Mine
+       * toggle. Without it, taking this away would remove the one view that
+       * answers "what does MY week look like" from the people most likely to be
+       * working a shift and running the floor at the same time. The PAGE stays
+       * either way; this is about how many calendars appear in a menu.
+       */
+      if (!can("calendar:view_team")) {
+        overviewItems.push({ href: `/org/${orgId}/my-schedule`, label: "My Schedule", icon: MyScheduleIcon });
+      }
       // The record of finished shifts, which My Tasks deliberately keeps short:
       // that page answers "am I on tonight", this one answers "what have I
       // worked". Same `canBeRostered` gate as the rest of this group.
@@ -515,7 +557,7 @@ export function AppSidebar({
     }
     // Tier AND permission. Both can only deny, and the plan is checked first
     // for the same reason the route guard checks it first.
-    if (can("roles:manage") && (features === null || features.custom_roles !== false)) {
+    if (can("roles:manage") && planHas("custom_roles")) {
       orgItems.push({ href: `/org/${orgId}/roles`, label: "Roles", icon: RolesIcon });
     }
     if (can("work_rules:manage")) {
@@ -560,7 +602,7 @@ export function AppSidebar({
   }
 
   if (orgId) {
-    if (can("audit:view") && (features === null || features.audit_log !== false)) {
+    if (can("audit:view") && planHas("audit_log")) {
       systemItems.push({ href: `/org/${orgId}/audit-log`, label: "Audit Log", icon: AuditLogIcon });
     }
     if (can("settings:read")) {
@@ -625,9 +667,11 @@ export function AppSidebar({
         </div>
         <div className="flex flex-col gap-0.5">
           <span className="text-[15px] font-bold tracking-tight">{orgName || "Smart Task"}</span>
-          {tier && (
+          {/* Only where a plan is a fact. Onboarding has no organisation yet,
+              and a "Free" badge there would be describing nothing. */}
+          {orgId && (
             <span className="w-fit rounded-full bg-white/15 px-2 py-px text-[10px] font-semibold text-white/80">
-              {tier.displayName}
+              {tierName}
             </span>
           )}
         </div>

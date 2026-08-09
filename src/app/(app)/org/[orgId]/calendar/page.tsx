@@ -20,13 +20,13 @@ import { useParams } from "next/navigation";
 import { CalendarAssignModal } from "@/components/calendar/calendar-assign-modal";
 import { PageLoading } from "@/components/ui/page-loading";
 import { EmptyState } from "@/components/ui/empty-state";
-import { LayoutGrid, Lock } from "lucide-react";
+import { CalendarDays, LayoutGrid, Lock } from "lucide-react";
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { occupiesSlot } from "@/lib/assignment-status";
 import { StatTile } from "@/components/ui/stat-tile";
 import {
-  businessDayRange,
+  businessDayRangeStartingOn,
   businessDayStart,
   operatingWindowHours,
 } from "@/lib/business-day";
@@ -55,7 +55,19 @@ interface Task {
   assignments: {
     id: string;
     status: string;
-    membership: { user: { name: string | null } };
+    /*
+     * `user.id`, so this page can tell whose shift it is looking at.
+     *
+     * The endpoint has always sent it — `findByOrganizationId` selects
+     * `user: { select: { id: true, name: true } }` and nothing strips it — but
+     * this interface declared only the name, so the field was invisible to
+     * every reader of this file.
+     *
+     * The id and not the name. Two people can share a name, and "mine" decided
+     * by string comparison would show somebody else's shift as yours on a
+     * screen used to plan a week.
+     */
+    membership: { user: { id: string; name: string | null } };
   }[];
 }
 
@@ -283,6 +295,20 @@ export default function CalendarPage() {
   const [showCoverage, setShowCoverage] = useState(true);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [filterDept, setFilterDept] = useState("");
+  /*
+   * ── Mine / Team ──
+   *
+   * A manager can be rostered, so they held TWO calendars: this one, gated on
+   * `calendar:view_team`, and My Schedule, gated on `canBeRostered`. Same
+   * picture twice, one of them already filtered to them.
+   *
+   * The sidebar now offers My Schedule only to people who cannot open this
+   * page, and this toggle is what makes that subtraction safe: without it a
+   * manager would lose the only view that answers "what does MY week look
+   * like" without hunting for their own name among everyone else's.
+   */
+  const [mineOnly, setMineOnly] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -330,6 +356,7 @@ export default function CalendarPage() {
     fetchStaff();
     fetchPendingLeave();
     fetchSettings();
+    fetchCurrentUser();
   }, [orgId]);
 
   useEffect(() => {
@@ -390,6 +417,23 @@ export default function CalendarPage() {
    * the hard-coded 6–22 defaults in place. An admin who set 08:00–20:00 saw one
    * grid and their team saw another, with nothing anywhere reporting a problem.
    */
+  /**
+   * Who the caller is, for the Mine filter.
+   *
+   * `/api/profile` — the same route the members page uses to decide which row
+   * is "you". Nothing on this screen needs it until Mine is switched on, and a
+   * failure leaves it null, which the toggle treats as "cannot answer that
+   * question" rather than as "you are assigned to nothing".
+   */
+  async function fetchCurrentUser() {
+    try {
+      const res = await fetch("/api/profile");
+      if (!res.ok) return;
+      const data = await res.json();
+      setCurrentUserId(data.id ?? null);
+    } catch { /* non-critical — the toggle hides itself without it */ }
+  }
+
   async function fetchSettings() {
     try {
       const res = await fetch(`/api/organizations/${orgId}/settings/display`);
@@ -408,7 +452,40 @@ export default function CalendarPage() {
     new Map(tasks.filter((t) => t.department).map((t) => [t.department!.id, t.department!])).values()
   ).sort((a, b) => a.name.localeCompare(b.name));
 
-  const filteredTasks = filterDept ? tasks.filter((t) => t.department?.id === filterDept) : tasks;
+  /*
+   * The department filter and the Mine filter compose, deliberately: "my
+   * shifts" and "the kitchen" are different questions and a manager may want
+   * both at once.
+   *
+   * `activeAssignments` rather than every row, so a shift declined or withdrawn
+   * from stops being yours — the same rule that decides whether it occupies a
+   * headcount slot.
+   */
+  /*
+   * Whether to offer the toggle at all, answered from the data rather than from
+   * a role.
+   *
+   * "Is this person rostered" is really "would Mine show them anything", and
+   * the loaded board already answers it — no extra request, and no reliance on
+   * a role string that a custom role can move. A company admin holds no shifts,
+   * so the control never appears for one; switching it on would empty the board
+   * and read as a broken calendar rather than as an honest zero.
+   */
+  const hasOwnShifts =
+    currentUserId !== null &&
+    tasks.some((t) =>
+      activeAssignments(t).some((a) => a.membership.user.id === currentUserId)
+    );
+
+  const byDepartment = filterDept
+    ? tasks.filter((t) => t.department?.id === filterDept)
+    : tasks;
+  const filteredTasks =
+    mineOnly && currentUserId
+      ? byDepartment.filter((t) =>
+          activeAssignments(t).some((a) => a.membership.user.id === currentUserId)
+        )
+      : byDepartment;
   const unscheduledCount = filteredTasks.filter((t) => !t.scheduledStart || !t.scheduledEnd).length;
 
   /* ------------------------------------------------------------------ */
@@ -441,6 +518,19 @@ export default function CalendarPage() {
    * visible days. Never less than the operating window, never more than a full
    * business day — anything longer than that continues into the next column.
    */
+  /*
+   * The coverage heat map is a statement about the TEAM — how much of the week
+   * has somebody on it — so it means nothing laid over one person's shifts.
+   * Suppressed rather than switched off, so flipping back to Everyone restores
+   * whatever the reader had chosen.
+   *
+   * The stat tiles are left alone deliberately. Two of them (coverage, on duty
+   * today) are computed from their own endpoints and stay org-wide either way,
+   * and "Understaffed" narrowing to the reader's own shifts is a sensible
+   * reading rather than a wrong one.
+   */
+  const coverageVisible = showCoverage && !mineOnly;
+
   const gridHours = gridHoursFor(visibleDates, filteredTasks, dayStartHour, windowHours);
 
   /**
@@ -492,7 +582,10 @@ export default function CalendarPage() {
    * spanning several days appeared on the first one alone.
    */
   function getTasksForDay(date: Date): Task[] {
-    const { start, end } = businessDayRange(date, dayStartHour);
+    // `date` is a column heading rather than an instant, so this asks for the
+    // business day LABELLED with it. The containment form returned the previous
+    // one for every column with a non-midnight boundary.
+    const { start, end } = businessDayRangeStartingOn(date, dayStartHour);
     return filteredTasks.filter((t) => {
       if (!t.scheduledStart || !t.scheduledEnd) return false;
       return new Date(t.scheduledStart) < end && new Date(t.scheduledEnd) > start;
@@ -709,9 +802,9 @@ export default function CalendarPage() {
                   return (
                     <div key={row.index} className="relative border-b border-border" style={{
                       height: `${100 / gridHours}%`,
-                      backgroundColor: showCoverage && coverage.length > 0 ? getCoverageTint(count, isDark) : undefined,
+                      backgroundColor: coverageVisible && coverage.length > 0 ? getCoverageTint(count, isDark) : undefined,
                     }}>
-                      {showCoverage && coverage.length > 0 && (
+                      {coverageVisible && coverage.length > 0 && (
                         <span className="absolute bottom-0.5 right-1 select-none text-[9px] text-muted-foreground/50">{count}</span>
                       )}
                     </div>
@@ -980,6 +1073,22 @@ export default function CalendarPage() {
               {unscheduledCount} unscheduled
             </span>
           )}
+          {/*
+            Hidden when the caller is not rostered, or when we could not find
+            out who they are. An admin holds no shifts, so "Mine" would filter
+            the board down to nothing and read as a broken calendar rather than
+            as an empty one.
+          */}
+          {hasOwnShifts && (
+            <button
+              onClick={() => setMineOnly(!mineOnly)}
+              aria-pressed={mineOnly}
+              className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs transition-colors ${mineOnly ? "border-indigo-300 bg-indigo-50/60 text-indigo-700 dark:border-indigo-800 dark:bg-indigo-950/30 dark:text-indigo-400" : "border-border bg-card text-muted-foreground"}`}
+            >
+              <CalendarDays className="h-3.5 w-3.5" aria-hidden="true" />
+              {mineOnly ? "My shifts" : "Everyone"}
+            </button>
+          )}
           <button
             onClick={() => setShowCoverage(!showCoverage)}
             className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs transition-colors ${showCoverage ? "border-green-300 dark:border-green-800 bg-green-50/60 dark:bg-green-950/30 text-green-700 dark:text-green-400" : "border-border bg-card text-muted-foreground"}`}
@@ -1062,9 +1171,9 @@ export default function CalendarPage() {
                   return (
                     <div key={row.index} className="relative border-b border-border" style={{
                       height: `${100 / gridHours}%`,
-                      backgroundColor: showCoverage && coverage.length > 0 ? getCoverageTint(count, isDark) : undefined,
+                      backgroundColor: coverageVisible && coverage.length > 0 ? getCoverageTint(count, isDark) : undefined,
                     }}>
-                      {showCoverage && coverage.length > 0 && (
+                      {coverageVisible && coverage.length > 0 && (
                         <span className="absolute bottom-0.5 right-1 select-none text-[9px] text-muted-foreground/50">{count}</span>
                       )}
                     </div>
@@ -1129,8 +1238,8 @@ export default function CalendarPage() {
             {dept.name}
           </div>
         ))}
-        {showCoverage && departments.length > 0 && <span className="mx-1 h-4 border-l border-border" />}
-        {showCoverage && (
+        {coverageVisible && departments.length > 0 && <span className="mx-1 h-4 border-l border-border" />}
+        {coverageVisible && (
           <>
             <div className="flex items-center gap-1 text-xs text-muted-foreground">
               <span className="inline-block h-2.5 w-3.5 rounded" style={{ backgroundColor: getCoverageTint(4, isDark), border: "1px solid rgba(34,197,94,.2)" }} /> 4+ staff

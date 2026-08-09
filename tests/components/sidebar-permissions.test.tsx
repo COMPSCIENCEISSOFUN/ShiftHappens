@@ -16,7 +16,9 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { AppSidebar } from "@/components/layout/app-sidebar";
+import { PlanProvider } from "@/components/layout/plan-provider";
 import { ROLE_PERMISSIONS, PERMISSION_NAMES } from "@/lib/permissions";
+import type { SubscriptionTier } from "@/lib/subscription-tiers";
 
 vi.mock("next/navigation", () => ({ usePathname: () => "/dashboard" }));
 vi.mock("next-auth/react", () => ({ signOut: vi.fn() }));
@@ -28,15 +30,29 @@ vi.stubGlobal(
   vi.fn().mockResolvedValue({ ok: true, json: async () => ({ count: 0 }) })
 );
 
-function renderNav(permissions: string[], role = "staff") {
+/*
+ * Enterprise by default, because this file is about PERMISSIONS.
+ *
+ * Two links — Roles and Audit Log — are gated by plan as well, and on any lower
+ * tier they would be absent for a reason this file is not testing. The plan
+ * gate has its own tests below; keeping the default at the top tier means a
+ * failure here means what it says.
+ */
+function renderNav(
+  permissions: string[],
+  role = "staff",
+  tier: SubscriptionTier = "enterprise"
+) {
   render(
-    <AppSidebar
-      user={{ name: "Alex Rivera", email: "alex@example.com" }}
-      orgId="org-1"
-      orgName="Ocean Grill"
-      role={role}
-      permissions={permissions}
-    />
+    <PlanProvider tier={tier}>
+      <AppSidebar
+        user={{ name: "Alex Rivera", email: "alex@example.com" }}
+        orgId="org-1"
+        orgName="Ocean Grill"
+        role={role}
+        permissions={permissions}
+      />
+    </PlanProvider>
   );
 }
 
@@ -224,4 +240,125 @@ describe("a custom role moves the menu with it", () => {
 
   // Any one of the four shift powers is reason to be on the Tasks page — a role
   // that may assign but not create still needs it.
+});
+
+/**
+ * The second gate: the plan.
+ *
+ * Two destinations are tier-gated as well as permission-gated, and both can
+ * only deny. A company admin holds every permission in the catalogue regardless
+ * of what the organisation pays, so without this the menu offered a Free
+ * organisation the role builder and a Pro one the audit log — both of which
+ * refuse on arrival.
+ *
+ * This used to be fetched on mount and defaulted to "allowed" until the answer
+ * came back, so both links appeared on every page load and then disappeared. A
+ * link that is briefly clickable and never valid is worse than one that was
+ * never shown; the tier now arrives with the rest of the chrome.
+ */
+describe("the plan hides what it does not include", () => {
+  it("hides Roles on a Free organisation, permission or not", () => {
+    renderNav(["roles:manage"], "company_admin", "free");
+    expect(screen.queryByRole("link", { name: "Roles" })).not.toBeInTheDocument();
+  });
+
+  it("shows Roles once the plan includes custom roles", () => {
+    renderNav(["roles:manage"], "company_admin", "pro");
+    expect(screen.getByRole("link", { name: "Roles" })).toBeInTheDocument();
+  });
+
+  // Enterprise-only, so Pro is the case worth pinning: it is the tier where the
+  // permission says yes and the plan says no.
+  it("hides the Audit Log on Pro", () => {
+    renderNav(["audit:view"], "company_admin", "pro");
+    expect(screen.queryByRole("link", { name: "Audit Log" })).not.toBeInTheDocument();
+  });
+
+  it("shows the Audit Log on Enterprise", () => {
+    renderNav(["audit:view"], "company_admin", "enterprise");
+    expect(screen.getByRole("link", { name: "Audit Log" })).toBeInTheDocument();
+  });
+
+  /*
+   * The positive control. A plan check that hid everything would satisfy the
+   * two negative assertions above, and neither of these links is tier-gated.
+   */
+  it("leaves the ungated links alone on the lowest plan", () => {
+    renderNav(["tasks:assign", "settings:read"], "manager", "free");
+    expect(screen.getByRole("link", { name: "Tasks" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Settings" })).toBeInTheDocument();
+  });
+
+  // The plan alone is not enough either — both gates have to agree.
+  it("still needs the permission on a plan that includes the feature", () => {
+    renderNav(["tasks:assign"], "manager", "enterprise");
+    expect(screen.queryByRole("link", { name: "Roles" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Audit Log" })).not.toBeInTheDocument();
+  });
+
+  it("names the plan in the header", () => {
+    renderNav(["tasks:assign"], "manager", "pro");
+    expect(screen.getByText("Pro")).toBeInTheDocument();
+  });
+});
+
+/**
+ * One calendar each.
+ *
+ * Two entries drew the same week. Calendar is gated on `calendar:view_team`;
+ * My Schedule on `canBeRostered`. A manager trips both — they work shifts AND
+ * run the roster — so they alone saw the duplication, while staff got only the
+ * personal one and an admin only the team one.
+ *
+ * My Schedule is now offered only to somebody who cannot open Calendar. That
+ * subtraction depends on Calendar's Mine toggle existing: without it, the
+ * people most likely to be working a shift and running the floor at once would
+ * have lost the only view that answers "what does MY week look like".
+ */
+describe("a rostered member gets one calendar, not two", () => {
+  it("gives a staff member My Schedule", () => {
+    renderNav(["tasks:assign"], "staff");
+
+    expect(screen.getByRole("link", { name: "My Schedule" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Calendar" })).not.toBeInTheDocument();
+  });
+
+  // The case the change is for.
+  it("gives a manager Calendar and not My Schedule", () => {
+    renderNav([...ROLE_PERMISSIONS.manager], "manager");
+
+    expect(screen.getByRole("link", { name: "Calendar" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "My Schedule" })).not.toBeInTheDocument();
+  });
+
+  /*
+   * The permission, not the role. A staff member granted `calendar:view_team`
+   * through a custom role can open the team calendar too, so they are in the
+   * same position as a manager — and a rule written against `role === "manager"`
+   * would have handed them both again.
+   */
+  it("follows the permission rather than the job title", () => {
+    renderNav(["calendar:view_team"], "staff");
+
+    expect(screen.getByRole("link", { name: "Calendar" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "My Schedule" })).not.toBeInTheDocument();
+  });
+
+  // An admin is not rostered, so neither the personal page nor the toggle on
+  // Calendar is theirs — they were never offered two.
+  it("gives an admin the team calendar alone", () => {
+    renderNav([...PERMISSION_NAMES], "company_admin");
+
+    expect(screen.getByRole("link", { name: "Calendar" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "My Schedule" })).not.toBeInTheDocument();
+  });
+
+  // The rest of the personal group is untouched: only the CALENDAR was doubled.
+  it("leaves a manager's other personal pages alone", () => {
+    renderNav([...ROLE_PERMISSIONS.manager], "manager");
+
+    expect(screen.getByRole("link", { name: "My Tasks" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "My History" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "My Availability" })).toBeInTheDocument();
+  });
 });
