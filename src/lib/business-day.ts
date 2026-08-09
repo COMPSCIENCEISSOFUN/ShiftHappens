@@ -98,6 +98,57 @@ export function businessDayStart(
 }
 
 /**
+ * The business day that BEGINS on the calendar date of `date`.
+ *
+ * ## Why this is not `businessDayStart`
+ *
+ * They answer different questions, and confusing them drew every calendar in
+ * the product one day out.
+ *
+ * `businessDayStart` asks "which business day CONTAINS this instant" — right
+ * for attributing hours, where a 02:00 shift belongs to the night that produced
+ * it. This asks "which business day is LABELLED with this date" — right for a
+ * calendar column, which is not an instant at all but a heading.
+ *
+ * The calendars passed column dates, which are local midnights, into the
+ * containment question. With a boundary of 07:00, midnight on Wednesday falls
+ * before Wednesday's boundary, so containment answered TUESDAY 07:00 — and the
+ * column headed "Wed 5" drew Tuesday's business day. A shift at noon on Tuesday
+ * appeared under Wednesday, at the right height, with its own label still
+ * reading Tuesday. Every column was a day out, in both calendars.
+ *
+ * It went unseen because `DEFAULT_DAY_START_HOUR` is 0: at a midnight boundary
+ * the two functions agree exactly, so no test using the default can tell them
+ * apart. It appears the moment an organisation sets an opening hour, which
+ * every real one does.
+ */
+export function businessDayStartingOn(
+  date: Date,
+  dayStartHour: number = DEFAULT_DAY_START_HOUR,
+  timeZone: string = DEFAULT_TIMEZONE
+): Date {
+  return new Date(
+    startOfDayInTimeZone(date, timeZone).getTime() + dayStartHour * HOUR_MS
+  );
+}
+
+/**
+ * That day as a half-open interval `[start, end)` — what a calendar column
+ * covers.
+ *
+ * Always 24 hours, like `businessDayRange`, so consecutive columns tile the
+ * week without gaps or overlaps.
+ */
+export function businessDayRangeStartingOn(
+  date: Date,
+  dayStartHour: number = DEFAULT_DAY_START_HOUR,
+  timeZone: string = DEFAULT_TIMEZONE
+): { start: Date; end: Date } {
+  const start = businessDayStartingOn(date, dayStartHour, timeZone);
+  return { start, end: new Date(start.getTime() + DAY_MS) };
+}
+
+/**
  * The business day containing `date`, as a half-open interval `[start, end)`.
  * Always 24 hours: this is the attribution window, not the opening window.
  */

@@ -12,7 +12,9 @@ import { describe, it, expect } from "vitest";
 import {
   DAY_MS,
   businessDayRange,
+  businessDayRangeStartingOn,
   businessDayStart,
+  businessDayStartingOn,
   businessWeekRange,
   formatHour,
   formatOperatingWindow,
@@ -319,5 +321,61 @@ describe("formatting", () => {
   it("names a 24-hour operation rather than showing a confusing range", () => {
     expect(formatOperatingWindow(0, 24)).toBe("Open 24 hours");
     expect(formatOperatingWindow(6, 6)).toBe("Open 24 hours");
+  });
+});
+
+/**
+ * Two questions that look like one.
+ *
+ * `businessDayStart` asks which business day CONTAINS an instant — right for
+ * attributing hours, where 02:00 work belongs to the night that produced it.
+ * `businessDayStartingOn` asks which business day is LABELLED with a date —
+ * right for a calendar column, which is a heading rather than a moment.
+ *
+ * Both calendars asked the first question about a column and drew the wrong day
+ * for every one of them. The functions agree everywhere except before the
+ * boundary, and they agree completely at a midnight boundary — which is the
+ * default, and is why nothing caught it.
+ */
+describe("the day containing an instant vs the day labelled with a date", () => {
+  const boundary = 7;
+
+  it("agree from the boundary onwards", () => {
+    const noon = sgt("2026-03-10T12:00");
+
+    expect(businessDayStartingOn(noon, boundary).getTime()).toBe(
+      businessDayStart(noon, boundary).getTime()
+    );
+  });
+
+  // Midnight is the case the pages actually pass, and the only one that
+  // distinguishes them.
+  it("disagree by a day before the boundary", () => {
+    const midnight = sgt("2026-03-11T00:00");
+
+    expect(businessDayStartingOn(midnight, boundary).toISOString()).toBe(
+      sgt("2026-03-11T07:00").toISOString()
+    );
+    expect(businessDayStart(midnight, boundary).toISOString()).toBe(
+      sgt("2026-03-10T07:00").toISOString()
+    );
+  });
+
+  it("are identical when the day begins at midnight", () => {
+    for (const iso of ["2026-03-10T00:00", "2026-03-10T12:00", "2026-03-10T23:59"]) {
+      const instant = sgt(iso);
+      expect(businessDayStartingOn(instant, 0).getTime()).toBe(
+        businessDayStart(instant, 0).getTime()
+      );
+    }
+  });
+
+  // Consecutive columns tile the week: each ends exactly where the next begins,
+  // so nothing falls between two days or is drawn in both.
+  it("tiles consecutive days without a gap or an overlap", () => {
+    const monday = businessDayRangeStartingOn(sgt("2026-03-09T00:00"), boundary);
+    const tuesday = businessDayRangeStartingOn(sgt("2026-03-10T00:00"), boundary);
+
+    expect(monday.end.getTime()).toBe(tuesday.start.getTime());
   });
 });

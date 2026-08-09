@@ -252,3 +252,94 @@ describe("currentTimePosition", () => {
     expect(currentTimePosition(sgt(`${TUE}T02:00`), 6, 24)).toBeCloseTo((20 / 24) * 100, 5);
   });
 });
+
+/**
+ * The column is a HEADING, not an instant — and the difference is a whole day.
+ *
+ * ## The bug
+ *
+ * Both calendars build their week as local MIDNIGHTS and pass those as the
+ * column argument. `businessDayRange` answered "the business day CONTAINING
+ * this instant", which is correct for attributing hours and wrong for a
+ * heading: with a 07:00 boundary, midnight on Wednesday falls before
+ * Wednesday's boundary, so it belongs to TUESDAY's business day.
+ *
+ * So the column headed "Wed 5" drew Tuesday 07:00 → Wednesday 07:00. A shift at
+ * noon on Tuesday appeared under Wednesday — at the correct height, with its
+ * own label still reading Tuesday. Every column in both calendars was a day
+ * out for any organisation whose day does not begin at midnight.
+ *
+ * ## Why the existing tests above could not catch it
+ *
+ * They pass `sgt(MON + "T12:00")` as the column — NOON. At noon the two
+ * questions give the same answer, because noon is after any sane boundary. Only
+ * an instant BEFORE the boundary distinguishes them, and midnight is the one
+ * the pages actually pass.
+ *
+ * `DEFAULT_DAY_START_HOUR` being 0 is the other half: at a midnight boundary
+ * the two functions are identical, so a suite using the default cannot tell
+ * them apart either.
+ */
+describe("a column identified by its date rather than by an instant", () => {
+  // Midnight, exactly as `mondayOf` and `addDays` produce it on both pages.
+  const wednesdayColumn = sgt("2026-03-11T00:00");
+  const tuesdayColumn = sgt(`${TUE}T00:00`);
+
+  it("draws Tuesday's noon shift in Tuesday's column", () => {
+    const shift = task(`${TUE}T12:00`, `${TUE}T18:00`);
+
+    expect(taskBlockPosition(shift, tuesdayColumn, 7, 15)).not.toBeNull();
+  });
+
+  // The regression, stated as the screenshot showed it.
+  it("does not draw it in Wednesday's", () => {
+    const shift = task(`${TUE}T12:00`, `${TUE}T18:00`);
+
+    expect(taskBlockPosition(shift, wednesdayColumn, 7, 15)).toBeNull();
+  });
+
+  it("puts it at the right height in the right column", () => {
+    // Boundary 07:00, grid 15 hours. Noon is five hours in: a third down.
+    const block = taskBlockPosition(
+      task(`${TUE}T12:00`, `${TUE}T18:00`),
+      tuesdayColumn,
+      7,
+      15
+    )!;
+    expect(block.topPercent).toBeCloseTo(100 / 3, 5);
+  });
+
+  /*
+   * The containment rule still holds INSIDE a column, which is the thing that
+   * must not be broken by fixing the heading. With a 07:00 boundary, 02:00 on
+   * Wednesday is Tuesday's business day — the small hours belong to the night
+   * that produced them — so it belongs in Tuesday's column.
+   */
+  it("still gives the small hours to the night that produced them", () => {
+    const nightShift = task(`${TUE}T22:00`, "2026-03-11T02:00");
+
+    expect(taskBlockPosition(nightShift, tuesdayColumn, 7, 24)).not.toBeNull();
+    expect(taskBlockPosition(nightShift, wednesdayColumn, 7, 24)).toBeNull();
+  });
+
+  // A midnight boundary is the case where the two readings coincide, and it has
+  // to keep working — it is the default, and the one every other test uses.
+  it("is unchanged when the day begins at midnight", () => {
+    const shift = task(`${TUE}T12:00`, `${TUE}T18:00`);
+
+    expect(taskBlockPosition(shift, tuesdayColumn, 0, 24)).not.toBeNull();
+    expect(taskBlockPosition(shift, wednesdayColumn, 0, 24)).toBeNull();
+  });
+
+  /*
+   * The grid must size itself against the same columns it will later draw
+   * into. Sized against the day before, a late shift on the last column would
+   * fall outside the computed height and be clipped away.
+   */
+  it("sizes the grid from the same columns it draws", () => {
+    const late = task(`${TUE}T12:00`, `${TUE}T23:00`);
+
+    // 07:00 → 23:00 is sixteen hours, so the grid must grow past the window.
+    expect(gridHoursFor([tuesdayColumn], [late], 7, 10)).toBe(16);
+  });
+});

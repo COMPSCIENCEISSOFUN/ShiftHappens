@@ -24,7 +24,10 @@
  * edges it runs through — so it can be drawn as one shift continuing rather
  * than two unrelated ones.
  */
-import { businessDayRange } from "@/lib/business-day";
+import {
+  businessDayRange,
+  businessDayRangeStartingOn,
+} from "@/lib/business-day";
 
 const HOUR_MS = 60 * 60 * 1000;
 
@@ -67,7 +70,11 @@ export function gridHoursFor(
   let needed = windowHours;
 
   for (const date of dates) {
-    const { start, end } = businessDayRange(date, dayStartHour);
+    // A COLUMN, not an instant — see `businessDayRangeStartingOn`. `dates` are
+    // local midnights, and midnight is before any non-zero boundary, so the
+    // containment form answered the PREVIOUS business day for every one of
+    // them.
+    const { start, end } = businessDayRangeStartingOn(date, dayStartHour);
 
     for (const task of tasks) {
       if (!task.scheduledStart || !task.scheduledEnd) continue;
@@ -118,7 +125,10 @@ export function taskBlockPosition(
 ): TaskBlock | null {
   if (!task.scheduledStart || !task.scheduledEnd) return null;
 
-  const { start: dayStart } = businessDayRange(date, dayStartHour);
+  // The business day this column is HEADED with, not the one containing its
+  // midnight. With a 07:00 boundary the latter is the day before, which drew
+  // every shift one column to the right of where its own label said it was.
+  const { start: dayStart } = businessDayRangeStartingOn(date, dayStartHour);
   const gridEndMs = dayStart.getTime() + gridHours * HOUR_MS;
 
   const taskStartMs = toDate(task.scheduledStart).getTime();
