@@ -300,6 +300,16 @@ interface AppSidebarProps {
   };
   orgId?: string;
   orgName?: string;
+  /**
+   * Every organisation the caller belongs to, for the switcher.
+   *
+   * Optional and usually absent: only `org/[orgId]/layout.tsx` passes it,
+   * because only a page that already knows which organisation it is in can
+   * offer to leave it. Omitted, or holding one entry, the name renders as
+   * plain text — a menu with a single item is a menu that lies about having a
+   * choice in it.
+   */
+  organizations?: { id: string; name: string }[];
   role?: string;
   employmentType?: string;
   customRoleLabel?: string;
@@ -334,6 +344,7 @@ export function AppSidebar({
   user,
   orgId,
   orgName,
+  organizations = [],
   role,
   employmentType,
   customRoleLabel,
@@ -345,6 +356,7 @@ export function AppSidebar({
   const [unreadCount, setUnreadCount] = useState(0);
   const [pendingLeaveCount, setPendingLeaveCount] = useState(0);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [switcherOpen, setSwitcherOpen] = useState(false);
 
   async function fetchUnreadCount() {
     if (!orgId) return;
@@ -447,6 +459,15 @@ export function AppSidebar({
    * because being an active member is what grants those.
    */
   const held = new Set(permissions);
+  /*
+   * More than one organisation AND a current one to switch away from.
+   *
+   * The `orgId` half matters: the org-agnostic chrome has no current
+   * organisation, so a switcher there would be a list with nothing marked as
+   * where you are.
+   */
+  const canSwitchOrg = Boolean(orgId) && organizations.length > 1;
+
   const can = (permission: string) => held.has(permission);
   const canAny = (...candidates: string[]) => candidates.some(can);
 
@@ -454,7 +475,23 @@ export function AppSidebar({
 
   // --- Overview section ---
   const overviewItems: NavItem[] = [
-    { href: "/dashboard", label: "Dashboard", icon: DashboardIcon },
+    /*
+     * The dashboard OF THIS ORGANISATION, when the sidebar knows which one.
+     *
+     * This was `/dashboard` unconditionally, which resolved to the user's
+     * oldest organisation — so a member of two who was standing inside
+     * organisation B, reading B's members and B's rota, pressed Dashboard and
+     * landed on A. The rest of the menu below has always been org-scoped; this
+     * one entry was not, and it was the entry people press most.
+     *
+     * The bare `/dashboard` remains for the org-agnostic chrome, where it does
+     * the redirect it now exists to do.
+     */
+    {
+      href: orgId ? `/org/${orgId}/dashboard` : "/dashboard",
+      label: "Dashboard",
+      icon: DashboardIcon,
+    },
   ];
 
   if (orgId) {
@@ -610,7 +647,26 @@ export function AppSidebar({
     }
   }
 
-  systemItems.push({ href: "/settings/profile", label: "Profile", icon: ProfileIcon });
+  /*
+   * Your profile, and — when the sidebar knows which organisation it is —
+   * the copy of it that lives INSIDE that organisation.
+   *
+   * The same screen either way; `GET /api/profile` is org-agnostic and always
+   * has been. What differs is where you land. `/settings/profile` sits outside
+   * the `/org/[orgId]` subtree, so the chrome there has no id to answer "which
+   * organisation" from: it used to guess the oldest, and once that guess was
+   * removed it honestly answered "none" — which emptied this menu and left the
+   * Dashboard link pointing back at the organisation picker. Opening your own
+   * profile is not a reason to be thrown out of the organisation you were in.
+   *
+   * The bare address stays for the person with no organisation at all, who is
+   * the only one for whom it is the right answer.
+   */
+  systemItems.push({
+    href: orgId ? `/org/${orgId}/profile` : "/settings/profile",
+    label: "Profile",
+    icon: ProfileIcon,
+  });
 
   sections.push({ title: "System", items: systemItems });
 
@@ -660,21 +716,103 @@ export function AppSidebar({
         {/* Dot-grid overlay */}
         <div className="app-sidebar-dots" aria-hidden="true" />
 
-      {/* Logo */}
-      <div className="relative z-[1] mb-9 flex items-center gap-2.5">
-        <div className="flex h-9 w-9 items-center justify-center rounded-[10px] bg-white/20 text-sm font-extrabold backdrop-blur-sm">
-          {(orgName || "S")[0].toUpperCase()}
+      {/* Logo, and — for anyone in more than one organisation — the switcher */}
+      <div className="relative z-[1] mb-9">
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-9 w-9 items-center justify-center rounded-[10px] bg-white/20 text-sm font-extrabold backdrop-blur-sm">
+            {(orgName || "S")[0].toUpperCase()}
+          </div>
+          <div className="flex flex-col gap-0.5">
+            {/*
+              The name becomes a control ONLY when there is somewhere to go.
+
+              A disclosure that opens onto a list of one is worse than plain
+              text: it advertises a choice, costs a click to discover there
+              isn't one, and trains people to stop pressing it. So the
+              single-organisation case — which is almost everybody — renders
+              exactly what it rendered before this feature existed.
+            */}
+            {canSwitchOrg ? (
+              /*
+                Bordered, not bare.
+
+                The first version was the org name with a small caret beside
+                it. It worked and nobody found it: a bold heading that happens
+                to respond to a click reads as a heading, and the caret is four
+                pixels of contradiction next to twenty of typography. A box
+                with an edge is the difference between "this is the name of the
+                place" and "this is the control that changes it".
+              */
+              <button
+                type="button"
+                onClick={() => setSwitcherOpen((open) => !open)}
+                aria-expanded={switcherOpen}
+                aria-label={`Switch organisation. Currently ${orgName}`}
+                title="Switch organisation"
+                className="-ml-1.5 flex items-center gap-1.5 rounded-lg border border-white/25 px-1.5 py-0.5 text-left text-[15px] font-bold tracking-tight transition-colors hover:border-white/50 hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/60"
+              >
+                <span className="truncate">{orgName}</span>
+                <span aria-hidden="true" className="text-[9px] text-white/70">
+                  {switcherOpen ? "\u25B2" : "\u25BC"}
+                </span>
+              </button>
+            ) : (
+              <span className="text-[15px] font-bold tracking-tight">{orgName || "Smart Task"}</span>
+            )}
+            {/* Only where a plan is a fact. Onboarding has no organisation yet,
+                and a "Free" badge there would be describing nothing. */}
+            {orgId && (
+              <span className="w-fit rounded-full bg-white/15 px-2 py-px text-[10px] font-semibold text-white/80">
+                {tierName}
+              </span>
+            )}
+          </div>
         </div>
-        <div className="flex flex-col gap-0.5">
-          <span className="text-[15px] font-bold tracking-tight">{orgName || "Smart Task"}</span>
-          {/* Only where a plan is a fact. Onboarding has no organisation yet,
-              and a "Free" badge there would be describing nothing. */}
-          {orgId && (
-            <span className="w-fit rounded-full bg-white/15 px-2 py-px text-[10px] font-semibold text-white/80">
-              {tierName}
-            </span>
-          )}
-        </div>
+
+        {/*
+          Every organisation, including the current one.
+
+          Listing only the OTHERS would save a row and cost the reader the
+          thing a menu is for: seeing where they are among the alternatives.
+          The current entry is marked and not a link, so pressing it cannot
+          produce a navigation that appears to do nothing.
+
+          Each destination is that organisation's dashboard rather than the
+          equivalent of the current page. Switching to an organisation where
+          you are staff while standing on Work Rules would otherwise land you
+          on a page you cannot open, and the honest answer to "take me to the
+          other organisation" is its front door.
+        */}
+        {canSwitchOrg && switcherOpen && (
+          <ul className="mt-2 space-y-0.5 rounded-lg bg-black/20 p-1.5">
+            {organizations.map((candidate) =>
+              candidate.id === orgId ? (
+                <li
+                  key={candidate.id}
+                  className="flex items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-[12px] font-semibold text-white"
+                >
+                  <span className="truncate">{candidate.name}</span>
+                  <span className="shrink-0 text-[10px] font-normal text-white/60">
+                    current
+                  </span>
+                </li>
+              ) : (
+                <li key={candidate.id}>
+                  <Link
+                    href={`/org/${candidate.id}/dashboard`}
+                    onClick={() => {
+                      setSwitcherOpen(false);
+                      setMobileOpen(false);
+                    }}
+                    className="block truncate rounded-md px-2.5 py-1.5 text-[12px] text-white/75 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/60"
+                  >
+                    {candidate.name}
+                  </Link>
+                </li>
+              )
+            )}
+          </ul>
+        )}
       </div>
 
       {/* Navigation */}

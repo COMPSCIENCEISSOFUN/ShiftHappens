@@ -27,6 +27,7 @@
  * `org/[orgId]/layout.tsx`.
  */
 import { AppSidebar } from "@/components/layout/app-sidebar";
+import { AssistantPanel } from "@/components/assistant/assistant-panel";
 import { PermissionProvider } from "@/components/layout/permission-provider";
 import { PlanProvider } from "@/components/layout/plan-provider";
 import type { SubscriptionTier } from "@/lib/subscription-tiers";
@@ -36,6 +37,15 @@ export interface AppShellProps {
   /** Undefined on the pages that exist before any organisation does. */
   orgId?: string;
   orgName?: string;
+  /**
+   * Every organisation the caller belongs to, for the sidebar's switcher.
+   *
+   * Passed only by `org/[orgId]/layout.tsx`. The org-agnostic chrome leaves it
+   * out on purpose: with no current organisation there is nothing for a
+   * switcher to switch away FROM, and a list with nothing marked as "you are
+   * here" is a worse answer than no list.
+   */
+  organizations?: { id: string; name: string }[];
   role?: string;
   employmentType?: string;
   customRoleLabel?: string;
@@ -56,6 +66,7 @@ export function AppShell({
   user,
   orgId,
   orgName,
+  organizations,
   role,
   employmentType,
   customRoleLabel,
@@ -76,6 +87,7 @@ export function AppShell({
         user={user}
         orgId={orgId}
         orgName={orgName}
+        organizations={organizations}
         role={role}
         employmentType={employmentType}
         customRoleLabel={customRoleLabel}
@@ -92,6 +104,26 @@ export function AppShell({
           {children}
         </PermissionProvider>
       </main>
+
+      {/*
+        The assistant, only where there is an organisation to ask about.
+
+        `orgId` is undefined on the org-agnostic chrome — onboarding, and the
+        profile of somebody in more than one organisation — and every question
+        it can answer is about a particular organisation's data. A launcher
+        there would open onto nine questions that all refuse.
+
+        INSIDE both providers, deliberately. It reads the permission and the
+        plan from the same context the sidebar and the pages read, so the
+        launcher cannot appear for somebody the route will then refuse. That
+        was the whole lesson of the shell reporting every organisation as Free
+        while the page inside it knew better.
+      */}
+      {orgId && (
+        <PermissionProvider permissions={permissions}>
+          <AssistantPanel orgId={orgId} />
+        </PermissionProvider>
+      )}
     </div>
     </PlanProvider>
   );

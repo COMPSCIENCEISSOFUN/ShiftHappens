@@ -99,6 +99,26 @@ export default async function OrgLayout({
 
   const permissions = [...accessService.permissionsFor(membership)];
 
+  /*
+   * The switcher's list.
+   *
+   * One extra query per page load in this subtree, and there is no way to know
+   * whether the switcher is needed without asking — "does this user belong to
+   * a second organisation" is the question itself. It is the same query the
+   * dashboard signpost runs, active-only and totally ordered, so the sidebar's
+   * list and the picker's list cannot come to disagree about what the user
+   * belongs to.
+   *
+   * Only the id and the name cross into the client component. The rows carry a
+   * membership and a subscription tier as well, and neither is any of the
+   * sidebar's business: the plan shown in the badge is THIS organisation's,
+   * resolved below, and shipping the others would put a second answer to the
+   * same question in the same component.
+   */
+  const organizations = (
+    await orgService.getUserOrganizations(session.user.id)
+  ).map((o) => ({ id: o.id, name: o.name }));
+
   // The custom role's label, for the sidebar badge. Scoped to this org — the
   // role always belongs to it, since `assignCustomRole` refuses anything else.
   const customRoleId = (membership as Record<string, unknown>)
@@ -112,6 +132,7 @@ export default async function OrgLayout({
       user={{ name: dbUser.name, email: dbUser.email }}
       orgId={orgId}
       orgName={org.name}
+      organizations={organizations}
       role={membership.role}
       employmentType={
         (membership as Record<string, unknown>).employmentType as

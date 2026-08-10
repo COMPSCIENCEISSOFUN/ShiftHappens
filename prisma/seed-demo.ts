@@ -1689,6 +1689,166 @@ async function seedAll(tx: Tx) {
   );
 
   // ============================================================
+  // A SECOND organisation — the one that makes multi-tenancy visible
+  // ============================================================
+  /*
+   * Every account in this seed belonged to exactly one organisation, so the
+   * product's central claim — that it is multi-tenant — could not be
+   * demonstrated, and the code paths that depend on it could not be exercised
+   * by hand. `orgs[0]` was wrong for months in three files and nothing in the
+   * demo data could show it.
+   *
+   * Two things make this organisation worth its rows:
+   *
+   * **A different plan.** Ocean Grill is Pro, Harbour Cafe is Free. Switching
+   * between them is the only way to watch the sidebar gain and lose Roles,
+   * Audit Log and the Export PDF button without editing the database by hand —
+   * which is what the browser checklist has been asking people to do.
+   *
+   * **A different ROLE for the same person.** Sarah is a manager at Ocean
+   * Grill and plain staff here. That is the exact failure the org layout was
+   * written for: permissions resolved from the user rather than from the
+   * organisation in the URL gave her Ocean Grill's menu on Harbour Cafe's
+   * pages. One account, two answers, and the only way to be sure the right one
+   * is being used is to have a person for whom they differ.
+   */
+  let secondOrg = await tx.organization.findUnique({
+    where: { slug: "harbour-cafe" },
+  });
+  if (!secondOrg) {
+    secondOrg = await tx.organization.create({
+      data: {
+        name: "Harbour Cafe",
+        slug: "harbour-cafe",
+        industry: "Hospitality",
+        description: "A small quayside coffee shop",
+      },
+    });
+  }
+  // Stated rather than left to the column default, so the contrast with Ocean
+  // Grill is a fact of the seed and survives a change to that default.
+  await tx.organization.update({
+    where: { id: secondOrg.id },
+    data: { subscriptionTier: "free" },
+  });
+
+  await tx.membership.upsert({
+    where: {
+      userId_organizationId: {
+        userId: adminUser.id,
+        organizationId: secondOrg.id,
+      },
+    },
+    update: { role: "company_admin", status: "active", employmentType: "casual" },
+    create: {
+      userId: adminUser.id,
+      organizationId: secondOrg.id,
+      role: "company_admin",
+      status: "active",
+      employmentType: "casual",
+    },
+  });
+
+  const counterDept = await tx.department.upsert({
+    where: {
+      organizationId_name: { organizationId: secondOrg.id, name: "Counter" },
+    },
+    update: {},
+    create: {
+      name: "Counter",
+      description: "Coffee, service and till",
+      color: "#8B5CF6",
+      organizationId: secondOrg.id,
+    },
+  });
+
+  const sarahUserId = managerUserIds["Sarah Chen"];
+  if (sarahUserId) {
+    const sarahHere = await tx.membership.upsert({
+      where: {
+        userId_organizationId: {
+          userId: sarahUserId,
+          organizationId: secondOrg.id,
+        },
+      },
+      // Staff HERE, manager at Ocean Grill. The point of the account.
+      update: { role: "staff", status: "active", employmentType: "casual" },
+      create: {
+        userId: sarahUserId,
+        organizationId: secondOrg.id,
+        role: "staff",
+        status: "active",
+        employmentType: "casual",
+      },
+    });
+
+    const alreadyInCounter = await tx.departmentMembership.findUnique({
+      where: {
+        membershipId_departmentId: {
+          membershipId: sarahHere.id,
+          departmentId: counterDept.id,
+        },
+      },
+    });
+    if (!alreadyInCounter) {
+      await tx.departmentMembership.create({
+        data: { membershipId: sarahHere.id, departmentId: counterDept.id },
+      });
+    }
+  }
+
+  /*
+   * Two shifts, so the dashboard here has something in it. Deliberately few:
+   * this organisation exists to be switched INTO, and a second full rota would
+   * double the seed's runtime to prove a point one shift already proves.
+   */
+  const cafeShiftCount = await tx.task.count({
+    where: { organizationId: secondOrg.id },
+  });
+  if (cafeShiftCount === 0) {
+    const openingStart = new Date();
+    openingStart.setDate(openingStart.getDate() + 1);
+    openingStart.setHours(7, 0, 0, 0);
+    const openingEnd = new Date(openingStart);
+    openingEnd.setHours(12, 0, 0, 0);
+
+    const closingStart = new Date(openingStart);
+    closingStart.setHours(12, 0, 0, 0);
+    const closingEnd = new Date(openingStart);
+    closingEnd.setHours(17, 0, 0, 0);
+
+    await tx.task.createMany({
+      data: [
+        {
+          title: "Morning open",
+          description: "Grinder, pastries, till float",
+          organizationId: secondOrg.id,
+          departmentId: counterDept.id,
+          createdById: adminUser.id,
+          status: "open",
+          priority: "high",
+          requiredHeadcount: 1,
+          scheduledStart: openingStart,
+          scheduledEnd: openingEnd,
+        },
+        {
+          title: "Afternoon close",
+          description: "Service, clean down, cash up",
+          organizationId: secondOrg.id,
+          departmentId: counterDept.id,
+          createdById: adminUser.id,
+          status: "open",
+          priority: "medium",
+          requiredHeadcount: 1,
+          scheduledStart: closingStart,
+          scheduledEnd: closingEnd,
+        },
+      ],
+    });
+  }
+  console.log("Second organisation ready: Harbour Cafe (Free tier)");
+
+  // ============================================================
   // Summary
   // ============================================================
   console.log("\nDemo data seeded successfully!");
@@ -1708,6 +1868,10 @@ async function seedAll(tx: Tx) {
   console.log("  Staff:    riley@oceangrill.com (Front of House, Casual)");
   console.log("  Staff:    morgan@oceangrill.com (Kitchen, Casual)");
   console.log("  New user: new@smarttask.com (No org — lands on onboarding)");
+  console.log("\nTwo organisations:");
+  console.log("  Ocean Grill   — Pro   — admin is company admin, Sarah is a manager");
+  console.log("  Harbour Cafe  — Free  — admin is company admin, Sarah is STAFF");
+  console.log("  admin@ and sarah@ both land on the organisation picker at sign-in.");
 }
 
 // Run everything inside a single interactive transaction.

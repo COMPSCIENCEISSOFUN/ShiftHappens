@@ -23,7 +23,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 // Hoisted — must be declared in the test file itself, not in a helper.
 vi.mock("@/lib/auth", () => ({ auth: vi.fn() }));
 
-import DashboardPage from "@/app/(app)/dashboard/page";
+import DashboardPage from "@/app/(app)/org/[orgId]/dashboard/page";
 import AdminDashboard from "@/components/dashboard/admin-dashboard";
 import ManagerDashboard from "@/components/dashboard/manager-dashboard";
 import StaffDashboard from "@/components/dashboard/staff-dashboard";
@@ -58,10 +58,19 @@ async function giveCustomRole(membershipId: string, label: string, names: string
   });
 }
 
-/** The component the page chose for this user. */
-async function dashboardFor(userId: string) {
+/**
+ * The component the page chose for this user, IN A NAMED ORGANISATION.
+ *
+ * The org id is now an argument rather than something the page works out for
+ * itself. It used to take `orgs[0]`, so every case below was implicitly about
+ * the user's oldest organisation and silently untestable for anyone in two —
+ * which is the defect that moved this page under `/org/[orgId]`.
+ */
+async function dashboardFor(userId: string, orgId: string = tenant.orgId) {
   asUser(userId);
-  const element = (await DashboardPage()) as { type: unknown };
+  const element = (await DashboardPage({
+    params: Promise.resolve({ orgId }),
+  })) as { type: unknown };
   return element.type;
 }
 
@@ -156,24 +165,41 @@ describe("a member who is no longer one", () => {
   /*
    * A deactivated member never reaches the choice at all.
    *
-   * Worth pinning because it is the reason the page's `!membership` fallback
-   * looks unreachable: `getUserOrganizations` is active-only, so a deactivated
-   * member has no organisations and is redirected before any permission is
-   * read. The fallback covers the narrower case of a deactivation landing
-   * between that query and the membership lookup — a race no test can stage
-   * without instrumenting the gap between two awaits, which is why it is
-   * documented in the page rather than asserted here.
+   * `getMembership` is active-only, so the membership lookup comes back null
+   * and the page answers `notFound()`. That answer is chosen, not incidental:
+   * a non-member and a non-existent organisation must be indistinguishable, or
+   * the URL becomes a way to discover which organisation ids are real.
    *
    * The old code's `default:` arm sent every unrecognised role to the ADMIN
    * dashboard. Nothing reached it, but it was the wrong direction to fail in.
    */
-  it("is redirected away rather than given a dashboard", async () => {
+  it("is not given a dashboard", async () => {
     await prisma.membership.update({
       where: { id: tenant.manager.membershipId },
       data: { status: "inactive" },
     });
 
     asUser(tenant.manager.userId);
-    await expect(DashboardPage()).rejects.toThrow(/NEXT_REDIRECT/);
+    await expect(
+      DashboardPage({ params: Promise.resolve({ orgId: tenant.orgId }) })
+    ).rejects.toThrow(/NEXT_NOT_FOUND|NEXT_HTTP_ERROR_FALLBACK/);
+  });
+
+  /*
+   * The case that could not exist before this page moved.
+   *
+   * A perfectly valid member of organisation A, asking for organisation B. The
+   * old page had no way to be asked this — it read `orgs[0]` and answered about
+   * whichever organisation that was — so the wrong-organisation question was
+   * unaskable and therefore untested. It is the whole reason the id belongs in
+   * the URL.
+   */
+  it("is not given another organisation's dashboard", async () => {
+    const other = await createTenant("switch-other");
+
+    asUser(tenant.admin.userId);
+    await expect(
+      DashboardPage({ params: Promise.resolve({ orgId: other.orgId }) })
+    ).rejects.toThrow(/NEXT_NOT_FOUND|NEXT_HTTP_ERROR_FALLBACK/);
   });
 });

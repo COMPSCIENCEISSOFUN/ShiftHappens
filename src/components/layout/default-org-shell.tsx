@@ -1,14 +1,30 @@
 /**
  * The chrome for the signed-in pages that are not about a particular
- * organisation: the dashboard, onboarding, and the personal profile.
+ * organisation: onboarding, and the personal profile.
  *
- * These have no org id in their URL, so "which organisation" has to be answered
- * some other way, and the honest answer is a default rather than a fact. The
- * user's organisations are ordered oldest-first and the first is taken — which
- * is what the app always did, except that the ordering is now deterministic.
- * `findByUserId` had no `orderBy`, so Postgres was free to return a different
- * organisation on successive requests, and the sidebar's org name, role badge
- * and menu could change between two loads of the same page.
+ * ## It no longer guesses
+ *
+ * It used to take `orgs[0]` — the user's oldest organisation — and decorate
+ * these pages with that organisation's name, role badge, plan and menu. For a
+ * user in one organisation that is the right answer. For a user in two it was
+ * a guess presented as a fact: open your profile from inside organisation B
+ * and the sidebar quietly became organisation A.
+ *
+ * Now it resolves an organisation only when there is nothing to resolve:
+ *
+ *   exactly one  → that one, which is not a default but the only element
+ *   none, or two
+ *   or more      → the org-agnostic chrome, with no org name, no plan badge
+ *                  and no org links
+ *
+ * The second case is a deliberate, visible reduction rather than a hidden
+ * wrong answer. These pages are about the PERSON, not an organisation, and the
+ * profile page already lists every organisation the caller belongs to — so the
+ * one screen where the menu goes quiet is also the screen that says why.
+ *
+ * The dashboard used to come through here too. It now lives under
+ * `/org/[orgId]/dashboard`, where the organisation is a fact rather than a
+ * default, and `/dashboard` is a redirect with no chrome at all.
  *
  * Anything under `/org/[orgId]` must NOT come through here. That subtree has a
  * real answer in its URL and a layout that reads it — see
@@ -45,9 +61,24 @@ export async function DefaultOrgShell({
 
   const orgs = await orgService.getUserOrganizations(session.user.id);
 
-  // No organisation yet — onboarding is exactly this state, and the sidebar
-  // renders its org-agnostic entries when `orgId` is undefined.
-  if (orgs.length === 0) {
+  /*
+   * `[0]` of a list of ONE is the only element. `[0]` of a list of several is
+   * a guess, and that guess is what this file existed to make.
+   */
+  const org = orgs.length === 1 ? orgs[0] : null;
+
+  /*
+   * Nothing to name. Two states reach this, and both are honest:
+   *
+   *   no organisation yet — onboarding is exactly this state
+   *   more than one       — and no way to tell which is meant, on a page whose
+   *                         URL does not say
+   *
+   * The sidebar renders its org-agnostic entries when `orgId` is undefined,
+   * and `AppShell` defaults the plan to Free, so tier-gated links stay hidden
+   * rather than being offered against an organisation nobody has named.
+   */
+  if (!org) {
     return (
       <AppShell
         user={{ name: dbUser.name, email: dbUser.email }}
@@ -57,8 +88,6 @@ export async function DefaultOrgShell({
       </AppShell>
     );
   }
-
-  const org = orgs[0];
 
   if (org.status !== "active") {
     return (
