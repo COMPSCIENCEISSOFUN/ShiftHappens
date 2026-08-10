@@ -448,6 +448,44 @@ export class TaskAssignmentRepository {
   }
 
   /**
+   * An approved withdrawal: the slot is given back, the record is kept.
+   *
+   * This used to be `cancel`, which DELETES the row — and the deletion was the
+   * quiet cause of three separate problems.
+   *
+   * `withdrawn` is in `ASSIGNMENT_STATUSES` and in `RELEASED_STATUSES`,
+   * `shift-outcome` maps it to a "withdrawn" outcome, the history filter has a
+   * `case "withdrawn"`, and reporting counts it among the shifts that fell
+   * through. **Nothing in the application ever wrote it.** The only rows
+   * carrying it came from `prisma/seed-demo.ts`, which is why the demo looked
+   * right and a real organisation's My History showed nothing under that
+   * filter.
+   *
+   * It also lost the record of an event the audit log describes but cannot
+   * point at, and — the reason this became urgent — it made the member a
+   * candidate for their own shift again the instant the request was approved:
+   * `AllocationService.buildCandidatePool` excludes "anyone who already has a
+   * row on this shift", so deleting the row deletes the exclusion. Nothing
+   * records WHY somebody withdrew as a fact about their availability, so the
+   * engine would have ranked them as an excellent fit and offered it straight
+   * back.
+   *
+   * `withdrawalRequestedAt` is deliberately kept. Every reporting panel reads
+   * that TIMESTAMP rather than the status, and it is the measure of how much
+   * warning the shift got.
+   *
+   * The sibling flow already did it this way: `approveDecline` sets `rejected`
+   * and keeps the row. The two are the same decision at different points in
+   * the lifecycle and should not disagree about whether history survives it.
+   */
+  async withdraw(id: string) {
+    return prisma.taskAssignment.update({
+      where: { id },
+      data: { status: "withdrawn" },
+    });
+  }
+
+  /**
    * A member's finished shifts that started on or after `since`, for summing
    * hours actually worked. Rows without a clock-out are excluded: an open
    * shift has no measurable duration and would otherwise be counted as zero,

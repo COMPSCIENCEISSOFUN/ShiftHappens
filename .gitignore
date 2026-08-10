@@ -41,3 +41,7 @@ yarn-error.log*
 next-env.d.ts
 
 /src/generated/prisma
+
+# Originals kept by scripts/mutation-check.mjs while it breaks the code on
+# purpose. Written before any edit and compared byte-for-byte afterwards.
+.mutation-backup/

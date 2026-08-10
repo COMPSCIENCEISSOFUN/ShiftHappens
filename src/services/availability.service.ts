@@ -248,7 +248,50 @@ export class AvailabilityService {
     if (isFullTime(membership?.employmentType)) {
       throw new Error("Contracted days are set by your organisation");
     }
-    return this.writeWeeklySchedule(membershipId, schedule);
+
+    const result = await this.writeWeeklySchedule(membershipId, schedule);
+
+    /*
+     * Recorded here rather than in `writeWeeklySchedule`.
+     *
+     * That helper is shared with `setContractedDaysForUser`, which already
+     * raises `CONTRACTED_DAYS_SET` — logging in the shared path would write two
+     * entries for one employer-set save and describe the admin's action as the
+     * member's own. This is the branch where the member is the actor, and it is
+     * the branch that had no record.
+     *
+     * ONE entry for the week, not one per day, for the same reason
+     * `writeWeeklySchedule` runs the ineligibility check once: a member saves a
+     * pattern, not seven patterns, and seven rows would bury every other event
+     * in the log.
+     *
+     * The days are in the details because the entry has to answer the question
+     * it exists for. "Availability changed" tells a reader something happened;
+     * "Tuesday became unavailable" tells them why somebody stopped being
+     * eligible for Tuesday's shift.
+     *
+     * Fire-and-forget and after the write, per the house rule — an audit
+     * failure must not cost the member the save.
+     */
+    if (membership) {
+      void this.auditService.log({
+        organizationId: membership.organizationId,
+        userId: membership.userId,
+        action: ACTIONS.AVAILABILITY_UPDATED,
+        entityType: "availability",
+        entityId: membershipId,
+        details: {
+          days: schedule.map((d) => ({
+            dayOfWeek: d.dayOfWeek,
+            isAvailable: d.isAvailable,
+            startTime: d.startTime,
+            endTime: d.endTime,
+          })),
+        },
+      });
+    }
+
+    return result;
   }
 
   /**
@@ -930,8 +973,33 @@ export class AvailabilityService {
    * a setting of its own — an org that has said it wants the engine to assign
    * has already answered this question, and asking it twice in two vocabularies
    * is how two settings come to contradict each other.
+   *
+   * ## Why this is public, and why it still lives here
+   *
+   * It is called from `TaskAssignmentService` too, because an approved decline
+   * and an approved withdrawal are the same event as an approved leave — a
+   * person has come off a shift — and for a year only one of the three did
+   * anything about it.
+   *
+   * It belongs in a service of its own, and `shift-cover.service.ts` is the
+   * honest home for it. It has not moved yet, deliberately: the extraction is
+   * ~120 lines with five collaborators, the leave path around it is the most
+   * heavily tested flow in this file, and the change that needed making was
+   * "call it from two more places", not "move it". Moving it is a follow-up
+   * with no behaviour in it — which is exactly the kind of change that should
+   * not be bundled with one that has.
+   *
+   * The exclusion question resolves itself, and only because of a change made
+   * at the same time. `buildCandidatePool` excludes anyone holding a row on the
+   * shift, so a member whose withdrawal was just approved is not offered it
+   * back — but ONLY while an approved withdrawal keeps its row, which it did
+   * not until `TaskAssignmentRepository.withdraw` replaced `cancel`. The leave
+   * path never needed that protection because approved leave makes the person
+   * unavailable and eligibility refuses them on their own merits. Two paths,
+   * two different mechanisms, one outcome; `tests/services/shift-cover.test.ts`
+   * pins it for both rather than trusting the coincidence.
    */
-  private async findCover(
+  async findCover(
     commitment: Commitment,
     absentName: string,
     reviewerUserId: string

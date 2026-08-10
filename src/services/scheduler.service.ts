@@ -24,6 +24,7 @@ import {
 } from "@/services/recurring-task.service";
 import { HourAlertService } from "@/services/hour-alert.service";
 import { CertificationService } from "@/services/certification.service";
+import { AllocationService } from "@/services/allocation.service";
 
 export interface RecurringRunSummary {
   orgsProcessed: number;
@@ -43,16 +44,24 @@ export interface CertExpiryRunSummary {
   perOrg: Array<{ organizationId: string; checked: number; notified: number }>;
 }
 
+export interface AutoStaffingRunSummary {
+  orgsProcessed: number;
+  totalFilled: number;
+  perOrg: { organizationId: string; considered: number; filled: number }[];
+}
+
 export interface SchedulerRunSummary {
   recurring: RecurringRunSummary;
   hourAlerts: HourAlertRunSummary;
   certExpiry: CertExpiryRunSummary;
+  autoStaffing: AutoStaffingRunSummary;
 }
 
 export class SchedulerService {
   private recurringTaskService = new RecurringTaskService();
   private hourAlertService = new HourAlertService();
   private certificationService = new CertificationService();
+  private allocationService = new AllocationService();
   private orgRepo = new OrganizationRepository();
 
   /** IDs of every active (non-suspended) organization. */
@@ -154,6 +163,47 @@ export class SchedulerService {
     return summary;
   }
 
+  /**
+   * Second attempt at shifts auto mode could not staff when they were made.
+   *
+   * Only organisations in `auto` mode do anything here — the service checks,
+   * and for everyone else this is one settings read per run.
+   *
+   * Ordered AFTER recurring generation on purpose: that pass creates the next
+   * fortnight and staffs what it can, so running the sweep first would look at
+   * a board missing the very shifts most likely to need it, and the newly
+   * created ones would then wait a whole hour for their second chance.
+   */
+  async runAutoStaffing(
+    horizonDays: number = DEFAULT_HORIZON_DAYS
+  ): Promise<AutoStaffingRunSummary> {
+    const orgIds = await this.activeOrganizationIds();
+    const summary: AutoStaffingRunSummary = {
+      orgsProcessed: 0,
+      totalFilled: 0,
+      perOrg: [],
+    };
+
+    for (const organizationId of orgIds) {
+      try {
+        const { considered, filled } =
+          await this.allocationService.staffUnfilled(organizationId, horizonDays);
+        summary.orgsProcessed++;
+        summary.totalFilled += filled;
+        summary.perOrg.push({ organizationId, considered, filled });
+      } catch (error) {
+        // One tenant's failure must not stop the rest — the same isolation
+        // every job in this file has.
+        console.error(
+          `[Scheduler] auto staffing failed for org ${organizationId}:`,
+          error
+        );
+      }
+    }
+
+    return summary;
+  }
+
   /** Runs all scheduled jobs and returns a combined summary. */
   async runAll(
     horizonDays: number = DEFAULT_HORIZON_DAYS
@@ -161,6 +211,7 @@ export class SchedulerService {
     const recurring = await this.runRecurringGeneration(horizonDays);
     const hourAlerts = await this.runHourAlerts();
     const certExpiry = await this.runCertificationExpiry();
-    return { recurring, hourAlerts, certExpiry };
+    const autoStaffing = await this.runAutoStaffing(horizonDays);
+    return { recurring, hourAlerts, certExpiry, autoStaffing };
   }
 }

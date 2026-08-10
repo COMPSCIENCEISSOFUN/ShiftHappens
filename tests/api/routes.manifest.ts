@@ -166,6 +166,14 @@ export const ROUTES: RouteSpec[] = [
   org("tasks/[taskId]/assign", "POST", MANAGER, { suspension: true, extraParams: ["taskId"] }),
   org("tasks/[taskId]/auto-allocate", "POST", MANAGER, { suspension: true, extraParams: ["taskId"] }),
   org("tasks/[taskId]/composition", "GET", MANAGER, { extraParams: ["taskId"] }),
+  /*
+   * MANAGER, and gated on `tasks:assign` rather than
+   * `allocation:use_suggestions` — see the route header. Deciding a withdrawal
+   * request is a rostering act, not an AI feature, and an organisation that has
+   * withheld AI suggestions has not said its managers should answer those
+   * requests without knowing whether cover exists.
+   */
+  org("tasks/[taskId]/cover-options", "GET", MANAGER, { extraParams: ["taskId"] }),
   org("tasks/[taskId]/eligibility", "GET", MANAGER, { extraParams: ["taskId"] }),
   org("tasks/[taskId]/pending-leave", "GET", MANAGER, { extraParams: ["taskId"] }),
   org("tasks/[taskId]/eligibility/override", "POST", MANAGER, { suspension: true, extraParams: ["taskId"] }),

@@ -38,7 +38,27 @@ function silenceConsole() {
 }
 
 describe("log", () => {
-  it("writes the entry", async () => {
+  /**
+   * Inverted, and the reason is worth more than the test.
+   *
+   * This passed `ipAddress: "203.0.113.4"` and asserted it came back — proving
+   * the plumbing worked end to end. **It was the only thing in the codebase
+   * that ever passed one.** The column was optional at the schema, the
+   * repository and the service, so no production caller had to supply one and
+   * none did; every real row's `ipAddress` has been null since the table was
+   * created, and this test reported the field as working the whole time.
+   *
+   * A test that a value SAVES is not a test that anything writes it. The
+   * parameter is gone from the service and the repository; the column follows
+   * in the next migration that touches this table, because dropping one needs
+   * the deploy that stops referencing it to go out first (§4).
+   *
+   * Retired on cost, not on impossibility — `getClientIp` in `src/middleware.ts`
+   * resolves an address correctly today and is tested. See the note on
+   * `AuditLogRepository.create` for why that is not the same as being able to
+   * record one here.
+   */
+  it("writes the entry, and records no address for it", async () => {
     await auditService.log({
       organizationId: tenant.orgId,
       userId: tenant.admin.userId,
@@ -46,7 +66,6 @@ describe("log", () => {
       entityType: "task",
       entityId: "task-1",
       details: { title: "Evening shift" },
-      ipAddress: "203.0.113.4",
     });
 
     const log = await prisma.auditLog.findFirstOrThrow({
@@ -57,9 +76,15 @@ describe("log", () => {
       entityType: "task",
       entityId: "task-1",
       userId: tenant.admin.userId,
-      ipAddress: "203.0.113.4",
     });
     expect(log.details).toEqual({ title: "Evening shift" });
+    /*
+     * Asserted, not ignored. While the column exists it must be honestly empty
+     * rather than quietly half-populated — a log with an address on some rows
+     * and not others is worse than one with none, because it invites the reader
+     * to infer something from the gap.
+     */
+    expect(log.ipAddress).toBeNull();
   });
 
   it("writes with only the required fields", async () => {

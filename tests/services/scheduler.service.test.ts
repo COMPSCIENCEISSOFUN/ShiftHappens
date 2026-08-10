@@ -173,7 +173,7 @@ describe("SchedulerService.runHourAlerts", () => {
 });
 
 describe("SchedulerService.runAll", () => {
-  it("returns a summary for all three scheduled jobs", async () => {
+  it("returns a summary for every scheduled job", async () => {
     const a = await makeOrg("org-a");
     await addDailyTemplate(a.orgId, a.adminUserId);
     await addWorkedStaff(a.orgId, a.adminUserId, 9);
@@ -184,10 +184,69 @@ describe("SchedulerService.runAll", () => {
     expect(result.recurring.totalCreated).toBeGreaterThan(0);
     expect(result.hourAlerts.orgsProcessed).toBe(1);
     expect(result.hourAlerts.totalAlerted).toBeGreaterThanOrEqual(1);
-    // Certification expiry runs even with nothing to report — the cron response
-    // should always carry all three summaries so a silent job is visible.
+    // Every job runs even with nothing to report — the cron response should
+    // always carry all of the summaries, so a silent job is visible rather than
+    // indistinguishable from a job that never ran.
     expect(result.certExpiry.orgsProcessed).toBe(1);
     expect(result.certExpiry.totalNotified).toBe(0);
+    expect(result.autoStaffing.orgsProcessed).toBe(1);
+  });
+});
+
+/**
+ * The wrapper, not the work.
+ *
+ * `staffUnfilled` is covered in `auto-staffing-retry.test.ts`; what is covered
+ * HERE is that the cron actually reaches it, for every active organisation,
+ * with one tenant's failure isolated from the rest.
+ *
+ * Worth its own describe because that is the layer where a feature quietly
+ * never runs. This project's longest-standing defect class is code that is
+ * written, correct and never called — the PDF export route, `findCover`'s two
+ * missing callers, `deleteOverride` — and every one of them had a working
+ * implementation underneath. A retry sweep nothing invokes is the same thing
+ * with a fresher docblock.
+ */
+describe("SchedulerService.runAutoStaffing", () => {
+  it("processes every active organisation", async () => {
+    await makeOrg("staffing-a");
+    await makeOrg("staffing-b");
+
+    const result = await scheduler.runAutoStaffing(14);
+
+    expect(result.orgsProcessed).toBe(2);
+    expect(result.perOrg).toHaveLength(2);
+  });
+
+  it("skips a suspended organisation", async () => {
+    const active = await makeOrg("staffing-active");
+    await makeOrg("staffing-dead", "suspended");
+
+    const result = await scheduler.runAutoStaffing(14);
+
+    expect(result.orgsProcessed).toBe(1);
+    expect(result.perOrg[0].organizationId).toBe(active.orgId);
+  });
+
+  /**
+   * An organisation in manual mode is still PROCESSED — it is reached, asked,
+   * and answers "nothing to do". Asserting `considered: 0` rather than an
+   * absent entry is the distinction that matters: a tenant the sweep never
+   * visited and a tenant that had no work look identical in a summary that only
+   * counts what it did.
+   */
+  it("reaches an organisation that is not in auto mode, and does nothing", async () => {
+    const a = await makeOrg("staffing-manual");
+
+    const result = await scheduler.runAutoStaffing(14);
+
+    expect(result.orgsProcessed).toBe(1);
+    expect(result.perOrg[0]).toEqual({
+      organizationId: a.orgId,
+      considered: 0,
+      filled: 0,
+    });
+    expect(result.totalFilled).toBe(0);
   });
 });
 

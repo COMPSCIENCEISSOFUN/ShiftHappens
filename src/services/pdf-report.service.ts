@@ -15,6 +15,7 @@
 import { REASON_PHRASE } from "@/lib/decline-reasons";
 import { jsPDF } from "jspdf";
 import { ReportingService } from "./reporting.service";
+import { AuditLogService, ACTIONS } from "./audit-log.service";
 import {
   DEFAULT_TIMEZONE,
   dayOfWeekInTimeZone,
@@ -73,6 +74,7 @@ const REJECTION_LABELS: Record<string, string> = {
 
 export class PdfReportService {
   private reportingService = new ReportingService();
+  private auditService = new AuditLogService();
 
   /**
    * Generates the weekly workforce briefing PDF.
@@ -90,13 +92,56 @@ export class PdfReportService {
    * A manager scoped to the kitchen could download the entire company's
    * timesheet summary, and take it with them.
    */
+  /**
+   * `exportedById` is who asked. Optional in the type and load-bearing in
+   * practice: the route always passes it, and leaving it off simply records the
+   * export with no author rather than refusing to produce one.
+   */
   async generateReport(
     organizationId: string,
     orgName: string,
-    departmentIds?: string[] | null
+    departmentIds?: string[] | null,
+    exportedById?: string
   ): Promise<ArrayBuffer> {
     const data = await this.gatherData(organizationId, departmentIds);
-    return this.renderPdf(orgName, data);
+    const pdf = this.renderPdf(orgName, data);
+
+    /*
+     * Audited HERE, in the Control layer, and not at the route.
+     *
+     * It was written at the route first, and `audit-coverage.test.ts` caught
+     * it: that suite scans `src/services` for every declared action, which
+     * encodes a convention nobody had written down — audit entries are raised
+     * by Control, never by Boundary. The route knew who and what; only the
+     * service knows the document was actually produced, which is the thing
+     * being recorded.
+     *
+     * This is the one audited action that records an EXTRACTION rather than a
+     * change. Every other entry describes a row somebody can still open; this
+     * describes a file that has left the product, and once downloaded no
+     * permission change, deactivation or downgrade can reach it again.
+     *
+     * `scope` is the field worth having. The same button hands a department
+     * manager their own team's figures and an admin the whole company's, and
+     * afterwards the two files are indistinguishable unless the log says which
+     * was taken.
+     *
+     * Stored in a variable and returned after the side effect, per the house
+     * rule: a logging failure must never cost the caller the report.
+     */
+    void this.auditService.log({
+      organizationId,
+      userId: exportedById,
+      action: ACTIONS.REPORT_EXPORTED,
+      entityType: "report",
+      details: {
+        format: "pdf",
+        scope: departmentIds == null ? "org-wide" : departmentIds,
+        bytes: pdf.byteLength,
+      },
+    });
+
+    return pdf;
   }
 
   // ===== Data Gathering =====

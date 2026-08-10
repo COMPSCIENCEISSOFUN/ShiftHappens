@@ -48,6 +48,9 @@ export const AUDIT_ENTITY_TYPES = [
   "organization",
   "subscription",
   "user",
+  // Not a stored record — the only entity here that names an artefact the
+  // product hands out rather than a row it keeps.
+  "report",
 ] as const;
 
 export type AuditEntityType = (typeof AUDIT_ENTITY_TYPES)[number];
@@ -72,4 +75,5 @@ export const AUDIT_ENTITY_LABELS: Record<AuditEntityType, string> = {
   organization: "Organisation",
   subscription: "Billing",
   user: "Accounts",
+  report: "Reports",
 };

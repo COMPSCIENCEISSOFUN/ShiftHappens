@@ -153,8 +153,19 @@ export class TaskService {
       }
     }
 
-    // In "auto" allocation mode the system fills the task itself (US-65).
-    await this.autoAllocateIfEnabled(task.id, orgId, userId);
+    /*
+     * In "auto" allocation mode the system fills the task itself (US-65).
+     *
+     * A recurring task IS the first occurrence of its series, so it is staffed
+     * like any other — but it does not ANNOUNCE its own failure, because the
+     * generation run just above has already reported for the whole series. Two
+     * notifications land on the same watcher for one press of Create
+     * otherwise: one for the template, one aggregated for its fortnight of
+     * instances.
+     */
+    await this.autoAllocateIfEnabled(task.id, orgId, userId, {
+      announceFailure: !task.isRecurring,
+    });
 
     return task;
   }
@@ -167,19 +178,79 @@ export class TaskService {
   private async autoAllocateIfEnabled(
     taskId: string,
     orgId: string,
-    userId: string
+    userId: string,
+    options?: { announceFailure?: boolean }
   ) {
+    /*
+     * The mode is read in its own try, and the outcome carried out of it.
+     *
+     * One `try` around the whole thing could not tell "this organisation does
+     * not use auto mode" — a return, not an error — from "auto mode tried and
+     * failed", and the branch below has to know which happened. It is the same
+     * mistake as a catch that reports a permission denial as a 500.
+     */
+    let auto = false;
     try {
       const settings = await this.settingsRepo.getOrCreate(orgId);
-      if (settings.allocationMode !== "auto") return;
+      auto = settings.allocationMode === "auto";
+    } catch (error) {
+      console.error("[Auto-Allocate Error] settings unreadable", error);
+      return;
+    }
+    if (!auto) return;
 
+    try {
       // Imported lazily: AllocationService holds a TaskService, so making it a
       // field here would make the two constructors recurse forever.
       const { AllocationService } = await import("@/services/allocation.service");
       await new AllocationService().autoAllocate(taskId, orgId, userId);
     } catch (error) {
-      // "No eligible staff found" is a normal outcome, not a failure.
       console.error("[Auto-Allocate Error]", error);
+      if (options?.announceFailure !== false) {
+        await this.tellWatchersUnfilled(taskId, orgId, userId);
+      }
+    }
+  }
+
+  /**
+   * Auto mode was asked to staff a task and could not.
+   *
+   * "No eligible staff found" is a normal outcome and it went to
+   * `console.error`, which is not a place anybody looks. In MANUAL mode that
+   * was fine — a human was going to assign the task anyway. In auto mode it is
+   * the feature quietly not working: the organisation asked the system to do
+   * the rostering, the system declined, and said so to a log file.
+   *
+   * The person who created the task is excluded. They are looking at the
+   * screen that already shows it unassigned, and a notification about the thing
+   * they did one second ago is how a notification list becomes something people
+   * stop opening.
+   */
+  private async tellWatchersUnfilled(
+    taskId: string,
+    orgId: string,
+    createdByUserId: string
+  ) {
+    try {
+      const task = await this.taskRepo.findById(taskId);
+      if (!task) return;
+
+      const watchers = (
+        await taskWatcherUserIds(orgId, task.departmentId)
+      ).filter((id) => id !== createdByUserId);
+
+      await this.notificationService.notifyManyIfEnabled(
+        orgId,
+        watchers,
+        NOTIFICATION_TYPES.BACKFILL_NEEDED,
+        "Shift could not be filled automatically",
+        `"${task.title}" was created but nobody eligible was available, so it is unassigned.`,
+        "task",
+        taskId
+      );
+    } catch (error) {
+      // A failed notification must never be the reason a task create fails.
+      console.error("[Auto-Allocate Error] could not notify", error);
     }
   }
 

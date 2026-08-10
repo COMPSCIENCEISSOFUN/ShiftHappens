@@ -44,11 +44,56 @@ export const ACTIONS = {
   ELIGIBILITY_OVERRIDDEN: "assignment.eligibility_overridden",
   SENIORITY_OVERRIDDEN: "membership.seniority_overridden",
   AVAILABILITY_REVIEW_REQUESTED: "membership.availability_review_requested",
+  /*
+   * A member changing their OWN weekly pattern.
+   *
+   * The two events around this were already recorded — a manager waiving
+   * availability (`assignment.eligibility_overridden`) and a manager asking for
+   * a refresh — and the edit itself was not. So "why was this person eligible
+   * on Tuesday" was answerable only where somebody had intervened, and a
+   * pattern quietly changed to avoid a shift left no trace at all.
+   *
+   * The employer-set path is NOT this: `setContractedDaysForUser` raises
+   * `CONTRACTED_DAYS_SET` and always has. Two acts, two actions — the same
+   * split made for custom roles, and for the same reason.
+   */
+  AVAILABILITY_UPDATED: "availability.updated",
   CONTRACTED_DAYS_SET: "membership.contracted_days_set",
+  /*
+   * The report leaving the building.
+   *
+   * Every other action here records a change to the system. This one records
+   * an EXTRACTION, and it is the only one: `GET /reports/export` produces a
+   * PDF carrying every staff member's name, worked hours and rejection history,
+   * and once downloaded it is outside the product entirely — no permission
+   * change, no plan change and no deactivation can reach it again.
+   *
+   * `scope` in the details is the field that matters. The same button produces
+   * one department's figures for a manager and the whole company's for an
+   * admin, and after the fact those two files are indistinguishable unless the
+   * log says which was taken.
+   */
+  REPORT_EXPORTED: "report.exported",
   // Members
   MEMBER_INVITED: "member.invited",
   MEMBER_JOINED: "member.joined",
+  /*
+   * The member's SYSTEM role — staff, manager, company_admin.
+   *
+   * Custom roles are the two entries below and used to share this one. They are
+   * different acts on different fields with different details: this one carries
+   * `previousRole`/`newRole`, the custom-role one carried a bare id. One action
+   * name meant the filter could not separate them and no reader could tell
+   * which had happened without inspecting the shape of the details.
+   *
+   * The name is unchanged so historical rows keep their meaning — every entry
+   * written before the split really was one of these OR a custom-role change,
+   * and re-labelling them would rewrite the record rather than clarify it. The
+   * page keeps a label for it for exactly that reason.
+   */
   MEMBER_ROLE_CHANGED: "member.role_changed",
+  MEMBER_CUSTOM_ROLE_ASSIGNED: "member.custom_role_assigned",
+  MEMBER_CUSTOM_ROLE_CLEARED: "member.custom_role_cleared",
   MEMBER_ACTIVATED: "member.activated",
   MEMBER_DEACTIVATED: "member.deactivated",
   // Departments

@@ -4,8 +4,14 @@
  * GET /api/organizations/[orgId]/reports/export
  *
  * Generates and returns a weekly workforce briefing PDF.
- * Pro+ feature — requires pdf_export subscription feature.
- * Accessible to company_admin and manager roles.
+ *
+ * Pro+ and `reports:export`, both enforced by `requirePermission` — the plan
+ * first, because it decides which refusal the caller is given. This route used
+ * to check the permission and THEN call `enforceFeatureAccess` itself, which
+ * inverted that order and answered a Free caller lacking the permission with a
+ * bare "Forbidden" instead of the upgrade message. Mapping the permission to
+ * `pdf_export` in PERMISSION_FEATURE put one gate in one place; see the note
+ * beside that map for what the mapping was previously kept out of it for.
  *
  * Returns: PDF file with Content-Disposition attachment header.
  *
@@ -19,9 +25,7 @@ import {
 } from "@/lib/auth-guard";
 import { requirePermission } from "@/lib/permission-guard";
 import { PdfReportService } from "@/services/pdf-report.service";
-import { SubscriptionService } from "@/services/subscription.service";
 import { OrganizationService } from "@/services/organization.service";
-import { FeatureNotAvailableError } from "@/lib/subscription-tiers";
 import { departmentScopeFor } from "@/lib/department-scope";
 
 
@@ -40,24 +44,10 @@ export async function GET(
     const suspended = await checkOrgSuspended(orgId);
     if (suspended) return suspended;
 
-    // --- Membership + role check ---
+    // --- Plan, then permission. Both live in requirePermission now. ---
     const gate = await requirePermission(user.id, orgId, "reports:export");
     if (!gate.ok) return gate.response;
     const membership = gate.membership;
-
-    // --- Subscription feature gate (Pro+) ---
-    const subscriptionService = new SubscriptionService();
-    try {
-      await subscriptionService.enforceFeatureAccess(orgId, "pdf_export");
-    } catch (error) {
-      if (error instanceof FeatureNotAvailableError) {
-        return NextResponse.json(
-          { error: error.message },
-          { status: 403 }
-        );
-      }
-      throw error;
-    }
 
     // --- Get org name via service (BCE compliant) ---
     const orgService = new OrganizationService();
@@ -69,10 +59,17 @@ export async function GET(
     // Managers see only their departments — same rule as every other report.
     // Without this the PDF was an org-wide staff-hours dump any manager could
     // download and keep.
+    /*
+     * The export is audited by the SERVICE, not here — `audit-coverage.test.ts`
+     * scans `src/services` for every declared action, which encodes the rule
+     * that Control raises audit entries and Boundary does not. This route's job
+     * is to say who asked.
+     */
     const pdfBuffer = await pdfReportService.generateReport(
       orgId,
       orgName,
-      departmentScopeFor(membership)
+      departmentScopeFor(membership),
+      user.id
     );
 
     // --- Return PDF as download ---

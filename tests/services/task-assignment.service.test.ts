@@ -248,7 +248,22 @@ describe("TaskAssignmentService", () => {
   });
 
   describe("resolveWithdrawal", () => {
-    it("approve removes the assignment", async () => {
+    /**
+     * Inverted, not deleted — this asserted `toBeNull()` one commit ago.
+     *
+     * Approving a withdrawal used to DELETE the row. It now keeps it and sets
+     * `withdrawn`, which is the status the rest of the codebase had always
+     * assumed: `RELEASED_STATUSES`, `shift-outcome`, the history filter and the
+     * reporting "fell through" count all read a value nothing ever wrote, so
+     * outside the demo seed they matched nothing.
+     *
+     * The old assertion is the behaviour that was removed, so it is stated here
+     * as its opposite rather than taken away — a reader who remembers the
+     * deletion should find the answer where they look for it, and the seam
+     * matters: the row's survival is what stops the engine offering the shift
+     * straight back to the person who just asked to come off it.
+     */
+    it("approve keeps the row and marks it withdrawn", async () => {
       const assignment = await createAssignment("accepted");
       await assignmentService.requestWithdrawal(assignment.id, membershipId, "reason");
 
@@ -257,7 +272,12 @@ describe("TaskAssignmentService", () => {
       const found = await prisma.taskAssignment.findUnique({
         where: { id: assignment.id },
       });
-      expect(found).toBeNull();
+      expect(found).not.toBeNull();
+      expect(found?.status).toBe("withdrawn");
+      // The slot is genuinely given back: `withdrawn` is in RELEASED_STATUSES,
+      // so headcount does not count it. Asserted in the module that owns that
+      // rule; asserted here that the status reaching it is the right one.
+      expect(found?.withdrawalRequestedAt).not.toBeNull();
     });
 
     it("deny reverts the assignment to accepted", async () => {

@@ -237,6 +237,97 @@ interface AISuggestion {
   explanation: string;
 }
 
+/** A ranked replacement for a shift somebody is asking to come off. */
+interface CoverOption {
+  membershipId: string;
+  name: string;
+  rank: number;
+  score: number;
+}
+
+/**
+ * Four states, not a list and a boolean.
+ *
+ * "Not asked yet" and "asked, and nobody is available" are opposite answers and
+ * an empty array cannot tell them apart — which matters more here than usual,
+ * because **nobody available is the single most useful thing this panel can
+ * say**. A manager who reads an empty box as "not loaded" approves the request
+ * and finds out afterwards.
+ */
+type CoverState =
+  | { status: "loading" }
+  | { status: "failed" }
+  | { status: "ready"; options: CoverOption[] };
+
+/**
+ * Ranked cover for the shift under decision.
+ *
+ * Rendered inside the withdrawal and decline boxes, above the buttons,
+ * deliberately: the question a manager is answering is "can I let them off",
+ * and the answer to that is on this line rather than on the assign panel they
+ * would otherwise have to go and open.
+ *
+ * It does not offer to assign anybody. Approving is what frees the slot, and
+ * the same ranking runs again on approval when the organisation is in `auto`
+ * mode — so a button here would either duplicate that or race it.
+ */
+function CoverOptions({
+  state,
+  onFind,
+}: {
+  taskId: string;
+  state: CoverState | undefined;
+  onFind: () => void;
+}) {
+  if (!state) {
+    return (
+      <button
+        type="button"
+        onClick={onFind}
+        className="mt-2 rounded-md border border-orange-300 bg-white/60 px-2.5 py-1 text-[11px] font-medium text-orange-800 hover:bg-white dark:border-orange-800 dark:bg-transparent dark:text-orange-300 dark:hover:bg-orange-950"
+      >
+        Who could cover?
+      </button>
+    );
+  }
+
+  if (state.status === "loading") {
+    return (
+      <p className="mt-2 text-[11px] text-orange-700 dark:text-orange-400">
+        Checking who is free…
+      </p>
+    );
+  }
+
+  if (state.status === "failed") {
+    return (
+      <button
+        type="button"
+        onClick={onFind}
+        className="mt-2 rounded-md border border-orange-300 bg-white/60 px-2.5 py-1 text-[11px] font-medium text-orange-800 hover:bg-white dark:border-orange-800 dark:bg-transparent dark:text-orange-300 dark:hover:bg-orange-950"
+      >
+        Couldn&apos;t check — try again
+      </button>
+    );
+  }
+
+  if (state.options.length === 0) {
+    return (
+      <p className="mt-2 text-[11px] font-semibold text-orange-900 dark:text-orange-200">
+        Nobody else is eligible for this shift.
+      </p>
+    );
+  }
+
+  return (
+    <div className="mt-2">
+      <p className="text-[11px] text-orange-700 dark:text-orange-400">
+        Could cover: {state.options.map((o) => o.name).join(", ")}
+      </p>
+    </div>
+  );
+}
+
 interface Task {
   id: string;
   title: string;
@@ -351,6 +442,14 @@ export default function TasksPage() {
   // "manual" | "suggested" | "auto" — auto-assign is only offered in "auto" mode
   const [allocationMode, setAllocationMode] = useState<string>("manual");
   const [autoAssigningId, setAutoAssigningId] = useState<string | null>(null);
+  /**
+   * Ranked replacements, keyed by the ASSIGNMENT being decided rather than by
+   * the task.
+   *
+   * A shift can have two people asking to come off it at once, and keying by
+   * task would show one manager's answer under the other's request.
+   */
+  const [cover, setCover] = useState<Record<string, CoverState>>({});
 
   // Operating hours, for the out-of-hours notice. Defaults mirror the database
   // defaults so the notice never compares against a window nobody set.
@@ -422,6 +521,9 @@ export default function TasksPage() {
   }
 
   async function fetchTasks() {
+    // Any cached "who could cover" answer describes the board as it was before
+    // this refetch, so it goes with it.
+    forgetCover();
     try {
       const res = await fetch(`/api/organizations/${orgId}/tasks`);
       const data = await res.json();
@@ -1064,6 +1166,53 @@ export default function TasksPage() {
       fetchTasks();
     } catch {
       setError("Something went wrong");
+    }
+  }
+
+  /**
+   * Who could take this shift, for the manager deciding whether to release
+   * somebody from it.
+   *
+   * On demand rather than on render. Several requests can be open on one board
+   * and this is a ranking pass over every eligible member, so fetching them all
+   * because a page loaded would spend the work on requests nobody is currently
+   * answering. One press, once per assignment — the answer is cached until the
+   * page refetches, because nothing about it changes while the manager reads
+   * it.
+   */
+  /**
+   * Forget every cached ranking.
+   *
+   * Called whenever the board is refetched. Without it the cache was never
+   * invalidated at all: a manager who checked cover, denied the request, and
+   * met the same request an hour later was shown the hour-old answer — and
+   * keying by assignment id makes that MORE likely, not less, because denying a
+   * withdrawal reverts the row and keeps its id.
+   */
+  function forgetCover() {
+    setCover({});
+  }
+
+  async function findCover(assignmentId: string, taskId: string) {
+    setCover((prev) => ({ ...prev, [assignmentId]: { status: "loading" } }));
+    try {
+      const res = await fetch(
+        `/api/organizations/${orgId}/tasks/${taskId}/cover-options`
+      );
+      if (!res.ok) {
+        setCover((prev) => ({ ...prev, [assignmentId]: { status: "failed" } }));
+        return;
+      }
+      const body = await res.json();
+      setCover((prev) => ({
+        ...prev,
+        [assignmentId]: {
+          status: "ready",
+          options: Array.isArray(body?.options) ? body.options : [],
+        },
+      }));
+    } catch {
+      setCover((prev) => ({ ...prev, [assignmentId]: { status: "failed" } }));
     }
   }
 
@@ -2143,6 +2292,11 @@ export default function TasksPage() {
                                       &ldquo;{a.rejectionNotes}&rdquo;
                                     </p>
                                   )}
+                                  <CoverOptions
+                                    taskId={task.id}
+                                    state={cover[a.id]}
+                                    onFind={() => findCover(a.id, task.id)}
+                                  />
                                   {/* Says what each button DOES, not just yes
                                       and no. Denying returns the shift to
                                       pending — the member is still rostered and
@@ -2184,6 +2338,11 @@ export default function TasksPage() {
                                       &ldquo;{a.withdrawalNotes}&rdquo;
                                     </p>
                                   )}
+                                  <CoverOptions
+                                    taskId={task.id}
+                                    state={cover[a.id]}
+                                    onFind={() => findCover(a.id, task.id)}
+                                  />
                                   <div className="mt-2 flex gap-2">
                                     <button
                                       type="button"

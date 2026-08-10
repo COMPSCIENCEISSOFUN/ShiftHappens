@@ -53,6 +53,7 @@ import {
   type ResponseStats,
   type SatisfactionStats,
 } from "@/components/dashboard/feedback-panels";
+import { ExportReportButton } from "@/components/dashboard/export-report-button";
 
 /** Payload of GET /api/organizations/[orgId]/reports/engine. */
 interface EngineReport {
@@ -622,27 +623,37 @@ export default function AdminDashboard({ orgId, orgName, userName }: AdminDashbo
       )}
 
       {/* ════════════════════════════════════════════════════ */}
-      {/* 1. Greeting + Status Pill                           */}
+      {/* 1. Greeting + Status Pill + page actions            */}
+      {/*                                                     */}
+      {/* The export button sits with the greeting rather     */}
+      {/* than beside a chart, because the PDF is built from  */}
+      {/* four sections of this page and attaching it to one  */}
+      {/* of them would say it exports that one. Same place   */}
+      {/* Tasks puts New Task and Members puts Invite User.   */}
       {/* ════════════════════════════════════════════════════ */}
-      <div className="mb-7">
-        <h2 className="text-2xl font-bold text-foreground">
-          {getGreeting()}{userName ? `, ${userName}` : ""}
-        </h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Here&apos;s what needs your attention at {orgName} today.
-        </p>
-        <div
-          className={`mt-3 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[13px] font-medium ${
-            status.severity === "good"
-              ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-400"
-              : status.severity === "warn"
-                ? "bg-amber-50 text-amber-600 dark:bg-amber-950 dark:text-amber-400"
-                : "bg-red-50 text-red-600 dark:bg-red-950 dark:text-red-400"
-          }`}
-        >
-          <span className="relative inline-block h-2 w-2 rounded-full bg-current dashboard-status-pulse" />
-          {status.message}
+      <div className="mb-7 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-foreground">
+            {getGreeting()}{userName ? `, ${userName}` : ""}
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Here&apos;s what needs your attention at {orgName} today.
+          </p>
+          <div
+            className={`mt-3 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[13px] font-medium ${
+              status.severity === "good"
+                ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-400"
+                : status.severity === "warn"
+                  ? "bg-amber-50 text-amber-600 dark:bg-amber-950 dark:text-amber-400"
+                  : "bg-red-50 text-red-600 dark:bg-red-950 dark:text-red-400"
+            }`}
+          >
+            <span className="relative inline-block h-2 w-2 rounded-full bg-current dashboard-status-pulse" />
+            {status.message}
+          </div>
         </div>
+
+        <ExportReportButton orgId={orgId} />
       </div>
 
       {/* ════════════════════════════════════════════════════ */}

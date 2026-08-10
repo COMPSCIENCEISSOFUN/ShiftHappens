@@ -109,6 +109,21 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   "subscription.upgraded": "Subscription upgraded",
   "subscription.updated": "Subscription updated",
   "subscription.canceled": "Subscription cancelled",
+  "report.exported": "Report exported",
+  "availability.updated": "Availability changed",
+  /*
+   * All three, and the old one stays.
+   *
+   * `member.role_changed` no longer covers custom roles, but every entry
+   * written before the split still carries it — and some of those really were
+   * custom-role changes. Dropping the label would render them as a raw
+   * `member.role_changed` string and remove them from the filter, which is the
+   * exact defect this map already carries a comment about from the decline
+   * lifecycle. A retired action still needs a name for as long as its rows
+   * exist.
+   */
+  "member.custom_role_assigned": "Custom role assigned",
+  "member.custom_role_cleared": "Custom role removed",
 };
 
 function actionColor(action: string): string {
@@ -145,6 +160,28 @@ export default function AuditLogPage() {
   const [offset, setOffset] = useState(0);
   const [filterAction, setFilterAction] = useState("");
   const [filterEntity, setFilterEntity] = useState("");
+  /*
+   * Who, and when.
+   *
+   * The repository and the route have accepted `userId`, `startDate` and
+   * `endDate` since they were written; only this page never sent them. "Who did
+   * this?" and "what happened that week?" are the two questions an audit log is
+   * opened to answer, and both worked at every layer except the one with the
+   * controls on it.
+   */
+  const [filterUser, setFilterUser] = useState("");
+  const [filterFrom, setFilterFrom] = useState("");
+  const [filterTo, setFilterTo] = useState("");
+  /**
+   * People to offer in the "who" filter.
+   *
+   * Current members only, which is a real limitation rather than an oversight:
+   * an entry written by somebody who has since left the organisation cannot be
+   * selected here, though it is still in the log and still visible unfiltered.
+   * Listing everyone who APPEARS in the log would need the server to aggregate
+   * distinct authors, and that is a query this screen does not have.
+   */
+  const [members, setMembers] = useState<{ userId: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   /*
@@ -167,6 +204,22 @@ export default function AuditLogPage() {
       params.set("offset", String(offset));
       if (filterAction) params.set("action", filterAction);
       if (filterEntity) params.set("entityType", filterEntity);
+      if (filterUser) params.set("userId", filterUser);
+      if (filterFrom) params.set("startDate", filterFrom);
+      /*
+       * To the END of the chosen day.
+       *
+       * A date input yields "2026-08-09", which `new Date()` reads as midnight
+       * UTC — so an unadjusted `endDate` excludes everything that happened on
+       * the day the user picked, and picking the same day for both returns an
+       * empty log. Asking for the start of the NEXT day is the honest
+       * inclusive-range translation.
+       */
+      if (filterTo) {
+        const end = new Date(`${filterTo}T00:00:00`);
+        end.setDate(end.getDate() + 1);
+        params.set("endDate", end.toISOString());
+      }
 
       const res = await fetch(
         `/api/organizations/${orgId}/audit-logs?${params.toString()}`
@@ -202,7 +255,51 @@ export default function AuditLogPage() {
     if (!planIncludesAuditLog) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronising with an external system, which is what effects are for: loads the log from the server on mount and whenever the filters change
     fetchLogs();
-  }, [orgId, offset, filterAction, filterEntity, planIncludesAuditLog]);
+  }, [
+    orgId,
+    offset,
+    filterAction,
+    filterEntity,
+    filterUser,
+    filterFrom,
+    filterTo,
+    planIncludesAuditLog,
+  ]);
+
+  /**
+   * The member list behind the "who" filter.
+   *
+   * Its own request, and silent on failure. `audit:view` and the member-list
+   * permissions are separate grants — an admin holds both, but a custom role
+   * composed with only the first would 403 here — and a filter that cannot be
+   * populated must not take the log down with it. The select simply does not
+   * render.
+   */
+  useEffect(() => {
+    if (!planIncludesAuditLog) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/organizations/${orgId}/members`);
+        if (!res.ok) return;
+        const body = await res.json();
+        if (cancelled || !Array.isArray(body)) return;
+        setMembers(
+          body
+            .map((m: { user?: { id?: string; name?: string; email?: string } }) => ({
+              userId: m.user?.id ?? "",
+              name: m.user?.name || m.user?.email || "Unknown",
+            }))
+            .filter((m: { userId: string }) => m.userId !== "")
+        );
+      } catch {
+        /* Non-critical — the filter is simply not offered. */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [orgId, planIncludesAuditLog]);
 
 
   const totalPages = Math.ceil(total / limit);
@@ -307,6 +404,70 @@ export default function AuditLogPage() {
             </option>
           ))}
         </select>
+
+        {members.length > 0 && (
+          <select
+            aria-label="Member"
+            className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground"
+            value={filterUser}
+            onChange={(e) => {
+              setFilterUser(e.target.value);
+              setOffset(0);
+            }}
+          >
+            <option value="">Anyone</option>
+            {members.map((m) => (
+              <option key={m.userId} value={m.userId}>
+                {m.name}
+              </option>
+            ))}
+          </select>
+        )}
+
+        <input
+          type="date"
+          aria-label="From"
+          className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground"
+          value={filterFrom}
+          max={filterTo || undefined}
+          onChange={(e) => {
+            setFilterFrom(e.target.value);
+            setOffset(0);
+          }}
+        />
+        <input
+          type="date"
+          aria-label="To"
+          className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground"
+          value={filterTo}
+          min={filterFrom || undefined}
+          onChange={(e) => {
+            setFilterTo(e.target.value);
+            setOffset(0);
+          }}
+        />
+
+        {/*
+          Offered only when something is set. A permanent Clear button beside
+          five untouched controls is noise; one that appears when there is
+          something to clear is the affordance.
+        */}
+        {(filterAction || filterEntity || filterUser || filterFrom || filterTo) && (
+          <button
+            type="button"
+            className={SECONDARY_BUTTON}
+            onClick={() => {
+              setFilterAction("");
+              setFilterEntity("");
+              setFilterUser("");
+              setFilterFrom("");
+              setFilterTo("");
+              setOffset(0);
+            }}
+          >
+            Clear filters
+          </button>
+        )}
       </div>
 
       {/* Log entries */}

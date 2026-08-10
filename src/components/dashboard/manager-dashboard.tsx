@@ -29,6 +29,7 @@ import {
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { EmptyState } from "@/components/ui/empty-state";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { ExportReportButton } from "@/components/dashboard/export-report-button";
 
 // ============================================================
 // API response types
@@ -300,24 +301,31 @@ export default function ManagerDashboard({
   // ----------------------------------------------------------
   return (
     <div className="space-y-8">
-      {/* ---- Greeting with status pill ---- */}
-      <div>
-        <h2 className="text-2xl font-bold tracking-tight">
-          {getGreeting()}{userName ? `, ${userName}` : ""}
-        </h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Your team for today &mdash; {availableCount} of {totalStaff} staff
-          available.
-        </p>
+      {/* ---- Greeting with status pill, and the page action ---- */}
+      {/* Same placement as the admin dashboard and as every other  */}
+      {/* page header in the product. A manager's PDF is scoped to  */}
+      {/* their own departments by the route, not by this button.   */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight">
+            {getGreeting()}{userName ? `, ${userName}` : ""}
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Your team for today &mdash; {availableCount} of {totalStaff} staff
+            available.
+          </p>
 
-        <div
-          className={`mt-3 inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-sm font-medium ${statusPill.bg} ${statusPill.text}`}
-        >
-          <span
-            className={`relative dashboard-status-pulse inline-block h-2 w-2 rounded-full ${statusPill.dot}`}
-          />
-          {statusPill.label}
+          <div
+            className={`mt-3 inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-sm font-medium ${statusPill.bg} ${statusPill.text}`}
+          >
+            <span
+              className={`relative dashboard-status-pulse inline-block h-2 w-2 rounded-full ${statusPill.dot}`}
+            />
+            {statusPill.label}
+          </div>
         </div>
+
+        <ExportReportButton orgId={orgId} />
       </div>
 
       {/* ---- Leave awaiting a decision ---- */}

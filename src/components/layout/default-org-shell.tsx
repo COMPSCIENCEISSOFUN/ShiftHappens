@@ -22,6 +22,10 @@ import { ProfileService } from "@/services/profile.service";
 import { RoleService } from "@/services/role.service";
 import { AppShell } from "@/components/layout/app-shell";
 import { OrgSuspendedBanner } from "@/components/layout/org-suspended-banner";
+import {
+  SUBSCRIPTION_TIERS,
+  type SubscriptionTier,
+} from "@/lib/subscription-tiers";
 
 const accessService = new AccessService();
 const orgService = new OrganizationService();
@@ -88,6 +92,35 @@ export async function DefaultOrgShell({
       }
       customRoleLabel={customRoleLabel}
       permissions={permissions}
+      /*
+       * The plan — which this shell did not pass at all.
+       *
+       * `AppShell` defaults `tier` to "free", deliberately, so that the
+       * org-agnostic branch above hides tier-gated links rather than offering
+       * them. But this branch HAS an organisation, and omitting the prop here
+       * meant every page using this chrome — the dashboard above all — believed
+       * every organisation was on Free.
+       *
+       * It was invisible for as long as nothing on those pages was plan-gated:
+       * the only symptom was the sidebar dropping Roles and Audit Log on the
+       * dashboard and restoring them one navigation later, on any `/org/[orgId]`
+       * page, whose layout does pass this. Two menus for one organisation,
+       * depending which page you were standing on.
+       *
+       * `org` is already loaded for the suspension check, and `findByUserId`
+       * uses `include` rather than `select`, so this costs no query and is
+       * correct on the first paint — which is what §5.19 claimed of the tier
+       * and was only ever true of the other layout.
+       *
+       * Validated rather than cast, for the same reason as that layout: the
+       * column is a plain string, and an unrecognised value must fall back to
+       * the RESTRICTED end rather than unlock Enterprise on a typo.
+       */
+      tier={
+        SUBSCRIPTION_TIERS.includes(org.subscriptionTier as SubscriptionTier)
+          ? (org.subscriptionTier as SubscriptionTier)
+          : "free"
+      }
     >
       {children}
     </AppShell>

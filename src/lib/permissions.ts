@@ -140,7 +140,7 @@ export const PERMISSIONS: PermissionDefinition[] = [
 
   // Reporting
   { name: "reports:view", description: "View reports and analytics", category: "reports" },
-  { name: "reports:export", description: "Export reports as CSV or PDF", category: "reports" },
+  { name: "reports:export", description: "Export the workforce report as a PDF", category: "reports" },
 
   // Calendar
   { name: "calendar:view_team", description: "View team coverage and other members' schedules", category: "calendar" },
@@ -196,16 +196,37 @@ export const PERMISSION_NAMES = PERMISSIONS.map((p) => p.name);
  */
 export const PERMISSION_FEATURE: Record<string, GatedFeature> = {
   "audit:view": "audit_log",
+  "reports:export": "pdf_export",
 };
 
 /*
- * Two deliberate absences from the map above.
+ * `reports:export` was a deliberate absence, on reasoning that described a
+ * product nobody built.
  *
- * `reports:export` — the export route serves CSV on every plan and PDF only
- * above Free, so the FORMAT is gated, not the route. Listing the permission
+ * The entry read: the export route serves CSV on every plan and PDF only above
+ * Free, so the FORMAT is gated rather than the route, and listing the permission
  * here would take CSV away from Free, which the pricing table promises.
  *
- * `roles:manage` — the custom_roles feature is already enforced inside
+ * There is no CSV. Not in the route, which has no format parameter and returns
+ * a PDF unconditionally; not in `PdfReportService`; nowhere in `src`. The
+ * pricing table carries one row — "PDF report export", Free: no — so it never
+ * promised the thing the absence was protecting, and the permission's own
+ * description advertised a format that had never existed.
+ *
+ * The cost was small and exactly the wrong way round. On Free the permission
+ * granted nothing at all, and the refusal came from the route's own
+ * `enforceFeatureAccess` call placed AFTER the permission check — so a Free
+ * member who also lacked the permission was told "Forbidden" and sent hunting
+ * for a permissions bug, which is the outcome this map's ordering exists to
+ * prevent.
+ *
+ * Mapped now, and the route's duplicate plan check deleted with it. The story
+ * is worth keeping: the absence was documented, reasoned and confidently wrong,
+ * and nothing ever failed — because a gate protecting a feature that does not
+ * exist cannot misbehave.
+ *
+ * `roles:manage` remains absent, and that one is real. The custom_roles feature
+ * is already enforced inside
  * `RoleService.create`, which is the right place
  * because it also applies the per-tier COUNT limit. A second gate here would
  * change an unrelated endpoint: the permission catalogue is fetched in order to

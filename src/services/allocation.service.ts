@@ -35,6 +35,18 @@ import { MembershipRepository } from "@/repositories/membership.repository";
 import { TaskAssignmentRepository } from "@/repositories/task-assignment.repository";
 import { AvailabilityRepository } from "@/repositories/availability.repository";
 import { TaskService } from "./task.service";
+import { countOccupied } from "@/lib/assignment-status";
+
+/**
+ * How close to a shift automation stops acting on it.
+ *
+ * The same 48 hours `AvailabilityService` uses for cover, kept as its own
+ * constant rather than imported because the two answer different questions —
+ * that one is about replacing a person, this one about filling an empty slot —
+ * and a shared constant would make a later change to one silently change the
+ * other.
+ */
+const SHORT_NOTICE_MS = 48 * 60 * 60 * 1000;
 
 export class AllocationService {
   private providers: AIProvider[];
@@ -193,6 +205,162 @@ export class AllocationService {
   }
 
   /**
+   * A second look at shifts auto mode could not staff the first time.
+   *
+   * ## Why this exists
+   *
+   * Auto allocation ran ONCE, when a task was created or generated, and never
+   * again. A shift a fortnight out that nobody was eligible for at that moment
+   * — because availability had not been entered yet, or a certificate had not
+   * been verified — stayed empty until a human noticed. The organisation had
+   * asked the system to do its rostering and the system tried once and gave up
+   * permanently, which is the difference between an automatic feature and a
+   * feature that fires on an event.
+   *
+   * ## Why it stops 48 hours out
+   *
+   * The same line `findCover` draws, for a related but not identical reason.
+   * There, filling a shift at short notice needs a phone call rather than a
+   * notification nobody reads. Here it is narrower: in `auto_accept` mode this
+   * ASSIGNS rather than offers, and putting somebody on tomorrow's rota by
+   * background job — hours after they last looked at the app — is a surprise
+   * the product should not spring. Inside the window the dashboard's
+   * understaffed alert is the honest surface, because it faces a human who can
+   * pick up the phone.
+   *
+   * ## Why it says nothing
+   *
+   * Deliberately silent, and this is the design decision most likely to be
+   * questioned. Every one of these shifts was ALREADY reported once, when it
+   * was created or generated and could not be filled. A sweep that re-reported
+   * the same unfilled shift every hour would not be an alert; it would be the
+   * reason somebody turns notifications off, and it would bury the first
+   * message that actually said something new. It fills what it can and stays
+   * quiet.
+   *
+   * ## Cost
+   *
+   * `useAI: false`, for the reason every cron path uses it: the organisation
+   * controls neither how often this runs nor how many shifts it covers.
+   */
+  async staffUnfilled(
+    organizationId: string,
+    horizonDays = 14
+  ): Promise<{ considered: number; filled: number }> {
+    const result = { considered: 0, filled: 0 };
+
+    const settings = await this.settingsRepo.getOrCreate(organizationId);
+    if (settings.allocationMode !== "auto") return result;
+
+    const now = Date.now();
+    const notBefore = now + SHORT_NOTICE_MS;
+    const notAfter = now + horizonDays * 24 * 60 * 60 * 1000;
+
+    const tasks = await this.taskRepo.findByOrganizationId(organizationId, {
+      status: "open",
+    });
+
+    for (const task of tasks) {
+      const start = task.scheduledStart?.getTime();
+      // An undated task is a backlog item nobody is standing up for, and it has
+      // no moment to be "too close to". Left to a human, same as `isShortNotice`
+      // treats it.
+      if (start === undefined || start < notBefore || start > notAfter) continue;
+
+      /*
+       * Counted with the shared rule, never `assignments.length`. A shift
+       * everyone rejected has rows and no people on it, and treating those rows
+       * as staff is precisely how the dashboard and the reporting layer came to
+       * report two different numbers for one shift.
+       */
+      if (countOccupied(task.assignments) >= task.requiredHeadcount) continue;
+
+      result.considered++;
+      try {
+        await this.autoAllocate(task.id, organizationId, task.createdById, {
+          useAI: false,
+        });
+        result.filled++;
+      } catch (error) {
+        // Still nobody. The ordinary outcome, and not worth a line per shift
+        // per hour in the log either — only a genuine fault is.
+        if (
+          !(error instanceof Error) ||
+          !error.message.includes("No eligible staff")
+        ) {
+          console.error(`[Auto Staffing] ${task.id}`, error);
+        }
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * Who could take this shift, for a manager deciding whether to let somebody
+   * off it.
+   *
+   * ## Why this is a read and not an assignment
+   *
+   * A withdrawal request is a QUESTION, and the question underneath it is
+   * "can I cover this?". Until now a manager had to leave the decision, open
+   * the assign panel and work it out, so in practice they answered without
+   * knowing — and the most useful answer this can give is the empty list,
+   * which is the one nobody was in a position to see.
+   *
+   * ## Why the deterministic ranker
+   *
+   * A manager may open the same decision several times, and this must not cost
+   * a provider call each time or stop working when a provider is down. It is
+   * also the same ranking `findCover` will use if the request is approved in
+   * `auto` mode, so what the manager is shown is what the system would do —
+   * rather than a second opinion from a different engine.
+   *
+   * ## The person asking to leave is not in this list
+   *
+   * `buildCandidatePool` excludes anyone holding a row on the shift, and a
+   * pending request still holds one. That is the whole reason the request has
+   * to stay `withdrawal_requested` until it is answered, and the reason an
+   * APPROVED withdrawal now keeps its row too — see
+   * `TaskAssignmentRepository.withdraw`.
+   */
+  async coverOptions(
+    taskId: string,
+    organizationId: string,
+    limit = 3
+  ): Promise<
+    { membershipId: string; name: string; rank: number; score: number }[]
+  > {
+    /*
+     * `rankWithoutAI`, not a second call to the ranker.
+     *
+     * The first version of this built the pool and invoked `FallbackRanker`
+     * itself, which is what `rankWithoutAI` already does — so the preview a
+     * manager reads and the ranking that runs when they approve were two
+     * implementations of one rule, free to drift on any change to either. The
+     * docblock above promises they are the same ranking; this is what makes
+     * that true rather than currently true.
+     *
+     * The pool is built a second time only for the NAMES, which the ranker
+     * does not carry. That is one extra read on a manager-initiated action,
+     * and the alternative — widening `RankedStaff` — would touch both provider
+     * strategies and their tests for a field only this caller wants.
+     */
+    const { rankings } = await this.rankWithoutAI(taskId, organizationId);
+    if (rankings.length === 0) return [];
+
+    const { candidates } = await this.buildCandidatePool(taskId, organizationId);
+    const nameOf = new Map(candidates.map((c) => [c.membershipId, c.name]));
+
+    return rankings.slice(0, limit).map((r) => ({
+      membershipId: r.membershipId,
+      name: nameOf.get(r.membershipId) ?? "A staff member",
+      rank: r.rank,
+      score: r.score,
+    }));
+  }
+
+  /**
    * Everybody eligible for a task who does not already have a row on it,
    * built into ranker input.
    *
@@ -291,7 +459,19 @@ export class AllocationService {
   async autoAllocate(
     taskId: string,
     organizationId: string,
-    assignedById: string
+    assignedById: string,
+    /**
+     * `useAI: false` ranks with the deterministic ranker and never calls a
+     * provider.
+     *
+     * For anything the organisation did not personally trigger. A manager
+     * pressing Auto-assign chose to spend an AI call; the hourly cron
+     * materialising next fortnight's recurring shifts did not, and at one call
+     * per unfilled shift per tenant per hour it would be spending them on a
+     * schedule nobody set. Same reasoning `findCover` gives for using the
+     * algorithmic ranker when it runs off the back of somebody else's decision.
+     */
+    options?: { useAI?: boolean }
   ) {
     const task = await this.taskRepo.findById(taskId);
     if (!task || task.organizationId !== organizationId) throw new Error("Task not found");
@@ -301,10 +481,10 @@ export class AllocationService {
       throw new Error("Auto allocation is not enabled");
     }
 
-    const { rankings, provider } = await this.getRankedSuggestions(
-      taskId,
-      organizationId
-    );
+    const { rankings, provider } =
+      options?.useAI === false
+        ? await this.rankWithoutAI(taskId, organizationId)
+        : await this.getRankedSuggestions(taskId, organizationId);
 
     // Take top N based on required headcount
     const topN = rankings.slice(0, task.requiredHeadcount);

@@ -451,6 +451,8 @@ export class TaskAssignmentService {
         assignment.task.id
       );
 
+      await this.seekCover(assignment, actorUserId);
+
       return result;
     }
 
@@ -562,8 +564,16 @@ export class TaskAssignmentService {
     const taskTitle = assignment.task.title;
 
     if (decision === "approve") {
-      // Remove the staff member from the task, freeing the slot.
-      await this.assignmentRepo.cancel(assignmentId);
+      /*
+       * Give the slot back, keep the record.
+       *
+       * This called `cancel`, which DELETES the row. See
+       * `TaskAssignmentRepository.withdraw` for the three things that broke —
+       * the shortest of which is that deleting the row deleted the engine's
+       * only reason not to offer the shift straight back to the person who had
+       * just asked to come off it.
+       */
+      const result = await this.assignmentRepo.withdraw(assignmentId);
 
       await this.auditService.log({
         organizationId: assignment.task.organizationId,
@@ -584,7 +594,18 @@ export class TaskAssignmentService {
         assignment.task.id
       );
 
-      return { id: assignmentId, status: "withdrawn" };
+      await this.seekCover(assignment, actorUserId);
+
+      /*
+       * The row, not a hand-built object.
+       *
+       * This returned `{ id, status: "withdrawn" }` — a literal describing a
+       * row that had just been deleted, which is how the deletion stayed
+       * invisible for so long: every caller and every test saw the status they
+       * expected. Returning what was actually written means the two cannot
+       * disagree again.
+       */
+      return result;
     }
 
     // Deny — revert to accepted.
@@ -610,6 +631,71 @@ export class TaskAssignmentService {
     );
 
     return result;
+  }
+
+  /**
+   * Somebody has come off a shift. Decide what to do about the empty slot.
+   *
+   * Delegates to `AvailabilityService.findCover`, which was written for
+   * approved leave and is the only place in the product that answers this
+   * question properly: it reads the organisation's `allocationMode` instead of
+   * inventing a second setting, it refuses to automate a shift starting within
+   * 48 hours because that is a phone call, and it notifies the people who can
+   * act on EVERY branch — including the one where nobody eligible exists, which
+   * is the branch a manager most needs to hear about.
+   *
+   * An approved decline and an approved withdrawal are the same event as an
+   * approved leave. Only leave ever called it.
+   *
+   * ## Awaited, and wrapped
+   *
+   * Awaited because in `auto` mode this assigns somebody, and a manager whose
+   * page refetches immediately after pressing Approve should see the result
+   * rather than race it. Wrapped because cover is a consequence of the
+   * decision, not part of it: a ranking failure must not turn an approval the
+   * member has already been notified about into an error the manager sees.
+   *
+   * Imported lazily — `AvailabilityService` reaches for `TaskService`, which
+   * holds one of these, and a static import would close the loop at
+   * construction time.
+   */
+  private async seekCover(
+    assignment: NonNullable<
+      Awaited<ReturnType<TaskAssignmentRepository["findById"]>>
+    >,
+    actorUserId: string
+  ) {
+    /*
+     * A shift that has already ended needs no cover.
+     *
+     * Without this, resolving a stale request — the case §5.24 exists for, a
+     * withdrawal from May answered in August — would tell the whole watcher
+     * list to "arrange cover directly" for a shift nobody can work now. It
+     * would arrive as short notice, because `isShortNotice` measures hours
+     * until the start and a past shift is comfortably under any threshold.
+     */
+    const over = assignment.task.scheduledEnd ?? assignment.task.scheduledStart;
+    if (over && over.getTime() < Date.now()) return;
+
+    try {
+      const { AvailabilityService } = await import(
+        "@/services/availability.service"
+      );
+      await new AvailabilityService().findCover(
+        {
+          assignmentId: assignment.id,
+          taskId: assignment.task.id,
+          taskTitle: assignment.task.title,
+          organizationId: assignment.task.organizationId,
+          departmentId: assignment.task.departmentId,
+          scheduledStart: assignment.task.scheduledStart,
+        },
+        assignment.membership.user?.name || "A staff member",
+        actorUserId
+      );
+    } catch (error) {
+      console.error("[Cover Search Error]", error);
+    }
   }
 
   /**

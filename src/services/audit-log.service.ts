@@ -51,7 +51,6 @@ export class AuditLogService {
     entityType: AuditEntityType;
     entityId?: string;
     details?: Record<string, unknown>;
-    ipAddress?: string;
   }) {
     try {
       await this.auditRepo.create(params);

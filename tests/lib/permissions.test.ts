@@ -83,6 +83,34 @@ describe("the catalogue", () => {
       expect(PERMISSION_NAMES).toContain(name);
     }
   });
+
+  /**
+   * `reports:export` was kept OUT of that map for a documented reason that
+   * described a product nobody built: that the route served CSV on every plan
+   * and gated only the PDF format, so listing it would take CSV away from Free.
+   *
+   * There is no CSV. The route has no format parameter and returns a PDF
+   * unconditionally, `PdfReportService` renders nothing else, and the pricing
+   * table carries a single row — "PDF report export", Free: no.
+   *
+   * Pinned as a mapping because what it prevents is silent. Unmapped, the plan
+   * is consulted after the permission, so a Free caller is refused with
+   * "Forbidden" for a feature that no amount of permission can unlock.
+   */
+  it("gates the PDF export on the plan that sells it", () => {
+    expect(PERMISSION_FEATURE["reports:export"]).toBe("pdf_export");
+  });
+
+  /**
+   * The description is not documentation — it is the label an admin reads while
+   * ticking boxes on the Roles screen, so it is part of the interface. This one
+   * advertised a format the product has never been able to produce.
+   */
+  it("does not advertise an export format the product cannot produce", () => {
+    const exportPermission = PERMISSIONS.find((p) => p.name === "reports:export");
+    expect(exportPermission).toBeDefined();
+    expect(exportPermission?.description).not.toMatch(/CSV/i);
+  });
 });
 
 describe("the role bundles", () => {

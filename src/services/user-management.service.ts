@@ -578,15 +578,42 @@ export class UserManagementService {
       actor
     );
 
+    /*
+     * Read BEFORE the write, and by name.
+     *
+     * This recorded `{ customRoleId }` — a bare cuid — under the same action as
+     * a system-role change. Deleting a custom role is allowed and strips its
+     * holders, so once the role was gone the entry pointed at nothing and
+     * nobody could tell what the member had been granted. The label is captured
+     * here, while the role still exists, for the same reason the role-delete
+     * entry counts its holders before deleting them.
+     *
+     * The PREVIOUS role is recorded too. "Assigned Shift Lead" and "moved from
+     * Rota Manager to Shift Lead" are different facts, and only the second one
+     * answers what somebody lost.
+     */
+    const previousRoleId = membership.customRoleId ?? null;
+    const [assignedRole, previousRole] = await Promise.all([
+      customRoleId ? this.roleRepo.findById(customRoleId) : Promise.resolve(null),
+      previousRoleId ? this.roleRepo.findById(previousRoleId) : Promise.resolve(null),
+    ]);
+
     await this.membershipRepo.updateCustomRole(membership.id, customRoleId);
 
     await this.auditService.log({
       organizationId,
       userId: performedById,
-      action: ACTIONS.MEMBER_ROLE_CHANGED,
+      action: customRoleId
+        ? ACTIONS.MEMBER_CUSTOM_ROLE_ASSIGNED
+        : ACTIONS.MEMBER_CUSTOM_ROLE_CLEARED,
       entityType: "member",
       entityId: userId,
-      details: { customRoleId },
+      details: {
+        customRoleId,
+        roleLabel: assignedRole?.displayLabel ?? null,
+        previousRoleId,
+        previousRoleLabel: previousRole?.displayLabel ?? null,
+      },
     });
 
     return { ...membership, customRoleId };
