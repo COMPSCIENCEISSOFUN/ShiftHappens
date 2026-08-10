@@ -69,12 +69,23 @@ export class DepartmentRepository {
 
   async findByOrganizationId(
     organizationId: string,
-    includeArchived = false
+    includeArchived = false,
+    /**
+     * The caller's department scope, or null/undefined for an unrestricted one.
+     *
+     * `null` and `undefined` both mean "every department", matching
+     * `departmentScopeFor`, whose null is what a company admin gets. An EMPTY
+     * array is not the same thing and must not collapse into it: a manager
+     * assigned to no departments is scoped to nothing, and returning the whole
+     * organisation to them is the bug this parameter exists to fix.
+     */
+    departmentIds?: string[] | null
   ) {
     return prisma.department.findMany({
       where: {
         organizationId,
         ...(includeArchived ? {} : { archivedAt: null }),
+        ...(departmentIds != null ? { id: { in: departmentIds } } : {}),
       },
       include: {
         _count: {

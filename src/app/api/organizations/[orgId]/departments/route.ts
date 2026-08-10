@@ -12,6 +12,7 @@ import { DepartmentService } from "@/services/department.service";
 import { createDepartmentSchema } from "@/lib/validations";
 import { getAuthenticatedUser, unauthorizedResponse, checkOrgSuspended } from "@/lib/auth-guard";
 import { requirePermission, requireAnyPermission } from "@/lib/permission-guard";
+import { departmentScopeFor } from "@/lib/department-scope";
 import { SubscriptionLimitError, FeatureNotAvailableError } from "@/lib/subscription-tiers";
 
 const deptService = new DepartmentService();
@@ -76,7 +77,20 @@ export async function GET(
     if (!gate.ok) return gate.response;
 
     const includeArchived = request.nextUrl.searchParams.get("includeArchived") === "true";
-    const depts = await deptService.getByOrganization(orgId, includeArchived);
+    /*
+     * Scoped, like every other list route here.
+     *
+     * The permission gate above answers "may you read departments at all"; it
+     * has never answered "which ones", and this route was the one list endpoint
+     * that never asked the second question. A company admin is unrestricted and
+     * still gets everything, including the Departments management screen, which
+     * is admin-only anyway.
+     */
+    const depts = await deptService.getByOrganization(
+      orgId,
+      includeArchived,
+      departmentScopeFor(gate.membership)
+    );
     return NextResponse.json(depts);
   } catch {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

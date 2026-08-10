@@ -67,8 +67,32 @@ export class DepartmentService {
    * @param includeArchived  When true, returns archived departments too
    *                         (used by the Departments management page).
    */
-  async getByOrganization(organizationId: string, includeArchived = false) {
-    return this.deptRepo.findByOrganizationId(organizationId, includeArchived);
+  /**
+   * The departments this caller may see.
+   *
+   * `departmentIds` is the caller's scope — null for a company admin, their own
+   * list for anybody else. It was absent, so the endpoint returned every
+   * department in the organisation to every reader, and four screens built
+   * their department pickers from it: the task form, the task filter, the
+   * members filter and work rules.
+   *
+   * The visible symptom was a Kitchen manager being offered Bar, Front of House
+   * and Marketing in a filter that then returned nothing, and in a create form
+   * whose submission the server correctly refused — `tasks` POST has always
+   * checked `isDepartmentInScope`. So this was never a hole; it was a menu
+   * making promises the routes would not keep, plus the names of departments
+   * the caller has no business knowing.
+   */
+  async getByOrganization(
+    organizationId: string,
+    includeArchived = false,
+    departmentIds?: string[] | null
+  ) {
+    return this.deptRepo.findByOrganizationId(
+      organizationId,
+      includeArchived,
+      departmentIds
+    );
   }
 
   /**
