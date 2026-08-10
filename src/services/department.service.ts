@@ -182,6 +182,21 @@ export class DepartmentService {
       throw new Error("Department is not archived");
     }
 
+    /*
+     * Unarchiving is a create, as far as the limit is concerned.
+     *
+     * `countResource` excludes archived departments — deliberately, and it was
+     * a fix: archiving is the only route the product offers back under a cap,
+     * and counting archived rows made that route useless. But the exclusion
+     * cuts both ways. Archive one at the limit, spend the freed slot on a new
+     * department, then bring the archived one back, and the organisation is
+     * over its cap without a single refused step.
+     */
+    await this.subscriptionService.enforceResourceLimit(
+      organizationId,
+      "departments"
+    );
+
     const unarchived = await this.deptRepo.unarchive(departmentId);
 
     await this.auditService.log({

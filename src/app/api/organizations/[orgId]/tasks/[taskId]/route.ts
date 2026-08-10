@@ -13,6 +13,7 @@ import { getAuthenticatedUser, unauthorizedResponse, checkOrgSuspended } from "@
 import { AccessService } from "@/services/access.service";
 import { requirePermission } from "@/lib/permission-guard";
 import { departmentScopeFor, isDepartmentInScope } from "@/lib/department-scope";
+import { SubscriptionLimitError } from "@/lib/subscription-tiers";
 
 const taskService = new TaskService();
 const accessService = new AccessService();
@@ -113,6 +114,16 @@ export async function PATCH(
       if (error.message.includes("start and end time") || error.message.includes("End time must be after")) {
         return NextResponse.json({ error: error.message }, { status: 400 });
       }
+    }
+    /*
+     * A plan limit is a refusal the caller can act on, not a server fault.
+     * Without this branch the new check reaches the client as an opaque 500 and
+     * the upgrade message it carries — which names the resource, the count and
+     * the tier — is thrown away. The same defect as the `Cannot delete:` 409
+     * that was written on the wrong handler.
+     */
+    if (error instanceof SubscriptionLimitError) {
+      return NextResponse.json({ error: error.message }, { status: 403 });
     }
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }

@@ -321,6 +321,29 @@ export class TaskService {
       toTime(newEnd) !== (task.scheduledEnd?.getTime() ?? null);
     const nowCancelled =
       input.status === "cancelled" && task.status !== "cancelled";
+
+    /*
+     * Bringing a task back to life spends an active-task slot.
+     *
+     * `active_tasks` counts everything that is neither completed nor cancelled,
+     * and the limit was enforced on create alone. So the cap could be walked
+     * past without creating anything: at the limit, complete a task — which
+     * frees a slot honestly — let the freed slot be spent on a new one, then
+     * reopen the completed task. Every step allowed, the organisation over its
+     * cap.
+     *
+     * The comparison is between the two SETS, not between named statuses. A
+     * task moving from `open` to `in_progress` is already counted and must not
+     * be charged twice, and a future status would otherwise have to remember to
+     * be added here.
+     */
+    const RELEASED = ["completed", "cancelled"];
+    const wasCounted = !RELEASED.includes(task.status);
+    const willBeCounted =
+      input.status === undefined ? wasCounted : !RELEASED.includes(input.status);
+    if (!wasCounted && willBeCounted) {
+      await this.subscriptionService.enforceResourceLimit(orgId, "active_tasks");
+    }
     const affectedUserIds = this.stillAssignedUserIds(task);
 
     /*

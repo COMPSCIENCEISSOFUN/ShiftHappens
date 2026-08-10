@@ -19,6 +19,7 @@ import { DepartmentService } from "@/services/department.service";
 import { updateDepartmentSchema } from "@/lib/validations";
 import { getAuthenticatedUser, unauthorizedResponse, checkOrgSuspended } from "@/lib/auth-guard";
 import { requirePermission } from "@/lib/permission-guard";
+import { SubscriptionLimitError } from "@/lib/subscription-tiers";
 
 const deptService = new DepartmentService();
 
@@ -132,6 +133,15 @@ export async function PATCH(
           error.message === "Department is not archived") {
         return NextResponse.json({ error: error.message }, { status: 400 });
       }
+    }
+    /*
+     * A plan limit is a refusal the caller can act on, not a server fault.
+     * Unarchiving now spends a department slot, and without this branch that
+     * refusal reaches the client as an opaque 500 with the upgrade message —
+     * which names the resource, the count and the tier — thrown away.
+     */
+    if (error instanceof SubscriptionLimitError) {
+      return NextResponse.json({ error: error.message }, { status: 403 });
     }
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }

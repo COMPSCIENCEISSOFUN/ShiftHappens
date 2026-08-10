@@ -688,6 +688,27 @@ export class UserManagementService {
     }
 
     const newStatus = membership.status === "active" ? "inactive" : "active";
+
+    /*
+     * Reactivating takes a seat, so it has to be checked like taking one.
+     *
+     * The member limit counts ACTIVE memberships, and deactivating is the
+     * product's way of freeing a seat under a cap. Nothing stopped that seat
+     * being given away and then claimed a second time: deactivate somebody at
+     * the limit, invite a replacement into the gap, reactivate the original,
+     * and the organisation is one over with every individual step allowed.
+     *
+     * Only on the way IN. Deactivating is always permitted — refusing it would
+     * mean an organisation that has gone over its cap by any route could not
+     * get back under it.
+     */
+    if (newStatus === "active") {
+      await this.subscriptionService.enforceResourceLimit(
+        organizationId,
+        "members"
+      );
+    }
+
     const updated = await this.membershipRepo.updateStatus(membership.id, newStatus);
 
     await this.auditService.log({

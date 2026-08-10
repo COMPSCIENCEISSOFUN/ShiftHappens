@@ -45,3 +45,7 @@ next-env.d.ts
 # Originals kept by scripts/mutation-check.mjs while it breaks the code on
 # purpose. Written before any edit and compared byte-for-byte afterwards.
 .mutation-backup/
+
+# Scratch files parked for deletion from Windows — the Cowork bridge cannot
+# remove files, only move them here.
+_to_delete/

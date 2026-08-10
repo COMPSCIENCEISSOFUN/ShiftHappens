@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { acceptInvitationSchema } from "@/lib/validations";
 import { validationErrorResponse } from "@/lib/api-utils";
 import { InvitationService } from "@/services/invitation.service";
+import { SubscriptionLimitError } from "@/lib/subscription-tiers";
 
 const invitationService = new InvitationService();
 
@@ -90,6 +91,24 @@ export async function POST(
       error.message === "You are already a member of this organization"
     ) {
       return NextResponse.json({ error: error.message }, { status: 409 });
+    }
+    /*
+     * The organisation is full.
+     *
+     * Worth its own wording rather than the raw limit message: the person
+     * reading this is the INVITEE, and the plan's own text ("member limit
+     * reached (10/10). Upgrade to Pro…") addresses an admin and offers them an
+     * action this reader cannot take. The invitation is deliberately left
+     * unaccepted, so it still works once somebody makes room.
+     */
+    if (error instanceof SubscriptionLimitError) {
+      return NextResponse.json(
+        {
+          error:
+            "This organisation has reached its member limit. Ask an administrator to free a place or upgrade the plan, then use this link again.",
+        },
+        { status: 409 }
+      );
     }
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }

@@ -20,6 +20,7 @@ import { UserRepository } from "@/repositories/user.repository";
 import { AvailabilityService } from "@/services/availability.service";
 import { isFullTime } from "@/lib/role-config";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
+import { SubscriptionService } from "@/services/subscription.service";
 
 export class InvitationService {
   private invitationRepo = new InvitationRepository();
@@ -27,6 +28,7 @@ export class InvitationService {
   private membershipRepo = new MembershipRepository();
   private userRepo = new UserRepository();
   private availabilityService = new AvailabilityService();
+  private subscriptionService = new SubscriptionService();
 
   /**
    * Retrieves invitation details for the acceptance page.
@@ -110,6 +112,35 @@ export class InvitationService {
       await this.invitationRepo.markAccepted(invitation.id);
       throw new Error("You are already a member of this organization");
     }
+
+    /*
+     * The seat has to still exist at the moment it is taken.
+     *
+     * `inviteUser` enforces the member limit when the invitation goes OUT, and
+     * that was the only check — but an invitation is not a membership, so the
+     * count it is measured against does not move while invitations are
+     * outstanding. An organisation one short of its limit could send five
+     * invitations, each allowed against the same unchanged count, and end up
+     * five members over the cap with nothing having refused a single step.
+     *
+     * The general shape, which this codebase has met before: the limit counts a
+     * STATE, the guard sat on one path INTO that state, and the other paths
+     * walked past it. Ask which paths reach the state, not which path the guard
+     * was written for.
+     *
+     * Checked here, immediately before the write, rather than earlier in the
+     * method — the org can fill up between a user being created and this line,
+     * and the check is worth nothing if it is not adjacent to the thing it
+     * guards.
+     *
+     * The invitation is deliberately NOT marked accepted: this is the
+     * organisation's problem, not the invitee's, and the invitation should
+     * still work once an admin upgrades or frees a seat.
+     */
+    await this.subscriptionService.enforceResourceLimit(
+      invitation.organizationId,
+      "members"
+    );
 
     const membership = await this.membershipRepo.create({
       userId: user!.id,
