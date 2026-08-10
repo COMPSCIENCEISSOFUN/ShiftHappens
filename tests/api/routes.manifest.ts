@@ -258,6 +258,19 @@ export const ROUTES: RouteSpec[] = [
   org("reports", "GET", MANAGER),
   org("reports/engine", "GET", MANAGER),
   org("reports/export", "GET", MANAGER, { suspension: true }),
+  /*
+   * MANAGER, because `assistant:use` is in the manager bundle and admins hold
+   * everything. Staff reach it only through a custom role — the same shape as
+   * every other manager route here, and the reason the sweep asserts a plain
+   * staff member is refused.
+   *
+   * No `suspension: true`. It reads and changes nothing, so a suspended
+   * organisation being able to ask what its rota looks like is correct: the
+   * suspension stops work being done, not questions being asked. The
+   * dashboard, which answers the same questions on a page, is unsuspended for
+   * the same reason.
+   */
+  org("assistant", "POST", MANAGER),
 
   // ── Assignment actions ──────────────────────────────────────────────
   // This group takes orgId from the QUERY STRING, not the path. Without it they

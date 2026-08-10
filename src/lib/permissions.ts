@@ -141,6 +141,21 @@ export const PERMISSIONS: PermissionDefinition[] = [
   // Reporting
   { name: "reports:view", description: "View reports and analytics", category: "reports" },
   { name: "reports:export", description: "Export the workforce report as a PDF", category: "reports" },
+  /*
+   * The assistant, as its own grant rather than a consequence of another.
+   *
+   * NOT folded into `reports:view`, for two reasons. It is the only permission
+   * in this catalogue that authorises SPENDING — every message is a paid
+   * provider call, and who may spend is a question an organisation should get
+   * to answer separately. And `reports:view` is load-bearing in a way that is
+   * easy to forget: it decides which of the three dashboards a member lands
+   * on. Granting somebody the assistant must not silently move their home page.
+   *
+   * It opens the panel. What can be ASKED once it is open is decided per
+   * question by `assistant-intents`, against the permission that already owns
+   * that data — so this grant widens nothing on its own.
+   */
+  { name: "assistant:use", description: "Ask the AI assistant questions about this organisation", category: "reports" },
 
   // Calendar
   { name: "calendar:view_team", description: "View team coverage and other members' schedules", category: "calendar" },
@@ -197,6 +212,20 @@ export const PERMISSION_NAMES = PERMISSIONS.map((p) => p.name);
 export const PERMISSION_FEATURE: Record<string, GatedFeature> = {
   "audit:view": "audit_log",
   "reports:export": "pdf_export",
+  /*
+   * The assistant is gated by plan as well as by permission, which breaks the
+   * rule stated at the top of `subscription-tiers`: every "smart" feature is
+   * available on all tiers, deliberately, and only scale limits and business
+   * tools are gated.
+   *
+   * Broken here on purpose, and the distinction is not "this one is fancier".
+   * Every other AI feature costs one provider call at a moment the
+   * ORGANISATION chooses — creating a task, running an allocation. A chat box
+   * costs a call every time anybody types, at a rate nobody controls, on a
+   * plan with no revenue behind it. That is a different kind of cost and it
+   * gets a different answer.
+   */
+  "assistant:use": "assistant",
 };
 
 /*
@@ -289,6 +318,16 @@ const MANAGER_EXTRA_PERMISSIONS = [
   // Managers, not staff. A member correcting their own clock time is the
   // absence of a control, not a correction.
   "assignments:correct_clock",
+  /*
+   * Managers by default; staff by grant.
+   *
+   * The assistant answers four questions about your OWN shifts that need no
+   * permission at all — so a staff member who is given this holds a genuinely
+   * useful tool, and the Shift Lead role is exactly how an organisation says
+   * so. It is not in the staff bundle because it spends money per message, and
+   * a default that bills you is a bad default.
+   */
+  "assistant:use",
 ] as const;
 
 export const ROLE_PERMISSIONS: Record<string, readonly string[]> = {

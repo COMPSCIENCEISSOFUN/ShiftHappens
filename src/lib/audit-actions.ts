@@ -74,6 +74,19 @@ export const ACTIONS = {
    * log says which was taken.
    */
   REPORT_EXPORTED: "report.exported",
+  /*
+   * A question asked of the assistant, recorded as an EXTRACTION — the same
+   * reasoning as `report.exported`, and the same shape: nothing changed, but
+   * data left the system in a form somebody now holds.
+   *
+   * The details record the INTENT, never the sentence. People type anything
+   * into a chat box, this log is readable by every company admin, and an
+   * assistant that quietly transcribes what staff type into an admin-visible
+   * record is a privacy problem built on purpose. "member_hours, Kitchen"
+   * answers every question an audit needs to ask; the raw text answers a
+   * question nobody should be asking.
+   */
+  ASSISTANT_QUERIED: "assistant.queried",
   // Members
   MEMBER_INVITED: "member.invited",
   MEMBER_JOINED: "member.joined",

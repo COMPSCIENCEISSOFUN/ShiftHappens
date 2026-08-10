@@ -110,6 +110,12 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   "subscription.updated": "Subscription updated",
   "subscription.canceled": "Subscription cancelled",
   "report.exported": "Report exported",
+  /*
+   * "Assistant question", not "Assistant queried" — this list is read by a
+   * company admin scanning for what happened, and the row beneath it says who.
+   * The details carry the intent and never the sentence somebody typed.
+   */
+  "assistant.queried": "Assistant question",
   "availability.updated": "Availability changed",
   /*
    * All three, and the old one stays.

@@ -29,6 +29,13 @@ export const GATED_FEATURES = [
   'mass_import',
   'audit_log',
   'priority_support',
+  /*
+   * The one AI feature that IS gated, against the rule stated at the top of
+   * this file. Every other smart feature costs a provider call at a moment the
+   * organisation chooses; the assistant costs one every time anybody types.
+   * See the note beside `assistant:use` in `permissions.ts`.
+   */
+  'assistant',
 ] as const;
 export type GatedFeature = (typeof GATED_FEATURES)[number];
 
@@ -73,7 +80,7 @@ export const TIER_CONFIG: Record<SubscriptionTier, TierDefinition> = {
       work_rules: 20,
       custom_roles: 10,
     },
-    gatedFeatures: ['custom_roles', 'pdf_export', 'mass_import'],
+    gatedFeatures: ['custom_roles', 'pdf_export', 'mass_import', 'assistant'],
   },
   enterprise: {
     name: 'enterprise',
@@ -94,6 +101,7 @@ export const TIER_CONFIG: Record<SubscriptionTier, TierDefinition> = {
       'mass_import',
       'audit_log',
       'priority_support',
+      'assistant',
     ],
   },
 };

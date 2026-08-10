@@ -14,6 +14,7 @@
  * layers of defense against prompt injection.
  */
 import { aiTimeoutSignal, hasApiKey } from "@/lib/ai-limits";
+import { sanitisePromptInput } from "@/lib/ai-prompt-safety";
 import { DepartmentRepository } from "@/repositories/department.repository";
 import {
   DEFAULT_TIMEZONE,
@@ -44,31 +45,6 @@ interface ParsedTask {
 export class AITaskParserService {
   private departmentRepo = new DepartmentRepository();
 
-  /** Sanitizes user input to prevent prompt injection */
-  private sanitizeInput(text: string): string {
-    let sanitized = text.slice(0, 500);
-
-    sanitized = sanitized.replace(/<[^>]*>/g, "");
-
-    const injectionPatterns = [
-      /ignore\s+(all\s+)?(previous|above|prior)\s+(instructions|prompts|rules)/gi,
-      /disregard\s+(all\s+)?(previous|above|prior)/gi,
-      /you\s+are\s+now/gi,
-      /act\s+as\s+(a|an)/gi,
-      /pretend\s+(to\s+be|you\s+are)/gi,
-      /system\s*prompt/gi,
-      /\bDAN\b/g,
-      /do\s+anything\s+now/gi,
-      /jailbreak/gi,
-    ];
-
-    for (const pattern of injectionPatterns) {
-      sanitized = sanitized.replace(pattern, "[removed]");
-    }
-
-    return sanitized.trim();
-  }
-
   /**
    * Parses a natural language description into structured task data.
    * Needs the org's departments to match department references.
@@ -77,7 +53,15 @@ export class AITaskParserService {
     text: string,
     organizationId: string
   ): Promise<ParsedTask> {
-    const sanitizedText = this.sanitizeInput(text);
+    /*
+     * Shared, not private.
+     *
+     * This method was the original and the good one — the docblock above still
+     * counts it as one of five layers. It moved to `lib/ai-prompt-safety` when
+     * the assistant needed the same treatment, because the alternative was a
+     * second copy that would learn a new pattern in one file and not the other.
+     */
+    const sanitizedText = sanitisePromptInput(text);
 
     const departments = await this.departmentRepo.findActiveNames(organizationId);
 

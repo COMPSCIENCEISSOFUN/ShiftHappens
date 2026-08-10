@@ -51,6 +51,10 @@ export const AUDIT_ENTITY_TYPES = [
   // Not a stored record — the only entity here that names an artefact the
   // product hands out rather than a row it keeps.
   "report",
+  // Nor this one. The second, and the pair is the reason the comment above is
+  // no longer accurate on its own: both name something the product HANDED OUT
+  // rather than something it stores.
+  "assistant",
 ] as const;
 
 export type AuditEntityType = (typeof AUDIT_ENTITY_TYPES)[number];
@@ -76,4 +80,5 @@ export const AUDIT_ENTITY_LABELS: Record<AuditEntityType, string> = {
   subscription: "Billing",
   user: "Accounts",
   report: "Reports",
+  assistant: "Assistant",
 };
