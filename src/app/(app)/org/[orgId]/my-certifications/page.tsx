@@ -20,6 +20,7 @@ import { useParams } from "next/navigation";
 import { FileText, ShieldCheck } from "lucide-react";
 import { PageLoading } from "@/components/ui/page-loading";
 import { AlertBanner } from "@/components/ui/alert-banner";
+import { toast } from "sonner";
 import { EmptyState } from "@/components/ui/empty-state";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { CertificationStateIcon } from "@/components/ui/certification-state-icon";
@@ -128,7 +129,6 @@ export default function MyCertificationsPage() {
   const [certifications, setCertifications] = useState<MyCertification[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
 
   const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
@@ -281,7 +281,6 @@ export default function MyCertificationsPage() {
 
     setSubmitting(true);
     setFormError(null);
-    setSuccess(null);
 
     try {
       const res = await fetch(`/api/organizations/${orgId}/certifications`, {
@@ -303,7 +302,7 @@ export default function MyCertificationsPage() {
         return;
       }
 
-      setSuccess(`"${name}" submitted for review`);
+      toast.success(`"${name}" submitted for review`);
       closeForm();
       await fetchCertifications();
     } catch {
@@ -323,7 +322,6 @@ export default function MyCertificationsPage() {
 
     setWithdrawing(true);
     setError(null);
-    setSuccess(null);
 
     try {
       const res = await fetch(
@@ -337,7 +335,7 @@ export default function MyCertificationsPage() {
         return;
       }
 
-      setSuccess(`"${withdrawTarget.name}" withdrawn`);
+      toast.success(`"${withdrawTarget.name}" withdrawn`);
       setWithdrawTarget(null);
       await fetchCertifications();
     } catch {
@@ -431,14 +429,6 @@ export default function MyCertificationsPage() {
           variant="error"
           className="mb-4"
           onDismiss={() => setError(null)}
-        />
-      )}
-      {success && (
-        <AlertBanner
-          message={success}
-          variant="success"
-          className="mb-4"
-          onDismiss={() => setSuccess(null)}
         />
       )}
 

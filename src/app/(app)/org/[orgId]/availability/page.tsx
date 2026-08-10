@@ -38,6 +38,7 @@ import { Panel } from "@/components/ui/panel";
 import { StatTile, STAT_ACCENT } from "@/components/ui/stat-tile";
 import { PageLoading } from "@/components/ui/page-loading";
 import { AlertBanner } from "@/components/ui/alert-banner";
+import { toast } from "sonner";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PRIMARY_BUTTON, SECONDARY_BUTTON } from "@/components/ui/button-styles";
 
@@ -106,7 +107,6 @@ export default function AvailabilityPage() {
   const [draft, setDraft] = useState<DaySchedule[]>(blankWeek());
   const [overrides, setOverrides] = useState<Override[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   /**
@@ -183,7 +183,6 @@ export default function AvailabilityPage() {
     if (saving) return;
     setSaving(true);
     setError(null);
-    setSuccess(null);
 
     try {
       const res = await fetch(`/api/organizations/${orgId}/availability`, {
@@ -199,7 +198,7 @@ export default function AvailabilityPage() {
       }
 
       setSaved(draft);
-      setSuccess("Schedule saved");
+      toast.success("Schedule saved");
     } catch {
       setError("Something went wrong");
     } finally {
@@ -210,7 +209,6 @@ export default function AvailabilityPage() {
   async function onCreateOverride(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
-    setSuccess(null);
 
     const form = event.currentTarget;
     const formData = new FormData(form);
@@ -236,7 +234,7 @@ export default function AvailabilityPage() {
         return;
       }
 
-      setSuccess(contracted ? "Leave requested" : "Override created");
+      toast.success(contracted ? "Leave requested" : "Override created");
       form.reset();
       fetchOverrides();
     } catch {
@@ -246,7 +244,6 @@ export default function AvailabilityPage() {
 
   async function onDeleteOverride(id: string) {
     setError(null);
-    setSuccess(null);
     try {
       const res = await fetch(
         `/api/organizations/${orgId}/availability/overrides/${id}`,
@@ -257,7 +254,7 @@ export default function AvailabilityPage() {
         setError(result.error || "Failed to remove override");
         return;
       }
-      setSuccess(contracted ? "Request withdrawn" : "Override removed");
+      toast.success(contracted ? "Request withdrawn" : "Override removed");
       fetchOverrides();
     } catch {
       setError("Something went wrong");
@@ -580,7 +577,6 @@ export default function AvailabilityPage() {
       </div>
 
       {error && <AlertBanner message={error} variant="error" />}
-      {success && <AlertBanner message={success} variant="success" />}
 
       {/* ── Stats ── */}
       <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3">

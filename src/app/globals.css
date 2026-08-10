@@ -7,7 +7,21 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-sans);
+  /*
+   * The application's typeface, and for a long time the reason it had none.
+   *
+   * This read `--font-sans: var(--font-sans)` — a variable defined as itself.
+   * CSS resolves a circular custom property to the guaranteed-invalid value,
+   * so `html { @apply font-sans }` below computed to nothing and every screen
+   * in the product fell back to the browser's default serif. It looked
+   * deliberate rather than broken, which is why it survived: nothing errors, no
+   * console warning, and the page still renders text.
+   *
+   * `--font-geist-sans` is what `app/layout.tsx` actually declares, via
+   * `next/font`. The fallbacks are stated so a blocked font fetch degrades to
+   * the system sans rather than back to serif.
+   */
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono);
   --font-heading: var(--font-sans);
   --color-sidebar-ring: var(--sidebar-ring);

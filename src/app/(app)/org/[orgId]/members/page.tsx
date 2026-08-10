@@ -21,6 +21,7 @@ import { Label } from "@/components/ui/label";
 import { PageLoading } from "@/components/ui/page-loading";
 import { EmptyState } from "@/components/ui/empty-state";
 import { AlertBanner } from "@/components/ui/alert-banner";
+import { toast } from "sonner";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { StatTile } from "@/components/ui/stat-tile";
 import { SYSTEM_ROLE_LABELS, EMPLOYMENT_TYPE_LABELS, DEFAULT_EMPLOYMENT_TYPE, canBeRostered } from "@/lib/role-config";
@@ -183,7 +184,6 @@ export default function MembersPage() {
   /** Membership id of the row whose edit panel is open, or null. */
   const [editingId, setEditingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [inviteRole, setInviteRole] = useState("staff");
@@ -267,7 +267,7 @@ export default function MembersPage() {
         setError(body.error || "Could not send the request");
         return;
       }
-      setSuccess("Asked them to review their availability");
+      toast.success("Asked them to review their availability");
     } catch {
       setError("Could not send the request");
     }
@@ -335,7 +335,6 @@ export default function MembersPage() {
     const form = event.currentTarget;
     setInviting(true);
     setError(null);
-    setSuccess(null);
     const formData = new FormData(form);
     try {
       const res = await fetch(`/api/organizations/${orgId}/invitations`, {
@@ -370,7 +369,7 @@ export default function MembersPage() {
         setError(result.error || `Failed to send invitation (${res.status})`);
         return;
       }
-      setSuccess(`Invitation sent to ${formData.get("email")}`);
+      toast.success(`Invitation sent to ${formData.get("email")}`);
       setShowInvite(false);
       form.reset();
       fetchInvitations();
@@ -585,7 +584,6 @@ export default function MembersPage() {
           onDismiss={() => setError(null)}
         />
       )}
-      {success && <AlertBanner message={success} variant="success" />}
 
       {/* ── Search & Filters ── */}
       <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -700,6 +698,76 @@ export default function MembersPage() {
               {inviting ? "Sending…" : "Send Invitation"}
             </button>
           </form>
+        </div>
+      )}
+
+      {/*
+        Above the table, not below it.
+
+        A pending invitation is the only thing on this page that anyone is
+        expected to ACT on — chase it, or re-send it when it expires — and it
+        was sitting under a table that grows without limit. In an organisation
+        with forty staff the outstanding invitations were off the bottom of the
+        screen, which is the same as not rendering them.
+
+        Kept as its own panel rather than folded into the table above. The
+        table's six columns describe a MEMBER — type, seniority, department,
+        status — and an invitation has none of them, so four cells in every row
+        would be blank. It would also break the filters: `filteredMembers` is
+        what the search and the five dropdowns narrow, invitations are not in
+        it, and rows that ignore the filter controls sitting directly above
+        them read as a bug. Two different kinds of thing, two panels.
+      */}
+      {/* ── Pending invitations ── */}
+      {pendingInvitations.length > 0 && (
+        <div className="mb-6">
+          <h3 className="mb-2 text-sm font-semibold">Pending Invitations</h3>
+          <div className="overflow-hidden rounded-xl border border-border bg-card">
+            {/* Desktop */}
+            <div className="hidden sm:block">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/30">
+                    <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Email</th>
+                    <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Role</th>
+                    <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Invited by</th>
+                    <th className="px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Expires</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pendingInvitations.map((invitation) => (
+                    <tr key={invitation.id} className="border-b border-border last:border-b-0 transition-colors hover:bg-muted/20">
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2.5">
+                          <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300">
+                            <Mail className="h-3.5 w-3.5" />
+                          </div>
+                          <span className="text-[13px] font-medium">{invitation.email}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3"><StatusBadge value={invitation.role} palette="role" /></td>
+                      <td className="px-4 py-3 text-[13px] text-muted-foreground">{invitation.invitedBy.name || invitation.invitedBy.email}</td>
+                      <td className="px-4 py-3 text-right text-[13px] text-muted-foreground">{new Date(invitation.expires).toLocaleDateString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {/* Mobile */}
+            <div className="block divide-y divide-border sm:hidden">
+              {pendingInvitations.map((invitation) => (
+                <div key={invitation.id} className="flex items-center justify-between p-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">{invitation.email}</p>
+                    <div className="mt-1 flex items-center gap-1.5">
+                      <StatusBadge value={invitation.role} palette="role" />
+                      <span className="text-[10px] text-muted-foreground">expires {new Date(invitation.expires).toLocaleDateString()}</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       )}
 
@@ -970,59 +1038,6 @@ export default function MembersPage() {
           )}
         </div>
       </div>
-
-      {/* ── Pending invitations ── */}
-      {pendingInvitations.length > 0 && (
-        <div className="mt-6">
-          <h3 className="mb-2 text-sm font-semibold">Pending Invitations</h3>
-          <div className="overflow-hidden rounded-xl border border-border bg-card">
-            {/* Desktop */}
-            <div className="hidden sm:block">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border bg-muted/30">
-                    <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Email</th>
-                    <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Role</th>
-                    <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Invited by</th>
-                    <th className="px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Expires</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {pendingInvitations.map((invitation) => (
-                    <tr key={invitation.id} className="border-b border-border last:border-b-0 transition-colors hover:bg-muted/20">
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2.5">
-                          <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300">
-                            <Mail className="h-3.5 w-3.5" />
-                          </div>
-                          <span className="text-[13px] font-medium">{invitation.email}</span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3"><StatusBadge value={invitation.role} palette="role" /></td>
-                      <td className="px-4 py-3 text-[13px] text-muted-foreground">{invitation.invitedBy.name || invitation.invitedBy.email}</td>
-                      <td className="px-4 py-3 text-right text-[13px] text-muted-foreground">{new Date(invitation.expires).toLocaleDateString()}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            {/* Mobile */}
-            <div className="block divide-y divide-border sm:hidden">
-              {pendingInvitations.map((invitation) => (
-                <div key={invitation.id} className="flex items-center justify-between p-3">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium">{invitation.email}</p>
-                    <div className="mt-1 flex items-center gap-1.5">
-                      <StatusBadge value={invitation.role} palette="role" />
-                      <span className="text-[10px] text-muted-foreground">expires {new Date(invitation.expires).toLocaleDateString()}</span>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
 
       {/*
         Resolved from `members` on every render rather than held in state, so

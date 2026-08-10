@@ -32,7 +32,11 @@
  * - **Certifications were sent as typed**, including blank rows the user added
  *   and left empty. Trimmed and dropped now, as the service expects.
  * - **The success banner never cleared**, so "Template created" stayed on
- *   screen while you edited the next one.
+ *   screen while you edited the next one. Fixed here, once, by clearing it at
+ *   the start of each handler — which left the same defect standing on seven
+ *   other pages, because it was treated as a bug in this file rather than as a
+ *   consequence of confirming a finished action with a persistent element.
+ *   Confirmations are toasts now, everywhere; the clearing calls are gone.
  *
  * ## On the certifications shape
  *
@@ -57,6 +61,7 @@ import {
   X,
 } from "lucide-react";
 import { AlertBanner } from "@/components/ui/alert-banner";
+import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
@@ -133,7 +138,6 @@ export default function TemplatesPage() {
   const [viewMode, setViewMode] = useState<ViewMode>("list");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
   const [toggleTarget, setToggleTarget] = useState<Template | null>(null);
   const [toggling, setToggling] = useState(false);
 
@@ -193,7 +197,6 @@ export default function TemplatesPage() {
     resetForm();
     setViewMode("create");
     setError(null);
-    setSuccess(null);
   }
 
   function openEdit(template: Template) {
@@ -206,7 +209,6 @@ export default function TemplatesPage() {
     setEditingId(template.id);
     setViewMode("edit");
     setError(null);
-    setSuccess(null);
   }
 
   function cancelForm() {
@@ -301,7 +303,7 @@ export default function TemplatesPage() {
       if (typeof data.name === "string") setFormName(data.name);
       setFormDescription(aiPrompt.trim().slice(0, 200));
 
-      setSuccess("AI generated template content. Review and edit before saving.");
+      toast.success("AI generated template content. Review and edit before saving.");
     } catch {
       setError("AI generation failed. Try again.");
     } finally {
@@ -360,7 +362,7 @@ export default function TemplatesPage() {
         return;
       }
 
-      setSuccess(editingId ? "Template updated" : "Template created");
+      toast.success(editingId ? "Template updated" : "Template created");
       resetForm();
       setViewMode("list");
       await fetchTemplates();
@@ -417,9 +419,6 @@ export default function TemplatesPage() {
   const banners = (
     <>
       {error && <AlertBanner message={error} variant="error" className="mb-4" />}
-      {success && (
-        <AlertBanner message={success} variant="success" className="mb-4" />
-      )}
     </>
   );
 

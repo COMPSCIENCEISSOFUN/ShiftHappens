@@ -29,6 +29,7 @@ import {
 } from "@/lib/recurrence";
 import { PageLoading } from "@/components/ui/page-loading";
 import { AlertBanner } from "@/components/ui/alert-banner";
+import { toast } from "sonner";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Clock, Lock, Plus, Sparkles, SquarePen, Trash2, Users, Zap } from "lucide-react";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -425,7 +426,6 @@ export default function TasksPage() {
   const [filterStatus, setFilterStatus] = useState("");
   const [filterDept, setFilterDept] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   /** Which assignment's clock form is open, if any. */
@@ -696,7 +696,6 @@ export default function TasksPage() {
   /** Lets the system pick and assign the best-fit staff for a task (US-65). */
   async function onAutoAssign(taskId: string) {
     setError(null);
-    setSuccess(null);
     setAutoAssigningId(taskId);
 
     try {
@@ -711,7 +710,7 @@ export default function TasksPage() {
       }
 
       const assignments = await res.json().catch(() => []);
-      setSuccess(
+      toast.success(
         `Auto-assigned ${Array.isArray(assignments) ? assignments.length : ""} staff`.trim()
       );
       fetchTasks();
@@ -796,7 +795,6 @@ export default function TasksPage() {
 
     const form = event.currentTarget;
     setError(null);
-    setSuccess(null);
 
     const formData = new FormData(form);
 
@@ -876,7 +874,7 @@ export default function TasksPage() {
        */
       setCreateCerts([]);
       setCreateComposition([]);
-      setSuccess(
+      toast.success(
         repeatFreq
           ? "Recurring task created — upcoming occurrences generated"
           : "Task created successfully"
@@ -998,7 +996,7 @@ export default function TasksPage() {
       setSelectedMembers([]);
       setOverrideReasons({});
       setAssignError(null);
-      setSuccess("Staff assigned successfully");
+      toast.success("Staff assigned successfully");
       fetchTasks();
     } catch (err) {
       setAssignError(
@@ -1095,7 +1093,7 @@ export default function TasksPage() {
       }
 
       setEditingTaskId(null);
-      setSuccess("Task updated");
+      toast.success("Task updated");
       fetchTasks();
     } catch {
       setError("Something went wrong");
@@ -1446,7 +1444,6 @@ export default function TasksPage() {
       {/* Alerts                                           */}
       {/* ──────────────────────────────────────────────── */}
       {error && <AlertBanner message={error} variant="error" className="mb-4" />}
-      {success && <AlertBanner message={success} variant="success" className="mb-4" />}
 
       {/* ──────────────────────────────────────────────── */}
       {/* 4. Filters — pill buttons + department dropdown  */}

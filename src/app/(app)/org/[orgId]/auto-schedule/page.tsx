@@ -32,6 +32,7 @@ import {
   X,
 } from "lucide-react";
 import { AlertBanner } from "@/components/ui/alert-banner";
+import { toast } from "sonner";
 import { EmptyState } from "@/components/ui/empty-state";
 import { StatTile, STAT_ACCENT } from "@/components/ui/stat-tile";
 import {
@@ -96,7 +97,6 @@ export default function AutoSchedulePage() {
   const [generating, setGenerating] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
   /**
    * Whether the admin has removed anything from the generated draft.
    *
@@ -111,7 +111,6 @@ export default function AutoSchedulePage() {
     setGenerating(true);
     setError(null);
     setDraft(null);
-    setSuccess(null);
     setEdited(false);
 
     try {
@@ -205,7 +204,7 @@ export default function AutoSchedulePage() {
       if (result.writeErrors > 0)
         parts.push(`${result.writeErrors} could not be created`);
 
-      setSuccess(parts.join(" · "));
+      toast.success(parts.join(" · "));
       setDraft(null);
       setEdited(false);
     } catch {
@@ -218,7 +217,6 @@ export default function AutoSchedulePage() {
   function handleDiscard() {
     setDraft(null);
     setError(null);
-    setSuccess(null);
     setEdited(false);
   }
 
@@ -278,7 +276,6 @@ export default function AutoSchedulePage() {
       </div>
 
       {error && <AlertBanner message={error} variant="error" />}
-      {success && <AlertBanner message={success} variant="success" />}
 
       {/* ── Week picker ── */}
       {!reviewing && (

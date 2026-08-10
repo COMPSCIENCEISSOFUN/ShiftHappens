@@ -23,6 +23,7 @@ import { FileText, FileX2, Search, SearchX, ShieldCheck } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { PageLoading } from "@/components/ui/page-loading";
 import { AlertBanner } from "@/components/ui/alert-banner";
+import { toast } from "sonner";
 import { EmptyState } from "@/components/ui/empty-state";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { CertificationStateIcon } from "@/components/ui/certification-state-icon";
@@ -367,7 +368,6 @@ export default function CertificationsPage() {
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
   const [busyIds, setBusyIds] = useState<string[]>([]);
   const [reasonTarget, setReasonTarget] = useState<ReasonTarget | null>(null);
   const [dialogSubmitting, setDialogSubmitting] = useState(false);
@@ -465,7 +465,7 @@ export default function CertificationsPage() {
         return;
       }
       setError(null);
-      setSuccess(`"${name}" added to the list`);
+      toast.success(`"${name}" added to the list`);
       await fetchTypes();
     } catch {
       setError("Could not add that certificate");
@@ -495,7 +495,7 @@ export default function CertificationsPage() {
         return;
       }
       setError(null);
-      setSuccess(`"${type.name}" removed from the list`);
+      toast.success(`"${type.name}" removed from the list`);
       await fetchTypes();
     } catch {
       setError("Could not remove that certificate");
@@ -510,7 +510,6 @@ export default function CertificationsPage() {
 
     setBusyIds((prev) => [...prev, cert.id]);
     setError(null);
-    setSuccess(null);
 
     try {
       const res = await fetch(
@@ -528,7 +527,7 @@ export default function CertificationsPage() {
         return;
       }
 
-      setSuccess(`Verified "${cert.name}" for ${memberName(cert)}`);
+      toast.success(`Verified "${cert.name}" for ${memberName(cert)}`);
       await fetchCertifications();
     } catch {
       setError("Something went wrong");
@@ -548,7 +547,6 @@ export default function CertificationsPage() {
     const { cert, mode } = reasonTarget;
     setDialogSubmitting(true);
     setError(null);
-    setSuccess(null);
 
     try {
       const res = await fetch(
@@ -575,7 +573,7 @@ export default function CertificationsPage() {
         return;
       }
 
-      setSuccess(
+      toast.success(
         `${mode === "revoke" ? "Revoked" : "Rejected"} "${cert.name}" for ${memberName(cert)}`
       );
       setReasonTarget(null);
@@ -757,14 +755,6 @@ export default function CertificationsPage() {
           variant="error"
           className="mb-4"
           onDismiss={() => setError(null)}
-        />
-      )}
-      {success && (
-        <AlertBanner
-          message={success}
-          variant="success"
-          className="mb-4"
-          onDismiss={() => setSuccess(null)}
         />
       )}
 

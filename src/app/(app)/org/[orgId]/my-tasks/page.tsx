@@ -40,6 +40,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { PageLoading } from "@/components/ui/page-loading";
 import { AlertBanner } from "@/components/ui/alert-banner";
+import { toast } from "sonner";
 import { EmptyState } from "@/components/ui/empty-state";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { StatTile, STAT_ACCENT } from "@/components/ui/stat-tile";
@@ -234,7 +235,6 @@ export default function MyTasksPage() {
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [withdrawingId, setWithdrawingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busyIds, setBusyIds] = useState<string[]>([]);
   /*
@@ -310,7 +310,7 @@ export default function MyTasksPage() {
       }
       const updated = await res.json().catch(() => ({}));
       onSuccess?.();
-      setSuccess(
+      toast.success(
         typeof successMessage === "function"
           ? successMessage(updated)
           : successMessage
@@ -489,7 +489,6 @@ export default function MyTasksPage() {
       </div>
 
       {error && <AlertBanner message={error} variant="error" />}
-      {success && <AlertBanner message={success} variant="success" />}
 
       {/* ── Stat tiles ── */}
       <div className="mb-4 grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-3">
