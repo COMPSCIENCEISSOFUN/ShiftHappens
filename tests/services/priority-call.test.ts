@@ -109,14 +109,38 @@ describe("when there is nothing to prioritise", () => {
     expect(result.call).toBeNull();
   });
 
-  // No fabricated fallback. The previous design produced "algorithmic
-  // recommendations" that were restatements of the alerts beside them.
-  it("returns no call when no model is configured", async () => {
+  /*
+   * Inverted on 2026-08-10, and this one deserves an argument rather than an
+   * edit.
+   *
+   * It read: "No fabricated fallback. The previous design produced algorithmic
+   * recommendations that were restatements of the alerts beside them." That
+   * decision was right and is not being reversed. What was removed then was a
+   * panel that INVENTED PROSE, quoted figures it sometimes got wrong, and
+   * presented all of it as model output.
+   *
+   * What happens now is narrower on every axis: no prose (`reason` is null),
+   * no figures, only when both providers are unreachable, labelled
+   * `algorithmic`, and the panel says out loud that the pick was made by rule.
+   * It restates one alert — the most severe — and says so. The earlier design's
+   * fault was not that it restated alerts; it was that it restated them while
+   * claiming to be something else.
+   *
+   * If that distinction ever stops holding, this is the test to delete and the
+   * fallback to remove.
+   */
+  it("falls back to the most severe alert when no model is configured", async () => {
     await understaffedTask("Shift A");
     await understaffedTask("Shift B");
 
     const result = await service.getPriorityCall(tenant.orgId);
-    expect(result.call).toBeNull();
+
+    expect(result.call).not.toBeNull();
+    expect(result.call!.provider).toBe("algorithmic");
+    expect(result.call!.reason).toBeNull();
+    // Ours, from the alert list — the same guarantee the model path carries.
+    expect(result.call!.message).toContain("Shift");
+    expect(result.unavailable).toBe(true);
   });
 });
 
@@ -156,13 +180,27 @@ describe("choosing", () => {
     expect(result.call).toBeNull();
   });
 
-  it("survives a reply that is not JSON at all", async () => {
+  /*
+   * An unreadable reply is a provider that did not answer, so it takes the same
+   * path as an outage — the fallback fires and `unavailable` is set.
+   *
+   * Distinct from the test above it, which is the one case that still returns
+   * nothing: a HALLUCINATED id means the model answered, and answered about a
+   * row we did not send. That gets no fallback deliberately, because
+   * `unavailable` would be false and the panel would then highlight a row while
+   * saying nothing about how it was chosen. Worth knowing the two look
+   * identical from the outside and are not.
+   */
+  it("falls back when the reply is not JSON at all", async () => {
     await understaffedTask("Shift A");
     await understaffedTask("Shift B");
     mockModel("I think you should look at the lunch service first!");
 
     const result = await service.getPriorityCall(tenant.orgId);
-    expect(result.call).toBeNull();
+
+    expect(result.call).not.toBeNull();
+    expect(result.call!.provider).toBe("algorithmic");
+    expect(result.unavailable).toBe(true);
   });
 
   it("reads a reply the model wrapped in a code fence", async () => {

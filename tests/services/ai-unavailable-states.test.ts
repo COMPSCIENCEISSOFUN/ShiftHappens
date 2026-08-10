@@ -145,9 +145,23 @@ describe("the priority call", () => {
      * already produced twice. The fixture seeds three expiring certifications,
      * which is above the two-alert threshold, so the engine IS asked and the
      * flag must be set.
+     *
+     * `call` used to be asserted null here, and that is the half that changed
+     * on 2026-08-10. A provider outage now falls back to the most severe alert,
+     * chosen by rule — every other AI surface in the product degrades, and this
+     * one went blank beside a list that had already ranked the same alerts.
+     *
+     * `unavailable` is the assertion that must NOT weaken. It is what keeps a
+     * fortnight of outage from reading as a fortnight of ordinary advice, and
+     * it is now the only thing distinguishing the two.
      */
-    expect(result.call).toBeNull();
     expect(result.unavailable).toBe(true);
+    expect(result.call).not.toBeNull();
+    expect(result.call!.provider).toBe("algorithmic");
+    // No sentence, because there is nobody to write one. A `reason` here would
+    // be prose this codebase invented and attributed to an engine that was
+    // unreachable.
+    expect(result.call!.reason).toBeNull();
   });
 
   /*

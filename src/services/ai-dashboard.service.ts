@@ -11,7 +11,17 @@
  * as the allocation service. All insights are advisory — the
  * admin always has final decision authority.
  */
-import { AI_TIMEOUT_MS } from "@/lib/ai-limits";
+/*
+ * `hasApiKey` and `aiTimeoutSignal`, not `if (key)` and `AbortSignal.timeout`.
+ *
+ * `ai-limits.ts` credits this file as the one that got the timeout right, and
+ * this file was then the only one never to adopt the helper extracted from it.
+ * The timeout was the same behaviour spelled differently; the key check was
+ * not. `if (groqKey)` passes for a key of a single space, which sends
+ * `Bearer " "` to Groq and buys a real round-trip that has to time out before
+ * the fallback can run — the exact failure `hasApiKey` was written for.
+ */
+import { aiTimeoutSignal, hasApiKey } from "@/lib/ai-limits";
 import { TaskRepository } from "@/repositories/task.repository";
 import { startOfDayInTimeZone } from "@/lib/timezone";
 import { MembershipRepository } from "@/repositories/membership.repository";
@@ -117,7 +127,27 @@ export interface PriorityCall {
    * trust in the row above it.
    */
   reason: string | null;
-  /** Which model answered. Never "algorithmic" — there is no fallback here. */
+  /**
+   * Which strategy chose this call.
+   *
+   * This read "Never algorithmic — there is no fallback here", and that was
+   * true and was the gap. Every other AI surface in the product degrades:
+   * allocation falls to `FallbackRanker`, auto-schedule to
+   * `generateAlgorithmic`, the parser and the assistant to keywords. This one
+   * went blank — beside a list that had already ranked the same alerts by
+   * severity.
+   *
+   * So "algorithmic" now means: both providers were unreachable, and the most
+   * serious alert was chosen by rule. Blunter than the model, which weighs
+   * urgency against who is actually free — but a blunt answer beats an empty
+   * panel, and the label is what stops the two being confused.
+   *
+   * `getFeedbackThemes` deliberately has NO equivalent, and the distinction is
+   * the interesting one: choosing between structured alerts is something rules
+   * can approximate. Reading prose is not. A counted fallback there would not
+   * be a weaker version of that feature, it would be a different feature
+   * wearing its name.
+   */
   provider: AIProviderName;
 }
 
@@ -133,6 +163,11 @@ export interface PriorityCallResponse {
    * stated, but a manager who had come to rely on it had no way to tell "the
    * engine has no strong opinion today" from "the engine stopped answering a
    * fortnight ago".
+   *
+   * It no longer implies `call: null`. A provider outage now still produces a
+   * call — chosen by severity rather than by a model — and this flag is what
+   * keeps the two distinguishable. Without it, a fortnight of outage would read
+   * as a fortnight of ordinary advice that happened to be blunter than usual.
    */
   unavailable?: boolean;
 }
@@ -428,9 +463,46 @@ RULES:
       .join("\n");
 
     const answer = await this.callAIForPriority(prompt);
-    // Asked, and no provider answered — distinct from the early return above,
-    // where there was nothing worth asking about.
-    if (!answer) return { call: null, unavailable: true };
+
+    /*
+     * Asked, and no provider answered — distinct from the early return above,
+     * where there was nothing worth asking about.
+     *
+     * The alerts arrive already ranked: `getNeedsAttention` assigns each one a
+     * severity and pushes them in a deliberate order. So the deterministic
+     * answer to "what should I look at first" is sitting in the argument this
+     * method was given, and returning nothing was throwing it away.
+     *
+     * `unavailable` stays true. It has not stopped being true — the engine was
+     * asked and did not answer — and the panel needs to keep saying so, or a
+     * fortnight of provider outage reads as a fortnight of blunt-but-fine
+     * advice.
+     */
+    if (!answer) {
+      const bySeverity = { danger: 0, warning: 1, info: 2 } as const;
+      /*
+       * Sorted, not searched, and the stability matters: `Array.sort` is
+       * stable, so alerts of equal severity keep the order `getNeedsAttention`
+       * chose — which is itself deliberate, insights first. A `find` for the
+       * first danger would have been equivalent today and would have quietly
+       * stopped being equivalent the moment a fourth severity appeared.
+       */
+      const top = [...candidates].sort(
+        (a, b) => bySeverity[a.severity] - bySeverity[b.severity]
+      )[0];
+
+      return {
+        call: {
+          entityId: top.entityId,
+          message: top.message,
+          // No sentence, because there is no one to write it. Null is already
+          // a normal outcome here — the ordering is the contribution.
+          reason: null,
+          provider: "algorithmic",
+        },
+        unavailable: true,
+      };
+    }
 
     const chosen = candidates.find((a) => a.entityId === answer.entityId);
     // An id we did not send. Discarded rather than resolved — a hallucinated
@@ -456,7 +528,7 @@ RULES:
     const groqKey = process.env.GROQ_API_KEY;
     const geminiKey = process.env.GEMINI_API_KEY;
 
-    if (groqKey) {
+    if (hasApiKey(groqKey)) {
       try {
         const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
           method: "POST",
@@ -473,7 +545,7 @@ RULES:
             temperature: 0,
             max_tokens: 200,
           }),
-          signal: AbortSignal.timeout(AI_TIMEOUT_MS),
+          signal: aiTimeoutSignal(),
         });
         if (response.ok) {
           const result = await response.json();
@@ -487,7 +559,7 @@ RULES:
       }
     }
 
-    if (geminiKey) {
+    if (hasApiKey(geminiKey)) {
       try {
         const response = await fetch(
           `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
@@ -500,7 +572,7 @@ RULES:
               ],
               generationConfig: { temperature: 0, maxOutputTokens: 200 },
             }),
-            signal: AbortSignal.timeout(AI_TIMEOUT_MS),
+            signal: aiTimeoutSignal(),
           }
         );
         if (response.ok) {
@@ -659,7 +731,7 @@ RULES:
     const groqKey = process.env.GROQ_API_KEY;
     const geminiKey = process.env.GEMINI_API_KEY;
 
-    if (groqKey) {
+    if (hasApiKey(groqKey)) {
       try {
         const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
           method: "POST",
@@ -676,7 +748,7 @@ RULES:
             temperature: 0,
             max_tokens: 500,
           }),
-          signal: AbortSignal.timeout(AI_TIMEOUT_MS),
+          signal: aiTimeoutSignal(),
         });
         if (response.ok) {
           const result = await response.json();
@@ -692,7 +764,7 @@ RULES:
       }
     }
 
-    if (geminiKey) {
+    if (hasApiKey(geminiKey)) {
       try {
         const response = await fetch(
           `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
@@ -703,7 +775,7 @@ RULES:
               contents: [{ parts: [{ text: `${this.themesPrompt}\n\n${prompt}` }] }],
               generationConfig: { temperature: 0, maxOutputTokens: 500 },
             }),
-            signal: AbortSignal.timeout(AI_TIMEOUT_MS),
+            signal: aiTimeoutSignal(),
           }
         );
         if (response.ok) {

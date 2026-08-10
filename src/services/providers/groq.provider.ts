@@ -7,7 +7,7 @@
  * Groq offers fast inference with a generous free tier
  * (30 req/min, 14,400 req/day).
  */
-import { aiTimeoutSignal } from "@/lib/ai-limits";
+import { aiTimeoutSignal, hasApiKey } from "@/lib/ai-limits";
 import type { AIProvider, StaffCandidate, RankedStaff } from "../ai-provider";
 
 /**
@@ -30,13 +30,24 @@ interface UntrustedRanking {
 export class GroqProvider implements AIProvider {
   readonly name = "groq" as const;
 
-  private apiKey: string;
-  private model: string;
-
-  constructor() {
-    this.apiKey = process.env.GROQ_API_KEY || "";
-    this.model = "llama-3.1-8b-instant";
+  /**
+   * Read at CALL time, not at construction.
+   *
+   * This was captured in the constructor. In production that is harmless —
+   * the environment is set before anything is instantiated — but it makes the
+   * provider untestable in a way that fails silently: a test that stubs
+   * `GROQ_API_KEY` after building the provider is testing a snapshot taken
+   * before its own setup ran, and passes without exercising anything.
+   *
+   * `hasApiKey` rather than a truthiness check, so a key of whitespace is
+   * treated as absent instead of sent. Stated once in `ai-limits` precisely so
+   * three files cannot hold three spellings of it — which, until now, they did.
+   */
+  private get apiKey(): string {
+    return process.env.GROQ_API_KEY ?? "";
   }
+
+  private model = "llama-3.1-8b-instant";
 
   async rankStaff(
     task: {
@@ -50,7 +61,7 @@ export class GroqProvider implements AIProvider {
     },
     candidates: StaffCandidate[]
   ): Promise<RankedStaff[]> {
-    if (!this.apiKey) {
+    if (!hasApiKey(this.apiKey)) {
       // Throw rather than ranking locally. AllocationService.rankWithFailover
       // advances to the next provider only on a throw, so returning a private
       // ranking here made this provider terminal: the sibling provider was

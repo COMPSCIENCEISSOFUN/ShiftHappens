@@ -671,7 +671,22 @@ export default function AdminDashboard({ orgId, orgName, userName }: AdminDashbo
             ordered without the engine — only the "start here" hint is missing —
             so this says what is absent without implying the panel is broken.
           */}
-          {priorityUnavailable && (
+          {/*
+            Two different silences, and they now say different things.
+
+            A provider outage used to mean no pick at all. It now falls back to
+            the most SEVERE alert, chosen by rule — so the old sentence would
+            be denying a suggestion that is visibly highlighted two rows below
+            it. Which of the two is showing depends on whether a call came
+            back, not on `unavailable` alone.
+          */}
+          {priorityUnavailable && priority && (
+            <p className="mb-2 text-[12px] text-muted-foreground">
+              The assistant is unavailable, so this is simply the most serious
+              item on the list — picked by rule, not by the engine.
+            </p>
+          )}
+          {priorityUnavailable && !priority && (
             <p className="mb-2 text-[12px] text-muted-foreground">
               The assistant couldn&apos;t suggest where to start right now. The
               list below is complete and in its usual order.
@@ -685,7 +700,14 @@ export default function AdminDashboard({ orgId, orgName, userName }: AdminDashbo
 
             return (
               /*
-                The indigo treatment marks the ONE row a model touched.
+                The indigo treatment marks the ONE row the engine picked.
+
+                It said "a model touched" until the priority call gained an
+                algorithmic fallback, at which point the same highlight could
+                appear with no model involved anywhere. The mark still means
+                "start here"; what picked it is stated in the line above the
+                list rather than left to the colour, because a colour cannot
+                carry that distinction and was never going to.
                 It used to mark four alert types flagged `isAiInsight`, every
                 one of which was a SQL join with a threshold — the sparkle was
                 decoration on a database query, and it made the panel's real

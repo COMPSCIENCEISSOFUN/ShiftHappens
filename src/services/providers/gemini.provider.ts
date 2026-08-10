@@ -5,7 +5,7 @@
  * Backup provider if Groq is unavailable.
  * Free tier: 15 req/min, 1M tokens/day.
  */
-import { aiTimeoutSignal } from "@/lib/ai-limits";
+import { aiTimeoutSignal, hasApiKey } from "@/lib/ai-limits";
 import type { AIProvider, StaffCandidate, RankedStaff } from "../ai-provider";
 
 /**
@@ -28,10 +28,21 @@ interface UntrustedRanking {
 export class GeminiProvider implements AIProvider {
   readonly name = "gemini" as const;
 
-  private apiKey: string;
-
-  constructor() {
-    this.apiKey = process.env.GEMINI_API_KEY || "";
+  /**
+   * Read at CALL time, not at construction.
+   *
+   * This was captured in the constructor. In production that is harmless —
+   * the environment is set before anything is instantiated — but it makes the
+   * provider untestable in a way that fails silently: a test that stubs
+   * `GEMINI_API_KEY` after building the provider is testing a snapshot taken
+   * before its own setup ran, and passes without exercising anything.
+   *
+   * `hasApiKey` rather than a truthiness check, so a key of whitespace is
+   * treated as absent instead of sent. Stated once in `ai-limits` precisely so
+   * three files cannot hold three spellings of it — which, until now, they did.
+   */
+  private get apiKey(): string {
+    return process.env.GEMINI_API_KEY ?? "";
   }
 
   async rankStaff(
@@ -46,7 +57,7 @@ export class GeminiProvider implements AIProvider {
     },
     candidates: StaffCandidate[]
   ): Promise<RankedStaff[]> {
-    if (!this.apiKey) {
+    if (!hasApiKey(this.apiKey)) {
       // Throw rather than ranking locally. AllocationService.rankWithFailover
       // advances to the next provider only on a throw, so returning a private
       // ranking here made this provider terminal: the sibling provider was
