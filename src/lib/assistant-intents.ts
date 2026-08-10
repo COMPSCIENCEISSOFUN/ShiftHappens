@@ -48,6 +48,24 @@
  * any of these: it decides whether you may spend the organisation's provider
  * budget at all.
  *
+ * ## And a third question, which is neither permission nor plan
+ *
+ * A company admin is never put on a shift. The eligibility engine excludes
+ * them, `assignStaff` excludes them, and `findSchedulableStaff` excludes them
+ * in the query — so "when is my next shift" has no honest answer for an admin,
+ * and offering it produced a permanently empty one beside a link to a page
+ * their sidebar does not contain.
+ *
+ * `canBeRostered` is the predicate those three already share, and the sidebar
+ * with them. It is read here rather than restated, because the last time this
+ * rule was spelled out by hand the menu began offering admins three pages that
+ * could never hold anything. This is the fifth caller; the whole point of the
+ * function is that there is no fifth opinion.
+ *
+ * It is not a permission, and no permission set changes it. The exclusion is
+ * about what the ENGINE will consider, not about authority — an admin holds
+ * every permission in the catalogue and is still not on the rota.
+ *
  * ## What is deliberately NOT here yet
  *
  * Three questions that need a specific shift or assignment resolved out of
@@ -62,6 +80,8 @@
  * an inference. Same questions, same services, no guessing. Filed rather than
  * fudged.
  */
+
+import { canBeRostered } from "@/lib/role-config";
 
 /** Every question the assistant can answer, plus the two non-answers. */
 export const ASSISTANT_INTENTS = [
@@ -90,7 +110,7 @@ export const ASSISTANT_INTENTS = [
     permission: null,
     describes: "which of the user's own shifts are waiting for them to accept or decline",
     prompt: "Is anything waiting on my response?",
-    keywords: ["waiting on me", "need to accept", "pending", "respond", "awaiting"],
+    keywords: ["waiting on", "need to accept", "pending", "respond", "awaiting"],
   },
   {
     id: "my_hours",
@@ -108,7 +128,7 @@ export const ASSISTANT_INTENTS = [
     permission: "reports:view",
     describes: "what in the organisation needs the user's attention right now",
     prompt: "What needs my attention?",
-    keywords: ["needs attention", "what should i", "anything urgent", "problems"],
+    keywords: ["needs attention", "attention", "what should i", "anything urgent", "problems"],
   },
   {
     id: "unfilled_shifts",
@@ -191,10 +211,24 @@ export function isAssistantIntentId(id: unknown): id is AssistantIntentId {
  */
 export function isIntentAllowed(
   id: AssistantIntentId,
-  permissions: ReadonlySet<string>
+  permissions: ReadonlySet<string>,
+  /** The caller's SYSTEM role. Decides the self questions, which no permission does. */
+  role: string | undefined | null
 ): boolean {
   const intent = findIntent(id);
   if (!intent) return false;
+
+  /*
+   * Refused for somebody who is never rostered, rather than answered with
+   * "you have no shifts".
+   *
+   * Those are different claims. "No shifts" says the rota is empty this week
+   * and might not be next week; the truth for an admin is that they are not on
+   * the rota at all and never will be. An assistant that reports the first
+   * when the second is true is not being tactful, it is being wrong.
+   */
+  if (intent.scope === "self" && !canBeRostered(role)) return false;
+
   if (!intent.permission) return true;
   return permissions.has(intent.permission);
 }
@@ -207,25 +241,69 @@ export function isIntentAllowed(
  * regardless — but it removes the most likely cause of a refusal, which is the
  * model helpfully picking a question the asker was never going to be allowed.
  */
-export function intentsFor(permissions: ReadonlySet<string>) {
+export function intentsFor(
+  permissions: ReadonlySet<string>,
+  role: string | undefined | null
+) {
   return ASSISTANT_INTENTS.filter(
-    (i) => i.id !== "unknown" && isIntentAllowed(i.id, permissions)
+    (i) => i.id !== "unknown" && isIntentAllowed(i.id, permissions, role)
   );
 }
 
 /**
+ * A keyword match, and whether it is trustworthy enough to act on alone.
+ */
+export interface KeywordClassification {
+  id: AssistantIntentId;
+  /**
+   * True when this answer is good enough to skip the provider entirely.
+   *
+   * Not a probability and not a score — a rule, so it can be reasoned about
+   * and tested. See `classifyByKeywords`.
+   */
+  certain: boolean;
+}
+
+/**
+ * The shortest keyword that may decide a question on its own.
+ *
+ * Below this, a match is a coincidence waiting to happen: "pending" appears in
+ * plenty of sentences that are not about pending shifts. Above it, the phrase
+ * is specific enough that a single unambiguous hit is as good an answer as a
+ * model would give — and the phrasing fixture is what keeps that true.
+ */
+const CERTAIN_KEYWORD_LENGTH = 8;
+
+/**
  * Classification without a provider.
  *
- * The same shape as `FallbackRanker` behind the allocation providers and
- * `fallbackParse` behind the task parser: when Groq and Gemini are both
- * unreachable, the feature degrades instead of disappearing. Keyword matching
- * is a poor classifier and a fine safety net — it answers the plainly-phrased
- * question and returns `unknown` for everything else, which is the honest
- * outcome rather than a guess.
+ * ## Two jobs, and the second one is new
+ *
+ * This began as the fallback for both providers being unreachable — the same
+ * arrangement as `FallbackRanker` behind the allocation providers. It is now
+ * also the FIRST thing tried, because the assistant was paying a provider to
+ * classify sentences the product itself had written: every suggested question
+ * in the panel is one of the `prompt` strings below, and each one resolves
+ * here with certainty.
+ *
+ * That is the whole saving. The model keeps the job it is good at — paraphrase,
+ * odd wording, questions nobody anticipated — and stops being asked to read
+ * back a string we handed the user thirty seconds earlier.
+ *
+ * ## What "certain" means
+ *
+ * Exactly ONE intent matched, on a keyword of at least
+ * {@link CERTAIN_KEYWORD_LENGTH} characters.
+ *
+ * Both halves are load-bearing. Two intents matching means the sentence is
+ * genuinely ambiguous — "what shifts am i working this week" reaches both
+ * `my_next_shift` and `my_week` — and guessing between them is exactly the
+ * confident-wrong-answer this design exists to avoid, so it goes to the model.
+ * A short keyword matching alone is a coincidence, not a reading.
  *
  * Longest keyword first, so "how many hours am i" is not beaten by "how do i".
  */
-export function classifyByKeywords(text: string): AssistantIntentId {
+export function classifyByKeywords(text: string): KeywordClassification {
   const haystack = text.toLowerCase();
 
   const matches = ASSISTANT_INTENTS.flatMap((intent) =>
@@ -234,5 +312,13 @@ export function classifyByKeywords(text: string): AssistantIntentId {
       .map((k) => ({ id: intent.id, length: k.length }))
   ).sort((a, b) => b.length - a.length);
 
-  return matches[0]?.id ?? "unknown";
+  const best = matches[0];
+  if (!best) return { id: "unknown", certain: false };
+
+  const distinctIntents = new Set(matches.map((m) => m.id));
+
+  return {
+    id: best.id,
+    certain: distinctIntents.size === 1 && best.length >= CERTAIN_KEYWORD_LENGTH,
+  };
 }

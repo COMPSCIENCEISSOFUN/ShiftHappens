@@ -31,6 +31,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { usePermissions } from "@/components/layout/permission-provider";
 import { usePlan } from "@/components/layout/plan-provider";
 import { intentsFor, ASSISTANT_PERMISSION } from "@/lib/assistant-intents";
@@ -39,13 +40,30 @@ interface Exchange {
   /** What the person typed, shown back so the thread reads as a conversation. */
   question: string;
   answer: string;
+  /** What it resolved to. Sent with the NEXT question as its only context. */
+  intent?: string;
   /** Present only on an answer that came back. */
-  classifiedBy?: "ai" | "keywords";
+  classifiedBy?: "certain" | "ai" | "fallback";
   href?: string;
+  hrefLabel?: string;
   failed?: boolean;
 }
 
-export function AssistantPanel({ orgId }: { orgId: string }) {
+export function AssistantPanel({
+  orgId,
+  /**
+   * The caller's system role, for `canBeRostered`.
+   *
+   * A company admin is never rostered, so the four questions about your own
+   * shifts are not offered to one — they would each answer "you have no
+   * shifts", which reads as a rota that happens to be empty rather than as
+   * somebody who is not on it.
+   */
+  role,
+}: {
+  orgId: string;
+  role?: string;
+}) {
   const { can, permissions } = usePermissions();
   const { has } = usePlan();
 
@@ -54,6 +72,48 @@ export function AssistantPanel({ orgId }: { orgId: string }) {
   const [thread, setThread] = useState<Exchange[]>([]);
   const [asking, setAsking] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  /*
+   * A conversation belongs to ONE organisation.
+   *
+   * The shell is not unmounted when the org id in the URL changes — that is
+   * what makes the switcher feel instant — so without this, switching from
+   * Ocean Grill to Harbour Cafe left Ocean Grill's answers sitting under
+   * Harbour Cafe's sidebar. Nothing leaks: the reader had already been shown
+   * every word of it. But an answer about one organisation, framed by
+   * another's chrome, is exactly the confusion putting the org in the URL was
+   * meant to end.
+   */
+  useEffect(() => {
+    setThread([]);
+    setQuestion("");
+    setOpen(false);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronising with an external system: the organisation is owned by the URL, and this component cannot derive a reset from its own render
+  }, [orgId]);
+
+  /*
+   * Escape closes it, and opening moves focus into it.
+   *
+   * `role="dialog"` promises both. Without them a screen reader is told this
+   * is a dialog and then handed none of the behaviour the word implies —
+   * which is the same defect as the Members table announcing a control that
+   * could not be reached by keyboard.
+   *
+   * Deliberately NOT a focus trap. A trap is right for a modal that must be
+   * answered; this panel sits beside a page the reader is expected to keep
+   * using, and stealing tab from it would be worse than the omission.
+   */
+  useEffect(() => {
+    if (!open) return;
+    panelRef.current?.querySelector("input")?.focus();
+
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") setOpen(false);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
 
   // Newest exchange in view. `thread.length` rather than `thread`, so an
   // identical answer twice still scrolls.
@@ -70,9 +130,26 @@ export function AssistantPanel({ orgId }: { orgId: string }) {
    * a staff member holding this permission through a custom role is not, and
    * is not left to discover the refusal by asking.
    */
-  const suggestions = intentsFor(permissions)
+  const suggestions = intentsFor(permissions, role)
     .filter((i) => i.id !== "help")
     .slice(0, 4);
+
+  /*
+   * Stay open on a desktop, get out of the way on a phone.
+   *
+   * The panel is anchored beside the page at `sm` and up, so following a link
+   * leaves the answer visible next to the thing it was about — which is the
+   * point of answering with a link at all. Below `sm` it is `inset-0` and
+   * covers the whole screen, so staying open would hide the page it just sent
+   * you to.
+   *
+   * Read at click time rather than tracked in state: this is a one-off
+   * question about the viewport as it is right now, and a resize listener for
+   * it would be a subscription maintained for an event that happens once.
+   */
+  function closeIfCovering() {
+    if (window.matchMedia("(max-width: 639px)").matches) setOpen(false);
+  }
 
   async function ask(text: string) {
     const trimmed = text.trim();
@@ -84,7 +161,16 @@ export function AssistantPanel({ orgId }: { orgId: string }) {
       const res = await fetch(`/api/organizations/${orgId}/assistant`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: trimmed }),
+        body: JSON.stringify({
+          question: trimmed,
+          /*
+           * The last thing that resolved, so "and Jamie?" keeps its subject.
+           * Read from the thread rather than held in its own state — one place
+           * that knows what was asked, and it is the place already rendering
+           * it.
+           */
+          previousIntent: thread[thread.length - 1]?.intent,
+        }),
       });
       const data = await res.json();
 
@@ -110,8 +196,10 @@ export function AssistantPanel({ orgId }: { orgId: string }) {
         {
           question: trimmed,
           answer: data.answer,
+          intent: data.intent,
           classifiedBy: data.classifiedBy,
           href: data.href,
+          hrefLabel: data.hrefLabel,
         },
       ]);
     } catch {
@@ -132,7 +220,9 @@ export function AssistantPanel({ orgId }: { orgId: string }) {
     <>
       {open && (
         <div
+          ref={panelRef}
           role="dialog"
+          aria-modal="false"
           aria-label="Assistant"
           className="fixed inset-0 z-50 flex flex-col border-border bg-card sm:inset-auto sm:right-6 sm:bottom-24 sm:h-[520px] sm:w-[380px] sm:rounded-2xl sm:border sm:shadow-2xl"
         >
@@ -187,15 +277,43 @@ export function AssistantPanel({ orgId }: { orgId: string }) {
                   {/* Answers can carry a short list, and the newlines in them
                       are the formatting. */}
                   <p className="whitespace-pre-line">{exchange.answer}</p>
+                  {/*
+                    `Link`, not `<a>`.
+
+                    A plain anchor is a full page load: the whole application
+                    reboots, `AppShell` remounts, and the conversation is gone —
+                    which defeats the one thing this panel's design depends on.
+                    Ask "which shifts are unfilled", follow the link to see
+                    them, and the answer you were reading has been thrown away
+                    by the act of acting on it.
+
+                    Worth noting the shape rather than just the fix: the
+                    docblock above already promised the thread survives
+                    navigation. It was true of the component and false of the
+                    markup, and nothing failed — the same claim-outruns-behaviour
+                    pattern as a header that says AI over a pile of if
+                    statements.
+                  */}
                   {exchange.href && (
-                    <a
+                    <Link
                       href={exchange.href}
+                      onClick={closeIfCovering}
                       className="mt-1.5 inline-block text-[11px] font-medium text-indigo-600 underline-offset-2 hover:underline dark:text-indigo-400"
                     >
-                      Open the page
-                    </a>
+                      {exchange.hrefLabel ?? "Open the page"}
+                    </Link>
                   )}
                   {/*
+                    `fallback`, NOT `certain`.
+
+                    Both are the keyword classifier and they mean opposite
+                    things: `certain` is the optimisation working — the
+                    question was plain enough that no provider was needed —
+                    and `fallback` is Groq and Gemini both being unreachable.
+                    Warning on the first would put this notice under every
+                    suggested question anybody clicks, and a warning that fires
+                    when nothing is wrong is a warning people stop reading.
+
                     Said out loud when the providers were unreachable.
 
                     A keyword answer and a model answer look identical, and an
@@ -203,7 +321,7 @@ export function AssistantPanel({ orgId }: { orgId: string }) {
                     should say so rather than appear to have got stupid. Same
                     reasoning as the task parser reporting `parsedBy`.
                   */}
-                  {exchange.classifiedBy === "keywords" && (
+                  {exchange.classifiedBy === "fallback" && (
                     <p className="mt-1 text-[10px] text-muted-foreground">
                       Answered without AI — matched on keywords only
                     </p>

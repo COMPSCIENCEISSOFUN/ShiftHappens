@@ -55,16 +55,40 @@ import {
   departmentScopeFor,
   type ScopableMembership,
 } from "@/lib/department-scope";
-import { localDateInTimeZone, timeOfDayInTimeZone } from "@/lib/timezone";
+import { shiftWindowLabel } from "@/lib/timezone";
 
 export interface AssistantAnswer {
   intent: AssistantIntentId;
   /** The sentence shown to the user. Built here, never by a model. */
   answer: string;
-  /** Which classifier decided. Surfaced so keyword mode is never mistaken for AI. */
-  classifiedBy: "ai" | "keywords";
+  /**
+   * Which classifier decided, in three states rather than two.
+   *
+   *   certain  — resolved without asking a provider, and nothing is wrong:
+   *                either the keywords were unambiguous, or the input was too
+   *                short to be a question at all
+   *   ai       — a provider read it
+   *   fallback — both providers were unreachable and keywords answered instead
+   *
+   * The distinction between the first and the last is the point. They are the
+   * same code path and they mean opposite things: one is the optimisation
+   * working, the other is the feature degraded. Collapsing them to "keywords"
+   * would have the panel warning that the AI is down every time somebody
+   * clicks a suggested question — and a warning that cries wolf is worse than
+   * no warning, because people stop reading it.
+   */
+  classifiedBy: "certain" | "ai" | "fallback";
   /** Where to go to act on the answer, when there is such a place. */
   href?: string;
+  /**
+   * What that link OPENS, when it opens one particular thing.
+   *
+   * "Open the page" is what a link says when the page is all you can offer.
+   * Once the answer names a shift and the link lands on that shift, the label
+   * should say which — the same reasoning as the withdrawal buttons saying
+   * "Approve & free the slot" rather than "Approve".
+   */
+  hrefLabel?: string;
 }
 
 /** What the caller must supply. Resolved by the route from the session. */
@@ -85,18 +109,6 @@ export interface AssistantCaller {
   permissions: ReadonlySet<string>;
 }
 
-/**
- * A shift window as a person reads it, in the ORGANISATION's timezone.
- *
- * `toLocaleString` would render in the server's zone, which on Vercel is UTC
- * and eight hours out — the same defect the calendar carried for every column
- * until the day boundary was fixed. There is no formatter in `lib/timezone`
- * that spans a date and two times, so it is composed from the two that exist
- * rather than adding a third partial one.
- */
-function shiftWindow(start: Date, end: Date): string {
-  return `${localDateInTimeZone(start)}, ${timeOfDayInTimeZone(start)}–${timeOfDayInTimeZone(end)}`;
-}
 
 const SYSTEM_PROMPT =
   "You classify a workforce-management question into exactly one intent id. " +
@@ -110,7 +122,38 @@ export class AssistantService {
   private reporting = new ReportingService();
   private audit = new AuditLogService();
 
-  async ask(question: string, caller: AssistantCaller): Promise<AssistantAnswer> {
+  /*
+   * Shared across instances of this service, which are created per request by
+   * the route. An instance-level cache would be discarded before it was ever
+   * read a second time.
+   */
+  private static classificationCache = new Map<string, AssistantIntentId>();
+  private static readonly CACHE_LIMIT = 500;
+
+  /** Test seam. Nothing in `src` calls this. */
+  static resetClassificationCache() {
+    AssistantService.classificationCache.clear();
+  }
+
+  async ask(
+    question: string,
+    caller: AssistantCaller,
+    /**
+     * What the LAST question resolved to, if there was one.
+     *
+     * Enough context for "and Jamie?" to keep meaning `member_hours`, and
+     * deliberately not more: the whole thread is not sent, so a question
+     * cannot be steered by something said six turns ago, and there is nothing
+     * to accumulate on the server. The client holds it, because the client is
+     * already the only thing holding the conversation.
+     *
+     * Untrusted, like every other input — it is validated against the closed
+     * set before it reaches a prompt, so a caller posting
+     * `previousIntent: "drop_tables"` gets it discarded rather than echoed
+     * into the model.
+     */
+    previousIntent?: string
+  ): Promise<AssistantAnswer> {
     const text = sanitisePromptInput(question);
 
     /*
@@ -121,19 +164,32 @@ export class AssistantService {
      * cause of a refusal, which is a model helpfully choosing a question the
      * asker was never going to be allowed to ask.
      */
-    const available = intentsFor(caller.permissions);
+    const available = intentsFor(caller.permissions, caller.membership.role);
+
+    const previous = isAssistantIntentId(previousIntent) ? previousIntent : null;
 
     const { id, classifiedBy } =
       text.length < 3
-        ? { id: "unknown" as AssistantIntentId, classifiedBy: "keywords" as const }
-        : await this.classify(text, available);
+        ? /*
+           * Too short to be a question. `certain` rather than `fallback`:
+           * nothing is wrong, and nothing was asked of a provider — which is
+           * exactly what that label means to the panel, and the only thing it
+           * uses it for. A `fallback` here would put "the AI is unavailable"
+           * under somebody who pressed Enter on an empty box.
+           */
+          { id: "unknown" as AssistantIntentId, classifiedBy: "certain" as const }
+        : await this.classify(text, available, previous);
 
     /*
      * The second gate, on the id the CLASSIFIER returned rather than on the
      * sentence the user typed. Those differ exactly when something has gone
      * wrong, which is when this matters.
      */
-    const intent: AssistantIntentId = isIntentAllowed(id, caller.permissions)
+    const intent: AssistantIntentId = isIntentAllowed(
+      id,
+      caller.permissions,
+      caller.membership.role
+    )
       ? id
       : "unknown";
 
@@ -159,8 +215,48 @@ export class AssistantService {
 
   private async classify(
     text: string,
-    available: ReturnType<typeof intentsFor>
-  ): Promise<{ id: AssistantIntentId; classifiedBy: "ai" | "keywords" }> {
+    available: ReturnType<typeof intentsFor>,
+    previous: AssistantIntentId | null
+  ): Promise<{ id: AssistantIntentId; classifiedBy: "certain" | "ai" | "fallback" }> {
+    /*
+     * Keywords FIRST, and a provider only when they are unsure.
+     *
+     * Every suggested question in the panel is one of the catalogue's own
+     * `prompt` strings, so the previous ordering paid Groq to read back a
+     * sentence the product had written and handed to the user seconds earlier.
+     * `assistant-intents.test.ts` asserts every one of them resolves here with
+     * certainty, which is what makes this safe rather than merely cheaper.
+     *
+     * A follow-up is never short-circuited: "and Jamie?" carries its meaning
+     * in the PREVIOUS question, which keywords cannot see, so anything with
+     * context to consider goes to the model regardless of how confident a
+     * keyword match looks.
+     */
+    const keyword = classifyByKeywords(text);
+    if (keyword.certain && !previous) {
+      return { id: keyword.id, classifiedBy: "certain" };
+    }
+
+    /*
+     * Repeats, which are most of the remaining traffic: "what needs my
+     * attention" is asked every morning, in the same words, by the same
+     * people.
+     *
+     * Keyed on the available intents as well as the text, because the menu the
+     * model is shown differs by caller — a staff member and a manager can type
+     * the same sentence and be offered different answers, and a cache that
+     * ignored that would serve one of them the other's classification. The
+     * VALUE is still re-checked against permissions by `ask`, so the worst a
+     * stale entry could do is produce a refusal.
+     *
+     * In-process, so each serverless instance keeps its own and a cold start
+     * has none. A miss is an ordinary call, which is why that is acceptable
+     * here and is not acceptable for the rate limiter.
+     */
+    const cacheKey = `${available.map((i) => i.id).join(",")}|${text.toLowerCase()}`;
+    const cached = AssistantService.classificationCache.get(cacheKey);
+    if (cached && !previous) return { id: cached, classifiedBy: "ai" };
+
     const menu = available
       .map((i) => `- ${i.id}: ${i.describes}`)
       .join("\n");
@@ -171,6 +267,7 @@ INTENTS:
 ${menu}
 - unknown: anything that is not clearly one of the above
 
+${previous ? `The previous question was classified as: ${previous}\nA short follow-up such as "and Jamie?" usually continues it.\n` : ""}
 QUESTION: "${text}"
 
 Reply with only the id.`;
@@ -206,7 +303,10 @@ Reply with only the id.`;
         if (response.ok) {
           const result = await response.json();
           const id = this.readIntent(result.choices?.[0]?.message?.content);
-          if (id) return { id, classifiedBy: "ai" };
+          if (id) {
+            this.remember(cacheKey, id, previous);
+            return { id, classifiedBy: "ai" };
+          }
         }
       } catch (error) {
         console.error("[Assistant] Groq failed:", error);
@@ -232,14 +332,48 @@ Reply with only the id.`;
           const id = this.readIntent(
             result.candidates?.[0]?.content?.parts?.[0]?.text
           );
-          if (id) return { id, classifiedBy: "ai" };
+          if (id) {
+            this.remember(cacheKey, id, previous);
+            return { id, classifiedBy: "ai" };
+          }
         }
       } catch (error) {
         console.error("[Assistant] Gemini failed:", error);
       }
     }
 
-    return { id: classifyByKeywords(text), classifiedBy: "keywords" };
+    /*
+     * Both providers unreachable. The keyword answer computed at the top is
+     * reused rather than recomputed — and reported as `fallback`, because from
+     * here it means the feature is degraded rather than optimised.
+     */
+    return { id: keyword.id, classifiedBy: "fallback" };
+  }
+
+  /**
+   * Caches a classification, bounded.
+   *
+   * Never caches a follow-up: its meaning depends on the previous question,
+   * and storing "and Jamie?" against whatever it meant once would answer it
+   * wrongly for everybody who typed it afterwards.
+   *
+   * The cap is a crude FIFO — oldest key dropped — because a chat panel's
+   * traffic is a few hundred distinct questions per organisation and an LRU
+   * would be more machinery than the problem deserves. Unbounded is the only
+   * unacceptable option: this is module state in a long-lived process.
+   */
+  private remember(
+    key: string,
+    id: AssistantIntentId,
+    previous: AssistantIntentId | null
+  ) {
+    if (previous) return;
+    const cache = AssistantService.classificationCache;
+    if (cache.size >= AssistantService.CACHE_LIMIT) {
+      const oldest = cache.keys().next().value;
+      if (oldest !== undefined) cache.delete(oldest);
+    }
+    cache.set(key, id);
   }
 
   /**
@@ -255,8 +389,27 @@ Reply with only the id.`;
    */
   private readIntent(raw: unknown): AssistantIntentId | null {
     if (typeof raw !== "string") return null;
-    const cleaned = raw.trim().toLowerCase().replace(/[^a-z_]/g, "");
-    return isAssistantIntentId(cleaned) ? cleaned : null;
+
+    /*
+     * Tokenised, not stripped.
+     *
+     * This was `replace(/[^a-z_]/g, "")`, which deletes SPACES — so a model
+     * replying "The intent is my_hours", which is correct and merely polite,
+     * collapsed to `theintentismy_hours`, matched nothing, and returned null.
+     * Null means "this provider failed", so a right answer bought a Gemini
+     * call and possibly a fall through to keywords. The failure was silent,
+     * cost money, and made the model look worse than it was.
+     *
+     * Splitting on non-identifier characters and looking for a known id finds
+     * the answer in either shape. Order matters: the reply is scanned in
+     * sequence, so "not my_hours, use my_week" resolves to `my_hours` — which
+     * is wrong, but is a model contradicting itself, and every id it can
+     * return still passes the closed-set check and the permission check
+     * afterwards.
+     */
+    const tokens = raw.toLowerCase().split(/[^a-z_]+/);
+    const match = tokens.find((token) => isAssistantIntentId(token));
+    return match ? (match as AssistantIntentId) : null;
   }
 
   // ── Answers, built from fetched values ────────────────────────────────────
@@ -266,10 +419,26 @@ Reply with only the id.`;
     caller: AssistantCaller,
     /** The sanitised question, for the one intent that names a person. */
     text: string
-  ): Promise<{ answer: string; href?: string }> {
+    /*
+     * Deliberately the same shape as `AssistantAnswer` minus the two fields
+     * `ask` fills in — `intent` and `classifiedBy` are decided before this
+     * runs and are not this method's to state.
+     */
+  ): Promise<{ answer: string; href?: string; hrefLabel?: string }> {
     const orgPath = `/org/${caller.organizationId}`;
 
     switch (intent) {
+      /*
+       * Every link in this group points at My Tasks or My History, never at My
+       * Schedule.
+       *
+       * My Schedule is hidden from a manager who can open the team calendar —
+       * two calendars drawing the same week is the duplication the sidebar
+       * removed — so a link to it is dead for exactly the people most likely to
+       * be running a floor and working a shift at once. My Tasks and My History
+       * are shown to everybody `canBeRostered` admits, which is now the same
+       * set this group is offered to at all.
+       */
       case "my_next_shift":
       case "my_week":
       case "my_pending":
@@ -289,13 +458,13 @@ Reply with only the id.`;
           if (!data.nextShift) {
             return {
               answer: "You have no upcoming shifts on the rota.",
-              href: `${orgPath}/my-schedule`,
+              href: `${orgPath}/my-tasks`,
             };
           }
           const { taskName, scheduledStart, scheduledEnd } = data.nextShift;
           return {
-            answer: `Your next shift is ${taskName} — ${shiftWindow(scheduledStart, scheduledEnd)}.`,
-            href: `${orgPath}/my-schedule`,
+            answer: `Your next shift is ${taskName} — ${shiftWindowLabel(scheduledStart, scheduledEnd)}.`,
+            href: `${orgPath}/my-tasks`,
           };
         }
 
@@ -304,7 +473,7 @@ Reply with only the id.`;
           if (total === 0) {
             return {
               answer: "You are not rostered for anything this week.",
-              href: `${orgPath}/my-schedule`,
+              href: `${orgPath}/my-tasks`,
             };
           }
           const pendingNote =
@@ -313,7 +482,7 @@ Reply with only the id.`;
               : "";
           return {
             answer: `You are rostered for ${total} shift${total === 1 ? "" : "s"} this week, ${data.hoursThisWeek.toFixed(1)} hours in total.${pendingNote}`,
-            href: `${orgPath}/my-schedule`,
+            href: `${orgPath}/my-tasks`,
           };
         }
 
@@ -359,23 +528,68 @@ Reply with only the id.`;
       }
 
       case "unfilled_shifts": {
+        /*
+         * UNDERSTAFFED, not unfillable.
+         *
+         * This asked `getUnfillableShifts` — the shifts nobody is ELIGIBLE
+         * for — because that was the method that existed. It is a far narrower
+         * claim than the question: a shift with nobody assigned and six people
+         * free is unfilled and perfectly fillable, and it is the commonest
+         * thing a manager is asking about. So the answer named one shift while
+         * half the rota stood empty, and read as though the rota were healthy.
+         *
+         * Worth the comment rather than a silent fix: the intent was mapped
+         * onto the service that was to hand rather than onto the question that
+         * was asked. The result is not an error anywhere — it is a confident,
+         * correct answer to something nobody asked.
+         */
         const scope = departmentScopeFor(caller.membership);
-        const shifts = await this.reporting.getUnfillableShifts(
+        const shifts = await this.reporting.getUnderstaffedShifts(
           caller.organizationId,
           scope
         );
         if (shifts.length === 0) {
           return {
-            answer:
-              "No upcoming shifts are short of staff in the next fortnight.",
+            answer: "Every upcoming shift has the staff it needs.",
             href: `${orgPath}/tasks`,
           };
         }
-        const top = shifts.slice(0, 3).map((s) => `• ${s.title} — ${s.reasonSummary}`);
-        const more = shifts.length > 3 ? `\n…and ${shifts.length - 3} more.` : "";
+
+        /*
+         * Soonest first. The repository does not order on the schedule, and
+         * "which shifts are unfilled" is a question about what is shortly
+         * going to go wrong — a list in creation order buries tomorrow's gap
+         * under one from next month. Undated shifts sort last: they are real,
+         * and they are not urgent.
+         */
+        const soonest = [...shifts].sort((a, b) => {
+          const at = a.scheduledStart?.getTime() ?? Infinity;
+          const bt = b.scheduledStart?.getTime() ?? Infinity;
+          return at - bt;
+        });
+
+        const lines = soonest.slice(0, 3).map((s) => {
+          const when = shiftWindowLabel(s.scheduledStart, s.scheduledEnd);
+          const where = s.departmentName ?? "no department";
+          const short = s.requiredHeadcount - s.assignedCount;
+          return `\u2022 ${s.title} — ${where}${when ? `, ${when}` : ", unscheduled"} — needs ${short} more (${s.assignedCount} of ${s.requiredHeadcount})`;
+        });
+        const more =
+          soonest.length > 3 ? `\n…and ${soonest.length - 3} more.` : "";
+
+        /*
+         * Deep-linked to the SOONEST of them, not to the list.
+         *
+         * The answer names three shifts and the reader can only be sent to one
+         * place, so it is the one that matters first — and the rest are on
+         * screen around it. Sending them to an unfiltered list of every shift
+         * would make them find again what they were just told.
+         */
+        const first = soonest[0];
         return {
-          answer: `${shifts.length} shift${shifts.length === 1 ? "" : "s"} cannot be filled as things stand:\n${top.join("\n")}${more}`,
-          href: `${orgPath}/tasks`,
+          answer: `${shifts.length} shift${shifts.length === 1 ? "" : "s"} ${shifts.length === 1 ? "is" : "are"} short of staff:\n${lines.join("\n")}${more}`,
+          href: `${orgPath}/tasks?task=${first.id}`,
+          hrefLabel: `Open ${first.title}`,
         };
       }
 
@@ -420,9 +634,26 @@ Reply with only the id.`;
           };
         }
 
+        /*
+         * The same method, and therefore the same week, as `my_hours`.
+         *
+         * `getStaffUtilization` answers a rolling last-seven-days; the staff
+         * dashboard answers the current week from its start. Both are
+         * defensible and they are not the same number, so asking about
+         * yourself and about Alex in the same minute produced two figures that
+         * could not be compared — under one word, "hours".
+         *
+         * The utilisation list is still what RESOLVES the name, because it is
+         * already department-scoped and active-only. It is no longer what
+         * reports the figure.
+         */
         const person = matches[0];
+        const theirs = await this.reporting.getStaffDashboardData(
+          person.membershipId,
+          caller.organizationId
+        );
         return {
-          answer: `${person.name} has worked ${person.hoursWorked.toFixed(1)} hours in the last seven days, against a capacity of ${person.capacity}.`,
+          answer: `${person.name} is down for ${theirs.hoursThisWeek.toFixed(1)} hours this week, against a capacity of ${theirs.weeklyCapacity}.`,
           href: `${orgPath}/members`,
         };
       }

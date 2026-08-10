@@ -124,44 +124,86 @@ describe("who may ask what", () => {
   const NONE = new Set<string>();
   const REPORTER = new Set(["reports:view"]);
 
-  it("lets somebody with no permissions ask about themselves", () => {
-    expect(isIntentAllowed("my_next_shift", NONE)).toBe(true);
-    expect(isIntentAllowed("my_hours", NONE)).toBe(true);
-    expect(isIntentAllowed("help", NONE)).toBe(true);
+  it("lets a staff member with no permissions ask about themselves", () => {
+    expect(isIntentAllowed("my_next_shift", NONE, "staff")).toBe(true);
+    expect(isIntentAllowed("my_hours", NONE, "staff")).toBe(true);
+    expect(isIntentAllowed("help", NONE, "staff")).toBe(true);
   });
 
   it("refuses the organisation questions without the permission that owns them", () => {
-    expect(isIntentAllowed("needs_attention", NONE)).toBe(false);
-    expect(isIntentAllowed("unfilled_shifts", NONE)).toBe(false);
-    expect(isIntentAllowed("member_hours", NONE)).toBe(false);
+    expect(isIntentAllowed("needs_attention", NONE, "staff")).toBe(false);
+    expect(isIntentAllowed("unfilled_shifts", NONE, "staff")).toBe(false);
+    expect(isIntentAllowed("member_hours", NONE, "staff")).toBe(false);
   });
 
   it("allows them with it", () => {
-    expect(isIntentAllowed("needs_attention", REPORTER)).toBe(true);
-    expect(isIntentAllowed("member_hours", REPORTER)).toBe(true);
+    expect(isIntentAllowed("needs_attention", REPORTER, "manager")).toBe(true);
+    expect(isIntentAllowed("member_hours", REPORTER, "manager")).toBe(true);
   });
 
   /*
-   * The one that matters if the model is ever talked into something. Asking
-   * for an id that does not exist must be refused rather than falling through
-   * to a default of "allowed" — the same rule the permission guard follows,
-   * for the same reason.
+   * The bug this describe block grew for, found in a browser and not by any of
+   * these tests.
+   *
+   * A company admin asked "when is my next shift" and was told they were not
+   * scheduled — beside a link to My Schedule, a page their sidebar does not
+   * contain. Both halves were wrong in the same way: an admin is not somebody
+   * whose rota happens to be empty, they are somebody the rota does not
+   * include. The eligibility engine, `assignStaff` and `findSchedulableStaff`
+   * have all excluded them for months.
    */
+  it("refuses the self questions to somebody who is never rostered", () => {
+    const EVERYTHING = new Set(PERMISSION_NAMES);
+    expect(isIntentAllowed("my_next_shift", EVERYTHING, "company_admin")).toBe(false);
+    expect(isIntentAllowed("my_week", EVERYTHING, "company_admin")).toBe(false);
+    expect(isIntentAllowed("my_pending", EVERYTHING, "company_admin")).toBe(false);
+    expect(isIntentAllowed("my_hours", EVERYTHING, "company_admin")).toBe(false);
+  });
+
+  /*
+   * And the direction that proves the rule is about ROSTERING and not about
+   * seniority: an admin holds every permission in the catalogue and still
+   * cannot ask, while a staff member holding none still can.
+   */
+  it("still lets an admin ask about the organisation", () => {
+    const EVERYTHING = new Set(PERMISSION_NAMES);
+    expect(isIntentAllowed("needs_attention", EVERYTHING, "company_admin")).toBe(true);
+    expect(isIntentAllowed("unfilled_shifts", EVERYTHING, "company_admin")).toBe(true);
+  });
+
+  it("keeps the self questions for a manager, who can be rostered", () => {
+    expect(isIntentAllowed("my_next_shift", REPORTER, "manager")).toBe(true);
+  });
+
+  it("refuses the self questions when no role is stated at all", () => {
+    expect(isIntentAllowed("my_next_shift", NONE, undefined)).toBe(false);
+    expect(isIntentAllowed("my_next_shift", NONE, null)).toBe(false);
+  });
+
   it("refuses an id it does not recognise rather than defaulting open", () => {
-    expect(isIntentAllowed("something_else" as AssistantIntentId, REPORTER)).toBe(
-      false
-    );
+    expect(
+      isIntentAllowed("something_else" as AssistantIntentId, REPORTER, "manager")
+    ).toBe(false);
   });
 
   it("never offers unknown as a question", () => {
-    expect(intentsFor(REPORTER).map((i) => i.id)).not.toContain("unknown");
+    expect(intentsFor(REPORTER, "manager").map((i) => i.id)).not.toContain("unknown");
   });
 
   it("offers a plain staff member only their own questions", () => {
-    const offered = intentsFor(NONE).map((i) => i.id);
+    const offered = intentsFor(NONE, "staff").map((i) => i.id);
     expect(offered).toContain("my_next_shift");
     expect(offered).not.toContain("needs_attention");
     expect(offered).not.toContain("member_hours");
+  });
+
+  it("offers an admin no question about their own shifts", () => {
+    const offered = intentsFor(new Set(PERMISSION_NAMES), "company_admin").map(
+      (i) => i.id
+    );
+    expect(offered).not.toContain("my_next_shift");
+    expect(offered).not.toContain("my_hours");
+    expect(offered).toContain("needs_attention");
   });
 });
 
@@ -193,11 +235,11 @@ const PHRASINGS: [string, AssistantIntentId][] = [
 
 describe("the keyword fallback", () => {
   it.each(PHRASINGS)("reads %j as %s", (sentence, expected) => {
-    expect(classifyByKeywords(sentence)).toBe(expected);
+    expect(classifyByKeywords(sentence).id).toBe(expected);
   });
 
   it("is not case sensitive", () => {
-    expect(classifyByKeywords("WHEN IS MY NEXT SHIFT")).toBe("my_next_shift");
+    expect(classifyByKeywords("WHEN IS MY NEXT SHIFT").id).toBe("my_next_shift");
   });
 
   it.each([
@@ -206,7 +248,54 @@ describe("the keyword fallback", () => {
     [""],
     ["asdfghjkl"],
   ])("answers unknown for %j", (sentence) => {
-    expect(classifyByKeywords(sentence)).toBe("unknown");
+    expect(classifyByKeywords(sentence).id).toBe("unknown");
+  });
+
+  /*
+   * The assertion the whole cost saving rests on.
+   *
+   * The service now tries keywords FIRST and calls a provider only when they
+   * are unsure — which is safe exactly as far as this is true: every question
+   * the panel SUGGESTS must resolve here, and resolve with certainty.
+   *
+   * It was not true when written. Two chips matched nothing at all: "Is
+   * anything waiting on my response?" (the keyword was "waiting on me", and
+   * "response" does not contain "respond") and "What needs my attention?" (the
+   * keyword was "needs attention", the sentence says "needs my attention").
+   * Both would have gone to a provider to classify a string this file wrote
+   * itself — the exact waste the change exists to remove, hiding inside the
+   * change.
+   *
+   * The fixture above did not catch it because it tests sentences a PERSON
+   * would type. Nobody thought to test the ones the product types.
+   */
+  it("resolves every suggested question with certainty", () => {
+    for (const intent of ASSISTANT_INTENTS) {
+      if (intent.id === "unknown") continue;
+      const result = classifyByKeywords(intent.prompt);
+      expect(result.id, `the chip "${intent.prompt}" resolves elsewhere`).toBe(
+        intent.id
+      );
+      expect(
+        result.certain,
+        `the chip "${intent.prompt}" would still call a provider`
+      ).toBe(true);
+    }
+  });
+
+  /*
+   * And the other direction, so `certain` is not simply always true. A
+   * genuinely ambiguous sentence reaches two intents and must be handed to the
+   * model rather than guessed between — that guess is the confident wrong
+   * answer this design exists to avoid.
+   */
+  it("is not certain when the sentence reaches two intents", () => {
+    const result = classifyByKeywords("what shifts am i working this week");
+    expect(result.certain).toBe(false);
+  });
+
+  it("is not certain about a match nothing supports", () => {
+    expect(classifyByKeywords("nothing here matches at all").certain).toBe(false);
   });
 
   /*

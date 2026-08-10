@@ -121,7 +121,7 @@ export function AppShell({
       */}
       {orgId && (
         <PermissionProvider permissions={permissions}>
-          <AssistantPanel orgId={orgId} />
+          <AssistantPanel orgId={orgId} role={role} />
         </PermissionProvider>
       )}
     </div>

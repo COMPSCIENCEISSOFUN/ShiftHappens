@@ -53,6 +53,18 @@ const askSchema = z.object({
    * know which half was read.
    */
   question: z.string().trim().min(1, "Ask a question").max(MAX_PROMPT_INPUT),
+  /*
+   * What the caller's last question resolved to, so a follow-up like "and
+   * Jamie?" keeps its subject. Optional, bounded, and validated against the
+   * closed set inside the service — a client is free to send anything here and
+   * anything unrecognised is dropped.
+   *
+   * On the client rather than in a server-side session because the
+   * conversation is already client-only: nothing about this feature is stored,
+   * and adding a server memory to carry one string would create the retention
+   * question the design exists to avoid.
+   */
+  previousIntent: z.string().max(64).optional(),
 });
 
 export async function POST(
@@ -91,13 +103,17 @@ export async function POST(
     const membership = await accessService.getMembership(user.id, orgId);
     if (!membership) return unauthorizedResponse();
 
-    const answer = await assistantService.ask(parsed.data.question, {
-      userId: user.id,
-      membershipId: membership.id,
-      organizationId: orgId,
-      membership,
-      permissions: accessService.permissionsFor(membership),
-    });
+    const answer = await assistantService.ask(
+      parsed.data.question,
+      {
+        userId: user.id,
+        membershipId: membership.id,
+        organizationId: orgId,
+        membership,
+        permissions: accessService.permissionsFor(membership),
+      },
+      parsed.data.previousIntent
+    );
 
     return NextResponse.json(answer);
   } catch (error) {
