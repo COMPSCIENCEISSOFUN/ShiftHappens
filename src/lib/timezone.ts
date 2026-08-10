@@ -186,6 +186,39 @@ export function utcOffsetLabel(
  * requires the task's LOCAL time — `date.getHours()` gives the server's, which
  * on Vercel is UTC and eight hours out.
  */
+/**
+ * A shift's window as a person reads it, in the organisation's timezone.
+ *
+ * "12 Aug, 09:00–13:00", or "12 Aug" when only a start is known, or null when
+ * the shift has no schedule at all — which is a real state: a task can be
+ * created without times and filled in later.
+ *
+ * Here rather than beside either caller, because there are two and they would
+ * otherwise each grow their own. `toLocaleString` is not an option for any of
+ * them: it renders in the SERVER's zone, which on Vercel is UTC and eight
+ * hours out — the defect every calendar column carried until the day boundary
+ * was fixed.
+ */
+export function shiftWindowLabel(
+  start: Date | null,
+  end: Date | null,
+  timeZone: string = DEFAULT_TIMEZONE
+): string | null {
+  if (!start) return null;
+
+  const [, month, day] = localDateInTimeZone(start, timeZone).split("-");
+  const monthName = MONTH_NAMES[Number(month) - 1];
+  const date = `${Number(day)} ${monthName}`;
+
+  if (!end) return `${date}, ${timeOfDayInTimeZone(start, timeZone)}`;
+  return `${date}, ${timeOfDayInTimeZone(start, timeZone)}\u2013${timeOfDayInTimeZone(end, timeZone)}`;
+}
+
+const MONTH_NAMES = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+] as const;
+
 export function timeOfDayInTimeZone(
   date: Date,
   timeZone: string = DEFAULT_TIMEZONE

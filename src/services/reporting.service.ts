@@ -24,6 +24,7 @@ import {
   endOfDayInTimeZone,
   localDateInTimeZone,
   startOfDayInTimeZone,
+  shiftWindowLabel,
 } from "@/lib/timezone";
 
 /**
@@ -484,6 +485,26 @@ export class ReportingService {
    * Severity order: danger → warning → info.
    * Each item includes a message and action button target.
    */
+  /**
+   * Upcoming shifts with fewer people on them than they need.
+   *
+   * Exposed as records rather than as sentences. `getNeedsAttention` renders
+   * these into dashboard alerts and is the only thing that had them, so the
+   * assistant reached for `getUnfillableShifts` instead — which answers a
+   * different question. "Nobody is ELIGIBLE" is a much narrower claim than
+   * "nobody is ASSIGNED", and a manager asking which shifts are unfilled gets
+   * a near-empty answer while half the rota stands empty.
+   */
+  async getUnderstaffedShifts(
+    organizationId: string,
+    departmentIds?: string[] | null
+  ) {
+    return this.reportingRepo.getUnderstaffedTasks(
+      organizationId,
+      departmentIds ?? undefined
+    );
+  }
+
   async getNeedsAttention(
     organizationId: string,
     departmentIds?: string[]
@@ -599,10 +620,22 @@ export class ReportingService {
     // Red: understaffed tasks
     for (const task of understaffed) {
       const needed = task.requiredHeadcount - task.assignedCount;
+      /*
+       * WHEN, and WHERE, both of which this record already carried.
+       *
+       * The message named the shift and the shortfall and dropped the rest,
+       * so an alert about "Bar Setup & Inventory" gave a manager no way to
+       * tell Tuesday's from Thursday's — and in an organisation running the
+       * same shift daily, that is most of them. The query has selected the
+       * department and the schedule since it was written; only the sentence
+       * was throwing them away.
+       */
+      const when = shiftWindowLabel(task.scheduledStart, task.scheduledEnd);
+      const where = task.departmentName ? `${task.departmentName}, ` : "";
       items.push({
         type: "understaffed",
         severity: "danger",
-        message: `${task.title} needs ${needed} more staff (${task.assignedCount}/${task.requiredHeadcount} assigned)`,
+        message: `${task.title}${when ? ` (${where}${when})` : ""} needs ${needed} more staff (${task.assignedCount}/${task.requiredHeadcount} assigned)`,
         actionLabel: "Assign",
         actionUrl: `/org/${organizationId}/tasks`,
         entityId: task.id,

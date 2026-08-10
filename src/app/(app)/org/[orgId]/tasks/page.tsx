@@ -17,7 +17,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PRIMARY_BUTTON, SECONDARY_BUTTON } from "@/components/ui/button-styles";
@@ -449,6 +449,22 @@ export default function TasksPage() {
    * A shift can have two people asking to come off it at once, and keying by
    * task would show one manager's answer under the other's request.
    */
+  /*
+   * Deep link: `/org/<id>/tasks?task=<taskId>`.
+   *
+   * The assistant, and the dashboard's alerts, name a specific shift and then
+   * sent the reader to a list of every shift to find it again — which is the
+   * defect the certification alerts already have a comment about ("every one
+   * of these alerts names a subset and used to land the reader on All").
+   *
+   * A parameter rather than a route, because the target is a row on this page
+   * and not a page of its own. Nothing here is gated on it: an unknown or
+   * filtered-out id simply does not match, and the list renders as normal.
+   */
+  const searchParams = useSearchParams();
+  const focusTaskId = searchParams.get("task");
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+
   const [cover, setCover] = useState<Record<string, CoverState>>({});
 
   // Operating hours, for the out-of-hours notice. Defaults mirror the database
@@ -519,6 +535,37 @@ export default function TasksPage() {
       // requirement, and one already on a task is shown regardless.
     }
   }
+
+  /*
+   * Scroll the named shift into view once the list is on screen, and mark it.
+   *
+   * Depends on `loading` rather than on `tasks`, deliberately: the element
+   * cannot exist before the first render that has data, and re-running on
+   * every refetch would yank a manager's scroll position back mid-edit — the
+   * board refreshes after every assignment.
+   *
+   * The highlight is temporary and the scroll is not repeated, so this fires
+   * once per arrival. `focusTaskId` staying in the URL is intentional: a
+   * reload should land in the same place, and stripping it would need a
+   * history rewrite for a cosmetic gain.
+   */
+  useEffect(() => {
+    if (loading || !focusTaskId) return;
+
+    const element = document.getElementById(`task-${focusTaskId}`);
+    // No match is an ordinary outcome, not a fault: the shift may be filtered
+    // out, completed, or in another department. The list renders as normal.
+    if (!element) return;
+
+    element.scrollIntoView({ behavior: "smooth", block: "center" });
+    setHighlightId(focusTaskId);
+
+    // Long enough to find with your eye, short enough that it does not read as
+    // a permanent state of the row.
+    const clear = setTimeout(() => setHighlightId(null), 2500);
+    return () => clearTimeout(clear);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronising with an external system: the DOM node only exists after the list has rendered, so this cannot be derived during render
+  }, [loading, focusTaskId]);
 
   async function fetchTasks() {
     // Any cached "who could cover" answer describes the board as it was before
@@ -1767,8 +1814,13 @@ export default function TasksPage() {
             return (
               <div
                 key={task.id}
-                className={`group overflow-hidden rounded-xl border border-border bg-card transition-shadow hover:shadow-sm ${
+                id={`task-${task.id}`}
+                className={`group overflow-hidden rounded-xl border bg-card transition-shadow hover:shadow-sm ${
                   isCompleted ? "opacity-70" : ""
+                } ${
+                  highlightId === task.id
+                    ? "border-indigo-500 ring-2 ring-indigo-500/30"
+                    : "border-border"
                 }`}
               >
                 <div className="flex">
