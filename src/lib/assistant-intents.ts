@@ -139,6 +139,32 @@ export const ASSISTANT_INTENTS = [
     keywords: ["unfilled", "understaffed", "short staffed", "need staff", "gaps"],
   },
   {
+    /*
+     * The question a rota is actually asked.
+     *
+     * Absent from the first nine, and its absence was visible within minutes of
+     * anybody using the assistant: "name all members working tmr" and "name all
+     * task on 13th august" were both mapped onto `my_next_shift` by a model
+     * with nothing better to choose. The scope gate passed them — they ARE
+     * rostering questions — and the catalogue had no home for them.
+     *
+     * `calendar:view_team`, because that is the permission that already owns
+     * "whose shifts may you see besides your own". A new permission would be a
+     * second answer to a settled question.
+     */
+    id: "who_is_on",
+    scope: "organisation",
+    permission: "calendar:view_team",
+    describes:
+      "who is working, or what shifts exist, on a NAMED day such as today, tomorrow, Saturday or 13 August",
+    prompt: "Who is on tomorrow?",
+    keywords: [
+      "who is on", "whos on", "who is working", "whos working", "who works",
+      "who is rostered", "members working", "staff working", "working on",
+      "on shift", "on tomorrow", "on today",
+    ],
+  },
+  {
     id: "member_hours",
     scope: "organisation",
     permission: "reports:view",
@@ -248,6 +274,125 @@ export function intentsFor(
   return ASSISTANT_INTENTS.filter(
     (i) => i.id !== "unknown" && isIntentAllowed(i.id, permissions, role)
   );
+}
+
+/**
+ * Words that make a sentence a question about ROSTERING at all.
+ *
+ * ## The failure this exists for
+ *
+ * "whats 4-4" was answered with "You are down for 0.0 hours this week, against
+ * a capacity of 56." No keyword matched, so it went to the provider, and an 8B
+ * model asked to pick one of nine intents picks one — the instruction to reply
+ * `unknown` is the least attractive option on a list where every other option
+ * looks like an answer. The reply was then built from real data, which is
+ * precisely what made it convincing.
+ *
+ * So the model is no longer asked. A sentence with nothing in it from this list
+ * is not a question this assistant can answer, and deciding that costs nothing
+ * and cannot be talked out of it.
+ *
+ * ## Why content words only, and no stopwords
+ *
+ * Deriving this from the keyword lists was the obvious move and is wrong: they
+ * contain "what", "how", "do", "i", "on". "what is 2+2" would sail through a
+ * gate built from those, which is the case that started this.
+ *
+ * ## It is a filter, not a classifier
+ *
+ * Passing means "this might be a rostering question", nothing more — the model
+ * still decides, and the closed set, the permission check and
+ * `canBeRostered` all still run afterwards. The bias is deliberately towards
+ * REFUSING: a rejected real question costs somebody a rephrase, and a confident
+ * answer to a question nobody asked costs them their trust in every other
+ * answer.
+ */
+export const DOMAIN_TERMS: readonly string[] = [
+  // The work itself
+  "shift", "shifts", "roster", "rostered", "rota", "work", "working", "worked",
+  "hours", "hour", "overtime", "clock", "task", "tasks", "job", "jobs",
+  // The people
+  "staff", "staffed", "staffing", "team", "member", "members", "cover",
+  "covering", "assign", "assigned", "assignment", "unfilled", "understaffed",
+  "gaps", "short",
+  // The time
+  "when", "next", "week", "weekly", "today", "tomorrow", "tonight", "morning",
+  "afternoon", "evening", "schedule", "scheduled", "rostering",
+  // The decisions
+  "availability", "available", "free", "accept", "accepted", "decline",
+  "declined", "pending", "approve", "approval", "leave", "off", "attention",
+  "urgent", "withdraw", "withdrawal",
+  // The structure
+  "department", "departments", "certification", "certifications", "certificate",
+] as const;
+
+/**
+ * Could this sentence be about rostering at all?
+ *
+ * Word-boundary matched, so "whats" does not count as "what" and — the one
+ * that matters here — a bare sum matches nothing. Never applied to a follow-up:
+ * "and Jamie?" contains no domain word and is a perfectly good question, which
+ * is why the caller checks for a previous intent before reaching for this.
+ */
+export function looksInScope(text: string): boolean {
+  const words = text.toLowerCase().split(/[^a-z]+/).filter(Boolean);
+  if (words.length === 0) return false;
+  const domain = new Set<string>(DOMAIN_TERMS);
+  return words.some((word) => domain.has(word));
+}
+
+/**
+ * Does this sentence talk about the person asking?
+ *
+ * ## The failure this exists for
+ *
+ * "name all members working tmr" and "name all task on 13th august" were both
+ * answered "You have no upcoming shifts on the rota." Both are real rostering
+ * questions, so `looksInScope` passed them — correctly — and both are questions
+ * this assistant cannot answer, so the model mapped them onto the nearest of
+ * nine and picked `my_next_shift`.
+ *
+ * The scope gate catches "is this about rostering". It cannot catch "is this
+ * one of OUR nine", because that is the model's job and the model is eager.
+ *
+ * ## The rule
+ *
+ * Four intents are about the CALLER — their next shift, their week, their
+ * pending responses, their hours. A question that never mentions the caller is
+ * not one of them, whatever the model says. "name all members working tomorrow"
+ * is a question about other people that happens to be about shifts, and the
+ * absence of "I" or "my" is the whole difference.
+ *
+ * ## Why corroboration rather than a better prompt
+ *
+ * A prompt is a request; this is a check. The model still chooses, and this
+ * only ever REMOVES a choice — the same shape as every other gate here, all of
+ * which can deny and none of which can grant.
+ *
+ * Corroborating on first person rather than on the intent's own keywords,
+ * deliberately: "am i in tomorrow" matches no keyword and is exactly the
+ * paraphrase the model exists to read. Requiring a keyword would delete the
+ * reason for having a model.
+ */
+const FIRST_PERSON = new Set([
+  "i", "im", "ive", "id", "me", "my", "mine", "myself",
+  /*
+   * "we", "our" and "us" are deliberately ABSENT.
+   *
+   * They are first person and they are not this person's rota. "How many
+   * people did we hire" and "are we short staffed" are questions about the
+   * organisation, and including them let a plural question reach an intent
+   * that answers about one individual — which is the failure this whole rule
+   * exists to stop, wearing a pronoun.
+   *
+   * Nothing is lost by their absence: the questions that legitimately use them
+   * are all `organisation` scope, and this rule never touches those.
+   */
+]);
+
+export function mentionsTheAsker(text: string): boolean {
+  const words = text.toLowerCase().replace(/['\u2019]/g, "").split(/[^a-z]+/);
+  return words.some((word) => FIRST_PERSON.has(word));
 }
 
 /**

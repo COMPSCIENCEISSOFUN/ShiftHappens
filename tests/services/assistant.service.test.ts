@@ -79,7 +79,7 @@ describe("who may ask what", () => {
     );
 
     expect(answer.intent).toBe("unknown");
-    expect(answer.answer).toMatch(/not sure what you are asking/i);
+    expect(answer.answer).toMatch(/only answer questions about this organisation/i);
   });
 
   it("answers the same question for a manager", async () => {
@@ -234,7 +234,13 @@ describe("the classifier", () => {
     );
 
     const answer = await assistant.ask(
-      "zzz unmatched by any keyword zzz",
+      /*
+       * In scope, and matched by no keyword — which is precisely the case the
+       * provider exists for. It cannot be nonsense any more: the scope gate now
+       * refuses a sentence with no rostering vocabulary before anybody is
+       * asked, so a made-up string would test the gate rather than the reply.
+       */
+      "am i in tomorrow",
       await callerFor(tenant.staff.userId)
     );
 
@@ -260,7 +266,13 @@ describe("the classifier", () => {
     );
 
     const answer = await assistant.ask(
-      "zzz unmatched by any keyword zzz",
+      /*
+       * In scope, and matched by no keyword — which is precisely the case the
+       * provider exists for. It cannot be nonsense any more: the scope gate now
+       * refuses a sentence with no rostering vocabulary before anybody is
+       * asked, so a made-up string would test the gate rather than the reply.
+       */
+      "am i in tomorrow",
       await callerFor(tenant.staff.userId)
     );
 
@@ -392,6 +404,276 @@ describe("cost", () => {
     await assistant.ask("and jamie", caller, "member_hours");
 
     expect(spy).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("questions that are not questions", () => {
+  /*
+   * The bug, as a test.
+   *
+   * "whats 4-4" was answered "You are down for 0.0 hours this week, against a
+   * capacity of 56." — a real figure, from the real database, for a question
+   * nobody asked. Asserted on the ANSWER as well as the intent, because the
+   * intent being `unknown` is the mechanism and the sentence is the thing the
+   * user was shown.
+   */
+  it.each([
+    ["whats 4-4"],
+    ["what is 2+2"],
+    ["hello"],
+    ["who won the world cup"],
+  ])("declines %j rather than answering something else", async (question) => {
+    const answer = await assistant.ask(
+      question,
+      await callerFor(tenant.staff.userId)
+    );
+
+    expect(answer.intent).toBe("unknown");
+    expect(answer.answer).toMatch(/only answer questions about this organisation/i);
+    expect(answer.answer).not.toMatch(/hours this week/);
+  });
+
+  /*
+   * And it costs nothing to decline. A sentence with no rostering vocabulary in
+   * it cannot be any of the nine, so there is nothing to ask a provider — the
+   * saving is incidental, but the fact that no provider was asked is what makes
+   * the refusal reliable rather than dependent on the model agreeing.
+   */
+  it("asks no provider about a question it cannot answer", async () => {
+    vi.stubEnv("GROQ_API_KEY", "test-key");
+    vi.stubEnv("GEMINI_API_KEY", "test-key");
+    const spy = vi.fn();
+    vi.stubGlobal("fetch", spy);
+
+    const answer = await assistant.ask(
+      "whats 4-4",
+      await callerFor(tenant.staff.userId)
+    );
+
+    expect(spy).not.toHaveBeenCalled();
+    expect(answer.intent).toBe("unknown");
+  });
+
+  /*
+   * The gate must not swallow a follow-up. "and jamie?" carries no rostering
+   * word at all — its meaning is entirely in the question before it — so the
+   * scope check is skipped whenever there is a previous intent.
+   */
+  it("still lets a follow-up through", async () => {
+    vi.stubEnv("GROQ_API_KEY", "test-key");
+    const spy = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ choices: [{ message: { content: "member_hours" } }] }),
+    });
+    vi.stubGlobal("fetch", spy);
+
+    await assistant.ask(
+      "and jamie",
+      await callerFor(tenant.manager.userId),
+      "member_hours"
+    );
+
+    expect(spy).toHaveBeenCalled();
+  });
+});
+
+describe("in scope, but not one of ours", () => {
+  /*
+   * The second eager-model bug, and it is not the same as the first.
+   *
+   * "whats 4-4" was stopped before a provider saw it, because it contains no
+   * rostering word. These three DO — they are real questions a manager would
+   * ask — and this assistant simply cannot answer them. The model mapped all
+   * three onto `my_next_shift` and the user was told they had no upcoming
+   * shifts, which is true, and is not an answer to any of the questions.
+   */
+  /*
+   * Two of the three questions this block was written for are now ANSWERED —
+   * "name all members working tmr" and "who is working saturday" became
+   * `who_is_on`, which is the intent their existence argued for. What is left
+   * here are questions that are genuinely about rostering and genuinely not
+   * ours: a team roster, and an instruction to change something.
+   *
+   * The rule under test is unchanged: an answer about the caller needs the
+   * caller in the question, whatever the model returns.
+   *
+   * ## What this rule CANNOT catch, stated rather than implied
+   *
+   * "Who is my team" was in this list and does not belong: it mentions the
+   * asker, so the guard passes it, and an eager model can still map it onto
+   * `my_next_shift`. A first-person question about something the catalogue does
+   * not offer is beyond a first-person check by construction — the only defence
+   * there is the prompt, which is a request rather than a rule.
+   *
+   * Left as a known limitation rather than papered over with a longer
+   * blocklist. A rule that catches most of a class and says which part it
+   * misses is worth more than one that pretends to catch all of it.
+   */
+  it.each([
+    ["assign alex to friday please"],
+    ["how many people did we hire last year"],
+    ["name all members working"],
+  ])("declines %j rather than answering about the asker", async (question) => {
+    vi.stubEnv("GROQ_API_KEY", "test-key");
+    // The model at its most eager: it answers `my_next_shift` to everything.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: "my_next_shift" } }],
+        }),
+      })
+    );
+
+    const answer = await assistant.ask(
+      question,
+      await callerFor(tenant.staff.userId)
+    );
+
+    expect(answer.intent).toBe("unknown");
+    expect(answer.answer).not.toMatch(/no upcoming shifts/);
+  });
+
+  /*
+   * And the direction that stops the guard eating the feature: the same eager
+   * model, the same intent, on a question that IS about the asker. This must
+   * still be answered, and it matches no keyword — it is exactly the paraphrase
+   * the model is there for.
+   */
+  it("still answers a question that is about the asker", async () => {
+    vi.stubEnv("GROQ_API_KEY", "test-key");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: "my_next_shift" } }],
+        }),
+      })
+    );
+
+    const answer = await assistant.ask(
+      "am i in tomorrow",
+      await callerFor(tenant.staff.userId)
+    );
+
+    expect(answer.intent).toBe("my_next_shift");
+  });
+
+  /*
+   * An organisation question needs no first person and must not be touched by
+   * this rule — "which shifts are unfilled" mentions nobody at all.
+   */
+  it("leaves the organisation questions alone", async () => {
+    const answer = await assistant.ask(
+      "which shifts are unfilled",
+      await callerFor(tenant.manager.userId)
+    );
+
+    expect(answer.intent).toBe("unfilled_shifts");
+  });
+});
+
+describe("who is on when", () => {
+  /*
+   * The question a rota is actually asked, and the one the first nine intents
+   * did not have. Its absence was visible within minutes: "name all members
+   * working tmr" was answered "You have no upcoming shifts on the rota",
+   * because a model with nothing better to choose chose `my_next_shift`.
+   *
+   * No provider is stubbed. The phrasing resolves by keyword with certainty, so
+   * nothing is asked of anybody — which is also what makes this test
+   * deterministic.
+   */
+  it("answers for a manager, who may see the team", async () => {
+    const answer = await assistant.ask(
+      "who is working tomorrow",
+      await callerFor(tenant.manager.userId)
+    );
+
+    expect(answer.intent).toBe("who_is_on");
+    expect(answer.classifiedBy).toBe("certain");
+  });
+
+  /*
+   * A day is required, not assumed. "Who is working" almost never means today —
+   * people ask about a day they are planning for — so defaulting would be a
+   * guess wearing an answer's clothes.
+   */
+  it("asks which day when none was named", async () => {
+    const answer = await assistant.ask(
+      "who is working",
+      await callerFor(tenant.manager.userId)
+    );
+
+    expect(answer.intent).toBe("who_is_on");
+    expect(answer.answer).toMatch(/which day/i);
+  });
+
+  /*
+   * Gated on `calendar:view_team` — the permission that already owns "whose
+   * shifts may you see besides your own". A plain staff member holds none, so
+   * the question is refused on the server whatever the model decided.
+   */
+  it("refuses a staff member who may not see the team", async () => {
+    const answer = await assistant.ask(
+      "who is working tomorrow",
+      await callerFor(tenant.staff.userId)
+    );
+
+    expect(answer.intent).toBe("unknown");
+  });
+
+  it("says so when nothing is scheduled", async () => {
+    const answer = await assistant.ask(
+      "who is working tomorrow",
+      await callerFor(tenant.manager.userId)
+    );
+
+    expect(answer.answer).toMatch(/nothing is scheduled/i);
+    // Their own word back, so they can see the day was understood.
+    expect(answer.answer).toMatch(/tomorrow/);
+  });
+
+  /*
+   * And the shifts themselves, with the people on them — which is the entire
+   * point, and is what `getTasksForDateRange` beside it could never answer
+   * because it returns counts.
+   */
+  it("names the shift and the people on it", async () => {
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    tomorrow.setUTCHours(2, 0, 0, 0); // 10:00 Singapore
+
+    const task = await prisma.task.create({
+      data: {
+        title: "Morning prep",
+        organizationId: tenant.orgId,
+        departmentId: tenant.departmentId,
+        createdById: tenant.admin.userId,
+        status: "open",
+        priority: "medium",
+        requiredHeadcount: 2,
+        scheduledStart: tomorrow,
+        scheduledEnd: new Date(tomorrow.getTime() + 4 * 60 * 60 * 1000),
+      },
+    });
+    await prisma.taskAssignment.create({
+      data: {
+        taskId: task.id,
+        membershipId: tenant.staff.membershipId,
+        status: "accepted",
+        assignedById: tenant.admin.userId,
+      },
+    });
+
+    const answer = await assistant.ask(
+      "who is working tomorrow",
+      await callerFor(tenant.manager.userId)
+    );
+
+    expect(answer.answer).toContain("Morning prep");
+    expect(answer.answer).toMatch(/1 shift/);
   });
 });
 
