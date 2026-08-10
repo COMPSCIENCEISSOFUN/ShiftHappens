@@ -6,6 +6,20 @@
  * takes. Turning that string back into a date is where this kind of code
  * usually goes wrong, so both directions live here and are tested.
  */
+/*
+ * No shared server locale here, and the reason is worth stating because the
+ * rule that governs it reads the wrong signal for a file like this one.
+ *
+ * `tests/lib/client-locale.test.ts` decides "on screen" by looking for a
+ * `"use client"` directive — which marks an ENTRY POINT, not a shared module.
+ * This file has none and is imported by exactly two things, both of which run
+ * in the browser: the auto-schedule page and `week-start-notice`. Every label
+ * below is read by one person on their own machine, so it follows their own
+ * format, and the scan names this path explicitly rather than inferring it.
+ *
+ * The first pass pinned all four of these, for exactly that reason, and the
+ * tests below caught it by changing shape.
+ */
 import { dayOfWeekInTimeZone, localDateInTimeZone } from "@/lib/timezone";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -93,8 +107,8 @@ export function weekRangeLabel(dateStr: string): string {
   const end = addDays(start, 6);
 
   return (
-    `${start.toLocaleDateString("en-US", { month: "short", day: "numeric" })} — ` +
-    `${end.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`
+    `${start.toLocaleDateString([], { month: "short", day: "numeric" })} — ` +
+    `${end.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" })}`
   );
 }
 
@@ -124,14 +138,14 @@ export function mondayOf(dateStr: string): string {
  */
 export function weekdayName(dateStr: string): string | null {
   const date = parseDateOnly(dateStr);
-  return date ? date.toLocaleDateString("en-US", { weekday: "long" }) : null;
+  return date ? date.toLocaleDateString([], { weekday: "long" }) : null;
 }
 
 /** A `YYYY-MM-DD` as "Mon 3 Aug", or null if unparseable. */
 export function shortDateLabel(dateStr: string): string | null {
   const date = parseDateOnly(dateStr);
   if (!date) return null;
-  return date.toLocaleDateString("en-GB", {
+  return date.toLocaleDateString([], {
     weekday: "short",
     day: "numeric",
     month: "short",

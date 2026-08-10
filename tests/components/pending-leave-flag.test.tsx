@@ -40,9 +40,21 @@ const ALTERNATIVES: Alternative[] = [
 ];
 
 describe("what it says", () => {
+  /*
+   * The date is not asserted verbatim.
+   *
+   * This read `/Asked Fri 14 Aug off/`, which was the en-GB rendering the
+   * component used to force. It now follows the reader's own locale, so the
+   * same correct output is "Fri, Aug 14" on one machine and "8月14日" on
+   * another — and a test pinning one of them is a test about whoever ran it.
+   *
+   * The day number survives every locale, and the two claims this component
+   * makes — that it names the day, and that nobody has answered — are both
+   * still checked.
+   */
   it("names the day and that nobody has answered", () => {
     render(<PendingLeaveFlag leave={leave()} alternatives={[]} />);
-    expect(screen.getByText(/Asked Fri 14 Aug off/)).toBeInTheDocument();
+    expect(screen.getByText(/Asked .*14.* off/)).toBeInTheDocument();
     expect(screen.getByText(/awaiting approval/)).toBeInTheDocument();
   });
 

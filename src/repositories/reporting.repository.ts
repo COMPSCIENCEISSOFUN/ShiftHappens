@@ -120,6 +120,18 @@ export interface RejectionRecord {
 }
 
 /** Task scheduled within a date range with assignment breakdown */
+/** A shift on a given day, and who is on it. */
+export interface RosterEntryRecord {
+  id: string;
+  title: string;
+  requiredHeadcount: number;
+  departmentName: string | null;
+  scheduledStart: Date | null;
+  scheduledEnd: Date | null;
+  /** Only rows that still hold a slot — see `occupyingStatusFilter`. */
+  staff: { name: string | null; status: string }[];
+}
+
 export interface ScheduledTaskRecord {
   id: string;
   title: string;
@@ -549,6 +561,79 @@ export class ReportingRepository {
    * Used for "tomorrow's schedule" and date-range displays.
    * Tasks are ordered by scheduled start time ascending.
    */
+  /**
+   * Every shift overlapping a window, with the people occupying it.
+   *
+   * `getTasksForDateRange` beside this returns COUNTS, which answers "how
+   * staffed is Thursday" and cannot answer "who is on Thursday" — the question
+   * people actually ask a rota. Rather than widening that method and making
+   * every existing caller carry names it does not use, this is its own query.
+   *
+   * `occupyingStatusFilter()` is the shared rule, not a hand-written status
+   * list: a shift in progress has people clocked in on it, and a rejected
+   * assignment is a row that no longer holds a slot. Counting those wrongly is
+   * how the same shift came to read "2/3 staff" on one screen and "needs 3
+   * more" on another.
+   *
+   * Overlap rather than containment — `scheduledStart < end AND scheduledEnd >
+   * start` — so an overnight shift belongs to both days it touches, which is
+   * what somebody asking "who is on tonight" means.
+   */
+  async getRosterForRange(
+    organizationId: string,
+    startDate: Date,
+    endDate: Date,
+    departmentIds?: string[] | null
+  ): Promise<RosterEntryRecord[]> {
+    const tasks = await prisma.task.findMany({
+      where: {
+        organizationId,
+        status: { in: ["open", "in_progress"] },
+        scheduledStart: { lt: endDate },
+        scheduledEnd: { gt: startDate },
+        ...(departmentIds != null
+          ? { departmentId: { in: departmentIds } }
+          : {}),
+      },
+      select: {
+        id: true,
+        title: true,
+        requiredHeadcount: true,
+        scheduledStart: true,
+        scheduledEnd: true,
+        department: { select: { name: true } },
+        assignments: {
+          where: { status: { in: occupyingStatusFilter() } },
+          select: {
+            status: true,
+            membership: { select: { user: { select: { name: true } } } },
+          },
+        },
+      },
+      /*
+       * By start time, then by id. `scheduledStart` alone is a PARTIAL order —
+       * two shifts can begin in the same minute, and Postgres guarantees
+       * nothing about ties, so a roster could list them differently on two
+       * consecutive loads. The same fix, for the same reason, as
+       * `findByUserId`.
+       */
+      orderBy: [{ scheduledStart: "asc" }, { id: "asc" }],
+    });
+
+    return tasks.map((t) => ({
+      id: t.id,
+      title: t.title,
+      requiredHeadcount: t.requiredHeadcount,
+      departmentName: t.department?.name ?? null,
+      scheduledStart: t.scheduledStart,
+      scheduledEnd: t.scheduledEnd,
+      staff: t.assignments.map((a) => ({
+        name: a.membership.user.name,
+        status: a.status,
+      })),
+    }));
+  }
+
   async getTasksForDateRange(
     organizationId: string,
     startDate: Date,

@@ -18,14 +18,7 @@ import { SettingsRepository } from "@/repositories/settings.repository";
 import { EligibilityOverrideRepository } from "@/repositories/eligibility-override.repository";
 import { REASON_PHRASE, type DeclineReason } from "@/lib/decline-reasons";
 import { occupiesSlot } from "@/lib/assignment-status";
-import {
-  DEFAULT_TIMEZONE,
-  dayOfWeekInTimeZone,
-  endOfDayInTimeZone,
-  localDateInTimeZone,
-  startOfDayInTimeZone,
-  shiftWindowLabel,
-} from "@/lib/timezone";
+import { DEFAULT_TIMEZONE, SERVER_LOCALE, dayOfWeekInTimeZone, endOfDayInTimeZone, localDateInTimeZone, shiftWindowLabel, startOfDayInTimeZone } from "@/lib/timezone";
 
 /**
  * One day in milliseconds. Adding whole days to a day boundary resolved in a
@@ -495,6 +488,34 @@ export class ReportingService {
    * "nobody is ASSIGNED", and a manager asking which shifts are unfilled gets
    * a near-empty answer while half the rota stands empty.
    */
+  /**
+   * Who is on, for one calendar day in the organisation's timezone.
+   *
+   * The day boundary is resolved HERE rather than by the caller, because
+   * "Thursday" is a question about the organisation's calendar and the
+   * conversion needs its timezone — the same reasoning that keeps
+   * `departmentScopeFor` in Control. A caller passing two timestamps would be
+   * a second place that decides when a day starts, and there is already a long
+   * comment in `business-day` about what that cost the calendars.
+   */
+  async getRosterForDay(
+    organizationId: string,
+    /** `YYYY-MM-DD`, as the organisation's calendar sees it. */
+    localDate: string,
+    departmentIds?: string[] | null
+  ) {
+    const [year, month, day] = localDate.split("-").map(Number);
+    // Midday, then snapped to the day's edges: constructing at midnight and
+    // converting can land on the previous day for a positive UTC offset.
+    const noon = new Date(Date.UTC(year, month - 1, day, 12));
+    return this.reportingRepo.getRosterForRange(
+      organizationId,
+      startOfDayInTimeZone(noon),
+      endOfDayInTimeZone(noon),
+      departmentIds
+    );
+  }
+
   async getUnderstaffedShifts(
     organizationId: string,
     departmentIds?: string[] | null
@@ -1342,7 +1363,7 @@ export class ReportingService {
     // Rendered in the organisation's timezone: a shift shown as "7:00am" must
     // be 7am to the staff member, not 7am wherever the function happens to run.
     const fmt = (d: Date) => {
-      const parts = d.toLocaleTimeString("en-US", {
+      const parts = d.toLocaleTimeString(SERVER_LOCALE, {
         timeZone: DEFAULT_TIMEZONE,
         hour: "numeric",
         minute: "2-digit",

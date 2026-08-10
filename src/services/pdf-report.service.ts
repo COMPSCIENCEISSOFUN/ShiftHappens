@@ -16,11 +16,7 @@ import { REASON_PHRASE } from "@/lib/decline-reasons";
 import { jsPDF } from "jspdf";
 import { ReportingService } from "./reporting.service";
 import { AuditLogService, ACTIONS } from "./audit-log.service";
-import {
-  DEFAULT_TIMEZONE,
-  dayOfWeekInTimeZone,
-  startOfDayInTimeZone,
-} from "@/lib/timezone";
+import { DEFAULT_TIMEZONE, SERVER_LOCALE, dayOfWeekInTimeZone, startOfDayInTimeZone } from "@/lib/timezone";
 import type {
   KeyMetrics,
   StaffUtilizationItem,
@@ -881,7 +877,7 @@ export class PdfReportService {
    * A printed report must show the reader's dates, not the server's.
    */
   private formatDateShort(date: Date): string {
-    return date.toLocaleDateString("en-US", {
+    return date.toLocaleDateString(SERVER_LOCALE, {
       timeZone: DEFAULT_TIMEZONE,
       month: "short",
       day: "numeric",
@@ -891,7 +887,7 @@ export class PdfReportService {
 
   /** Formats time as "10:30 AM" in the organisation's timezone. */
   private formatTime(date: Date): string {
-    return date.toLocaleTimeString("en-US", {
+    return date.toLocaleTimeString(SERVER_LOCALE, {
       timeZone: DEFAULT_TIMEZONE,
       hour: "numeric",
       minute: "2-digit",

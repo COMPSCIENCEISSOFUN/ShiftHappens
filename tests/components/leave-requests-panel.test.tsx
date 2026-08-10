@@ -37,7 +37,19 @@ describe("what a reviewer is shown", () => {
 
     expect(screen.getByText(/Alex Rivera/)).toBeInTheDocument();
     expect(screen.getByText(/asked off/)).toBeInTheDocument();
-    expect(screen.getByText(/14 Aug 2026/)).toBeInTheDocument();
+    /*
+     * Passing on the machine that wrote it, and nowhere guaranteed.
+     *
+     * This panel formats in the reader's locale now, and "14 Aug 2026" happens
+     * to be what this machine produces. It was green in the run that turned
+     * five sibling assertions red, which is the worst way for a fragile test to
+     * behave: it survives the change that proves it is fragile.
+     *
+     * The day and the year are the claim; the order and the month's spelling
+     * are the reader's.
+     */
+    expect(screen.getByText(/\b14\b/)).toBeInTheDocument();
+    expect(screen.getByText(/2026/)).toBeInTheDocument();
   });
 
   /*

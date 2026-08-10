@@ -296,7 +296,7 @@ export default function ProfileSettings() {
     : profile.email[0].toUpperCase();
 
   const primaryMembership = profile.memberships[0] ?? null;
-  const joinedDate = new Date(profile.createdAt).toLocaleDateString("en-AU", {
+  const joinedDate = new Date(profile.createdAt).toLocaleDateString([], {
     year: "numeric",
     month: "long",
     day: "numeric",
@@ -600,7 +600,7 @@ export default function ProfileSettings() {
                     />
                     <span className="text-xs text-muted-foreground">
                       Joined{" "}
-                      {new Date(m.joinedAt).toLocaleDateString("en-AU", {
+                      {new Date(m.joinedAt).toLocaleDateString([], {
                         year: "numeric",
                         month: "short",
                         day: "numeric",
@@ -647,7 +647,7 @@ export default function ProfileSettings() {
                     <CircleCheck className="h-3.5 w-3.5" aria-hidden="true" />
                     Verified on{" "}
                     {new Date(profile.emailVerified).toLocaleDateString(
-                      "en-AU",
+                      [],
                       {
                         year: "numeric",
                         month: "long",

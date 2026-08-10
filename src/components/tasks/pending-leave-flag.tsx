@@ -48,7 +48,7 @@ export function PendingLeaveFlag({
   alternatives: Alternative[];
   onPick?: (membershipId: string) => void;
 }) {
-  const when = new Date(leave.date).toLocaleDateString("en-GB", {
+  const when = new Date(leave.date).toLocaleDateString([], {
     weekday: "short",
     day: "numeric",
     month: "short",

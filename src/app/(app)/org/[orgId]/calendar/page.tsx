@@ -109,11 +109,11 @@ function getWeekStart(date: Date): Date {
 }
 
 function formatDate(date: Date): string {
-  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return date.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
 function formatFullDate(date: Date): string {
-  return date.toLocaleDateString("en-US", {
+  return date.toLocaleDateString([], {
     weekday: "long",
     month: "short",
     day: "numeric",

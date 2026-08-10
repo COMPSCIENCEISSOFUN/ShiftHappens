@@ -1,3 +1,4 @@
+import { SERVER_LOCALE } from "@/lib/timezone";
 /**
  * Availability Service (Control Layer)
  * 
@@ -530,7 +531,7 @@ export class AvailabilityService {
       if (!membership) return;
 
       const name = await this.availRepo.getMemberName(membershipId);
-      const when = date.toLocaleDateString("en-GB", {
+      const when = date.toLocaleDateString(SERVER_LOCALE, {
         weekday: "short",
         day: "numeric",
         month: "short",
@@ -684,7 +685,7 @@ export class AvailabilityService {
           ? NOTIFICATION_TYPES.LEAVE_APPROVED
           : NOTIFICATION_TYPES.LEAVE_REJECTED,
         decision === "approved" ? "Leave approved" : "Leave not approved",
-        `Your request for ${override.date.toLocaleDateString("en-GB", {
+        `Your request for ${override.date.toLocaleDateString(SERVER_LOCALE, {
           weekday: "short",
           day: "numeric",
           month: "short",

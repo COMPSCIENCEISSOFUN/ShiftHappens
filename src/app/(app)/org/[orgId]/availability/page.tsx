@@ -534,7 +534,7 @@ export default function AvailabilityPage() {
                   {/* The weekday, not just the date — "14 Aug" alone does not
                       tell you which of your weekly windows it replaces. */}
                   <p className="truncate text-[13px] font-medium">
-                    {date.toLocaleDateString("en-GB", {
+                    {date.toLocaleDateString([], {
                       weekday: "short",
                       day: "numeric",
                       month: "short",
@@ -549,7 +549,7 @@ export default function AvailabilityPage() {
                 </div>
                 <button
                   onClick={() => onDeleteOverride(ov.id)}
-                  aria-label={`Remove override for ${date.toLocaleDateString("en-GB")}`}
+                  aria-label={`Remove override for ${date.toLocaleDateString()}`}
                   className="shrink-0 rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950 dark:hover:text-red-400"
                 >
                   <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />

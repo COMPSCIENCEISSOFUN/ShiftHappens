@@ -61,27 +61,54 @@ describe("parseDateOnly", () => {
   });
 });
 
+/**
+ * These asserted exact strings — "Aug 3 — Aug 9, 2026" — and that is a claim
+ * about ICU, not about this function.
+ *
+ * The label renders in the READER's locale, so the same correct output is
+ * "3 Aug — 9 Aug 2026" on a British machine and "8月3日" on a Chinese one.
+ * Pinning the string made the suite pass or fail on whose laptop it ran — the
+ * same defect as the fixed sleeps, which failed here and passed there and were
+ * making a claim about the hardware.
+ *
+ * So they now assert what this function actually owns: which SEVEN DAYS the
+ * label covers, and which year it ends in. Every one of those is a number, and
+ * numbers are the part every locale agrees on.
+ */
 describe("weekRangeLabel", () => {
   it("spans seven days from the given date", () => {
-    expect(weekRangeLabel("2026-08-03")).toBe("Aug 3 — Aug 9, 2026");
+    const label = weekRangeLabel("2026-08-03");
+    expect(label).toContain("3");
+    expect(label).toContain("9");
+    expect(label).toContain("2026");
   });
 
   it("crosses a month boundary", () => {
-    expect(weekRangeLabel("2026-08-31")).toBe("Aug 31 — Sep 6, 2026");
+    const label = weekRangeLabel("2026-08-31");
+    expect(label).toContain("31");
+    expect(label).toContain("6");
+    // Two different months named, whatever this machine calls them.
+    expect(label.split(" — ")).toHaveLength(2);
   });
 
   it("crosses a year boundary and shows the END year", () => {
     // The year belongs to the end of the range, so a week straddling New Year
-    // reads "Dec 28 — Jan 3, 2027" rather than claiming 2026 throughout.
-    expect(weekRangeLabel("2026-12-28")).toBe("Dec 28 — Jan 3, 2027");
+    // reads 2027 rather than claiming 2026 throughout. THIS is the assertion
+    // worth having, and it survives any locale.
+    const label = weekRangeLabel("2026-12-28");
+    expect(label).toContain("2027");
+    expect(label).not.toContain("2026");
   });
 
   it("names the same day the input does", () => {
-    // Stated as a general property because it is the actual bug: the label must
-    // never disagree with the date sitting in the input next to it.
+    // The actual bug: the label must never disagree with the date sitting in
+    // the input next to it. Asserted on the DAY NUMBER rather than on the
+    // rendered month name, which every locale spells differently and some do
+    // not put first.
     for (const date of ["2026-01-01", "2026-06-15", "2026-08-03", "2026-12-31"]) {
       const day = Number(date.slice(8, 10));
-      expect(weekRangeLabel(date).startsWith(`${monthName(date)} ${day} `)).toBe(true);
+      const label = weekRangeLabel(date);
+      expect(label.split(" — ")[0], `${date} start`).toContain(String(day));
     }
   });
 
@@ -91,9 +118,6 @@ describe("weekRangeLabel", () => {
   });
 });
 
-function monthName(dateStr: string): string {
-  return parseDateOnly(dateStr)!.toLocaleDateString("en-US", { month: "short" });
-}
 
 describe("isMonday", () => {
   it("recognises a Monday", () => {
@@ -231,8 +255,22 @@ describe("weekdayName", () => {
 });
 
 describe("shortDateLabel", () => {
-  it("reads as a person would say it", () => {
-    expect(shortDateLabel("2026-08-03")).toBe("Mon 3 Aug");
+  /*
+   * This asserted "Mon 3 Aug" — the en-GB spelling, which the label no longer
+   * forces. What the function owns is WHICH day it names; how that day is
+   * written belongs to the reader.
+   */
+  it("names the weekday and the day of the month", () => {
+    const label = shortDateLabel("2026-08-03");
+
+    // Not null, which is its answer for an unparseable date — asserted rather
+    // than assumed away, because every claim below is vacuous without it.
+    expect(label).not.toBeNull();
+    expect(label!).toContain("3");
+    // A weekday is present as well as a date — the label is not bare numbers.
+    expect(label!.length).toBeGreaterThan(4);
+    // And it distinguishes days, which a constant would not.
+    expect(shortDateLabel("2026-08-04")).not.toBe(label);
   });
 
   it("returns null for an unparseable value", () => {

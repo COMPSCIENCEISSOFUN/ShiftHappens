@@ -21,9 +21,7 @@ import { SettingsRepository } from "@/repositories/settings.repository";
 import { MembershipRepository } from "@/repositories/membership.repository";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 import { NotificationService, NOTIFICATION_TYPES } from "@/services/notification.service";
-import {
-  DEFAULT_TIMEZONE,
-} from "@/lib/timezone";
+import { DEFAULT_TIMEZONE, SERVER_LOCALE } from "@/lib/timezone";
 import {
   EligibilityService,
   type ProvisionalAssignments,
@@ -954,16 +952,16 @@ export class AutoScheduleService {
       // Pin the timezone: without it these format in the server's zone, so the
       // model is shown shift times eight hours from what the roster actually
       // says and reasons about the wrong part of the day.
-      const day = t.scheduledStart.toLocaleDateString("en-US", {
+      const day = t.scheduledStart.toLocaleDateString(SERVER_LOCALE, {
         weekday: "short",
         timeZone: DEFAULT_TIMEZONE,
       });
-      const start = t.scheduledStart.toLocaleTimeString("en-US", {
+      const start = t.scheduledStart.toLocaleTimeString(SERVER_LOCALE, {
         hour: "numeric",
         minute: "2-digit",
         timeZone: DEFAULT_TIMEZONE,
       });
-      const end = t.scheduledEnd.toLocaleTimeString("en-US", {
+      const end = t.scheduledEnd.toLocaleTimeString(SERVER_LOCALE, {
         hour: "numeric",
         minute: "2-digit",
         timeZone: DEFAULT_TIMEZONE,

@@ -37,11 +37,24 @@ describe("when it does not", () => {
     expect(screen.getByText(/starts on a Wednesday/)).toBeInTheDocument();
   });
 
+  /*
+   * Found by what the button DOES, not by how a date is spelled.
+   *
+   * This matched `/Mon 3 Aug/`, which is the en-GB rendering the label used to
+   * force. It now follows the reader's locale, so the same correct button reads
+   * "Mon, 3 Aug" on one machine and "8月3日" on another — and a query pinning
+   * one of them is a query about whoever ran the suite.
+   *
+   * The DAY NUMBER is still asserted, separately and explicitly, because "does
+   * it offer the right Monday" is the actual claim and 3 is 3 in every locale.
+   */
   it("offers the Monday of that same week", () => {
     render(<WeekStartNotice weekStart={WEDNESDAY} onUseMonday={() => {}} />);
-    expect(
-      screen.getByRole("button", { name: /Mon 3 Aug/ })
-    ).toBeInTheDocument();
+
+    const offer = screen.getByRole("button", { name: /instead/ });
+    expect(offer).toBeInTheDocument();
+    // The 3rd of August is the Monday of the week containing Wednesday the 5th.
+    expect(offer).toHaveAccessibleName(/\b3\b/);
   });
 
   /*
@@ -53,7 +66,7 @@ describe("when it does not", () => {
   it("treats Sunday as the end of its week, not the start of the next", () => {
     render(<WeekStartNotice weekStart={SUNDAY} onUseMonday={() => {}} />);
     expect(
-      screen.getByRole("button", { name: /Mon 3 Aug/ })
+      screen.getByRole("button", { name: /instead/ })
     ).toBeInTheDocument();
   });
 
@@ -61,7 +74,7 @@ describe("when it does not", () => {
     const onUseMonday = vi.fn();
     render(<WeekStartNotice weekStart={WEDNESDAY} onUseMonday={onUseMonday} />);
 
-    await userEvent.click(screen.getByRole("button", { name: /Mon 3 Aug/ }));
+    await userEvent.click(screen.getByRole("button", { name: /instead/ }));
     expect(onUseMonday).toHaveBeenCalledWith(MONDAY);
   });
 
@@ -77,7 +90,7 @@ describe("when it does not", () => {
     render(
       <WeekStartNotice weekStart={WEDNESDAY} onUseMonday={() => {}} disabled />
     );
-    expect(screen.getByRole("button", { name: /Mon 3 Aug/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /instead/ })).toBeDisabled();
   });
 });
 

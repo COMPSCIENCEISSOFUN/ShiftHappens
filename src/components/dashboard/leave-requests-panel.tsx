@@ -67,7 +67,7 @@ export function LeaveRequestsPanel({
           const name =
             request.membership.user.name || request.membership.user.email;
           const busy = deciding.includes(request.id);
-          const when = new Date(request.date).toLocaleDateString("en-GB", {
+          const when = new Date(request.date).toLocaleDateString([], {
             weekday: "short",
             day: "numeric",
             month: "short",

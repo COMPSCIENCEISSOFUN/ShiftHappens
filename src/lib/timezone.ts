@@ -23,6 +23,33 @@
 export const DEFAULT_TIMEZONE = "Asia/Singapore";
 
 /**
+ * The locale for output that no browser will ever format.
+ *
+ * PDFs, notification bodies, email text and AI prompts are produced on the
+ * server and read somewhere else, so something has to choose — and four files
+ * were choosing separately. `pdf-report`, `auto-schedule` and `reporting` said
+ * `en-US`; `availability` said `en-GB`; `schedule-week` said BOTH, eight lines
+ * apart.
+ *
+ * That is not a tidiness problem. `en-GB` renders a date day-first and `en-US`
+ * month-first, so `8/11` meant 8 November in one part of this product and 11
+ * August in another. In a rostering application that is the wrong thing to be
+ * inconsistent about.
+ *
+ * `en-GB` to match the timezone, the spelling used throughout, and the 24-hour
+ * clock a roster is actually written in.
+ *
+ * ## This is NOT for anything a person reads on screen
+ *
+ * Roughly thirty call sites in pages and components pass no locale at all, so
+ * they follow the reader's own preference — which is correct, and is a
+ * different question from the timezone. A date is one instant; how it is
+ * SPELLED is a preference, and `13 Aug` and `8月13日` name the same day.
+ * `tests/lib/client-locale.test.ts` keeps that side honest.
+ */
+export const SERVER_LOCALE = "en-GB";
+
+/**
  * Milliseconds to add to a UTC instant to obtain the wall-clock time in `timeZone`.
  * Singapore is UTC+8, so this returns 28_800_000.
  */
