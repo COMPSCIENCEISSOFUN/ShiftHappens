@@ -37,6 +37,11 @@ import { toDateTimeLocalValue } from "@/lib/timezone";
 import { OperatingHoursNotice } from "@/components/tasks/operating-hours-notice";
 import { reasonLabel } from "@/lib/decline-reasons";
 import {
+  DATE_RANGE_MESSAGE,
+  parseDateRange,
+  withinDateRange,
+} from "@/lib/date-range";
+import {
   countOccupied,
   remainingSlots as slotsLeft,
   canHoldClockTimes,
@@ -357,6 +362,19 @@ export default function TasksPage() {
   const [assigning, setAssigning] = useState(false);
   const [filterStatus, setFilterStatus] = useState("");
   const [filterDept, setFilterDept] = useState("");
+  /*
+   * The shift-date range. Filtered in the browser, like the two above it: this
+   * page already holds every task it can show, so a round trip would buy
+   * nothing and would make these three filters work in two different ways.
+   *
+   * The RULE is shared, though — `parseDateRange` and `withinDateRange`, the
+   * same pair the leave register and the certificates page use. What differs
+   * between the screens is where the rows come from, not what a date range
+   * means, and the timezone half of that is not something to get right three
+   * times.
+   */
+  const [filterFrom, setFilterFrom] = useState("");
+  const [filterTo, setFilterTo] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
@@ -1227,9 +1245,27 @@ export default function TasksPage() {
     ? tasks.filter((t) => t.department?.id === filterDept)
     : tasks;
 
-  const displayedTasks = filterStatus
+  const statusTasks = filterStatus
     ? deptTasks.filter((t) => t.status === filterStatus)
     : deptTasks;
+
+  /*
+   * A reversed range narrows NOTHING rather than everything.
+   *
+   * `withinDateRange` returns true for a range carrying a problem, so a
+   * half-typed "to" before the "from" leaves the list alone while the notice
+   * below explains itself. Filtering on it would empty the screen, and an empty
+   * screen reads as "there is no work that week" — the wrong answer, delivered
+   * confidently.
+   *
+   * An unscheduled task is OUT whenever a range is set: it is not in August,
+   * and including it because it has no date to exclude it by would put every
+   * unscheduled task in every range at once.
+   */
+  const dateRange = parseDateRange(filterFrom, filterTo);
+  const displayedTasks = statusTasks.filter((t) =>
+    withinDateRange(t.scheduledStart, dateRange)
+  );
 
   // ── Computed stats ───────────────────────────────
   // Stat tiles: global (all tasks, no filters).
@@ -1414,6 +1450,37 @@ export default function TasksPage() {
 
         <div className="mx-1 h-6 w-px shrink-0 bg-border" />
 
+        <input
+          type="date"
+          value={filterFrom}
+          max={filterTo || undefined}
+          onChange={(e) => setFilterFrom(e.target.value)}
+          aria-label="Shifts on or after"
+          className="h-[34px] shrink-0 rounded-full border border-border bg-card px-3 text-[13px] text-muted-foreground transition-colors hover:border-indigo-300 dark:hover:border-indigo-600"
+        />
+        <input
+          type="date"
+          value={filterTo}
+          min={filterFrom || undefined}
+          onChange={(e) => setFilterTo(e.target.value)}
+          aria-label="Shifts on or before"
+          className="h-[34px] shrink-0 rounded-full border border-border bg-card px-3 text-[13px] text-muted-foreground transition-colors hover:border-indigo-300 dark:hover:border-indigo-600"
+        />
+        {(filterFrom || filterTo) && (
+          <button
+            type="button"
+            onClick={() => {
+              setFilterFrom("");
+              setFilterTo("");
+            }}
+            className="shrink-0 rounded-full px-2.5 py-1.5 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            Clear dates
+          </button>
+        )}
+
+        <div className="mx-1 h-6 w-px shrink-0 bg-border" />
+
         <select
           className="shrink-0 appearance-none rounded-full border border-border bg-card py-1.5 pl-3 pr-7 text-[13px] text-muted-foreground transition-colors hover:border-indigo-300 dark:hover:border-indigo-600"
           value={filterDept}
@@ -1430,6 +1497,19 @@ export default function TasksPage() {
           ))}
         </select>
       </div>
+
+      {/*
+        Said out loud, rather than left to be inferred from an empty list. The
+        list is deliberately unfiltered while this shows, so the reader can see
+        their range is the problem and not the data.
+      */}
+      {dateRange.problem && (
+        <AlertBanner
+          message={DATE_RANGE_MESSAGE[dateRange.problem]}
+          variant="error"
+          className="mb-4"
+        />
+      )}
 
       {/* ──────────────────────────────────────────────── */}
       {/* 5. Create task form (collapsible)                */}
