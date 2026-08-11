@@ -30,6 +30,7 @@ model User {
   leaveReviewed          AvailabilityOverride[] @relation("LeaveReviewedBy")
   auditLogs              AuditLog[]
   notifications          Notification[]
+  projectsCreated        Project[] @relation("ProjectCreator")
 }
 
 model Organization {
@@ -67,6 +68,7 @@ model Organization {
   roles            Role[]
   companySettings  CompanySettings?
   tasks            Task[]
+  projects         Project[]
   auditLogs        AuditLog[]
   workRules        WorkRule[]
   notifications    Notification[]
@@ -101,6 +103,7 @@ model Membership {
   departmentMemberships DepartmentMembership[]
   calendarFeeds         CalendarFeed[]
   taskAssignments       TaskAssignment[]
+  projectMemberships    ProjectMember[]
   availabilities        Availability[]
   availabilityOverrides AvailabilityOverride[]
   certifications        Certification[]
@@ -168,6 +171,8 @@ model Department {
   workRules             WorkRule[]             @relation("WorkRuleDepartment")
   departmentMemberships DepartmentMembership[]
   tasks                 Task[]
+  projectDepartments    ProjectDepartment[]
+  projects              Project[]
 
   @@unique([organizationId, name])
   @@index([organizationId])
@@ -292,6 +297,7 @@ model Task {
   id                String    @id @default(cuid())
   organizationId    String
   departmentId      String?
+  projectId         String?
   title             String
   description       String?
   requiredHeadcount Int       @default(1)
@@ -337,6 +343,7 @@ model Task {
    * would otherwise have stranded.
    */
   department   Department?      @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  project      Project?         @relation(fields: [projectId], references: [id], onDelete: SetNull)
   createdBy    User             @relation(fields: [createdById], references: [id])
   assignments  TaskAssignment[]
   eligibilityOverrides EligibilityOverride[]
@@ -347,6 +354,65 @@ model Task {
   @@index([departmentId])
   @@index([status])
   @@index([parentTaskId])
+  @@index([projectId])
+}
+
+/** A multi-task delivery outcome. Recurring task links remain separate. */
+model Project {
+  id             String   @id @default(cuid())
+  organizationId String
+  departmentId   String?
+  title          String
+  description    String?
+  status         String   @default("planning")
+  priority       String   @default("medium")
+  staffingMode   String   @default("task_based")
+  plannedStart   DateTime?
+  plannedEnd     DateTime?
+  createdById    String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  department     Department?     @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  createdBy      User            @relation("ProjectCreator", fields: [createdById], references: [id])
+  tasks          Task[]
+  projectMembers ProjectMember[]
+  projectDepartments ProjectDepartment[]
+
+  @@index([organizationId])
+  @@index([departmentId])
+  @@index([staffingMode])
+  @@index([plannedStart, plannedEnd])
+}
+
+/** Departments included in a project. The legacy departmentId remains the primary task department. */
+model ProjectDepartment {
+  id           String     @id @default(cuid())
+  projectId    String
+  departmentId String
+  createdAt    DateTime   @default(now())
+
+  project      Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  department   Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, departmentId])
+  @@index([departmentId])
+}
+
+/** Long-running membership of a Project Team. */
+model ProjectMember {
+  id           String   @id @default(cuid())
+  projectId    String
+  membershipId String
+  createdAt    DateTime @default(now())
+
+  project      Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  membership   Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, membershipId])
+  @@index([projectId])
+  @@index([membershipId])
 }
 
 model TaskAssignment {

@@ -1,7 +1,7 @@
 /**
  * Billing Service (Control Layer)
  *
- * Owns the Stripe checkout lifecycle for paid-plan (Pro) subscriptions:
+ * Owns the Stripe checkout lifecycle for paid-plan subscriptions:
  *   1. createCheckoutSession — builds a Stripe Checkout Session for an org
  *      and returns the hosted-payment URL to redirect the user to.
  *   2. constructEvent — verifies a raw webhook payload against the signing
@@ -16,9 +16,10 @@
 import Stripe from "stripe";
 import {
   getStripe,
-  proPlanLineItem,
+  paidPlanLineItem,
   isBillingInterval,
   type BillingInterval,
+  type PaidPlan,
 } from "@/lib/stripe";
 import { BillingRepository } from "@/repositories/billing.repository";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
@@ -72,6 +73,7 @@ interface CreateCheckoutParams {
   userId: string;
   userEmail: string;
   interval: BillingInterval;
+  plan?: PaidPlan;
   source: CheckoutSource;
   /** Absolute origin of the current request, e.g. "http://localhost:3000". */
   origin: string;
@@ -89,16 +91,29 @@ export class BillingService {
   private subscriptionService = new SubscriptionService();
 
   /**
-   * Create a Stripe Checkout Session for the Pro plan and return its URL.
+   * Create a Stripe Checkout Session for the chosen paid plan and return its URL.
    * Reuses an existing Stripe customer for the org when one exists, otherwise
    * creates one and stores its id.
    */
   async createCheckoutSession(params: CreateCheckoutParams): Promise<string> {
-    const { organizationId, userId, userEmail, interval, source, origin } = params;
+    const {
+      organizationId,
+      userId,
+      userEmail,
+      interval,
+      plan = "pro",
+      source,
+      origin,
+    } = params;
     const stripe = getStripe();
 
     const org = await this.billingRepo.getByOrgId(organizationId);
     if (!org) throw new Error("Organization not found");
+    if (org.stripeSubscriptionId) {
+      throw new Error(
+        "This organisation already has a Stripe subscription. Manage it in the billing portal."
+      );
+    }
 
     // Ensure a Stripe customer exists for this org (one customer per org).
     let customerId = org.stripeCustomerId;
@@ -117,13 +132,13 @@ export class BillingService {
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
       customer: customerId,
-      line_items: [proPlanLineItem(interval)],
+      line_items: [paidPlanLineItem(plan, interval)],
       client_reference_id: organizationId,
       // Metadata on the session (read in checkout.session.completed) and on the
       // resulting subscription (read in customer.subscription.* events).
-      metadata: { organizationId, userId, tier: "pro", interval },
+      metadata: { organizationId, userId, tier: plan, interval },
       subscription_data: {
-        metadata: { organizationId, tier: "pro" },
+        metadata: { organizationId, tier: plan },
       },
       success_url: successUrl,
       cancel_url: cancelUrl,
@@ -140,7 +155,7 @@ export class BillingService {
       action: ACTIONS.CHECKOUT_STARTED,
       entityType: "subscription",
       entityId: session.id,
-      details: { interval, source, plan: "pro" },
+      details: { interval, source, plan },
     });
 
     return session.url;
@@ -209,6 +224,9 @@ export class BillingService {
       currentPeriodEnd: billing?.currentPeriodEnd ?? null,
       /** True once Stripe knows this organisation — the portal needs it. */
       hasStripeCustomer: Boolean(billing?.stripeCustomerId),
+      // Checkout creates a customer before a payment succeeds. This is kept
+      // separate so an abandoned checkout cannot look cancellable.
+      hasStripeSubscription: Boolean(billing?.stripeSubscriptionId),
       usage,
     };
   }
@@ -279,8 +297,9 @@ export class BillingService {
     }
 
     const interval = session.metadata?.interval;
+    const tier = session.metadata?.tier === "enterprise" ? "enterprise" : "pro";
     const updated = await this.billingRepo.applySubscriptionState(organizationId, {
-      subscriptionTier: "pro",
+      subscriptionTier: tier,
       subscriptionStatus: "active",
       stripeCustomerId: toId(session.customer),
       stripeSubscriptionId: toId(session.subscription),
@@ -308,7 +327,11 @@ export class BillingService {
     if (!organizationId) return;
 
     const terminal = ["canceled", "unpaid", "incomplete_expired"];
-    const tier = terminal.includes(sub.status) ? "free" : "pro";
+    const tier = terminal.includes(sub.status)
+      ? "free"
+      : sub.metadata?.tier === "enterprise"
+        ? "enterprise"
+        : "pro";
     const interval = sub.items.data[0]?.price.recurring?.interval;
 
     await this.billingRepo.applySubscriptionState(organizationId, {

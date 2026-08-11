@@ -2,12 +2,12 @@
  * Checkout API Endpoint (Boundary Layer)
  * POST /api/organizations/[orgId]/checkout — Start a Stripe Checkout session
  *
- * Creates a Stripe Checkout Session for the Pro plan and returns its hosted
+ * Creates a Stripe Checkout Session for a paid plan and returns its hosted
  * payment URL. Only a company_admin may initiate an upgrade. The actual tier
  * change happens later, when Stripe confirms payment via the webhook — this
- * endpoint never grants Pro on its own.
+ * endpoint never grants a tier on its own.
  *
- * Body: { interval: "month" | "year", source: "onboarding" | "settings" | "billing" }
+ * Body: { plan: "pro" | "enterprise", interval, source }
  *
  * Returns:
  * - 200: { url } — redirect the browser here
@@ -72,6 +72,7 @@ export async function POST(
       userId: user.id,
       userEmail: email,
       interval: parsed.data.interval,
+      plan: parsed.data.plan,
       source: parsed.data.source,
       origin: request.nextUrl.origin,
     });

@@ -38,6 +38,11 @@ import {
   overlapHours,
 } from "@/lib/business-day";
 import { occupiesSlot, occupyingStatusFilter } from "@/lib/assignment-status";
+import {
+  getProjectTeamRestriction,
+  isAllowedByProjectTeam,
+  OUTSIDE_PROJECT_TEAM_MESSAGE,
+} from "@/lib/project-staffing";
 
 interface EligibilityCheck {
   eligible: boolean;
@@ -401,6 +406,34 @@ export class EligibilityService {
     );
 
     return results;
+  }
+
+  /** Final server-side gate used before creating an assignment. */
+  async assertEligibleForAssignment(
+    taskId: string,
+    organizationId: string,
+    membershipIds: string[]
+  ): Promise<void> {
+    if (membershipIds.length === 0 || new Set(membershipIds).size !== membershipIds.length) {
+      throw new Error("At least one unique staff member is required");
+    }
+    const task = await this.taskRepo.findByIdWithoutRelations(taskId);
+    if (!task || task.organizationId !== organizationId) throw new Error("Task not found");
+
+    const projectTeam = await getProjectTeamRestriction(task.projectId, organizationId);
+    for (const membershipId of membershipIds) {
+      if (!isAllowedByProjectTeam(projectTeam, membershipId)) {
+        throw new Error(OUTSIDE_PROJECT_TEAM_MESSAGE);
+      }
+    }
+
+    const eligibility = await this.checkEligibilityForTask(taskId, organizationId);
+    const byMembership = new Map(eligibility.map((entry) => [entry.membershipId, entry]));
+    for (const membershipId of membershipIds) {
+      if (!byMembership.get(membershipId)?.eligible) {
+        throw new Error("Staff member cannot be assigned: failed final eligibility validation");
+      }
+    }
   }
 
   /** Builds a map of membershipId → set of overridden rule keys for a task. */

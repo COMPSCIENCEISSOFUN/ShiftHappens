@@ -36,6 +36,7 @@
 
 export const AUDIT_ENTITY_TYPES = [
   "task",
+  "project",
   "assignment",
   "department",
   "member",
@@ -67,6 +68,7 @@ export type AuditEntityType = (typeof AUDIT_ENTITY_TYPES)[number];
  */
 export const AUDIT_ENTITY_LABELS: Record<AuditEntityType, string> = {
   task: "Tasks",
+  project: "Projects",
   assignment: "Assignments",
   department: "Departments",
   member: "Members",

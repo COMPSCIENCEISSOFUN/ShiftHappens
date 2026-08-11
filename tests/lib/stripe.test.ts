@@ -9,7 +9,12 @@
  * secret key and is covered indirectly through the billing service tests.
  */
 import { describe, it, expect } from "vitest";
-import { isBillingInterval, proPlanLineItem, BILLING_CURRENCY } from "@/lib/stripe";
+import {
+  isBillingInterval,
+  paidPlanLineItem,
+  proPlanLineItem,
+  BILLING_CURRENCY,
+} from "@/lib/stripe";
 import { TIER_CONFIG } from "@/lib/subscription-tiers";
 
 describe("isBillingInterval", () => {
@@ -56,5 +61,16 @@ describe("proPlanLineItem", () => {
     const monthly = proPlanLineItem("month").price_data!.unit_amount;
     const yearly = proPlanLineItem("year").price_data!.unit_amount;
     expect(monthly).not.toBe(yearly);
+  });
+});
+
+describe("paidPlanLineItem", () => {
+  it("builds the Enterprise monthly price from the tier configuration", () => {
+    const item = paidPlanLineItem("enterprise", "month").price_data!;
+
+    expect(item.unit_amount).toBe(
+      Math.round((TIER_CONFIG.enterprise.monthlyPrice as number) * 100)
+    );
+    expect(item.product_data?.name).toBe("ShiftHappens Enterprise");
   });
 });

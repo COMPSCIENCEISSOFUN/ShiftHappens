@@ -26,7 +26,13 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { CreditCard, ExternalLink, Lock, TriangleAlert } from "lucide-react";
+import {
+  ArrowUpRight,
+  CreditCard,
+  ExternalLink,
+  Lock,
+  TriangleAlert,
+} from "lucide-react";
 import { PageLoading } from "@/components/ui/page-loading";
 import { EmptyState } from "@/components/ui/empty-state";
 import { AlertBanner } from "@/components/ui/alert-banner";
@@ -42,6 +48,7 @@ interface Overview {
   interval: string | null;
   currentPeriodEnd: string | null;
   hasStripeCustomer: boolean;
+  hasStripeSubscription: boolean;
   usage: {
     resources: Record<
       string,
@@ -128,7 +135,7 @@ export default function BillingPage() {
     }
   }, []);
 
-  async function startUpgrade() {
+  async function startCheckout(plan: "pro" | "enterprise") {
     setUpgrading(true);
     try {
       const res = await fetch(`/api/organizations/${orgId}/checkout`, {
@@ -136,7 +143,7 @@ export default function BillingPage() {
         headers: { "Content-Type": "application/json" },
         // `source: "billing"` is what sends Stripe back to THIS page rather
         // than to Settings, where the banner used to live.
-        body: JSON.stringify({ interval, source: "billing" }),
+        body: JSON.stringify({ plan, interval, source: "billing" }),
       });
       const body = await res.json();
       if (res.ok && body.url) {
@@ -288,12 +295,12 @@ export default function BillingPage() {
                 <p className="text-[13px] font-medium">Invoices and payment</p>
                 <p className="mt-0.5 text-[12px] text-muted-foreground">
                   Receipts, card details and cancellation are managed by Stripe.
-                  {!data.hasStripeCustomer &&
-                    " There is nothing here yet — this organisation has never been charged."}
+                  {!data.hasStripeSubscription &&
+                    " Your Pro access is active, but its billing details are not linked to Stripe yet."}
                 </p>
               </div>
               <div className="flex shrink-0 gap-2">
-                {data.hasStripeCustomer ? (
+                {data.hasStripeSubscription ? (
                   <button
                     type="button"
                     onClick={openPortal}
@@ -301,11 +308,11 @@ export default function BillingPage() {
                     className={SECONDARY_BUTTON}
                   >
                     <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
-                    {opening ? "Opening…" : "Manage billing"}
+                    {opening ? "Opening…" : "Manage or cancel plan"}
                   </button>
                 ) : (
                   <span className="text-[12px] text-muted-foreground">
-                    Nothing to manage yet
+                    Billing setup pending
                   </span>
                 )}
               </div>
@@ -320,10 +327,10 @@ export default function BillingPage() {
             only button it had sent the reader somewhere else. A page named
             after the money has to be where the money happens.
 
-            Only for Free. Pro gets the Enterprise conversation, and Enterprise
-            gets neither, because there is nothing above it to sell.
+            Checkout is only for Free organisations. A customer who is already
+            on Pro must not be offered a second Pro subscription.
           */}
-          {data.tier === "free" && (
+          {data.tier === "free" && !data.hasStripeSubscription && (
             <div className="mt-4 rounded-xl border border-border bg-card p-4">
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
@@ -371,7 +378,7 @@ export default function BillingPage() {
 
               <button
                 type="button"
-                onClick={startUpgrade}
+                onClick={() => startCheckout("pro")}
                 disabled={upgrading}
                 className={`${PRIMARY_BUTTON} mt-3`}
               >
@@ -382,10 +389,33 @@ export default function BillingPage() {
           )}
 
           {data.tier === "pro" && (
-            <p className="mt-4 text-[13px] text-muted-foreground">
-              You&apos;re on the Pro plan. Need higher limits or audit logs?
-              Contact us about Enterprise.
-            </p>
+            <div className="mt-4 flex flex-col gap-4 rounded-xl border border-indigo-200 bg-indigo-50/60 p-4 dark:border-indigo-900 dark:bg-indigo-950/30 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <p className="text-[13px] font-semibold">Ready for Enterprise?</p>
+                <p className="mt-0.5 text-[12px] text-muted-foreground">
+                  {data.hasStripeSubscription
+                    ? "Switch plans from your Stripe billing portal without creating a second subscription."
+                    : "Get unlimited limits, audit logs and priority support for $79 per month."}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={
+                  data.hasStripeSubscription
+                    ? openPortal
+                    : () => startCheckout("enterprise")
+                }
+                disabled={upgrading || opening}
+                className={`${PRIMARY_BUTTON} shrink-0`}
+              >
+                {upgrading || opening
+                  ? "Redirecting…"
+                  : data.hasStripeSubscription
+                    ? "Upgrade in Stripe"
+                    : "Upgrade to Enterprise"}
+                <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
+              </button>
+            </div>
           )}
 
           <div className="mt-4 rounded-xl border border-border bg-card p-4">

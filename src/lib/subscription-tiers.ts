@@ -57,7 +57,7 @@ export interface TierDefinition {
   name: SubscriptionTier;
   displayName: string;
   tagline: string;
-  monthlyPrice: number | null; // null = "Contact us"
+  monthlyPrice: number | null; // null = not sold through self-serve checkout
   yearlyPrice: number | null;
   limits: Record<ResourceType, number | null>; // null = unlimited
   gatedFeatures: GatedFeature[];
@@ -118,8 +118,8 @@ export const TIER_CONFIG: Record<SubscriptionTier, TierDefinition> = {
     name: 'enterprise',
     displayName: 'Enterprise',
     tagline: 'For large organizations with complex needs',
-    monthlyPrice: null,
-    yearlyPrice: null,
+    monthlyPrice: 79,
+    yearlyPrice: 790,
     limits: {
       members: null,
       active_tasks: null,
