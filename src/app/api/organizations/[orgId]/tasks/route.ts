@@ -118,7 +118,8 @@ export async function GET(
     const tasks = await taskService.getByOrganization(
       orgId,
       filters,
-      departmentScopeFor(membership)
+      departmentScopeFor(membership),
+      { id: membership.id, userId: membership.userId, role: membership.role }
     );
     return NextResponse.json(tasks);
   } catch {

@@ -90,6 +90,12 @@ type Project = {
     | Department
     | null;
 
+  createdBy: {
+    id: string;
+    name: string | null;
+    email: string;
+  };
+
   projectMembers:
     ProjectMember[];
 
@@ -99,6 +105,7 @@ type Project = {
 const SLOT_STATUSES =
   new Set([
     "assigned",
+    "accepted",
     "in_progress",
     "clocked_out",
     "completed",
@@ -266,9 +273,22 @@ export default function ProjectsPage() {
             ),
 
             fetch(
-              `/api/organizations/${orgId}/departments?scope=mine`
+              `/api/organizations/${orgId}/departments`
             ),
           ]);
+
+        const departmentData =
+          departmentResponse.ok
+            ? await departmentResponse.json()
+            : [];
+
+        setDepartments(
+          Array.isArray(
+            departmentData
+          )
+            ? departmentData
+            : []
+        );
 
         if (
           !projectResponse.ok
@@ -281,11 +301,6 @@ export default function ProjectsPage() {
         const projectData =
           await projectResponse.json();
 
-        const departmentData =
-          departmentResponse.ok
-            ? await departmentResponse.json()
-            : [];
-
         setProjects(
           Array.isArray(
             projectData
@@ -294,13 +309,6 @@ export default function ProjectsPage() {
             : []
         );
 
-        setDepartments(
-          Array.isArray(
-            departmentData
-          )
-            ? departmentData
-            : []
-        );
       } catch (loadError) {
         setError(
           loadError instanceof Error
@@ -328,6 +336,12 @@ export default function ProjectsPage() {
       new FormData(
         event.currentTarget
       );
+
+    const departmentIds = Array.from(
+      event.currentTarget.querySelectorAll<HTMLInputElement>(
+        'input[name="departmentIds"]:checked'
+      )
+    ).map((input) => input.value);
 
     const start =
       String(
@@ -366,11 +380,7 @@ export default function ProjectsPage() {
               ) ||
               undefined,
 
-            departmentId:
-              values.get(
-                "departmentId"
-              ) ||
-              undefined,
+            departmentIds,
 
             priority:
               values.get(
@@ -380,7 +390,7 @@ export default function ProjectsPage() {
             staffingMode:
               values.get(
                 "staffingMode"
-              ),
+              ) || undefined,
 
             plannedStart:
               start
@@ -432,21 +442,20 @@ export default function ProjectsPage() {
   }
 
   return (
-    <div className="max-w-6xl">
-      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+    <div className="max-w-7xl pb-8">
+      <div className="mb-8 flex flex-col gap-4 border-b border-border/70 pb-6 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Project workspace</p>
+          <h1 className="mt-1 text-3xl font-bold tracking-tight">
             Projects
           </h1>
 
-          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            Group related work
-            under a shared
-            outcome and manage
-            either task-based
-            allocation or a
-            persistent Project
-            Team.
+          <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+            Keep a clear record of
+            the outcome, owner,
+            linked work, and
+            progress for larger
+            initiatives.
           </p>
         </div>
 
@@ -485,7 +494,7 @@ export default function ProjectsPage() {
           onSubmit={
             createProject
           }
-          className="mb-6 grid gap-4 rounded-xl border border-border bg-card p-5 sm:grid-cols-2"
+          className="mb-8 grid gap-5 rounded-2xl border border-border bg-card p-6 shadow-sm sm:grid-cols-2"
         >
           <div className="sm:col-span-2">
             <Label>
@@ -512,37 +521,25 @@ export default function ProjectsPage() {
             />
           </div>
 
-          <div>
+          <div className="sm:col-span-2">
             <Label>
-              Department
+              Departments
             </Label>
-
-            <select
-              name="departmentId"
-              required
-              className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-            >
-              <option value="">
-                Choose department
-              </option>
-
-              {departments.map(
-                (department) => (
-                  <option
-                    key={
-                      department.id
-                    }
-                    value={
-                      department.id
-                    }
-                  >
-                    {
-                      department.name
-                    }
-                  </option>
-                )
-              )}
-            </select>
+            <p className="mt-1 text-xs text-muted-foreground">Choose every department involved. Cross-department projects are available to company admins.</p>
+            <div className="mt-2 grid gap-2 sm:grid-cols-3">
+              {departments.map((department) => (
+                <label key={department.id} className="flex cursor-pointer items-center gap-2 rounded-lg border border-border p-3 text-sm hover:bg-muted/40">
+                  <input
+                    name="departmentIds"
+                    value={department.id}
+                    type="checkbox"
+                    onChange={() => setError(null)}
+                  />
+                  {department.name}
+                </label>
+              ))}
+            </div>
+            {departments.length === 0 && <p className="mt-2 text-sm text-destructive">No departments are available for this account.</p>}
           </div>
 
           <div>
@@ -573,72 +570,9 @@ export default function ProjectsPage() {
             </select>
           </div>
 
-          <div className="sm:col-span-2">
-            <Label>
-              Staffing approach
-            </Label>
-
-            <div className="mt-2 grid gap-3 md:grid-cols-2">
-              <label className="cursor-pointer rounded-xl border border-border p-4 hover:bg-muted/40">
-                <div className="flex items-start gap-3">
-                  <input
-                    type="radio"
-                    name="staffingMode"
-                    value="task_based"
-                    defaultChecked
-                    className="mt-1"
-                  />
-
-                  <div>
-                    <p className="text-sm font-semibold">
-                      Task-based
-                      allocation
-                    </p>
-
-                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                      Each work item
-                      independently
-                      finds suitable
-                      staff from the
-                      organization.
-                    </p>
-                  </div>
-                </div>
-              </label>
-
-              <label className="cursor-pointer rounded-xl border border-border p-4 hover:bg-muted/40">
-                <div className="flex items-start gap-3">
-                  <input
-                    type="radio"
-                    name="staffingMode"
-                    value="project_team"
-                    className="mt-1"
-                  />
-
-                  <div>
-                    <p className="text-sm font-semibold">
-                      Project Team
-                    </p>
-
-                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                      Maintain a
-                      long-running
-                      team. Smart
-                      allocation for
-                      Project work
-                      uses eligible
-                      members of that
-                      team.
-                    </p>
-                  </div>
-                </div>
-              </label>
-            </div>
-          </div>
-
           <div>
             <Label>
-              Planned start
+              Target start
             </Label>
 
             <Input
@@ -650,7 +584,7 @@ export default function ProjectsPage() {
 
           <div>
             <Label>
-              Planned end
+              Target completion
             </Label>
 
             <Input
@@ -660,9 +594,41 @@ export default function ProjectsPage() {
             />
           </div>
 
+          <details className="sm:col-span-2 rounded-xl border border-border px-4 py-3">
+            <summary className="cursor-pointer text-sm font-medium">
+              Private project access
+              <span className="ml-2 font-normal text-muted-foreground">
+                Limit this project to selected participants
+              </span>
+            </summary>
+
+            <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-xl border border-border p-4 hover:bg-muted/40">
+                <div className="flex items-start gap-3">
+                  <input
+                    type="checkbox"
+                    name="staffingMode"
+                    value="project_team"
+                    className="mt-1"
+                  />
+
+                  <div>
+                    <p className="text-sm font-semibold">
+                      Choose the people who can participate
+                    </p>
+
+                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                      Only company admins, you, and the participants you add
+                      after creation can view this project or receive its work items.
+                      Leave unchecked to let all eligible staff participate.
+                    </p>
+                  </div>
+                </div>
+            </label>
+          </details>
+
           <div className="sm:col-span-2">
             <Button type="submit">
-              Create project
+              Create project log
             </Button>
           </div>
         </form>
@@ -675,7 +641,7 @@ export default function ProjectsPage() {
           description="Create a project when several work items contribute to one shared outcome."
         />
       ) : (
-        <div className="grid gap-5 lg:grid-cols-2">
+        <div className="grid gap-6 lg:grid-cols-2">
           {projects.map(
             (project) => {
               const m =
@@ -688,13 +654,14 @@ export default function ProjectsPage() {
                   key={
                     project.id
                   }
-                  className="rounded-xl border border-border bg-card p-5 shadow-sm"
+                  className="group relative overflow-hidden rounded-2xl border border-border bg-card p-6 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-lg"
                 >
+                  <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-primary via-indigo-400 to-violet-400 opacity-80" />
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <Link
                         href={`/org/${orgId}/projects/${project.id}`}
-                        className="text-lg font-semibold hover:text-primary hover:underline"
+                        className="text-xl font-semibold tracking-tight transition group-hover:text-primary"
                       >
                         {
                           project.title
@@ -705,12 +672,15 @@ export default function ProjectsPage() {
                         {project
                           .department
                           ?.name ||
-                          "No department"}{" "}
+                          "Organisation-wide"}{" "}
                         ·{" "}
                         {formatRange(
                           project.plannedStart,
                           project.plannedEnd
                         )}
+                      </p>
+                      <p className="mt-2 text-sm text-muted-foreground">
+                        Owner: {project.createdBy.name || project.createdBy.email}
                       </p>
                     </div>
 
@@ -722,7 +692,7 @@ export default function ProjectsPage() {
                     />
                   </div>
 
-                  <div className="mt-3 flex flex-wrap gap-2">
+                  <div className="mt-4 flex flex-wrap gap-2">
                     <StatusBadge
                       value={
                         project.priority
@@ -733,8 +703,8 @@ export default function ProjectsPage() {
                     <span className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700">
                       {project.staffingMode ===
                       "project_team"
-                        ? "Project Team"
-                        : "Task-based"}
+                        ? "Private project"
+                        : "Open participation"}
                     </span>
 
                     {project.staffingMode ===
@@ -745,26 +715,26 @@ export default function ProjectsPage() {
                             .projectMembers
                             .length
                         }{" "}
-                        team member(s)
+                        participant(s)
                       </span>
                     )}
                   </div>
 
                   {project.description && (
-                    <p className="mt-4 line-clamp-2 text-sm text-muted-foreground">
+                    <p className="mt-5 line-clamp-2 text-sm leading-relaxed text-muted-foreground">
                       {
                         project.description
                       }
                     </p>
                   )}
 
-                  <div className="mt-5 grid grid-cols-2 gap-3 border-t border-border pt-4">
-                    <div className="rounded-lg bg-muted/40 p-3">
+                  <div className="mt-6 grid grid-cols-2 gap-3 border-t border-border/70 pt-5">
+                    <div className="rounded-xl bg-primary/5 p-4">
                       <p className="text-xs font-semibold">
                         Progress
                       </p>
 
-                      <p className="mt-1 text-xl font-semibold">
+                      <p className="mt-1 text-2xl font-semibold">
                         {
                           m.progress
                         }
@@ -779,14 +749,17 @@ export default function ProjectsPage() {
                         {m.total} work
                         items
                       </p>
+                      <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-primary/15">
+                        <div className="h-full rounded-full bg-primary" style={{ width: `${m.progress}%` }} />
+                      </div>
                     </div>
 
-                    <div className="rounded-lg bg-muted/40 p-3">
+                    <div className="rounded-xl bg-muted/50 p-4">
                       <p className="text-xs font-semibold">
                         Staffing
                       </p>
 
-                      <p className="mt-1 text-xl font-semibold">
+                      <p className="mt-1 text-2xl font-semibold">
                         {
                           m.staffed
                         }
@@ -808,7 +781,7 @@ export default function ProjectsPage() {
                     </div>
                   </div>
 
-                  <div className="mt-5 flex items-center justify-between border-t border-border pt-4">
+                  <div className="mt-6 flex items-center justify-between border-t border-border/70 pt-5">
                     <p className="text-xs text-muted-foreground">
                       {
                         project
@@ -829,7 +802,7 @@ export default function ProjectsPage() {
                         />
                       }
                     >
-                      View project
+                      Open workspace
                     </Button>
                   </div>
                 </article>

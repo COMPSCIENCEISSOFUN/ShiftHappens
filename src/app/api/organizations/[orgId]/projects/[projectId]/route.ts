@@ -16,7 +16,10 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
   const membership = await memberships.findByUserAndOrg(user.id, orgId);
   if (!membership || !hasPermission(membership, PERMISSIONS.TASKS_READ)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const project = await projects.get(projectId, orgId);
-  if (!project || !isDepartmentInScope(project.departmentId, departmentScopeFor(membership))) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const privateProject = project?.staffingMode === "project_team";
+  const participant = project?.projectMembers.some((member) => member.membershipId === membership.id);
+  const canAccess = membership.role === "company_admin" || (!privateProject || project?.createdById === user.id || participant);
+  if (!project || !isDepartmentInScope(project.departmentId, departmentScopeFor(membership)) || !canAccess) return NextResponse.json({ error: "Not found" }, { status: 404 });
   return NextResponse.json(project);
 }
 

@@ -16,12 +16,29 @@ export class ProjectService {
   private auditService = new AuditLogService();
 
   private include = {
+    createdBy: {
+      select: {
+        id: true,
+        name: true,
+        email: true,
+      },
+    },
+
     department: {
       select: {
         id: true,
         name: true,
         color: true,
       },
+    },
+
+    projectDepartments: {
+      include: {
+        department: {
+          select: { id: true, name: true, color: true },
+        },
+      },
+      orderBy: { department: { name: "asc" as const } },
     },
 
     projectMembers: {
@@ -119,18 +136,21 @@ export class ProjectService {
       input.plannedEnd
     );
 
-    await this.assertDepartment(
-      input.departmentId,
-      organizationId
-    );
+    const departmentIds = [...new Set(input.departmentIds ?? (input.departmentId ? [input.departmentId] : []))];
+    if (departmentIds.length === 0) throw new Error("Select at least one department");
+    const owned = await prisma.department.count({ where: { id: { in: departmentIds }, organizationId, archivedAt: null } });
+    if (owned !== departmentIds.length) throw new Error("Department not found");
 
     const project =
       await prisma.project.create({
         data: {
           organizationId,
 
-          departmentId:
-            input.departmentId,
+          departmentId: departmentIds[0],
+
+          projectDepartments: {
+            create: departmentIds.map((departmentId) => ({ departmentId })),
+          },
 
           title: input.title,
 
@@ -190,9 +210,10 @@ export class ProjectService {
     organizationId: string,
     departmentScope?:
       | string[]
-      | null
+      | null,
+    viewer?: { membershipId: string; userId: string; role: string }
   ) {
-    return prisma.project.findMany({
+    const projects = await prisma.project.findMany({
       where: {
         organizationId,
 
@@ -200,9 +221,10 @@ export class ProjectService {
         departmentScope === undefined
           ? {}
           : {
-              departmentId: {
-                in: departmentScope,
-              },
+              OR: [
+                { departmentId: { in: departmentScope } },
+                { departmentId: null },
+              ],
             }),
       },
 
@@ -217,6 +239,8 @@ export class ProjectService {
         },
       ],
     });
+    if (!viewer || viewer.role === "company_admin") return projects;
+    return projects.filter((project) => project.staffingMode !== "project_team" || project.createdById === viewer.userId || project.projectMembers.some((member) => member.membershipId === viewer.membershipId));
   }
 
   async get(

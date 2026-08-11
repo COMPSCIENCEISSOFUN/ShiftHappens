@@ -900,7 +900,7 @@ function Pricing() {
 
                   <div className="mt-6">
                     <Link
-                      href={tierKey === "enterprise" ? "#contact" : "/register"}
+                      href="/register"
                       className={`block w-full rounded-lg py-2.5 text-center text-sm font-medium transition-colors ${
                         isPro
                           ? "bg-gradient-to-r from-indigo-600 to-indigo-500 text-white hover:from-indigo-700 hover:to-indigo-600"
@@ -910,7 +910,7 @@ function Pricing() {
                       }`}
                     >
                       {tierKey === "enterprise"
-                        ? "Contact us"
+                        ? "Upgrade to Enterprise"
                         : tierKey === "pro"
                           ? "Get started"
                           : "Start free"}

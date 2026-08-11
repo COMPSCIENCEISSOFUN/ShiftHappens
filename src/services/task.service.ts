@@ -304,14 +304,15 @@ export class TaskService {
   async getByOrganization(
     organizationId: string,
     filters?: { status?: string; departmentId?: string; priority?: string },
-    departmentScope?: string[] | null
+    departmentScope?: string[] | null,
+    viewer?: { id: string; userId: string; role: string }
   ) {
     const tasks = await this.taskRepo.findByOrganizationId(organizationId, filters);
-    if (departmentScope === undefined || departmentScope === null) {
-      return tasks;
-    }
-    const scope = new Set(departmentScope);
-    return tasks.filter((t) => t.departmentId !== null && scope.has(t.departmentId));
+    const scoped = departmentScope === undefined || departmentScope === null
+      ? tasks
+      : tasks.filter((t) => t.departmentId !== null && departmentScope.includes(t.departmentId));
+    if (!viewer || viewer.role === "company_admin") return scoped;
+    return scoped.filter((task) => !task.project || task.project.staffingMode !== "project_team" || task.project.createdById === viewer.userId || task.project.projectMembers.some((member) => member.membershipId === viewer.id));
   }
 
   /**

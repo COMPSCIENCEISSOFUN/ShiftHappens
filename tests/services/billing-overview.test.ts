@@ -106,10 +106,16 @@ describe("what the page is told", () => {
    */
   it("says whether Stripe knows this organisation", async () => {
     expect((await service.getOverview(tenant.orgId)).hasStripeCustomer).toBe(false);
+    expect((await service.getOverview(tenant.orgId)).hasStripeSubscription).toBe(false);
 
     await setBilling({ stripeCustomerId: "cus_test_123" });
 
     expect((await service.getOverview(tenant.orgId)).hasStripeCustomer).toBe(true);
+    expect((await service.getOverview(tenant.orgId)).hasStripeSubscription).toBe(false);
+
+    await setBilling({ stripeSubscriptionId: "sub_test_123" });
+
+    expect((await service.getOverview(tenant.orgId)).hasStripeSubscription).toBe(true);
   });
 
   it("includes usage, so the page needs one call and not two", async () => {

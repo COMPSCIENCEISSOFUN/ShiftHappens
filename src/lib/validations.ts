@@ -92,10 +92,12 @@ export const createOrganizationSchema = z.object({
   description: z.string().max(500).optional(),
 });
 
-/** Validates a Stripe checkout request for the Pro plan */
+/** Validates a Stripe checkout request for a paid plan. */
 export const createCheckoutSchema = z.object({
   interval: z.enum(["month", "year"]),
   source: z.enum(["onboarding", "settings", "billing"]),
+  // Existing onboarding requests did not include a plan, so they remain Pro.
+  plan: z.enum(["pro", "enterprise"]).default("pro"),
 });
 
 /** 
@@ -160,6 +162,8 @@ export const inviteUserSchema = z.object({
   email: z.string().email("Invalid email address"),
   role: z.enum(["manager", "staff"]),
   departmentId: z.string().optional(),
+  departmentIds: z.array(z.string().min(1)).min(1, "Select at least one department").max(20).optional(),
+  participantMembershipIds: z.array(z.string().min(1)).max(100).optional(),
   employmentType: z.enum(["full_time", "casual"]).optional(),
 });
 

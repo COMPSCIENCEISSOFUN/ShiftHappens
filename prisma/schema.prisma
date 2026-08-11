@@ -171,6 +171,7 @@ model Department {
   workRules             WorkRule[]             @relation("WorkRuleDepartment")
   departmentMemberships DepartmentMembership[]
   tasks                 Task[]
+  projectDepartments    ProjectDepartment[]
   projects              Project[]
 
   @@unique([organizationId, name])
@@ -377,11 +378,26 @@ model Project {
   createdBy      User            @relation("ProjectCreator", fields: [createdById], references: [id])
   tasks          Task[]
   projectMembers ProjectMember[]
+  projectDepartments ProjectDepartment[]
 
   @@index([organizationId])
   @@index([departmentId])
   @@index([staffingMode])
   @@index([plannedStart, plannedEnd])
+}
+
+/** Departments included in a project. The legacy departmentId remains the primary task department. */
+model ProjectDepartment {
+  id           String     @id @default(cuid())
+  projectId    String
+  departmentId String
+  createdAt    DateTime   @default(now())
+
+  project      Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  department   Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, departmentId])
+  @@index([departmentId])
 }
 
 /** Long-running membership of a Project Team. */

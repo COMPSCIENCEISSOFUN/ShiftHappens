@@ -6,8 +6,7 @@
  * Stripe Price IDs so the sandbox works with just a secret key — no products
  * need to be set up in the Stripe dashboard first.
  *
- * Only the Pro plan is purchasable via Checkout. Free needs no payment and
- * Enterprise is "contact us" (custom pricing).
+ * Paid plans are purchasable via Checkout. Free needs no payment.
  */
 import Stripe from "stripe";
 import { TIER_CONFIG } from "@/lib/subscription-tiers";
@@ -41,15 +40,17 @@ export function isBillingInterval(value: unknown): value is BillingInterval {
  * Build the Checkout line item for the Pro plan at the given interval.
  * Amount is derived from TIER_CONFIG (single source of truth) and converted to cents.
  */
-export function proPlanLineItem(
+export type PaidPlan = "pro" | "enterprise";
+
+export function paidPlanLineItem(
+  plan: PaidPlan,
   interval: BillingInterval
 ): Stripe.Checkout.SessionCreateParams.LineItem {
-  const pro = TIER_CONFIG.pro;
-  const dollars = interval === "year" ? pro.yearlyPrice : pro.monthlyPrice;
+  const tier = TIER_CONFIG[plan];
+  const dollars = interval === "year" ? tier.yearlyPrice : tier.monthlyPrice;
 
   if (dollars == null) {
-    // Pro always has concrete prices; this guards against future config changes.
-    throw new Error("Pro plan pricing is not configured.");
+    throw new Error(`${tier.displayName} plan pricing is not configured.`);
   }
 
   return {
@@ -57,11 +58,16 @@ export function proPlanLineItem(
     price_data: {
       currency: BILLING_CURRENCY,
       product_data: {
-        name: "ShiftHappens Pro",
-        description: pro.tagline,
+        name: `ShiftHappens ${tier.displayName}`,
+        description: tier.tagline,
       },
       unit_amount: Math.round(dollars * 100),
       recurring: { interval },
     },
   };
+}
+
+/** Backwards-compatible convenience for the existing Pro checkout callers. */
+export function proPlanLineItem(interval: BillingInterval) {
+  return paidPlanLineItem("pro", interval);
 }

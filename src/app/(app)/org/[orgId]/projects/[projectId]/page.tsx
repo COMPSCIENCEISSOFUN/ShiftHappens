@@ -76,6 +76,8 @@ type Project = {
   plannedEnd: string | null;
   departmentId: string | null;
   department: Department | null;
+  projectDepartments: { department: Department }[];
+  createdBy: { id: string; name: string | null; email: string };
   projectMembers: ProjectMember[];
   tasks: ProjectTask[];
 };
@@ -91,6 +93,7 @@ type OrgMember = {
 /** Assignment states that actually occupy one of a task's required slots. */
 const SLOT_STATUSES = new Set([
   "assigned",
+  "accepted",
   "in_progress",
   "clocked_out",
   "completed",
@@ -164,6 +167,9 @@ export default function ProjectDetailPage() {
   const [showEdit, setShowEdit] = useState(false);
   const [showTeam, setShowTeam] = useState(false);
   const [showAddWork, setShowAddWork] = useState(false);
+  const [aiWorkRequest, setAiWorkRequest] = useState("");
+  const [parsingWork, setParsingWork] = useState(false);
+  const [aiDraft, setAiDraft] = useState<{ title?: string; description?: string; priority?: string; requiredHeadcount?: number; departmentId?: string | null; scheduledStart?: string | null; scheduledEnd?: string | null } | null>(null);
   const [selectedTeam, setSelectedTeam] = useState<Set<string>>(new Set());
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -285,7 +291,7 @@ export default function ProjectDetailPage() {
         title: values.get("title"),
         description: String(values.get("description") || "") || undefined,
         projectId,
-        departmentId: project?.departmentId || undefined,
+        departmentId: values.get("departmentId") || project?.departmentId || undefined,
         priority: values.get("priority"),
         requiredHeadcount: Number(values.get("requiredHeadcount")) || 1,
         scheduledStart: start ? new Date(start).toISOString() : undefined,
@@ -294,6 +300,56 @@ export default function ProjectDetailPage() {
       "Work item added."
     );
     if (ok) setShowAddWork(false);
+  }
+
+  async function generateWorkDraft() {
+    if (!aiWorkRequest.trim()) return;
+    setParsingWork(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/organizations/${orgId}/tasks/parse`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: aiWorkRequest }) });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result?.error || "Could not generate a work item");
+      const parsedStart = result.scheduledStart ? new Date(result.scheduledStart) : null;
+      const parsedEnd = result.scheduledEnd ? new Date(result.scheduledEnd) : null;
+      const projectStart = project?.plannedStart ? new Date(project.plannedStart) : null;
+      const projectEnd = project?.plannedEnd ? new Date(project.plannedEnd) : null;
+      const scheduleFitsProject = Boolean(
+        parsedStart &&
+          parsedEnd &&
+          (!projectStart || parsedStart >= projectStart) &&
+          (!projectEnd || parsedEnd <= projectEnd)
+      );
+      const created = await send(
+        `/api/organizations/${orgId}/tasks`,
+        "POST",
+        {
+          title: result.title,
+          description: result.description || undefined,
+          projectId,
+          // TaskService currently enforces the project's primary task department.
+          // Do not let the generic parser suggest a different org department and
+          // turn an otherwise valid auto-create into a 400 response.
+          departmentId: project?.departmentId || result.departmentId || undefined,
+          priority: result.priority || project?.priority || "medium",
+          requiredHeadcount: result.requiredHeadcount || 1,
+          scheduledStart: scheduleFitsProject ? result.scheduledStart : undefined,
+          scheduledEnd: scheduleFitsProject ? result.scheduledEnd : undefined,
+        },
+        scheduleFitsProject
+          ? "AI work item created and sent for automatic allocation."
+          : "AI work item created and sent for automatic allocation. Its suggested time was outside this project's timeframe, so it was left unscheduled."
+      );
+      if (created) {
+        setAiWorkRequest("");
+        setAiDraft(null);
+        setShowAddWork(false);
+      }
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Could not generate a work item");
+    } finally {
+      setParsingWork(false);
+    }
   }
 
   if (loading) return <PageLoading label="Loading project" />;
@@ -319,7 +375,7 @@ export default function ProjectDetailPage() {
   const isClosed = CLOSED_PROJECT_STATUSES.has(project.status);
 
   return (
-    <div className="max-w-5xl">
+    <div className="max-w-6xl pb-10">
       {/* ── Breadcrumb ─────────────────────────────── */}
       <Link
         href={`/org/${orgId}/projects`}
@@ -344,18 +400,22 @@ export default function ProjectDetailPage() {
       )}
 
       {/* ── Overview ───────────────────────────────── */}
-      <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      <div className="mt-4 rounded-2xl border border-border bg-gradient-to-br from-card via-card to-primary/5 p-6 shadow-sm sm:flex sm:items-start sm:justify-between">
         <div className="min-w-0">
-          <h1 className="text-2xl font-bold tracking-tight">{project.title}</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {project.department?.name || "No department"} ·{" "}
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Project workspace</p>
+          <h1 className="mt-2 text-3xl font-bold tracking-tight">{project.title}</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {(project.projectDepartments.length > 0 ? project.projectDepartments.map((entry) => entry.department.name).join(", ") : project.department?.name || "Organisation-wide")} ·{" "}
             {formatRange(project.plannedStart, project.plannedEnd)}
+          </p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Owned by {project.createdBy.name || project.createdBy.email}
           </p>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <StatusBadge value={project.status} palette="taskStatus" />
             <StatusBadge value={project.priority} palette="priority" />
             <span className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700 dark:border-indigo-800 dark:bg-indigo-950 dark:text-indigo-300">
-              {isProjectTeam ? "Project Team" : "Task-based"}
+              {isProjectTeam ? "Private project" : "Open participation"}
             </span>
           </div>
         </div>
@@ -366,7 +426,7 @@ export default function ProjectDetailPage() {
       </div>
 
       {project.description && !showEdit && (
-        <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
+        <p className="mt-5 rounded-xl border border-border/70 bg-muted/30 p-4 text-sm leading-relaxed text-muted-foreground">
           {project.description}
         </p>
       )}
@@ -375,7 +435,7 @@ export default function ProjectDetailPage() {
       {showEdit && (
         <form
           onSubmit={saveProject}
-          className="mt-5 grid gap-4 rounded-xl border border-border bg-card p-5 sm:grid-cols-2"
+          className="mt-5 grid gap-5 rounded-2xl border border-border bg-card p-6 shadow-sm sm:grid-cols-2"
         >
           <div className="sm:col-span-2">
             <Label htmlFor="title">Title</Label>
@@ -472,11 +532,11 @@ export default function ProjectDetailPage() {
       )}
 
       {/* ── Progress & staffing summary ────────────── */}
-      <div className="mt-6 grid gap-4 sm:grid-cols-3">
-        <div className="rounded-xl border border-border bg-card p-4">
+      <div className="mt-8 grid gap-4 sm:grid-cols-3">
+        <div className="rounded-2xl border border-primary/15 bg-primary/5 p-5 shadow-sm">
           <p className="text-xs font-semibold text-muted-foreground">Progress</p>
           <p className="mt-1 text-2xl font-semibold">{metrics.progress}%</p>
-          <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+          <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-primary/15">
             <div className="h-full rounded-full bg-primary" style={{ width: `${metrics.progress}%` }} />
           </div>
           <p className="mt-2 text-xs text-muted-foreground">
@@ -484,7 +544,7 @@ export default function ProjectDetailPage() {
           </p>
         </div>
 
-        <div className="rounded-xl border border-border bg-card p-4">
+        <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
           <p className="text-xs font-semibold text-muted-foreground">Active staffing</p>
           <p className="mt-1 text-2xl font-semibold">
             {metrics.staffed}/{metrics.required}
@@ -502,7 +562,7 @@ export default function ProjectDetailPage() {
           </p>
         </div>
 
-        <div className="rounded-xl border border-border bg-card p-4">
+        <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
           <p className="text-xs font-semibold text-muted-foreground">
             {isProjectTeam ? "Project Team" : "Staffing approach"}
           </p>
@@ -519,7 +579,7 @@ export default function ProjectDetailPage() {
 
       {/* ── Project Team (project_team only) ───────── */}
       {isProjectTeam && (
-        <section className="mt-8">
+        <section className="mt-10 border-t border-border/70 pt-8">
           <div className="flex items-center justify-between gap-3">
             <h2 className="flex items-center gap-2 text-lg font-semibold">
               <Users className="h-4 w-4" /> Project Team
@@ -632,7 +692,7 @@ export default function ProjectDetailPage() {
               href={`/org/${orgId}/tasks?projectId=${project.id}`}
               className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
             >
-              Open in task management
+              View all project tasks
             </Link>
             {!isClosed && (
               <Button size="sm" onClick={() => setShowAddWork((open) => !open)}>
@@ -642,6 +702,18 @@ export default function ProjectDetailPage() {
           </div>
         </div>
 
+        {!isClosed && (
+          <div className="mt-5 rounded-2xl border border-indigo-200/80 bg-gradient-to-r from-indigo-50/70 to-violet-50/60 p-5 shadow-sm dark:border-indigo-900 dark:from-indigo-950/30 dark:to-violet-950/20">
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">AI quick add</p>
+            <Label htmlFor="aiWorkRequest" className="mt-1 block">Generate a work item with AI</Label>
+            <div className="mt-2 flex gap-2">
+              <Input id="aiWorkRequest" value={aiWorkRequest} onChange={(event) => setAiWorkRequest(event.target.value)} placeholder="Describe the work that needs to be done" />
+              <Button type="button" onClick={generateWorkDraft} disabled={parsingWork || !aiWorkRequest.trim()}>{parsingWork ? "Generating…" : "Generate"}</Button>
+            </div>
+            <p className="mt-2 text-xs leading-relaxed text-muted-foreground">Describe what needs doing. AI creates one linked work item and starts automatic allocation; use Add work item for a manual draft.</p>
+          </div>
+        )}
+
         {showAddWork && (
           <form
             onSubmit={addWorkItem}
@@ -649,7 +721,7 @@ export default function ProjectDetailPage() {
           >
             <div className="sm:col-span-2">
               <Label htmlFor="workTitle">Title</Label>
-              <Input id="workTitle" name="title" className="mt-1" required />
+              <Input id="workTitle" name="title" defaultValue={aiDraft?.title} className="mt-1" required />
             </div>
 
             <div className="sm:col-span-2">
@@ -658,8 +730,18 @@ export default function ProjectDetailPage() {
                 id="workDescription"
                 name="description"
                 rows={2}
+                defaultValue={aiDraft?.description}
                 className="mt-1 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
               />
+            </div>
+
+            <div>
+              <Label htmlFor="workDepartment">Department</Label>
+              <select id="workDepartment" name="departmentId" defaultValue={aiDraft?.departmentId ?? project.departmentId ?? ""} className="mt-1 h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm">
+                {project.projectDepartments.map((entry) => (
+                  <option key={entry.department.id} value={entry.department.id}>{entry.department.name}</option>
+                ))}
+              </select>
             </div>
 
             <div>
@@ -667,7 +749,7 @@ export default function ProjectDetailPage() {
               <select
                 id="workPriority"
                 name="priority"
-                defaultValue={project.priority}
+                defaultValue={aiDraft?.priority ?? project.priority}
                 className="mt-1 h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
               >
                 <option value="low">Low</option>
@@ -688,7 +770,7 @@ export default function ProjectDetailPage() {
                 type="number"
                 min={1}
                 max={50}
-                defaultValue={1}
+                defaultValue={aiDraft?.requiredHeadcount ?? 1}
                 className="mt-1"
               />
             </div>
@@ -699,6 +781,7 @@ export default function ProjectDetailPage() {
                 id="workStart"
                 name="scheduledStart"
                 type="datetime-local"
+                defaultValue={toLocalInput(aiDraft?.scheduledStart ?? null)}
                 min={toLocalInput(project.plannedStart) || undefined}
                 max={toLocalInput(project.plannedEnd) || undefined}
                 className="mt-1"
@@ -711,6 +794,7 @@ export default function ProjectDetailPage() {
                 id="workEnd"
                 name="scheduledEnd"
                 type="datetime-local"
+                defaultValue={toLocalInput(aiDraft?.scheduledEnd ?? null)}
                 min={toLocalInput(project.plannedStart) || undefined}
                 max={toLocalInput(project.plannedEnd) || undefined}
                 className="mt-1"
@@ -847,7 +931,7 @@ export default function ProjectDetailPage() {
                         href={`/org/${orgId}/tasks?projectId=${project.id}`}
                         className="mt-4 inline-block text-sm text-primary underline-offset-4 hover:underline"
                       >
-                        Manage this work item in Tasks
+                        Open task details
                       </Link>
                     </div>
                   )}

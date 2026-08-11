@@ -122,6 +122,14 @@ export class TaskRepository {
             assignedBy: { select: { id: true, name: true } },
           },
         },
+        project: {
+          select: {
+            id: true,
+            staffingMode: true,
+            createdById: true,
+            projectMembers: { select: { membershipId: true } },
+          },
+        },
         department: { select: { id: true, name: true, color: true } },
         createdBy: { select: { id: true, name: true } },
       },

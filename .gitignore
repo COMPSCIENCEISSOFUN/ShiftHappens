@@ -49,3 +49,5 @@ next-env.d.ts
 # Scratch files parked for deletion from Windows — the Cowork bridge cannot
 # remove files, only move them here.
 _to_delete/
+list(1).md
+MANUAL_TEST_PHASE1.md
