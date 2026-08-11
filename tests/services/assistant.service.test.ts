@@ -29,6 +29,7 @@ import { AccessService } from "@/services/access.service";
 import { ACTIONS } from "@/services/audit-log.service";
 import { prisma } from "@/lib/prisma";
 import { cleanDatabase } from "../helpers/cleanup";
+import { todaySgtAt } from "../helpers/time";
 import { createTenant, type Tenant } from "../helpers/fixtures";
 import { eventually } from "../helpers/settle";
 
@@ -642,8 +643,21 @@ describe("who is on when", () => {
    * because it returns counts.
    */
   it("names the shift and the people on it", async () => {
-    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
-    tomorrow.setUTCHours(2, 0, 0, 0); // 10:00 Singapore
+    /*
+     * `todaySgtAt(10, 1)`, not `Date.now() + 24h` with the UTC hour snapped.
+     *
+     * That is what this said, and it was a claim about the CLOCK TIME the
+     * suite runs at. Adding a day in UTC and then forcing 02:00Z lands on the
+     * organisation's today rather than its tomorrow whenever the run starts
+     * between 16:00Z and midnight — Singapore's small hours. It passed every
+     * afternoon and failed at 01:00, which is the worst kind of red because
+     * nothing about the code changed between the two.
+     *
+     * The helper builds the instant from the organisation's calendar, which is
+     * the calendar the assistant answers in, so the two cannot disagree at any
+     * hour.
+     */
+    const tomorrow = todaySgtAt(10, 1);
 
     const task = await prisma.task.create({
       data: {
