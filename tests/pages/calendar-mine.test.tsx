@@ -5,12 +5,16 @@
  * ## Why it exists
  *
  * A manager is rostered AND can open the team calendar, so they held two: this
- * one, and My Schedule drawing the same week already filtered to them. The
- * sidebar now offers My Schedule only to people who cannot open Calendar, and
- * this toggle is what makes that subtraction safe — without it the people most
- * likely to be working a shift and running the floor at the same time would
- * lose the only view that answers "what does MY week look like" without hunting
- * for their own name among everyone else's.
+ * one, and My Schedule drawing the same week already filtered to them. This
+ * toggle answers "what does MY week look like" without hunting for your own
+ * name among everyone else's.
+ *
+ * It was built to make a SUBTRACTION safe — the sidebar stopped offering My
+ * Schedule to anybody who could open Calendar. That subtraction has since been
+ * reversed, because My Schedule grew the calendar subscribe link and a rostered
+ * manager could no longer reach it. The toggle stays and stands on its own: a
+ * manager looking at the team's week still wants to pick their own shifts out
+ * of it without changing page.
  *
  * ## The thing that would be easy to get wrong
  *

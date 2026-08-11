@@ -22,6 +22,11 @@ export async function cleanDatabase() {
   await prisma.role.deleteMany();
   await prisma.companySettings.deleteMany();
   await prisma.invitationToken.deleteMany();
+  // Listed rather than left to cascade from Membership. It WOULD cascade, and
+  // so would departmentMembership below it — this file states its tables
+  // explicitly on purpose, so a relation later changed to SetNull does not
+  // silently start leaking rows between tests.
+  await prisma.calendarFeed.deleteMany();
   await prisma.departmentMembership.deleteMany();
   await prisma.department.deleteMany();
   await prisma.passwordResetToken.deleteMany();

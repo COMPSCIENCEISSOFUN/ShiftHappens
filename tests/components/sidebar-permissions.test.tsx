@@ -303,19 +303,27 @@ describe("the plan hides what it does not include", () => {
 });
 
 /**
- * One calendar each.
+ * Everybody who can hold a shift gets My Schedule.
+ *
+ * ## What this used to assert, and why it changed
  *
  * Two entries drew the same week. Calendar is gated on `calendar:view_team`;
  * My Schedule on `canBeRostered`. A manager trips both — they work shifts AND
- * run the roster — so they alone saw the duplication, while staff got only the
- * personal one and an admin only the team one.
+ * run the roster — so they alone saw the duplication, and My Schedule was
+ * withheld from anyone who could open Calendar.
  *
- * My Schedule is now offered only to somebody who cannot open Calendar. That
- * subtraction depends on Calendar's Mine toggle existing: without it, the
- * people most likely to be working a shift and running the floor at once would
- * have lost the only view that answers "what does MY week look like".
+ * That argument was explicitly about MENU CLUTTER, and it held only while the
+ * two pages drew the same week from the same data. They no longer do: My
+ * Schedule carries the calendar subscribe link (US-81) and Calendar does not,
+ * so the subtraction left a rostered manager unable to reach the one place
+ * that offers to put their shifts in their phone — while the staff they manage
+ * could.
+ *
+ * A duplicate view is a smaller cost than a feature half the rosterable
+ * population cannot find. Inverted rather than deleted, so the original
+ * reasoning stays readable next to the reason it stopped applying.
  */
-describe("a rostered member gets one calendar, not two", () => {
+describe("everybody rosterable gets My Schedule", () => {
   it("gives a staff member My Schedule", () => {
     renderNav(["tasks:assign"], "staff");
 
@@ -323,29 +331,36 @@ describe("a rostered member gets one calendar, not two", () => {
     expect(screen.queryByRole("link", { name: "Calendar" })).not.toBeInTheDocument();
   });
 
-  // The case the change is for.
-  it("gives a manager Calendar and not My Schedule", () => {
+  // The case the change is for: a manager works shifts too, so the subscribe
+  // link has to be reachable for them.
+  it("gives a manager both", () => {
     renderNav([...ROLE_PERMISSIONS.manager], "manager");
 
     expect(screen.getByRole("link", { name: "Calendar" })).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "My Schedule" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "My Schedule" })).toBeInTheDocument();
   });
 
   /*
    * The permission, not the role. A staff member granted `calendar:view_team`
-   * through a custom role can open the team calendar too, so they are in the
-   * same position as a manager — and a rule written against `role === "manager"`
-   * would have handed them both again.
+   * through a custom role is in the same position as a manager — and while the
+   * subtraction stood, a rule written against `role === "manager"` would have
+   * handed them both anyway. The assertion is inverted now; the point it was
+   * making is that this branch reads the PERMISSION, which is still true and
+   * still worth pinning.
    */
   it("follows the permission rather than the job title", () => {
     renderNav(["calendar:view_team"], "staff");
 
     expect(screen.getByRole("link", { name: "Calendar" })).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "My Schedule" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "My Schedule" })).toBeInTheDocument();
   });
 
-  // An admin is not rostered, so neither the personal page nor the toggle on
-  // Calendar is theirs — they were never offered two.
+  /*
+   * An admin is not rostered, so the personal page is not theirs — and this is
+   * the assertion that did NOT change. A feed of an admin's shifts would be
+   * empty by construction, and `canBeRostered` being forgotten is a mistake
+   * this codebase has made three times.
+   */
   it("gives an admin the team calendar alone", () => {
     renderNav([...PERMISSION_NAMES], "company_admin");
 

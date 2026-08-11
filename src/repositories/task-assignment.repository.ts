@@ -193,6 +193,47 @@ export class TaskAssignmentRepository {
    * Lists all assignments for a member, optionally filtered by status.
    * Used for staff viewing their assigned tasks (US-56).
    */
+  /**
+   * A member's shifts inside a date window, for the calendar feed.
+   *
+   * Its own method rather than filtering `findByMembershipId` in the service,
+   * which is what this did first: that returns EVERY assignment the person has
+   * ever held, with two joins, and the service then dropped most of them. On an
+   * endpoint that takes no session and is polled hourly by every subscriber,
+   * a query that grows with someone's length of service is the wrong shape —
+   * and the rows it was discarding were the ones it had paid most to fetch.
+   *
+   * Status is filtered here too, through `occupyingStatusFilter` — the same
+   * rule the headcount uses. A rejected shift is not one this person has.
+   */
+  async findForCalendarFeed(membershipId: string, from: Date, until: Date) {
+    return prisma.taskAssignment.findMany({
+      where: {
+        membershipId,
+        status: { in: occupyingStatusFilter() },
+        task: {
+          scheduledStart: { gte: from, lte: until },
+          scheduledEnd: { not: null },
+        },
+      },
+      include: {
+        task: {
+          select: {
+            id: true,
+            title: true,
+            description: true,
+            scheduledStart: true,
+            scheduledEnd: true,
+            department: { select: { name: true } },
+          },
+        },
+      },
+      // Deterministic, like every other list here: equal start times need a
+      // tiebreak or the same fetch can order two shifts differently.
+      orderBy: [{ task: { scheduledStart: "asc" } }, { id: "asc" }],
+    });
+  }
+
   async findByMembershipId(membershipId: string, status?: string) {
     return prisma.taskAssignment.findMany({
       where: {

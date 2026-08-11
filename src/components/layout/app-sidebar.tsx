@@ -134,6 +134,15 @@ function SettingsIcon() {
   );
 }
 
+function BillingIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={iconClass}>
+      <rect width="20" height="14" x="2" y="5" rx="2" />
+      <line x1="2" x2="22" y1="10" y2="10" />
+    </svg>
+  );
+}
+
 function RolesIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={iconClass}>
@@ -595,9 +604,26 @@ export function AppSidebar({
        * working a shift and running the floor at the same time. The PAGE stays
        * either way; this is about how many calendars appear in a menu.
        */
-      if (!can("calendar:view_team")) {
-        overviewItems.push({ href: `/org/${orgId}/my-schedule`, label: "My Schedule", icon: MyScheduleIcon });
-      }
+      /*
+       * Restored for managers on 2026-08-11, and the reason above is why it was
+       * ever conditional rather than why it should stay so.
+       *
+       * That argument was explicitly about MENU CLUTTER — "the PAGE stays
+       * either way; this is about how many calendars appear in a menu" — and it
+       * held while this page and Calendar's Mine toggle drew the same week from
+       * the same data. They no longer do: My Schedule carries the calendar
+       * subscribe link (US-81), and Calendar does not.
+       *
+       * So a rostered manager could not reach the one place that offers to put
+       * their shifts in their phone, while the staff they manage could. A
+       * duplicate view is a smaller cost than a feature half the rosterable
+       * population cannot find.
+       *
+       * Still inside the `canBeRostered` branch: an admin holds no shifts, so a
+       * feed of their shifts would be empty by construction — which is the
+       * fourth time that predicate would have been the thing forgotten.
+       */
+      overviewItems.push({ href: `/org/${orgId}/my-schedule`, label: "My Schedule", icon: MyScheduleIcon });
       // The record of finished shifts, which My Tasks deliberately keeps short:
       // that page answers "am I on tonight", this one answers "what have I
       // worked". Same `canBeRostered` gate as the rest of this group.
@@ -693,6 +719,18 @@ export function AppSidebar({
   if (orgId) {
     if (can("audit:view") && planHas("audit_log")) {
       systemItems.push({ href: `/org/${orgId}/audit-log`, label: "Audit Log", icon: AuditLogIcon });
+    }
+    /*
+     * Gated on the permission alone, with no plan check beside it.
+     *
+     * Every other entry in this group that names a paid feature also asks
+     * `planHas`, because there is nothing behind it on a lower plan. Billing is
+     * the opposite: an organisation on Free has the MOST reason to open it, and
+     * one whose payment has failed must be able to reach the page that says so.
+     * A plan gate here would hide the screen exactly when it matters.
+     */
+    if (can("billing:manage")) {
+      systemItems.push({ href: `/org/${orgId}/billing`, label: "Billing", icon: BillingIcon });
     }
     if (can("settings:read")) {
       systemItems.push({ href: `/org/${orgId}/settings`, label: "Settings", icon: SettingsIcon });

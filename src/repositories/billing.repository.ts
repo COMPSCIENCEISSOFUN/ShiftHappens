@@ -18,6 +18,7 @@ export interface OrgBilling {
   stripeCustomerId: string | null;
   stripeSubscriptionId: string | null;
   subscriptionStatus: string | null;
+  currentPeriodEnd: Date | null;
   billingInterval: string | null;
 }
 
@@ -28,6 +29,7 @@ const BILLING_SELECT = {
   stripeCustomerId: true,
   stripeSubscriptionId: true,
   subscriptionStatus: true,
+  currentPeriodEnd: true,
   billingInterval: true,
 } as const;
 
@@ -71,6 +73,7 @@ export class BillingRepository {
       stripeSubscriptionId?: string | null;
       stripeCustomerId?: string | null;
       billingInterval?: string | null;
+      currentPeriodEnd?: Date | null;
     }
   ): Promise<OrgBilling> {
     return prisma.organization.update({

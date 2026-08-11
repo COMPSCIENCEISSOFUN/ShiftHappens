@@ -103,6 +103,12 @@ export const ROUTES: RouteSpec[] = [
   org("settings/display", "GET", MEMBER),
   org("subscription", "GET", MEMBER),
   org("checkout", "POST", ADMIN),
+  /*
+   * `billing:manage` rather than a role list. Usage is separately readable by
+   * any member through `subscription` above — what this gates is the money.
+   */
+  org("billing", "GET", ADMIN),
+  org("billing/portal", "POST", ADMIN, { suspension: true }),
   org("invitations", "GET", ADMIN),
   org("invitations", "POST", ADMIN, { suspension: true }),
   /*
@@ -211,6 +217,13 @@ export const ROUTES: RouteSpec[] = [
   }),
   org("leave/dismiss-lapsed", "POST", MANAGER, { suspension: true }),
   org("calendar/coverage", "GET", MANAGER),
+  /*
+   * No permission and no plan gate. A feed is your own shifts, so the
+   * membership IS the authorisation — and the plan is checked on the FEED,
+   * which is polled long after anybody visits this page.
+   */
+  org("calendar/feed", "GET", MEMBER),
+  org("calendar/feed", "POST", MEMBER, { suspension: true }),
   org("calendar/staff", "GET", MANAGER),
 
   // ── Certifications ──────────────────────────────────────────────────
@@ -373,6 +386,19 @@ export const ROUTES: RouteSpec[] = [
   { path: "auth/[...nextauth]", method: "POST", auth: "public", note: "NextAuth internals" },
 
   // ── Secret-authenticated, not session ───────────────────────────────
+  /*
+   * The token in the path IS the credential. Calendar clients send no cookie,
+   * no session and no header, and there is no step in which one could be
+   * supplied — so this is listed as secret-authenticated rather than public,
+   * because it is neither open nor session-guarded.
+   */
+  {
+    path: "calendar/[token]",
+    method: "GET",
+    auth: "secret",
+    extraParams: ["token"],
+    note: "the token in the URL is the credential",
+  },
   { path: "cron", method: "GET", auth: "secret", note: "Authorization: Bearer CRON_SECRET" },
   { path: "stripe/webhook", method: "POST", auth: "secret", note: "stripe-signature header" },
 ];

@@ -36,6 +36,18 @@ export const GATED_FEATURES = [
    * See the note beside `assistant:use` in `permissions.ts`.
    */
   'assistant',
+  /*
+   * Subscribing to your own shifts from a calendar app.
+   *
+   * Checked on every POLL rather than at subscribe time, because the client
+   * holds the URL indefinitely and sends no session — so a downgrade has to be
+   * able to stop a feed that is already in somebody's calendar. The feed keeps
+   * returning a VALID calendar when it refuses, carrying one event that says
+   * why: a client handed a 403 shows the reader nothing at all, and shifts
+   * silently ceasing to appear reads as an empty rota rather than a plan
+   * change.
+   */
+  'calendar_sync',
 ] as const;
 export type GatedFeature = (typeof GATED_FEATURES)[number];
 
@@ -80,7 +92,13 @@ export const TIER_CONFIG: Record<SubscriptionTier, TierDefinition> = {
       work_rules: 20,
       custom_roles: 10,
     },
-    gatedFeatures: ['custom_roles', 'pdf_export', 'mass_import', 'assistant'],
+    gatedFeatures: [
+      'custom_roles',
+      'pdf_export',
+      'mass_import',
+      'assistant',
+      'calendar_sync',
+    ],
   },
   enterprise: {
     name: 'enterprise',
@@ -100,6 +118,7 @@ export const TIER_CONFIG: Record<SubscriptionTier, TierDefinition> = {
       'pdf_export',
       'mass_import',
       'audit_log',
+      'calendar_sync',
       'priority_support',
       'assistant',
     ],

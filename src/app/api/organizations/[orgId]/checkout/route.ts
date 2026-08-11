@@ -7,7 +7,7 @@
  * change happens later, when Stripe confirms payment via the webhook — this
  * endpoint never grants Pro on its own.
  *
- * Body: { interval: "month" | "year", source: "onboarding" | "settings" }
+ * Body: { interval: "month" | "year", source: "onboarding" | "settings" | "billing" }
  *
  * Returns:
  * - 200: { url } — redirect the browser here

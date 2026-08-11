@@ -95,7 +95,7 @@ export const createOrganizationSchema = z.object({
 /** Validates a Stripe checkout request for the Pro plan */
 export const createCheckoutSchema = z.object({
   interval: z.enum(["month", "year"]),
-  source: z.enum(["onboarding", "settings"]),
+  source: z.enum(["onboarding", "settings", "billing"]),
 });
 
 /** 

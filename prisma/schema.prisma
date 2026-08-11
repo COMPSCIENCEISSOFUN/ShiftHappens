@@ -48,6 +48,16 @@ model Organization {
   stripeSubscriptionId String?
   subscriptionStatus   String?  // "active" | "past_due" | "canceled" | ... (mirrors Stripe)
   billingInterval      String?  // "month" | "year"
+  /*
+   * When the current paid period ends — the renewal date, or the date access
+   * drops if the subscription is set to cancel.
+   *
+   * Stored rather than fetched from Stripe on every page load: a billing screen
+   * that cannot render without a third-party round trip is a screen that breaks
+   * when that third party is slow, to display a date that changes monthly.
+   * Written by the same webhook that already writes the three fields above.
+   */
+  currentPeriodEnd     DateTime?
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
@@ -89,6 +99,7 @@ model Membership {
   organization          Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   customRole            Role? @relation("MembershipCustomRole", fields: [customRoleId], references: [id], onDelete: SetNull)
   departmentMemberships DepartmentMembership[]
+  calendarFeeds         CalendarFeed[]
   taskAssignments       TaskAssignment[]
   availabilities        Availability[]
   availabilityOverrides AvailabilityOverride[]
@@ -451,6 +462,54 @@ model Availability {
 
   @@unique([membershipId, dayOfWeek])
   @@index([membershipId])
+}
+
+/**
+ * A subscribe URL for a calendar client.
+ *
+ * ## Why the token is the whole credential
+ *
+ * Google Calendar and Apple Calendar poll a URL on a timer and send no cookies,
+ * no headers and no session. There is nowhere to put an authorisation, so the
+ * secret has to BE the address — which makes this the only bearer credential in
+ * the product, and the reason it lives in a row that can be replaced rather
+ * than in a signed value that cannot.
+ *
+ * Consequences that shape the model:
+ *
+ *   - one row per membership, so a leaked URL exposes ONE person's rota. Not
+ *     per user: somebody in two organisations gets two feeds, and revoking one
+ *     must not touch the other
+ *   - `token` is replaced, never deleted, when somebody regenerates. The old
+ *     value stops resolving the moment it is overwritten, which is what
+ *     revocation means here
+ *   - `kind` exists so a future team feed is a second ROW rather than a
+ *     migration. It is deliberately not built: a team URL leaking would expose
+ *     a dozen named people's movements with no session and no audit trail, and
+ *     that decision deserves its own argument rather than riding along with
+ *     this one
+ */
+model CalendarFeed {
+  id           String   @id @default(cuid())
+  membershipId String
+  /** Long, random, and the only thing standing between a URL and a rota. */
+  token        String   @unique
+  /** "personal" today. See the docblock above for why the column exists. */
+  kind         String   @default("personal")
+  createdAt    DateTime @default(now())
+  /*
+   * When a calendar client last fetched it.
+   *
+   * Written with a floor rather than on every poll — clients refresh on their
+   * own schedule, and this endpoint takes no session, so an unthrottled write
+   * here would let anybody holding the URL drive database traffic.
+   */
+  lastPolledAt DateTime?
+
+  membership Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+
+  @@unique([membershipId, kind])
+  @@index([token])
 }
 
 model AvailabilityOverride {

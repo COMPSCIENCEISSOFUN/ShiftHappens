@@ -50,6 +50,7 @@ import {
 } from "@/lib/calendar-grid";
 import { businessDayRangeStartingOn, formatHour } from "@/lib/business-day";
 import { occupiesSlot } from "@/lib/assignment-status";
+import { CalendarSubscribePanel } from "@/components/schedule/calendar-subscribe-panel";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -318,6 +319,18 @@ export default function MySchedulePage() {
           </button>
         </div>
       </div>
+
+      {/*
+        Above the grid.
+        
+        The first instinct was to put it below — the schedule is what somebody
+        opens this page for, and subscribing is a thing they do once. But "once"
+        only happens if they find it, and a panel under a week grid on a phone is
+        several screens down. The whole point of the feature is that the person
+        stops opening this page, so the one thing that gets them there has to be
+        visible on arrival.
+      */}
+      <CalendarSubscribePanel orgId={orgId} />
 
       {error && <AlertBanner message={error} variant="error" />}
 

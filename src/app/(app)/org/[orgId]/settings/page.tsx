@@ -47,7 +47,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
-import { TIER_CONFIG } from "@/lib/subscription-tiers";
 import {
   formatHour,
   operatingWindowHours,
@@ -61,6 +60,7 @@ import {
 import { PageLoading } from "@/components/ui/page-loading";
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { SECONDARY_BUTTON } from "@/components/ui/button-styles";
 import { usePermissions } from "@/components/layout/permission-provider";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Bell, Building2, Clock, CreditCard, Settings, Wrench } from "lucide-react";
@@ -113,14 +113,6 @@ const RESOURCE_LABELS: Record<string, string> = {
   departments: "Departments",
   work_rules: "Work rules",
   custom_roles: "Custom roles",
-};
-
-const FEATURE_LABELS: Record<string, string> = {
-  custom_roles: "Custom roles (RBAC)",
-  pdf_export: "PDF report export",
-  mass_import: "Mass import (Excel)",
-  audit_log: "Audit log",
-  priority_support: "Priority support",
 };
 
 /* ------------------------------------------------------------------ */
@@ -263,15 +255,6 @@ export default function SettingsPage() {
   } | null>(null);
   const [notifLoading, setNotifLoading] = useState(false);
 
-  // ─── Billing / upgrade ─────────────────────────────────────
-  const [upgradeInterval, setUpgradeInterval] = useState<"month" | "year">(
-    "month"
-  );
-  const [upgrading, setUpgrading] = useState(false);
-  const [checkoutBanner, setCheckoutBanner] = useState<
-    "success" | "canceled" | null
-  >(null);
-
   /* ────────────────────────────────────────────────────────────── */
   /*  Data fetching                                                 */
   /* ────────────────────────────────────────────────────────────── */
@@ -281,15 +264,6 @@ export default function SettingsPage() {
     fetchSettings();
     fetchSubscription();
   }, [orgId]);
-
-  useEffect(() => {
-    const status = new URLSearchParams(window.location.search).get("checkout");
-    if (status === "success" || status === "canceled") {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronising with an external system, which is what effects are for: reads the ?checkout= result Stripe put in the URL, then clears it
-      setCheckoutBanner(status);
-      window.history.replaceState({}, "", window.location.pathname);
-    }
-  }, []);
 
   /**
    * Loads the organization and the industry option list as one unit.
@@ -571,30 +545,6 @@ export default function SettingsPage() {
       setNotifLoading,
       "Notification preferences updated"
     );
-  }
-
-  async function startUpgrade() {
-    setUpgrading(true);
-    try {
-      const res = await fetch(`/api/organizations/${orgId}/checkout`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ interval: upgradeInterval, source: "settings" }),
-      });
-      const data = await res.json();
-      if (res.ok && data.url) {
-        window.location.href = data.url;
-        return;
-      }
-      setTaskMessage({
-        type: "error",
-        text: data.error || "Couldn't start checkout",
-      });
-    } catch {
-      setTaskMessage({ type: "error", text: "Couldn't start checkout" });
-    } finally {
-      setUpgrading(false);
-    }
   }
 
   /* ────────────────────────────────────────────────────────────── */
@@ -1391,7 +1341,7 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {/* ─── Subscription & Billing (full-width) ──────────────── */}
+      {/* ─── Subscription (full-width) ────────────────────────── */}
       {subscription && (
         <Card>
           <CardHeader>
@@ -1401,9 +1351,9 @@ export default function SettingsPage() {
                   <CreditCard className="h-[18px] w-[18px] text-violet-600" aria-hidden="true" />
                 </div>
                 <div>
-                  <CardTitle>Subscription & Billing</CardTitle>
+                  <CardTitle>Subscription</CardTitle>
                   <CardDescription>
-                    Current plan, resource usage, and feature access
+                    Which plan this organisation is on
                   </CardDescription>
                 </div>
               </div>
@@ -1414,160 +1364,33 @@ export default function SettingsPage() {
               />
             </div>
           </CardHeader>
-          <CardContent className="space-y-5">
-            {/* Post-checkout banner */}
-            {checkoutBanner === "success" && (
-              <AlertBanner
-                message="Payment received — your plan will update to Pro momentarily. Refresh if it hasn't updated."
-                variant="success"
-              />
-            )}
-            {checkoutBanner === "canceled" && (
-              <AlertBanner
-                message={`Checkout canceled — no charge was made. You're still on the ${subscription.displayName} plan.`}
-                variant="warning"
-              />
-            )}
+          {/*
+            The badge, and a way through. Everything else moved to Billing.
 
-            {/* Resource usage */}
-            <div>
-              <p className="text-sm font-medium mb-3">Resource Usage</p>
-              <div className="space-y-3">
-                {Object.entries(subscription.resources).map(([key, usage]) => (
-                  <div key={key} className="flex items-center gap-3">
-                    <span className="text-sm w-28 shrink-0 text-muted-foreground">
-                      {RESOURCE_LABELS[key] || key}
-                    </span>
-                    <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
-                      <div
-                        className={`h-full rounded-full transition-all ${usageColor(usage.percentage)}`}
-                        style={{
-                          width:
-                            usage.percentage !== null
-                              ? `${Math.min(usage.percentage, 100)}%`
-                              : "0%",
-                        }}
-                      />
-                    </div>
-                    <span className="text-sm text-muted-foreground w-24 text-right tabular-nums">
-                      {usage.limit !== null
-                        ? `${usage.current} / ${usage.limit}`
-                        : `${usage.current} (no limit)`}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
+            This card used to carry the usage grid, the feature list, the
+            interval toggle and the upgrade button — so a page called Billing
+            could report a plan but not change it, while the page that could
+            change it was called Settings. Worse, usage then rendered in two
+            places from two endpoints, which is a disagreement waiting to
+            happen.
 
-            <Separator />
-
-            {/* Feature Access */}
-            <div>
-              <p className="text-sm font-medium mb-3">Feature Access</p>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                {Object.entries(subscription.features).map(
-                  ([key, available]) => (
-                    <div key={key} className="flex items-center gap-2 text-sm">
-                      <span
-                        className={
-                          available
-                            ? "text-green-600 dark:text-green-400"
-                            : "text-muted-foreground"
-                        }
-                      >
-                        {available ? "✓" : "✗"}
-                      </span>
-                      <span
-                        className={available ? "" : "text-muted-foreground"}
-                      >
-                        {FEATURE_LABELS[key] || key}
-                      </span>
-                    </div>
-                  )
-                )}
-              </div>
-            </div>
-
-            {/* Upgrade to Pro (free tier only) */}
-            {subscription.tier === "free" && (
-              <>
-                <Separator />
-                <div className="rounded-lg border p-4 space-y-3">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <p className="text-sm font-medium">Upgrade to Pro</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {TIER_CONFIG.pro.tagline}
-                      </p>
-                    </div>
-                    <p className="text-lg font-bold whitespace-nowrap">
-                      $
-                      {upgradeInterval === "year"
-                        ? TIER_CONFIG.pro.yearlyPrice
-                        : TIER_CONFIG.pro.monthlyPrice}
-                      <span className="text-xs font-normal text-muted-foreground">
-                        /{upgradeInterval === "year" ? "yr" : "mo"}
-                      </span>
-                    </p>
-                  </div>
-
-                  <div className="flex items-center gap-2 text-sm">
-                    <span className="text-muted-foreground">Billing:</span>
-                    <div className="inline-flex rounded-md border p-0.5">
-                      <button
-                        type="button"
-                        onClick={() => setUpgradeInterval("month")}
-                        className={`rounded px-3 py-1 text-xs transition-colors ${
-                          upgradeInterval === "month"
-                            ? "bg-primary text-primary-foreground"
-                            : "text-muted-foreground hover:text-foreground"
-                        }`}
-                      >
-                        Monthly
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setUpgradeInterval("year")}
-                        className={`rounded px-3 py-1 text-xs transition-colors ${
-                          upgradeInterval === "year"
-                            ? "bg-primary text-primary-foreground"
-                            : "text-muted-foreground hover:text-foreground"
-                        }`}
-                      >
-                        Annual
-                        <span className="ml-1 text-[10px] opacity-80">
-                          (2 months free)
-                        </span>
-                      </button>
-                    </div>
-                  </div>
-
-                  {canManageBilling && (
-                    <Button
-                      type="button"
-                      onClick={startUpgrade}
-                      disabled={upgrading}
-                    >
-                      {upgrading ? "Redirecting…" : "Upgrade to Pro"}
-                    </Button>
-                  )}
-                </div>
-              </>
-            )}
-
-            {/* Pro tier */}
-            {subscription.tier === "pro" && (
-              <>
-                <Separator />
-                <p className="text-sm text-muted-foreground">
-                  You&apos;re on the Pro plan. Need higher limits or audit logs?
-                  Contact us about Enterprise.
-                </p>
-              </>
-            )}
-          </CardContent>
+            What is left is a fact about the organisation, which is what this
+            page is for. The money is one link away.
+          */}
+          {canManageBilling && (
+            <CardContent>
+              <a
+                href={`/org/${orgId}/billing`}
+                className={SECONDARY_BUTTON}
+              >
+                <CreditCard className="h-3.5 w-3.5" aria-hidden="true" />
+                Billing and plans
+              </a>
+            </CardContent>
+          )}
         </Card>
       )}
+
     </div>
   );
 }
