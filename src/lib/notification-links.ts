@@ -125,6 +125,23 @@ export const NOTIFICATION_DESTINATIONS: Record<NotificationType, Destination> = 
     fallback: "availability",
   },
   leave_approved: { preferred: "availability", requires: [], fallback: "availability" },
+  /*
+   * To the queue, gated like `leave_requested` — the same recipients, the same
+   * page, and the same reason for the gate: a manager whose custom role lacks
+   * the permission must land somewhere they can actually read.
+   */
+  leave_reminder: {
+    preferred: "leave",
+    requires: ["members:request_availability"],
+    fallback: "availability",
+  },
+  /*
+   * To the MEMBER's own availability page — the one place they can see the
+   * request marked "Never answered" and ask again for a date that still
+   * matters. Never to the review queue: the recipient is the person who asked,
+   * not the person who did not answer.
+   */
+  leave_lapsed: { preferred: "availability", requires: [], fallback: "availability" },
   leave_rejected: { preferred: "availability", requires: [], fallback: "availability" },
   availability_review_requested: {
     preferred: "availability",

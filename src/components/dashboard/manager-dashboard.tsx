@@ -24,6 +24,7 @@ import {
 import type { NeedsAttentionItem } from "@/components/dashboard/needs-attention";
 import {
   LeaveRequestsPanel,
+  type LeaveDecision,
   type PendingLeave,
 } from "@/components/dashboard/leave-requests-panel";
 import { AlertBanner } from "@/components/ui/alert-banner";
@@ -189,9 +190,13 @@ export default function ManagerDashboard({
   useEffect(() => {
     async function fetchLeave() {
       try {
-        const res = await fetch(`/api/organizations/${orgId}/leave`);
+        const res = await fetch(`/api/organizations/${orgId}/leave?view=pending`);
         const body = await res.json();
-        setLeave(res.ok && Array.isArray(body) ? body : []);
+        // `view=pending` is everything undecided — live AND lapsed. A manager who
+        // never opens the leave page still needs to see that something went
+        // unanswered; the page defaults to the live ones because it has a Lapsed
+        // filter beside it.
+        setLeave(res.ok && Array.isArray(body?.rows) ? body.rows : []);
       } catch {
         setLeave([]);
       }
@@ -199,7 +204,7 @@ export default function ManagerDashboard({
     fetchLeave();
   }, [orgId]);
 
-  async function decideLeave(id: string, decision: "approved" | "rejected") {
+  async function decideLeave(id: string, decision: LeaveDecision) {
     const res = await fetch(`/api/organizations/${orgId}/leave/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -210,9 +215,11 @@ export default function ManagerDashboard({
     // disagrees with the server about what was decided is worse than a
     // round trip.
     if (res.ok) {
-      const refreshed = await fetch(`/api/organizations/${orgId}/leave`);
+      const refreshed = await fetch(
+        `/api/organizations/${orgId}/leave?view=pending`
+      );
       const body = await refreshed.json();
-      setLeave(refreshed.ok && Array.isArray(body) ? body : []);
+      setLeave(refreshed.ok && Array.isArray(body?.rows) ? body.rows : []);
     }
   }
 

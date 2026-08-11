@@ -13,6 +13,8 @@ import { AuditLogRepository } from "@/repositories/audit-log.repository";
 import { MembershipRepository } from "@/repositories/membership.repository";
 import type { AuditEntityType } from "@/lib/audit-entities";
 import type { AuditAction } from "@/lib/audit-actions";
+import { DATE_RANGE_MESSAGE, parseDateRange } from "@/lib/date-range";
+import { endOfDayInTimeZone, startOfDayInTimeZone } from "@/lib/timezone";
 
 /*
  * Re-exported so the ~50 service call sites keep one import for the audit
@@ -20,6 +22,19 @@ import type { AuditAction } from "@/lib/audit-actions";
  * and is a client component.
  */
 export { ACTIONS, type AuditAction } from "@/lib/audit-actions";
+
+/**
+ * Midday on a calendar day, as the seed for a timezone conversion.
+ *
+ * Midday and not midnight: constructing at midnight UTC and converting to a
+ * zone with a positive offset lands on the PREVIOUS day, which is the same trap
+ * `getRosterForDay` documents. From noon, every offset on earth stays inside
+ * the day that was asked for.
+ */
+function noonOn(day: string): Date {
+  const [y, m, d] = day.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d, 12));
+}
 
 
 
@@ -99,18 +114,66 @@ export class AuditLogService {
     );
   }
 
-  /** Retrieves audit logs with filters */
+  /**
+   * Retrieves audit logs with filters.
+   *
+   * ## The date range arrives as calendar DAYS, not instants
+   *
+   * It used to arrive as two `Date`s the browser had built, and both were
+   * wrong in opposite directions. `startDate` was the bare "2026-08-09" the
+   * picker produced, which `new Date()` reads as midnight UTC — 08:00 in
+   * Singapore, so the first eight hours of the chosen day were missing.
+   * `endDate` was built in the READER's timezone and shifted a day forward, so
+   * it was right for a Singapore browser and eight hours too generous for one
+   * on UTC. A range of a single day was therefore neither that day nor a
+   * consistent window, and which rows you saw depended on where you were
+   * sitting.
+   *
+   * Both halves are now decided here, from the organisation's calendar,
+   * through the same `startOfDayInTimeZone` / `endOfDayInTimeZone` pair the
+   * roster uses. The endpoint passes the strings through; the browser does no
+   * date arithmetic at all, which is the only arrangement where every reader
+   * sees the same log.
+   */
   async getLogs(
     organizationId: string,
     filters?: {
       action?: string;
       entityType?: string;
       userId?: string;
-      startDate?: Date;
-      endDate?: Date;
+      /** Inclusive `YYYY-MM-DD`, on the organisation's calendar. */
+      from?: string | null;
+      /** Inclusive `YYYY-MM-DD`, on the organisation's calendar. */
+      to?: string | null;
     },
     limit = 50,
     offset = 0
+  ) {
+    const range = parseDateRange(filters?.from, filters?.to);
+    if (range.problem) throw new Error(DATE_RANGE_MESSAGE[range.problem]);
+
+    const bounds = {
+      ...filters,
+      startDate: range.from ? startOfDayInTimeZone(noonOn(range.from)) : undefined,
+      // The END of the chosen day, inclusive. Half-open reads as an off-by-one
+      // to everyone not holding the code, and picking one day for both bounds
+      // must return that day rather than nothing.
+      endDate: range.to ? endOfDayInTimeZone(noonOn(range.to)) : undefined,
+    };
+    return this.queryLogs(organizationId, bounds, limit, offset);
+  }
+
+  private async queryLogs(
+    organizationId: string,
+    filters: {
+      action?: string;
+      entityType?: string;
+      userId?: string;
+      startDate?: Date;
+      endDate?: Date;
+    },
+    limit: number,
+    offset: number
   ) {
     const [logs, total] = await Promise.all([
       this.auditRepo.findByOrganizationId(organizationId, filters, limit, offset),

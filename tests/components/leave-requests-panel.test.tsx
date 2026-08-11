@@ -23,6 +23,7 @@ function request(overrides: Partial<PendingLeave> = {}): PendingLeave {
     date: "2026-08-14T00:00:00.000Z",
     isAvailable: false,
     reason: "Medical appointment",
+    lapsed: false,
     membership: {
       id: "m1",
       user: { id: "u1", name: "Alex Rivera", email: "alex@oceangrill.com" },
@@ -188,5 +189,80 @@ describe("nothing to review", () => {
       <LeaveRequestsPanel requests={[]} onDecide={vi.fn()} />
     );
     expect(container).toBeEmptyDOMElement();
+  });
+});
+
+describe("a request nobody answered in time", () => {
+  const lapsed = (extra: Partial<PendingLeave> = {}) =>
+    request({ id: "old", lapsed: true, date: "2026-07-02T00:00:00.000Z", ...extra });
+
+  /*
+   * Approve and Decline both send the member a notification. On a day that has
+   * already been and gone, either one is a message about an outcome that did
+   * not occur — so the row offers neither. The service refuses them too; this
+   * is the screen agreeing with the service rather than relying on it.
+   */
+  it("offers only Dismiss", () => {
+    render(<LeaveRequestsPanel requests={[lapsed()]} onDecide={vi.fn()} />);
+
+    expect(
+      screen.getByRole("button", { name: /Dismiss lapsed leave request/ })
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Approve/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Decline/ })).toBeNull();
+  });
+
+  it("says nobody answered, rather than just that it is old", () => {
+    render(<LeaveRequestsPanel requests={[lapsed()]} onDecide={vi.fn()} />);
+
+    // "Lapsed" alone reads as though the system cancelled it. It did not.
+    expect(screen.getByText(/passed without an answer/)).toBeInTheDocument();
+  });
+
+  it("sends the dismissal, not a verdict", async () => {
+    const onDecide = vi.fn().mockResolvedValue(undefined);
+    render(<LeaveRequestsPanel requests={[lapsed()]} onDecide={onDecide} />);
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Dismiss lapsed leave request/ })
+    );
+
+    expect(onDecide).toHaveBeenCalledWith("old", "dismissed");
+  });
+
+  /*
+   * The server orders by date ascending, which puts the oldest first — so the
+   * rows that can no longer be acted on led the queue and pushed the live ones
+   * down. Lapsed requests have the earliest dates by definition, so this is not
+   * an edge case, it is what the queue looked like.
+   */
+  it("sorts below the live ones despite having the earlier date", () => {
+    render(
+      <LeaveRequestsPanel
+        requests={[lapsed(), request({ id: "live" })]}
+        onDecide={vi.fn()}
+      />
+    );
+
+    const rows = screen.getAllByText(/asked off on/);
+    expect(rows[0].textContent).toContain("Aug");
+    expect(rows[1].textContent).toContain("Jul");
+  });
+
+  /*
+   * The heading counts decisions, not rows. A manager reading "2" needs it to
+   * mean two things they can do something about — the sidebar badge is filtered
+   * the same way, off the same server-computed flag.
+   */
+  it("is counted apart from the work still waiting", () => {
+    render(
+      <LeaveRequestsPanel
+        requests={[lapsed(), request({ id: "live" })]}
+        onDecide={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText(/Leave requests \(1\)/)).toBeInTheDocument();
+    expect(screen.getByText(/1 lapsed/)).toBeInTheDocument();
   });
 });

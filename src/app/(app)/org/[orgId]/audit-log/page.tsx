@@ -10,6 +10,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { ChevronLeft, ChevronRight, ScrollText } from "lucide-react";
 import { AUDIT_ENTITY_LABELS, AUDIT_ENTITY_TYPES } from "@/lib/audit-entities";
+import { DATE_RANGE_MESSAGE, parseDateRange } from "@/lib/date-range";
 import type { AuditAction } from "@/lib/audit-actions";
 import { Panel } from "@/components/ui/panel";
 import { SECONDARY_BUTTON } from "@/components/ui/button-styles";
@@ -89,6 +90,7 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   "department.unarchived": "Department restored",
   "leave.approved": "Leave approved",
   "leave.rejected": "Leave declined",
+  "leave.dismissed": "Lapsed leave dismissed",
   "certification.submitted": "Certification submitted",
   "certification.verified": "Certification verified",
   "certification.rejected": "Certification rejected",
@@ -203,6 +205,18 @@ export default function AuditLogPage() {
   const limit = 20;
 
   async function fetchLogs() {
+    /*
+     * A reversed range is not sent. `max`/`min` on the pickers stop most of
+     * them at the calendar; this catches a typed or pasted value, and the
+     * service refuses it again for anything that arrives by URL.
+     */
+    const range = parseDateRange(filterFrom, filterTo);
+    if (range.problem) {
+      setError(DATE_RANGE_MESSAGE[range.problem]);
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     try {
       const params = new URLSearchParams();
@@ -211,21 +225,20 @@ export default function AuditLogPage() {
       if (filterAction) params.set("action", filterAction);
       if (filterEntity) params.set("entityType", filterEntity);
       if (filterUser) params.set("userId", filterUser);
-      if (filterFrom) params.set("startDate", filterFrom);
       /*
-       * To the END of the chosen day.
+       * The picker's own strings, sent unmodified.
        *
-       * A date input yields "2026-08-09", which `new Date()` reads as midnight
-       * UTC — so an unadjusted `endDate` excludes everything that happened on
-       * the day the user picked, and picking the same day for both returns an
-       * empty log. Asking for the start of the NEXT day is the honest
-       * inclusive-range translation.
+       * This used to build the end bound here — `new Date(\`${filterTo}T00:00\`)`
+       * plus a day — which parses in the READER's timezone. Right for a
+       * Singapore browser and eight hours too generous on UTC, while the start
+       * bound went the other way and lost the first eight hours of the chosen
+       * day. Two timezone bugs in opposite directions, in a component that has
+       * no business knowing the organisation's clock.
+       *
+       * `getLogs` resolves both from the organisation's calendar now.
        */
-      if (filterTo) {
-        const end = new Date(`${filterTo}T00:00:00`);
-        end.setDate(end.getDate() + 1);
-        params.set("endDate", end.toISOString());
-      }
+      if (filterFrom) params.set("from", filterFrom);
+      if (filterTo) params.set("to", filterTo);
 
       const res = await fetch(
         `/api/organizations/${orgId}/audit-logs?${params.toString()}`

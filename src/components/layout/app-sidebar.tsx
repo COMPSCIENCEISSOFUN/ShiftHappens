@@ -448,7 +448,20 @@ export function AppSidebar({
     try {
       const res = await fetch(`/api/organizations/${orgId}/leave`);
       const data = await res.json();
-      setPendingLeaveCount(res.ok && Array.isArray(data) ? data.length : 0);
+      /*
+       * `awaitingCount`, not the length of the list.
+       *
+       * Live requests only — a lapsed one is a tidy-up, not work waiting, and
+       * counting it made the badge a number a manager could never drive to zero
+       * by doing their job. Counted server-side over the reader's WHOLE scope
+       * rather than over the rows returned, so it does not move when the leave
+       * page's filter changes, and is not capped by the page size.
+       */
+      setPendingLeaveCount(
+        res.ok && typeof data?.counts?.awaiting === "number"
+          ? data.counts.awaiting
+          : 0
+      );
     } catch {
       /* non-critical — the badge simply does not appear */
     }

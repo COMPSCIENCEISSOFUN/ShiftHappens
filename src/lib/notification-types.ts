@@ -53,6 +53,25 @@ export const NOTIFICATION_TYPES = {
   SHIFT_RATED_LOW: "shift_rated_low",
   AVAILABILITY_REVIEW_REQUESTED: "availability_review_requested",
   LEAVE_REQUESTED: "leave_requested",
+  /*
+   * A request is running out of time and nobody has answered it.
+   *
+   * ONE type for both passes, not two. The escalation adds the company admins
+   * to the recipients; it does not change what is being said, and a second type
+   * would give an organisation a switch that silences the reminder while
+   * leaving the escalation on — a setting whose only effect is to make the
+   * first warning somebody gets be the angry one.
+   */
+  LEAVE_REMINDER: "leave_reminder",
+  /*
+   * The date arrived and nobody ever answered.
+   *
+   * To the MEMBER, and deliberately not phrased as a decision — because none
+   * was made. The alternative was silence, which is what shipped first: their
+   * screen said "awaiting approval" indefinitely and nothing ever told them
+   * otherwise.
+   */
+  LEAVE_LAPSED: "leave_lapsed",
   LEAVE_APPROVED: "leave_approved",
   LEAVE_REJECTED: "leave_rejected",
   CERT_VERIFIED: "cert_verified",
@@ -103,6 +122,7 @@ export const NOTIFICATION_CATEGORIES = {
     NOTIFICATION_TYPES.LEAVE_REQUESTED,
     NOTIFICATION_TYPES.LEAVE_APPROVED,
     NOTIFICATION_TYPES.LEAVE_REJECTED,
+    NOTIFICATION_TYPES.LEAVE_LAPSED,
     NOTIFICATION_TYPES.BACKFILL_OFFERED,
   ],
   certification: [
@@ -111,6 +131,10 @@ export const NOTIFICATION_CATEGORIES = {
     NOTIFICATION_TYPES.CERT_EXPIRING,
   ],
   alert: [
+    // A reminder is an alert, not an assignment update: it is addressed to
+    // somebody who has to act, and it groups with the other things waiting on
+    // them rather than with the news about their own shifts.
+    NOTIFICATION_TYPES.LEAVE_REMINDER,
     NOTIFICATION_TYPES.HOUR_LIMIT_WARNING,
     NOTIFICATION_TYPES.STAFF_INELIGIBLE,
     NOTIFICATION_TYPES.SHIFT_RATED_LOW,
@@ -133,6 +157,8 @@ export const NEEDS_ACTION_TYPES: string[] = [
   NOTIFICATION_TYPES.STAFF_INELIGIBLE,
   // An unfilled shift is the definition of something needing action.
   NOTIFICATION_TYPES.BACKFILL_NEEDED,
+  // And a request nobody has answered is the definition of something overdue.
+  NOTIFICATION_TYPES.LEAVE_REMINDER,
 ];
 
 export type NotificationType =
@@ -164,6 +190,8 @@ export const NOTIFICATION_LABELS: Record<NotificationType, string> = {
   shift_rated_low: "Low rating",
   availability_review_requested: "Availability check",
   leave_requested: "Leave requested",
+  leave_reminder: "Awaiting your decision",
+  leave_lapsed: "Never answered",
   leave_approved: "Leave approved",
   leave_rejected: "Leave declined",
   cert_verified: "Verified",

@@ -44,6 +44,8 @@ import {
   Clock,
   CalendarOff,
   CalendarX2,
+  CalendarSync,
+  Hourglass,
   LogOut,
   ShieldAlert,
   CalendarCheck,
@@ -143,6 +145,23 @@ const NOTIFICATION_ICON: Record<NotificationType, NotificationIcon> = {
   leave_requested: { Icon: CalendarOff, ...AMBER },
   leave_approved: { Icon: CalendarCheck, ...GREEN },
   leave_rejected: { Icon: CalendarX2, ...RED },
+  /*
+   * Amber, like `leave_requested`, because it IS that notification again — the
+   * same request, still waiting. Red is reserved here for a refusal or a hole
+   * in the roster, and a reminder is neither.
+   *
+   * `Hourglass` rather than `Clock`: `hour_limit_warning` is already Clock in
+   * amber, and two types rendering to an identical row is a distinction the
+   * reader cannot make.
+   */
+  leave_reminder: { Icon: Hourglass, ...AMBER },
+  /*
+   * Grey, and a distinct icon. This is the only notification in the product
+   * that reports an absence of a decision rather than one, so it should not
+   * wear the colour of either answer — a red one reads as "declined", which is
+   * precisely what did not happen.
+   */
+  leave_lapsed: { Icon: CalendarSync, tint: "bg-muted", tone: "text-muted-foreground" },
   backfill_needed: { Icon: UserSearch, ...RED },
   backfill_offered: { Icon: UserPlus, ...INDIGO },
 };

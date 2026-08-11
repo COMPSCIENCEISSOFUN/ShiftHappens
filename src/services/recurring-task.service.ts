@@ -26,9 +26,17 @@ import {
 } from "@/services/notification.service";
 import { taskWatcherUserIds } from "@/services/task-watchers";
 import { parseRecurrencePattern, occurrencesBetween } from "@/lib/recurrence";
+import { DEFAULT_HORIZON_DAYS } from "@/lib/scheduling-horizon";
 
-/** How far ahead instances are materialised by default. */
-export const DEFAULT_HORIZON_DAYS = 14;
+/**
+ * How far ahead instances are materialised by default.
+ *
+ * Re-exported rather than declared here now that a pure rule reads it too —
+ * `lib/leave-timing` decides when an unanswered request is running out of time,
+ * and a lib importing a service would invert the layering. Every existing
+ * importer keeps working; the number has one home.
+ */
+export { DEFAULT_HORIZON_DAYS } from "@/lib/scheduling-horizon";
 
 export interface GenerationResult {
   seriesProcessed: number;

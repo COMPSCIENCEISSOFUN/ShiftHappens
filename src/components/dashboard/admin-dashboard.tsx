@@ -36,6 +36,7 @@ import {
 import type { NeedsAttentionItem } from "@/components/dashboard/needs-attention";
 import {
   LeaveRequestsPanel,
+  type LeaveDecision,
   type PendingLeave,
 } from "@/components/dashboard/leave-requests-panel";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
@@ -530,15 +531,19 @@ export default function AdminDashboard({ orgId, orgName, userName }: AdminDashbo
    */
   async function fetchLeave() {
     try {
-      const res = await fetch(`/api/organizations/${orgId}/leave`);
+      const res = await fetch(`/api/organizations/${orgId}/leave?view=pending`);
       const body = await res.json();
-      setLeave(res.ok && Array.isArray(body) ? body : []);
+      // `view=pending` is everything undecided — live AND lapsed. A manager who
+      // never opens the leave page still needs to see that something went
+      // unanswered; the page defaults to the live ones because it has a Lapsed
+      // filter beside it.
+      setLeave(res.ok && Array.isArray(body?.rows) ? body.rows : []);
     } catch {
       setLeave([]);
     }
   }
 
-  async function decideLeave(id: string, decision: "approved" | "rejected") {
+  async function decideLeave(id: string, decision: LeaveDecision) {
     const res = await fetch(`/api/organizations/${orgId}/leave/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },

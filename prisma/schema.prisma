@@ -479,6 +479,47 @@ model AvailabilityOverride {
   status       String   @default("approved")
   reviewedById String?
   /*
+   * When the review clock last started.
+   *
+   * NOT `createdAt`, and not `updatedAt`, because neither can answer this.
+   * `createOverride` UPSERTS: editing a declined request resets it to pending
+   * and clears the review, which is a new request on an old row and deserves a
+   * new clock — `createdAt` will not move, so an edited request would arrive
+   * permanently overdue. And `updatedAt` is `@updatedAt`, so the moment the
+   * reminder job writes `remindedAt` below, the clock it just measured resets
+   * and the request can never be overdue again.
+   *
+   * Nullable only so existing rows can carry the column; every write sets it.
+   */
+  submittedAt  DateTime?
+  /*
+   * When the reviewers were chased, and when it went above them.
+   *
+   * Held here rather than derived from the notification log, which cannot
+   * answer it: `notifyIfEnabled` writes NOTHING when an organisation has that
+   * notification type switched off, so "no notification row" means either "not
+   * yet chased" or "reminders are disabled here". An organisation that opted
+   * out would be swept on every run forever, and the day they opted back in,
+   * every pending request would fire at once.
+   *
+   * Both are cleared by the upsert alongside `reviewedById`, for the same
+   * reason it clears that: a re-submitted request carrying last round's
+   * `remindedAt` would never be chased again — a request made invisible to the
+   * system by being edited.
+   */
+  remindedAt   DateTime?
+  escalatedAt  DateTime?
+  /*
+   * When the MEMBER was told nobody answered in time.
+   *
+   * A fourth mark rather than a reuse of the two above, which cannot serve: a
+   * request that lapses has usually been chased already, so `remindedAt` is
+   * set — and a field that means "chased" for one row and "member told" for
+   * another can only be read by knowing which. Different recipient, different
+   * message, different question.
+   */
+  lapseNotifiedAt DateTime?
+  /*
    * There is deliberately no `reviewedAt`. `updatedAt` already records when the
    * row last changed, and a reviewed leave request does not change again — so a
    * separate timestamp would be a second copy of the same fact, free to drift

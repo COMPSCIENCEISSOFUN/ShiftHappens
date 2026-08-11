@@ -209,6 +209,7 @@ export const ROUTES: RouteSpec[] = [
     suspension: true,
     extraParams: ["overrideId"],
   }),
+  org("leave/dismiss-lapsed", "POST", MANAGER, { suspension: true }),
   org("calendar/coverage", "GET", MANAGER),
   org("calendar/staff", "GET", MANAGER),
 

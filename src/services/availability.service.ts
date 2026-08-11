@@ -10,6 +10,7 @@ import { SERVER_LOCALE } from "@/lib/timezone";
  */
 import {
   AvailabilityRepository,
+  isLapsedLeave,
   overrideDateKey,
 } from "@/repositories/availability.repository";
 import { TaskRepository } from "@/repositories/task.repository";
@@ -18,10 +19,46 @@ import { EligibilityService } from "@/services/eligibility.service";
 import { NotificationService, NOTIFICATION_TYPES } from "@/services/notification.service";
 import { MembershipRepository } from "@/repositories/membership.repository";
 import { SettingsRepository } from "@/repositories/settings.repository";
-import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
+import {
+  AuditLogService,
+  ACTIONS,
+  type AuditAction,
+} from "@/services/audit-log.service";
 import { taskWatcherUserIds } from "@/services/task-watchers";
 import { isFullTime } from "@/lib/role-config";
+
+/**
+ * The audit entry each verdict raises.
+ *
+ * A map rather than a ternary chain, and typed on the verdict union, so adding
+ * a fourth verdict fails to COMPILE until it has an audit action — the same
+ * device the audit-log page uses with `Record<AuditAction, string>` for
+ * labels. The ternary this replaced would have silently filed a new verdict as
+ * a rejection.
+ */
+const LEAVE_AUDIT_ACTION: Record<LeaveVerdict, AuditAction> = {
+  approved: ACTIONS.LEAVE_APPROVED,
+  rejected: ACTIONS.LEAVE_REJECTED,
+  dismissed: ACTIONS.LEAVE_DISMISSED,
+};
+
+/** What a reviewer may do to a leave request. See `reviewLeave`. */
+export type LeaveVerdict = "approved" | "rejected" | "dismissed";
 import { memberInScope } from "@/lib/department-scope";
+import { DATE_RANGE_MESSAGE, parseDateRange } from "@/lib/date-range";
+import {
+  chaseBoundaries,
+  chaseStageFor,
+  isClosingSoon,
+} from "@/lib/leave-timing";
+import { DEFAULT_HORIZON_DAYS } from "@/lib/scheduling-horizon";
+import {
+  DEFAULT_LEAVE_VIEW,
+  LEAVE_PAGE_SIZE,
+  LEAVE_TILE_VIEWS,
+  leaveOrderFor,
+  type LeaveView,
+} from "@/lib/leave-filters";
 import type {
   SetAvailabilityInput,
   CreateAvailabilityOverrideInput,
@@ -492,8 +529,7 @@ export class AvailabilityService {
      * request made at 07:00 in Singapore would be refused as yesterday's on a
      * UTC host.
      */
-    const requested = overrideDateKey(new Date(input.date));
-    if (requested < overrideDateKey(new Date())) {
+    if (isLapsedLeave(new Date(input.date))) {
       throw new Error("That date has already passed");
     }
 
@@ -569,7 +605,7 @@ export class AvailabilityService {
   }
 
   /**
-   * Approves or rejects a leave request.
+   * Approves, rejects or dismisses a leave request.
    *
    * Approving is the moment the absence becomes real, so it runs through the
    * same ineligibility check every other availability change does: a shift the
@@ -579,10 +615,29 @@ export class AvailabilityService {
    * Rejecting cannot make anyone ineligible — the row was inert while pending
    * and stays inert — so it skips the check rather than paying for a query
    * whose answer cannot change.
+   *
+   * ## Why "dismissed" exists, and why it is the ONLY verdict on a lapsed row
+   *
+   * A request whose date has passed cannot be granted or refused: the day
+   * happened, and whatever the member did on it, they did. Approving one
+   * released nothing — `releaseCommitments` reads only future shifts — but
+   * still sent "Your request for Tue 21 Jul was approved", which is a
+   * notification about an outcome that did not occur.
+   *
+   * So the two live verdicts are refused on a lapsed row and `dismissed` is
+   * refused on a live one. Dismissing clears the queue, records who cleared it,
+   * and tells the member nothing, because there is nothing true to tell them
+   * beyond what their own screen already says.
+   *
+   * Enforced here rather than by hiding the buttons. The panel does hide them,
+   * but a row lapses with the passage of time and not with a click: a queue
+   * left open across midnight has live buttons over a request that is no longer
+   * live, and the only place that can be authoritative is the one that reads
+   * the row.
    */
   async reviewLeave(
     overrideId: string,
-    decision: "approved" | "rejected",
+    decision: LeaveVerdict,
     reviewerUserId: string,
     /**
      * The organisation the reviewer is acting in.
@@ -645,6 +700,22 @@ export class AvailabilityService {
       throw new Error("This request has already been reviewed");
     }
 
+    /*
+     * Checked after the pending guard and before anything is written. Both
+     * directions are refused: a verdict on a day that has gone, and a dismissal
+     * of one still to come — the second would be a way to make a live request
+     * disappear without answering it.
+     */
+    const lapsed = isLapsedLeave(override.date);
+    if (lapsed && decision !== "dismissed") {
+      throw new Error(
+        "That date has already passed — this request can only be dismissed"
+      );
+    }
+    if (!lapsed && decision === "dismissed") {
+      throw new Error("A request for a future date must be approved or declined");
+    }
+
     const apply = () =>
       this.availRepo.reviewOverride(overrideId, decision, reviewerUserId);
 
@@ -669,31 +740,40 @@ export class AvailabilityService {
       await this.auditService.log({
         organizationId: membership.organizationId,
         userId: reviewerUserId,
-        action:
-          decision === "approved"
-            ? ACTIONS.LEAVE_APPROVED
-            : ACTIONS.LEAVE_REJECTED,
+        action: LEAVE_AUDIT_ACTION[decision],
         entityType: "availability",
         entityId: overrideId,
         details: { date: override.date.toISOString(), membershipId: override.membershipId },
       });
 
-      void this.notificationService.notifyIfEnabled(
-        membership.organizationId,
-        membership.userId,
-        decision === "approved"
-          ? NOTIFICATION_TYPES.LEAVE_APPROVED
-          : NOTIFICATION_TYPES.LEAVE_REJECTED,
-        decision === "approved" ? "Leave approved" : "Leave not approved",
-        `Your request for ${override.date.toLocaleDateString(SERVER_LOCALE, {
-          weekday: "short",
-          day: "numeric",
-          month: "short",
-          timeZone: "UTC",
-        })} was ${decision === "approved" ? "approved" : "declined"}.`,
-        "availability",
-        override.membershipId
-      );
+      /*
+       * Audited always, notified only for a real verdict.
+       *
+       * A dismissal is a fact about the QUEUE, not about the member's request —
+       * nobody decided anything, and the day is gone. "Your request for 21 July
+       * was dismissed" would be a message whose only honest content is that
+       * their manager did not answer in time, delivered weeks late by a robot.
+       * Their own screen already says the request lapsed. The audit entry is
+       * where "who cleared this, and when" belongs.
+       */
+      if (decision !== "dismissed") {
+        void this.notificationService.notifyIfEnabled(
+          membership.organizationId,
+          membership.userId,
+          decision === "approved"
+            ? NOTIFICATION_TYPES.LEAVE_APPROVED
+            : NOTIFICATION_TYPES.LEAVE_REJECTED,
+          decision === "approved" ? "Leave approved" : "Leave not approved",
+          `Your request for ${override.date.toLocaleDateString(SERVER_LOCALE, {
+            weekday: "short",
+            day: "numeric",
+            month: "short",
+            timeZone: "UTC",
+          })} was ${decision === "approved" ? "approved" : "declined"}.`,
+          "availability",
+          override.membershipId
+        );
+      }
     }
 
     return result;
@@ -756,18 +836,415 @@ export class AvailabilityService {
     );
   }
 
-  /** Leave awaiting a decision, within the reviewer's scope. */
-  async getPendingLeave(organizationId: string, departmentIds?: string[] | null) {
-    const members = await this.membershipRepo.findRosterableInScope(
-      organizationId,
-      departmentIds
-    );
-    return this.availRepo.findPendingForMembers(members.map((m) => m.id));
+  /**
+   * The leave register: every request that ever went through review, filtered.
+   *
+   * ## Why the department filter narrows the MEMBERS and not the query
+   *
+   * A reviewer's scope and the department they picked from a dropdown are two
+   * different things, and the second must never replace the first. Resolving
+   * both into one list of membership ids — before the repository is called —
+   * makes that structural: the repository takes ids and has no concept of a
+   * department, so asking for one outside your scope resolves to nobody and
+   * returns nothing. There is no ordering of these two steps that leaks.
+   *
+   * This is the shape the 2026-08-05 audit asked for. The four surfaces it
+   * found had taken a department id from the query string and used it AS the
+   * scope, which is the same code with the two steps collapsed.
+   *
+   * ## Why `awaiting` is counted separately every time
+   *
+   * `awaiting` answers the sidebar badge, and the badge is about the reader's
+   * whole scope — not about whatever the page is filtered to. Reading it off
+   * this page's `total` would make the badge fall to zero when a manager
+   * switched the filter to "Approved", which is lying in the most reassuring
+   * direction available.
+   */
+  async getLeaveRegister(
+    organizationId: string,
+    /** The reviewer's departments, or null for a company admin. */
+    departmentScope: string[] | null | undefined,
+    filters: {
+      view?: LeaveView;
+      /** One department, which must lie inside `departmentScope`. */
+      departmentId?: string | null;
+      from?: string | null;
+      to?: string | null;
+      search?: string | null;
+      page?: number;
+    } = {}
+  ) {
+    const view = filters.view ?? DEFAULT_LEAVE_VIEW;
+    const scope = departmentScope ?? null;
+
+    /*
+     * Refused, not ignored, and refused HERE rather than only in the browser.
+     *
+     * A reversed range matches nothing, so applying it would return an empty
+     * page — and an empty page reads as "there is no leave in August", not as
+     * "you have asked an impossible question". The screen blocks it too; this
+     * is the half that survives a hand-written URL, and the reason the message
+     * comes from the same table the screen shows.
+     */
+    const range = parseDateRange(filters.from, filters.to);
+    if (range.problem) throw new Error(DATE_RANGE_MESSAGE[range.problem]);
+
+    /*
+     * The intersection. `null` scope means unrestricted, so a chosen department
+     * simply becomes the scope; a restricted reader asking for a department
+     * they do not hold resolves to an empty list rather than an error, because
+     * telling them the difference would confirm the department exists.
+     */
+    const requested = filters.departmentId?.trim() || null;
+    const effective =
+      requested === null
+        ? scope
+        : scope !== null && !scope.includes(requested)
+          ? []
+          : [requested];
+
+    const [members, everyoneInScope] = await Promise.all([
+      this.membershipRepo.findRosterableInScope(organizationId, effective),
+      // The badge's population is the reader's whole scope, not the filtered
+      // one. Skipped entirely when they are the same query.
+      requested === null
+        ? Promise.resolve(null)
+        : this.membershipRepo.findRosterableInScope(organizationId, scope),
+    ]);
+
+    const memberIds = members.map((m) => m.id);
+    const scopeIds = (everyoneInScope ?? members).map((m) => m.id);
+
+    const now = new Date();
+    const todayKey = overrideDateKey(now);
+    const page = Math.max(1, Math.floor(filters.page ?? 1));
+
+    const [{ rows, total }, counts, closingSoon] = await Promise.all([
+      this.availRepo.findLeaveRegister({
+        membershipIds: memberIds,
+        view,
+        todayKey,
+        from: range.from ? overrideDateKey(new Date(range.from)) : null,
+        to: range.to ? overrideDateKey(new Date(range.to)) : null,
+        search: filters.search ?? null,
+        order: leaveOrderFor(view),
+        take: LEAVE_PAGE_SIZE,
+        skip: (page - 1) * LEAVE_PAGE_SIZE,
+      }),
+      /*
+       * The tiles, over the reader's WHOLE scope — never the current filter.
+       *
+       * They are the standing picture of what this reader is responsible for.
+       * Recomputing them against the filter would make "Lapsed: 3" fall to zero
+       * the moment somebody searched for a name, and the Awaiting tile has to
+       * agree with the sidebar badge, which cannot see the filter at all.
+       *
+       * Lapsed earns a tile rather than a chip because it is invisible by
+       * nature: nobody goes looking for a filter they do not know has anything
+       * behind it, and requests accumulating unseen is the whole defect this
+       * page was rebuilt to answer.
+       */
+      this.availRepo.countLeaveViews(scopeIds, todayKey, LEAVE_TILE_VIEWS),
+      /*
+       * How many of the waiting ones are running out of time.
+       *
+       * Not a fifth tile — it is a SUBSET of Awaiting, and a tile row whose
+       * numbers overlap invites adding them up. It becomes the Awaiting tile's
+       * detail line instead, where "3 closing soon" replaces a caption that
+       * only ever said the same thing as the label above it.
+       */
+      this.availRepo.countClosingSoon(scopeIds, chaseBoundaries(now)),
+    ]);
+
+    return {
+      rows: rows.map((row) => ({
+        ...row,
+        lapsed: isLapsedLeave(row.date, now),
+        /*
+         * Says the request is running out of time — NOT that anybody has been
+         * told. A row must not stop looking urgent the moment a reminder goes
+         * out; that is exactly backwards, and it is why this is `isClosingSoon`
+         * rather than `chaseStageFor`.
+         */
+        closingSoon: !isLapsedLeave(row.date, now) && isClosingSoon(row, now),
+        /*
+         * Flattened here rather than in the page. A member can hold several
+         * departments, and every screen that has had to unwrap
+         * `departmentMemberships` itself has done it slightly differently.
+         */
+        departments: row.membership.departmentMemberships.map(
+          (dm) => dm.department
+        ),
+      })),
+      total,
+      page,
+      pageSize: LEAVE_PAGE_SIZE,
+      /** Waiting, and running out of time. A subset of `counts.awaiting`. */
+      closingSoon,
+      /**
+       * The tile figures, keyed by view. `counts.awaiting` is also what the
+       * sidebar badge reads, so the number on the page and the number in the
+       * nav are one query rather than two that agree by luck.
+       */
+      counts,
+    };
   }
 
-  /** Gets overrides for a member, optionally within a date range */
+  /**
+   * The scheduled sweep: chase what is running out of time, and tell the member
+   * about anything that ran out.
+   *
+   * ## Why chasing is worth building at all
+   *
+   * A lapsed request is a failure — a member asked for a day, nobody answered,
+   * and the day came anyway. Marking it lapsed after the fact is honest but
+   * useless to them. This is the half that tries to stop it.
+   *
+   * ## Two passes, deliberately narrowing rather than repeating
+   *
+   * The first goes to the people who can decide it: the requester's own
+   * department managers, and the admins above them. The second, a day later,
+   * goes to the ADMINS ONLY, and says the reviewers have not answered. That is
+   * the "escalate to HR" shape the HR literature settles on rather than
+   * auto-approving — a missed deadline becomes a nudge, never an accidental
+   * yes. Approving here removes somebody from a roster and starts a search for
+   * cover, so nothing about it may happen by default.
+   *
+   * `findLeaveReviewers(orgId, [])` is admins-only by construction: an empty
+   * department list matches no manager, which is the same `[]` vs `null`
+   * distinction `departmentScopeFor` turns on everywhere else.
+   *
+   * After the second there is no third. `escalatedAt` is terminal, so a
+   * request nobody ever answers is chased exactly twice — a rule that re-sent
+   * on a cooldown would teach every manager to filter the sender.
+   *
+   * ## Fire-and-forget per row, like everything else here
+   *
+   * One organisation's failure must not stop the sweep, and a notification that
+   * cannot be sent must not leave the row looking un-chased forever — so the
+   * mark is written whatever the notification did, and the error is logged.
+   */
+  async sweepPendingLeave(
+    organizationId: string,
+    now: Date = new Date(),
+    horizonDays: number = DEFAULT_HORIZON_DAYS
+  ): Promise<{ reminded: number; escalated: number; lapseNotified: number }> {
+    let reminded = 0;
+    let escalated = 0;
+
+    const boundaries = chaseBoundaries(now, horizonDays);
+    const chaseable = await this.availRepo.findChaseable(
+      organizationId,
+      boundaries
+    );
+
+    for (const row of chaseable) {
+      const stage = chaseStageFor(row, now, horizonDays);
+      if (stage === "none") continue;
+
+      const departmentIds = row.membership.departmentMemberships.map(
+        (dm) => dm.departmentId
+      );
+      const audience = await this.membershipRepo.findLeaveReviewers(
+        organizationId,
+        stage === "escalate" ? [] : departmentIds
+      );
+      const name = row.membership.user.name || row.membership.user.email;
+      const when = row.date.toLocaleDateString(SERVER_LOCALE, {
+        weekday: "short",
+        day: "numeric",
+        month: "short",
+        timeZone: "UTC",
+      });
+
+      try {
+        await this.notificationService.notifyManyIfEnabled(
+          organizationId,
+          // Never to the requester. They know; and a full-time MANAGER can be
+          // both, which is the same overlap `reviewLeave` refuses.
+          audience
+            .map((r) => r.userId)
+            .filter((id) => id !== row.membership.userId),
+          NOTIFICATION_TYPES.LEAVE_REMINDER,
+          stage === "escalate"
+            ? "Leave request still unanswered"
+            : "Leave request needs a decision",
+          stage === "escalate"
+            ? `${name} asked for ${when} off and nobody has answered. It was already flagged to their managers.`
+            : `${name} asked for ${when} off and is still waiting.`,
+          "availability",
+          row.membership.id
+        );
+      } catch (error) {
+        console.error("[Leave Sweep] reminder failed", error);
+      }
+
+      // Marked regardless. A row left un-marked because a notification failed
+      // would be picked up on every subsequent run, forever.
+      await this.availRepo.markChased(row.id, stage, now);
+      if (stage === "escalate") escalated++;
+      else reminded++;
+    }
+
+    const lapseNotified = await this.notifyLapsed(organizationId, now);
+    return { reminded, escalated, lapseNotified };
+  }
+
+  /**
+   * Tells the member that the day arrived and nobody answered.
+   *
+   * Not phrased as a decision, because none was made. The alternative was the
+   * silence that shipped first: their own screen said "awaiting approval"
+   * indefinitely, and nothing ever told them otherwise — so the person with the
+   * most reason to chase it was the only one not informed.
+   *
+   * It does NOT dismiss the request. Clearing it would hide from the reviewer
+   * that they dropped one, and the register's Dismiss exists so that closing it
+   * is somebody's deliberate act rather than a side effect of a cron job.
+   */
+  private async notifyLapsed(organizationId: string, now: Date) {
+    const todayKey = overrideDateKey(now);
+    const lapsed = await this.availRepo.findNewlyLapsed(
+      organizationId,
+      todayKey
+    );
+
+    let sent = 0;
+    for (const row of lapsed) {
+      const when = row.date.toLocaleDateString(SERVER_LOCALE, {
+        weekday: "short",
+        day: "numeric",
+        month: "short",
+        timeZone: "UTC",
+      });
+      try {
+        await this.notificationService.notifyIfEnabled(
+          organizationId,
+          row.membership.userId,
+          NOTIFICATION_TYPES.LEAVE_LAPSED,
+          "Your leave request was never answered",
+          `Nobody answered your request for ${when} before the day arrived. It has not been approved — ask again if you still need the time.`,
+          "availability",
+          row.membership.id
+        );
+      } catch (error) {
+        console.error("[Leave Sweep] lapse notice failed", error);
+      }
+      await this.availRepo.markLapseNotified(row.id, now);
+      sent++;
+    }
+    return sent;
+  }
+
+  /**
+   * Clears every lapsed request the caller may act on, in one go.
+   *
+   * ## Why it loops through `reviewLeave` rather than issuing one UPDATE
+   *
+   * A bulk `updateMany` would be one query and would skip every rule: the
+   * self-review refusal, the department scope, the pending check, the lapsed
+   * check, and the audit entry per row. Those are not incidental — a manager
+   * who is themselves full-time can have a lapsed request of their own sitting
+   * in their own queue, and "dismiss everything" must not become the one door
+   * through which they sign off their own leave.
+   *
+   * So the rules stay in one place and this pays for them. A tidy-up of a
+   * handful of rows is not a hot path, and the alternative is a second
+   * implementation of five guards that would drift from the first.
+   *
+   * ## Why a failure skips rather than aborts
+   *
+   * One unreachable row must not strand the other nine. Anything refused is
+   * counted and reported, so the screen can say what it could not do instead of
+   * claiming a clean sweep — a bulk action that silently does 9 of 10 is worse
+   * than one that does none.
+   */
+  async dismissLapsedLeave(
+    organizationId: string,
+    reviewerUserId: string,
+    departmentScope?: string[] | null
+  ): Promise<{ dismissed: number; skipped: number }> {
+    const members = await this.membershipRepo.findRosterableInScope(
+      organizationId,
+      departmentScope ?? null
+    );
+    const todayKey = overrideDateKey(new Date());
+    const membershipIds = members.map((m) => m.id);
+
+    let dismissed = 0;
+    let skipped = 0;
+
+    /*
+     * Batched until there is nothing left, rather than one page and a full stop.
+     *
+     * The first version read `take: LEAVE_PAGE_SIZE, skip: 0` once — so a button
+     * reading "Dismiss all 60" cleared fifty and reported fifty, and the
+     * remaining ten came back on the next load with no explanation. A silent
+     * cap, in the one place this codebase has repeatedly argued not to put one.
+     *
+     * `skip: skipped` is the whole trick. A dismissed row leaves the lapsed
+     * view, so it is not there to page past; a REFUSED one stays, and offsetting
+     * by the number refused so far steps over exactly those and nothing else.
+     *
+     * The loop terminates because a pass that dismisses nothing breaks out. Some
+     * refusals are permanent — a manager's own request can never be dismissed by
+     * them — so "keep going while rows remain" would spin forever on a queue
+     * containing only those.
+     */
+    for (;;) {
+      const { rows } = await this.availRepo.findLeaveRegister({
+        membershipIds,
+        view: "lapsed",
+        todayKey,
+        order: "asc",
+        take: LEAVE_PAGE_SIZE,
+        skip: skipped,
+      });
+      if (rows.length === 0) break;
+
+      let progressed = false;
+      for (const row of rows) {
+        try {
+          await this.reviewLeave(
+            row.id,
+            "dismissed",
+            reviewerUserId,
+            organizationId,
+            departmentScope
+          );
+          dismissed++;
+          progressed = true;
+        } catch {
+          // Their own request, or one that stopped being lapsed between the read
+          // and the write. Both are correct refusals; neither should stop the
+          // rest.
+          skipped++;
+        }
+      }
+
+      if (!progressed) break;
+    }
+
+    return { dismissed, skipped };
+  }
+
+  /**
+   * A member's own overrides, each marked with whether its date has passed.
+   *
+   * The member's screen showed "Awaiting approval" against a day three weeks
+   * gone, indistinguishable from one next Tuesday, so the person with the most
+   * reason to chase it had no way to know it needed chasing. Same flag and same
+   * derivation as the reviewer's queue — the two sides of this disagreeing is
+   * the failure mode worth designing against.
+   */
   async getOverrides(membershipId: string, startDate?: Date, endDate?: Date) {
-    return this.availRepo.getOverrides(membershipId, startDate, endDate);
+    const rows = await this.availRepo.getOverrides(
+      membershipId,
+      startDate,
+      endDate
+    );
+    const now = new Date();
+    return rows.map((row) => ({ ...row, lapsed: isLapsedLeave(row.date, now) }));
   }
 
   /**

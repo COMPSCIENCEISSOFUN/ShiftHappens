@@ -8,7 +8,9 @@
  * dayOfWeek: 0 = Sunday, 1 = Monday, ..., 6 = Saturday
  * Times stored as "HH:MM" strings for simplicity.
  */
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import type { LeaveView } from "@/lib/leave-filters";
 import { dayOfWeekInTimeZone, localDateInTimeZone } from "@/lib/timezone";
 
 /**
@@ -49,6 +51,103 @@ export function wraps(startTime: string, endTime: string): boolean {
  */
 export function overrideDateKey(date: Date): Date {
   return new Date(`${localDateInTimeZone(date)}T00:00:00.000Z`);
+}
+
+/**
+ * A leave request whose date has already gone by.
+ *
+ * The state nothing in the product had a name for. A request is created
+ * `pending` and leaves that state only when somebody answers it — and if
+ * nobody does, the day arrives, passes, and the row stays exactly as it was.
+ * It then sat at the TOP of the reviewer's queue (the list is ordered by date
+ * ascending), counted towards the sidebar badge, and read to the member as
+ * "Awaiting approval" for as long as the organisation existed.
+ *
+ * Answering one was worse than ignoring it: approving released nothing, because
+ * `releaseCommitments` only looks at shifts from now onward, but the member
+ * still received "Your request for Tue 21 Jul was approved." A notification
+ * about an outcome that did not happen.
+ *
+ * Compared on the ORGANISATION's calendar day, through the same
+ * `overrideDateKey` the write and the read both use. `createOverride` refuses a
+ * date already past using this function, so the rule that blocks a lapsed
+ * request being CREATED and the rule that recognises one that has lapsed since
+ * are the same rule, and cannot come to disagree about where the boundary is.
+ *
+ * `now` is a parameter so a test can state the day it is asking about instead
+ * of being a claim about the day it runs.
+ */
+export function isLapsedLeave(date: Date, now: Date = new Date()): boolean {
+  return overrideDateKey(date) < overrideDateKey(now);
+}
+
+/**
+ * The register's filter, as one expression used by both the page query and its
+ * count. Written once so the two cannot disagree about what matched — a count
+ * built from a second, hand-copied `where` is how "showing 50 of 12" happens.
+ */
+function leaveRegisterWhere(opts: {
+  membershipIds: string[];
+  view: LeaveView;
+  todayKey: Date;
+  from?: Date | null;
+  to?: Date | null;
+  search?: string | null;
+}): Prisma.AvailabilityOverrideWhereInput {
+  /*
+   * `reviewedById: { not: null }` is what makes this a register of DECISIONS.
+   * A casual member's override is written `approved` at save time with no
+   * reviewer, so testing the status alone would fill the page with everybody's
+   * ordinary availability edits and bury the requests somebody answered.
+   */
+  const wasReviewed = { reviewedById: { not: null } };
+
+  const byView: Record<LeaveView, Prisma.AvailabilityOverrideWhereInput> = {
+    // Both live views are `pending`; only the date tells them apart, and it
+    // does so without anybody writing anything.
+    awaiting: { status: "pending", date: { gte: opts.todayKey } },
+    lapsed: { status: "pending", date: { lt: opts.todayKey } },
+    // Both of the above at once — the whole undecided pile, which is what a
+    // dashboard means by "leave requests".
+    pending: { status: "pending" },
+    approved: { status: "approved", ...wasReviewed },
+    // The column says "rejected" and every screen says "Declined". The
+    // translation belongs here, at the one boundary between the two.
+    declined: { status: "rejected" },
+    dismissed: { status: "dismissed" },
+    all: { OR: [{ status: "pending" }, wasReviewed] },
+  };
+
+  const search = opts.search?.trim();
+
+  return {
+    membershipId: { in: opts.membershipIds },
+    ...byView[opts.view],
+    ...(opts.from || opts.to
+      ? {
+          date: {
+            // Spread first: a view that already constrains the date (both live
+            // ones do) must keep its bound, or "lapsed" with a range ending next
+            // month would start returning future requests.
+            ...(byView[opts.view].date as object | undefined),
+            ...(opts.from ? { gte: opts.from } : {}),
+            ...(opts.to ? { lte: opts.to } : {}),
+          },
+        }
+      : {}),
+    ...(search
+      ? {
+          membership: {
+            user: {
+              OR: [
+                { name: { contains: search, mode: "insensitive" as const } },
+                { email: { contains: search, mode: "insensitive" as const } },
+              ],
+            },
+          },
+        }
+      : {}),
+  };
 }
 
 export class AvailabilityRepository {
@@ -104,6 +203,7 @@ export class AvailabilityRepository {
     // Normalised, so the key written here is the key `isAvailableAt` reads.
     const date = overrideDateKey(data.date);
 
+    const now = new Date();
     return prisma.availabilityOverride.upsert({
       where: {
         membershipId_date: { membershipId: data.membershipId, date },
@@ -113,8 +213,20 @@ export class AvailabilityRepository {
         reason: data.reason,
         status: data.status,
         reviewedById: null,
+        /*
+         * The review clock restarts and every chase mark is cleared.
+         *
+         * Same reason `reviewedById` is cleared beside them: this is a NEW
+         * request on an old row. Carrying last round's `remindedAt` would mean
+         * a request already chased once is never chased again — made invisible
+         * to the sweep by the act of editing it.
+         */
+        submittedAt: now,
+        remindedAt: null,
+        escalatedAt: null,
+        lapseNotifiedAt: null,
       },
-      create: { ...data, date },
+      create: { ...data, date, submittedAt: now },
     });
   }
 
@@ -167,6 +279,206 @@ export class AvailabilityRepository {
       },
       orderBy: [{ date: "asc" }, { id: "asc" }],
     });
+  }
+
+  /**
+   * One page of the leave register, plus how many rows the filter matches.
+   *
+   * ## Scope arrives as ids, deliberately
+   *
+   * This takes `membershipIds` and never an organisation or a department. The
+   * caller has already resolved who the reader may see, so there is no way to
+   * reach this method and forget to narrow — the narrowing IS the argument. Same
+   * shape as `findPendingForMembers`, and it exists because the 2026-08-05 audit
+   * found four reporting surfaces that took a department from the query string
+   * and trusted it.
+   *
+   * ## Why the count is a second query rather than `rows.length`
+   *
+   * The page is capped. `rows.length` would report the size of the page, and
+   * the screen would say "50 requests" over a filter matching three hundred — a
+   * silent cap, which reads as complete coverage when it is not.
+   */
+  async findLeaveRegister(opts: {
+    membershipIds: string[];
+    view: LeaveView;
+    /** Start of the organisation's today, as `overrideDateKey` produces it. */
+    todayKey: Date;
+    from?: Date | null;
+    to?: Date | null;
+    /** Matched against the member's name and email. Never against `reason`. */
+    search?: string | null;
+    order: "asc" | "desc";
+    take: number;
+    skip: number;
+  }) {
+    if (opts.membershipIds.length === 0) return { rows: [], total: 0 };
+
+    const where = leaveRegisterWhere(opts);
+
+    /*
+     * Ordered by date and then by id. The tiebreak is not decoration: two
+     * members can ask for the same day, and a paginated list whose order is
+     * undefined between equal keys can show one row on two pages and another on
+     * none.
+     */
+    const [rows, total] = await Promise.all([
+      prisma.availabilityOverride.findMany({
+        where,
+        include: {
+          membership: {
+            select: {
+              id: true,
+              user: { select: { id: true, name: true, email: true } },
+              departmentMemberships: {
+                select: {
+                  department: { select: { id: true, name: true, color: true } },
+                },
+              },
+            },
+          },
+          reviewedBy: { select: { id: true, name: true, email: true } },
+        },
+        orderBy: [{ date: opts.order }, { id: opts.order }],
+        take: opts.take,
+        skip: opts.skip,
+      }),
+      prisma.availabilityOverride.count({ where }),
+    ]);
+
+    return { rows, total };
+  }
+
+  /**
+   * How many rows each named view holds, for the tiles above the list.
+   *
+   * Goes through `leaveRegisterWhere` rather than restating the filters. The
+   * first version of this was two hand-written counts — one for awaiting, one
+   * for lapsed — which meant `status: "pending"` and the date bound were
+   * written twice each, in a file whose entire argument is that the pending /
+   * lapsed split has ONE definition. A tile disagreeing with the list beneath
+   * it is the exact failure this page exists to stop.
+   *
+   * Deliberately takes no date range, search or department: these describe the
+   * reader's whole scope, not the current filter. A tile that moved when
+   * somebody typed in the search box would stop being a standing figure, and
+   * the Awaiting tile has to agree with the sidebar badge, which cannot see the
+   * filter at all.
+   */
+  /**
+   * Undecided requests that are running out of time.
+   *
+   * The boundaries come from `chaseBoundaries` — the same function the
+   * in-memory predicate uses — so this count and the label on the row cannot
+   * disagree about what "closing soon" means. A `WHERE` rather than a filter in
+   * JavaScript because the page is capped and the tile is not: it describes the
+   * whole scope.
+   */
+  async countClosingSoon(
+    membershipIds: string[],
+    boundaries: { slaBefore: Date; dateBefore: Date }
+  ) {
+    if (membershipIds.length === 0) return 0;
+    return prisma.availabilityOverride.count({
+      where: {
+        membershipId: { in: membershipIds },
+        status: "pending",
+        OR: [
+          { submittedAt: { lt: boundaries.slaBefore } },
+          { date: { lt: boundaries.dateBefore } },
+        ],
+      },
+    });
+  }
+
+  /**
+   * Every undecided request in an organisation a sweep might act on.
+   *
+   * Org-wide rather than department-scoped: the caller is a scheduled job with
+   * no user behind it, so there is no scope to inherit. Who gets told is
+   * resolved per request from the requester's own departments, which is the
+   * narrowing that matters.
+   *
+   * `escalatedAt: null` bounds it: a request chased twice is done, so the query
+   * shrinks as the sweep works rather than re-reading rows it has finished with.
+   */
+  async findChaseable(
+    organizationId: string,
+    boundaries: { slaBefore: Date; dateBefore: Date }
+  ) {
+    return prisma.availabilityOverride.findMany({
+      where: {
+        status: "pending",
+        escalatedAt: null,
+        membership: { organizationId, status: "active" },
+        OR: [
+          { submittedAt: { lt: boundaries.slaBefore } },
+          { date: { lt: boundaries.dateBefore } },
+        ],
+      },
+      include: {
+        membership: {
+          select: {
+            id: true,
+            userId: true,
+            organizationId: true,
+            user: { select: { name: true, email: true } },
+            departmentMemberships: { select: { departmentId: true } },
+          },
+        },
+      },
+      orderBy: [{ date: "asc" }, { id: "asc" }],
+    });
+  }
+
+  /** Records a chase, without disturbing the review clock. */
+  async markChased(id: string, stage: "remind" | "escalate", at: Date) {
+    return prisma.availabilityOverride.update({
+      where: { id },
+      data: stage === "remind" ? { remindedAt: at } : { escalatedAt: at },
+    });
+  }
+
+  /** Requests whose date has passed with nobody having answered. */
+  async findNewlyLapsed(organizationId: string, todayKey: Date) {
+    return prisma.availabilityOverride.findMany({
+      where: {
+        status: "pending",
+        date: { lt: todayKey },
+        lapseNotifiedAt: null,
+        membership: { organizationId, status: "active" },
+      },
+      include: {
+        membership: { select: { id: true, userId: true, organizationId: true } },
+      },
+      orderBy: [{ date: "asc" }, { id: "asc" }],
+    });
+  }
+
+  /** Records that the member was told their request lapsed. */
+  async markLapseNotified(id: string, at: Date) {
+    return prisma.availabilityOverride.update({
+      where: { id },
+      data: { lapseNotifiedAt: at },
+    });
+  }
+
+  async countLeaveViews(
+    membershipIds: string[],
+    todayKey: Date,
+    views: readonly LeaveView[]
+  ): Promise<Record<string, number>> {
+    if (membershipIds.length === 0) {
+      return Object.fromEntries(views.map((v) => [v, 0]));
+    }
+    const counts = await Promise.all(
+      views.map((view) =>
+        prisma.availabilityOverride.count({
+          where: leaveRegisterWhere({ membershipIds, view, todayKey }),
+        })
+      )
+    );
+    return Object.fromEntries(views.map((v, i) => [v, counts[i]]));
   }
 
   /** Gets all overrides for a member within a date range */

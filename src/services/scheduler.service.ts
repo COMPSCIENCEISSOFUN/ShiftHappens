@@ -22,6 +22,7 @@ import {
   DEFAULT_HORIZON_DAYS,
   type GenerationResult,
 } from "@/services/recurring-task.service";
+import { AvailabilityService } from "@/services/availability.service";
 import { HourAlertService } from "@/services/hour-alert.service";
 import { CertificationService } from "@/services/certification.service";
 import { AllocationService } from "@/services/allocation.service";
@@ -50,11 +51,25 @@ export interface AutoStaffingRunSummary {
   perOrg: { organizationId: string; considered: number; filled: number }[];
 }
 
+export interface LeaveSweepRunSummary {
+  orgsProcessed: number;
+  totalReminded: number;
+  totalEscalated: number;
+  totalLapseNotified: number;
+  perOrg: {
+    organizationId: string;
+    reminded: number;
+    escalated: number;
+    lapseNotified: number;
+  }[];
+}
+
 export interface SchedulerRunSummary {
   recurring: RecurringRunSummary;
   hourAlerts: HourAlertRunSummary;
   certExpiry: CertExpiryRunSummary;
   autoStaffing: AutoStaffingRunSummary;
+  leaveSweep: LeaveSweepRunSummary;
 }
 
 export class SchedulerService {
@@ -62,6 +77,7 @@ export class SchedulerService {
   private hourAlertService = new HourAlertService();
   private certificationService = new CertificationService();
   private allocationService = new AllocationService();
+  private availabilityService = new AvailabilityService();
   private orgRepo = new OrganizationRepository();
 
   /** IDs of every active (non-suspended) organization. */
@@ -164,6 +180,53 @@ export class SchedulerService {
   }
 
   /**
+   * Chases leave requests running out of time, and tells members about any
+   * that ran out.
+   *
+   * Per organisation and inside its own try, like every other job here: one
+   * tenant's failure must not stop the sweep for the rest, which is the whole
+   * reason these loops are written this way rather than with `Promise.all`.
+   *
+   * Idempotent by the marks it writes, not by a cooldown. Running the cron
+   * twice in a minute sends nothing twice, because a chased row carries
+   * `remindedAt` and drops out of the query.
+   */
+  async runLeaveSweep(
+    horizonDays: number = DEFAULT_HORIZON_DAYS
+  ): Promise<LeaveSweepRunSummary> {
+    const orgIds = await this.activeOrganizationIds();
+    const summary: LeaveSweepRunSummary = {
+      orgsProcessed: 0,
+      totalReminded: 0,
+      totalEscalated: 0,
+      totalLapseNotified: 0,
+      perOrg: [],
+    };
+
+    for (const organizationId of orgIds) {
+      try {
+        const result = await this.availabilityService.sweepPendingLeave(
+          organizationId,
+          new Date(),
+          horizonDays
+        );
+        summary.orgsProcessed++;
+        summary.totalReminded += result.reminded;
+        summary.totalEscalated += result.escalated;
+        summary.totalLapseNotified += result.lapseNotified;
+        summary.perOrg.push({ organizationId, ...result });
+      } catch (error) {
+        console.error(
+          `[Scheduler] leave sweep failed for org ${organizationId}:`,
+          error
+        );
+      }
+    }
+
+    return summary;
+  }
+
+  /**
    * Second attempt at shifts auto mode could not staff when they were made.
    *
    * Only organisations in `auto` mode do anything here — the service checks,
@@ -212,6 +275,7 @@ export class SchedulerService {
     const hourAlerts = await this.runHourAlerts();
     const certExpiry = await this.runCertificationExpiry();
     const autoStaffing = await this.runAutoStaffing(horizonDays);
-    return { recurring, hourAlerts, certExpiry, autoStaffing };
+    const leaveSweep = await this.runLeaveSweep(horizonDays);
+    return { recurring, hourAlerts, certExpiry, autoStaffing, leaveSweep };
   }
 }

@@ -1,8 +1,14 @@
 /**
  * Leave Review API Endpoint (Boundary Layer)
- * PATCH /api/organizations/[orgId]/leave/[overrideId] — approve or reject
+ * PATCH /api/organizations/[orgId]/leave/[overrideId] — approve, reject or
+ * dismiss
  *
- * Body: { decision: "approved" | "rejected" }
+ * Body: { decision: "approved" | "rejected" | "dismissed" }
+ *
+ * Which verdicts are legal depends on the ROW, not on the request: a lapsed
+ * request takes only "dismissed" and a live one takes only the other two. The
+ * service decides, because a row lapses with the passage of time rather than
+ * with anything the caller does.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { AvailabilityService } from "@/services/availability.service";
@@ -13,6 +19,14 @@ import {
 } from "@/lib/auth-guard";
 import { requirePermission } from "@/lib/permission-guard";
 import { departmentScopeFor } from "@/lib/department-scope";
+import type { LeaveVerdict } from "@/services/availability.service";
+
+/*
+ * Typed against the service's union rather than restated as three strings, so
+ * a verdict added there without being accepted here is a compile error instead
+ * of a 400 nobody expected.
+ */
+const VERDICTS: readonly LeaveVerdict[] = ["approved", "rejected", "dismissed"];
 
 const availService = new AvailabilityService();
 
@@ -37,9 +51,9 @@ export async function PATCH(
 
     const body = await request.json().catch(() => ({}));
     const decision = body?.decision;
-    if (decision !== "approved" && decision !== "rejected") {
+    if (!VERDICTS.includes(decision)) {
       return NextResponse.json(
-        { error: "decision must be 'approved' or 'rejected'" },
+        { error: "decision must be 'approved', 'rejected' or 'dismissed'" },
         { status: 400 }
       );
     }
@@ -73,6 +87,19 @@ export async function PATCH(
       return NextResponse.json({ error: error.message }, { status: 403 });
     }
     if (error instanceof Error && error.message.includes("already been reviewed")) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+    /*
+     * 400: the verdict does not fit the row's state. Handled on the handler
+     * that can actually raise it rather than left to fall through to 500 — the
+     * screen refreshes and shows the right buttons on a retry, which a 500
+     * would not tell it to do.
+     */
+    if (
+      error instanceof Error &&
+      (error.message.includes("already passed") ||
+        error.message.includes("must be approved or declined"))
+    ) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
     if (error instanceof Error && error.message === "Leave request not found") {

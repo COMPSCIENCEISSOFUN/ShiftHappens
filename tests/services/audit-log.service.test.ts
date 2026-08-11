@@ -239,11 +239,61 @@ describe("getLogs", () => {
     });
 
     const result = await auditService.getLogs(tenant.orgId, {
-      startDate: new Date("2026-03-01T00:00:00Z"),
-      endDate: new Date("2026-09-01T00:00:00Z"),
+      from: "2026-03-01",
+      to: "2026-09-01",
     });
     expect(result.total).toBe(1);
     expect(result.logs[0].createdAt).toEqual(recent);
+  });
+
+  /*
+   * The bug this range moved into the service to fix.
+   *
+   * An entry at 03:00 Singapore is 19:00 the PREVIOUS day in UTC. The old page
+   * sent the picker's bare "2026-06-02", which `new Date()` read as midnight
+   * UTC — 08:00 in Singapore — so a filter for that day missed everything
+   * before breakfast. Asking for one day must return that whole day on the
+   * organisation's clock.
+   */
+  it("covers a whole organisation day, including its early hours", async () => {
+    // 2026-06-01T19:00Z is 03:00 on 2 June in Singapore.
+    const earlyMorning = new Date("2026-06-01T19:00:00Z");
+    // 2026-06-02T15:30Z is 23:30 on the same Singapore day.
+    const lateEvening = new Date("2026-06-02T15:30:00Z");
+    for (const createdAt of [earlyMorning, lateEvening]) {
+      await prisma.auditLog.create({
+        data: {
+          organizationId: tenant.orgId,
+          action: "task.created",
+          entityType: "task",
+          createdAt,
+        },
+      });
+    }
+    // And one that is the 2nd only in UTC — 00:30 on the 3rd, Singapore.
+    await prisma.auditLog.create({
+      data: {
+        organizationId: tenant.orgId,
+        action: "task.created",
+        entityType: "task",
+        createdAt: new Date("2026-06-02T16:30:00Z"),
+      },
+    });
+
+    const result = await auditService.getLogs(tenant.orgId, {
+      from: "2026-06-02",
+      to: "2026-06-02",
+    });
+
+    expect(result.total).toBe(2);
+  });
+
+  it("refuses a range that ends before it starts", async () => {
+    // Silently applied it returns nothing, and an empty log reads as "nothing
+    // happened that week" rather than "that filter cannot mean anything".
+    await expect(
+      auditService.getLogs(tenant.orgId, { from: "2026-06-09", to: "2026-06-01" })
+    ).rejects.toThrow(/end date is before/i);
   });
 
   it("returns newest first", async () => {

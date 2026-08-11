@@ -117,6 +117,8 @@ export const ACTIONS = {
   DEPARTMENT_DELETED: "department.deleted",
   LEAVE_APPROVED: "leave.approved",
   LEAVE_REJECTED: "leave.rejected",
+  /* Cleared from the queue after its date passed — nobody decided anything. */
+  LEAVE_DISMISSED: "leave.dismissed",
   // Certifications
   CERTIFICATION_SUBMITTED: "certification.submitted",
   CERTIFICATION_VERIFIED: "certification.verified",

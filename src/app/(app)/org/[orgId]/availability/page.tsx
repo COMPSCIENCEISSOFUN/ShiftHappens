@@ -66,6 +66,12 @@ interface Override {
   reason: string | null;
   /** "approved" | "pending" | "rejected" — see the AvailabilityOverride model. */
   status: string;
+  /**
+   * Its date has already gone by. Server-computed on the ORGANISATION's
+   * calendar day — deriving it here would use the browser's, and a member
+   * abroad would see a different verdict from their manager on the same row.
+   */
+  lapsed: boolean;
 }
 
 /** A week nobody has answered — the editable starting point for a casual. */
@@ -271,7 +277,16 @@ export default function AvailabilityPage() {
     (total, d) => total + windowHours(d.startTime, d.endTime),
     0
   );
-  const pendingCount = overrides.filter((o) => o.status === "pending").length;
+  /*
+   * Counts what is still genuinely waiting on somebody.
+   *
+   * This counted every pending row, so a request nobody answered in June kept
+   * the "Leave pending" tile lit into August — for a member with no way to tell
+   * that number apart from a request that might still be granted.
+   */
+  const pendingCount = overrides.filter(
+    (o) => o.status === "pending" && !o.lapsed
+  ).length;
   // Soonest first. The server returns creation order, which puts an override
   // added today for December above one for next week.
   const sortedOverrides = [...overrides].sort(
@@ -513,15 +528,27 @@ export default function AvailabilityPage() {
                   would let somebody book time off, see it listed, and be
                   rostered anyway with no explanation.
                 */}
+                {/*
+                  A pending row whose date has passed said "Awaiting approval",
+                  identically to one for next Tuesday. The person with the most
+                  reason to chase it was the one told it was still in hand — so
+                  the label now distinguishes the two, and says whose silence
+                  it was, because "Lapsed" alone reads as though the system
+                  cancelled it.
+                */}
                 {ov.status !== "approved" && (
                   <span
                     className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                      ov.status === "pending"
+                      ov.status === "pending" && !ov.lapsed
                         ? "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
                         : "bg-muted text-muted-foreground"
                     }`}
                   >
-                    {ov.status === "pending" ? "Awaiting approval" : "Declined"}
+                    {ov.status !== "pending"
+                      ? "Declined"
+                      : ov.lapsed
+                        ? "Never answered"
+                        : "Awaiting approval"}
                   </span>
                 )}
                 {/* Only worth saying where approval was ever in question. */}

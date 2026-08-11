@@ -1,31 +1,45 @@
 /**
  * Leave Requests Page (Boundary Layer)
  *
- * Everything awaiting this reviewer's decision, in one list.
+ * The register: every request that went through review, filtered by status,
+ * department, date and person.
  *
- * ## Why a page as well as the dashboard card
+ * ## Why this stopped being a queue
  *
- * They fail differently. A dashboard card is seen when somebody logs in and
- * scrolled past when they do not; a nav item with a count stays until the work
- * is done. And a manager sitting down to answer four requests wants a list, not
- * four cards among unrelated alerts.
+ * It listed only what was awaiting a decision. That made it useful for exactly
+ * one question — what do I owe an answer on — and unable to answer the one
+ * everybody asked next: was Sam's July leave approved, and by whom. Once a
+ * request was decided it existed only in the audit log, alongside role changes
+ * and certification verdicts, which is not where anybody looks for a rota
+ * question.
  *
- * Thin on purpose — the panel is shared with both dashboards, so the decision
- * logic exists once.
+ * The filters are the reason the change is worth making rather than a garnish
+ * on it. A list of every request an organisation has ever made is unusable
+ * without them, and a list of only the open ones needs none — so "add filters"
+ * and "show history" are the same piece of work.
+ *
+ * ## Every filter is a server round trip
+ *
+ * Nothing is filtered in the browser. The register is paged, so filtering the
+ * loaded rows would mean "filter the first fifty" while the count beside it
+ * described something else. The department filter in particular is resolved in
+ * the service, where it is INTERSECTED with the reader's own scope rather than
+ * replacing it — the shape the 2026-08-05 audit was about.
  */
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { CalendarOff, Lock } from "lucide-react";
-import {
-  LeaveRequestsPanel,
-  type PendingLeave,
-} from "@/components/dashboard/leave-requests-panel";
+import { Lock } from "lucide-react";
+import { LeaveRegister } from "@/components/leave/leave-register";
 import { EmptyState } from "@/components/ui/empty-state";
-import { PageLoading } from "@/components/ui/page-loading";
-import { AlertBanner } from "@/components/ui/alert-banner";
 import { usePermissions } from "@/components/layout/permission-provider";
+
+interface Department {
+  id: string;
+  name: string;
+  color: string | null;
+}
 
 export default function LeaveRequestsPage() {
   const params = useParams();
@@ -33,57 +47,32 @@ export default function LeaveRequestsPage() {
   const { can } = usePermissions();
   const mayReview = can("members:request_availability");
 
-  const [requests, setRequests] = useState<PendingLeave[]>([]);
-  /*
-   * Starts false for somebody who cannot review, rather than being switched off
-   * inside the effect. Setting it there is a synchronous setState in an effect
-   * — a cascading render for a value that was knowable before the first one.
-   */
-  const [loading, setLoading] = useState(mayReview);
-  const [error, setError] = useState<string | null>(null);
+  const [departments, setDepartments] = useState<Department[]>([]);
 
-  async function fetchRequests() {
+  /*
+   * The department list comes from the departments endpoint, which is already
+   * scoped to the caller — a manager gets their own, an admin gets all. Nothing
+   * here decides who may see what; if it did, that would be a second opinion
+   * about scope, and the register's own filter would still have to agree with
+   * it.
+   */
+  const loadDepartments = useCallback(async () => {
     try {
-      const res = await fetch(`/api/organizations/${orgId}/leave`);
+      const res = await fetch(`/api/organizations/${orgId}/departments`);
       const body = await res.json();
-      if (!res.ok || !Array.isArray(body)) {
-        setError(
-          typeof body?.error === "string" ? body.error : "Failed to load requests"
-        );
-        return;
-      }
-      setRequests(body);
-      setError(null);
+      // Same shape trap as everywhere else: an error body is not an array, and
+      // mapping it throws into a catch that then looks like an empty org.
+      setDepartments(res.ok && Array.isArray(body) ? body : []);
     } catch {
-      setError("Failed to load requests");
-    } finally {
-      setLoading(false);
+      setDepartments([]);
     }
-  }
+  }, [orgId]);
 
   useEffect(() => {
     if (!mayReview) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronising with an external system, which is what effects are for: loads the pending requests from the server on mount
-    fetchRequests();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mayReview, orgId]);
-
-  async function decide(id: string, decision: "approved" | "rejected") {
-    const res = await fetch(`/api/organizations/${orgId}/leave/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ decision }),
-    });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      setError(body.error || "Failed to record the decision");
-      return;
-    }
-    // Refetched rather than spliced: a second reviewer may have answered
-    // something else in the list while this one was deciding.
-    setError(null);
-    await fetchRequests();
-  }
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronising with an external system: loads the department options for the filter
+    loadDepartments();
+  }, [mayReview, loadDepartments]);
 
   /*
    * The page answers rather than 404s for somebody without the permission. The
@@ -103,8 +92,6 @@ export default function LeaveRequestsPage() {
     );
   }
 
-  if (loading) return <PageLoading />;
-
   return (
     <div className="w-full">
       <div className="mb-4">
@@ -117,17 +104,11 @@ export default function LeaveRequestsPage() {
         </p>
       </div>
 
-      {error && <AlertBanner message={error} variant="error" />}
-
-      {requests.length === 0 ? (
-        <EmptyState
-          icon={CalendarOff}
-          title="Nothing to review"
-          description="Leave requested by full-time staff will appear here."
-        />
-      ) : (
-        <LeaveRequestsPanel requests={requests} onDecide={decide} />
-      )}
+      <LeaveRegister
+        orgId={orgId}
+        departments={departments}
+        canReview={mayReview}
+      />
     </div>
   );
 }

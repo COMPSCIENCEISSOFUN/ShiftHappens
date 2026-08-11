@@ -28,13 +28,37 @@ import { prisma } from "@/lib/prisma";
 import { cleanDatabase } from "../helpers/cleanup";
 import { createTenant, type Tenant } from "../helpers/fixtures";
 import { eventually, pauseForAbsence } from "../helpers/settle";
+import { atHourSgt, nextWeekdaySgt } from "../helpers/time";
 
 const service = new AvailabilityService();
 const repo = new AvailabilityRepository();
 
-const DATE = "2026-08-14T00:00:00.000Z";
-/** Friday 14 August 2026, 10:00 Singapore time. */
-const SHIFT_DAY = new Date("2026-08-14T10:00:00+08:00");
+/*
+ * A Friday, derived rather than named.
+ *
+ * This file was built on the literal 14 August 2026 — a Friday, matched by the
+ * `dayOfWeek: 5` availability rows below. `createOverride` refuses a date
+ * already past, so every test here that asks for leave would have started
+ * failing on 15 August 2026 and kept failing, with an error message about
+ * validation that says nothing about the calendar.
+ *
+ * The weekday still has to BE Friday, because the availability fixtures are
+ * keyed on it. `nextWeekdaySgt(5)` gives the next one in the organisation's
+ * timezone, so the fixture and the rule agree on which day that is at every
+ * hour of every run.
+ */
+const FRIDAY = nextWeekdaySgt(5);
+const DATE = atHourSgt(FRIDAY, 12).toISOString();
+/** That Friday, 10:00 Singapore time. */
+const SHIFT_DAY = atHourSgt(FRIDAY, 10);
+/** The Saturday after it — the second day of an overnight Friday shift. */
+const NEXT_DAY = atHourSgt(FRIDAY, 36).toISOString();
+
+/** Singapore wall-clock hours on the fixture's Friday, as ISO instants. */
+const at = (hour: number) => atHourSgt(FRIDAY, hour).toISOString();
+/** The same hours a week later, for "a different day" assertions. */
+const weekLater = (hour: number) =>
+  atHourSgt(new Date(FRIDAY.getTime() + 7 * 86_400_000), hour).toISOString();
 
 let tenant: Tenant;
 let fullTimer: string;
@@ -468,8 +492,8 @@ describe("what the assign screen is told", () => {
 
   it("reports a pending request covering the shift's day", async () => {
     await askForLeave(fullTimer);
-    // 14 August 2026, 10:00–14:00 Singapore.
-    const task = await shift("2026-08-14T02:00:00.000Z", "2026-08-14T06:00:00.000Z");
+    // The fixture's Friday, 10:00–14:00 Singapore.
+    const task = await shift(at(10), at(14));
 
     const flagged = await service.getPendingLeaveForTask(task.id, tenant.orgId);
     expect(flagged.map((f) => f.membershipId)).toEqual([fullTimer]);
@@ -477,7 +501,7 @@ describe("what the assign screen is told", () => {
 
   it("says nothing about a different day", async () => {
     await askForLeave(fullTimer);
-    const task = await shift("2026-08-21T02:00:00.000Z", "2026-08-21T06:00:00.000Z");
+    const task = await shift(weekLater(10), weekLater(14));
 
     expect(await service.getPendingLeaveForTask(task.id, tenant.orgId)).toEqual([]);
   });
@@ -487,7 +511,7 @@ describe("what the assign screen is told", () => {
   it("drops it once it has been decided", async () => {
     const request = await askForLeave(fullTimer);
     await service.reviewLeave(request.id, "rejected", tenant.admin.userId, tenant.orgId);
-    const task = await shift("2026-08-14T02:00:00.000Z", "2026-08-14T06:00:00.000Z");
+    const task = await shift(at(10), at(14));
 
     expect(await service.getPendingLeaveForTask(task.id, tenant.orgId)).toEqual([]);
   });
@@ -499,13 +523,14 @@ describe("what the assign screen is told", () => {
    * for a closing shift.
    */
   it("covers the second day of a shift that crosses midnight", async () => {
-    // Leave on the 15th; shift runs 14 Aug 22:00 – 15 Aug 02:00 Singapore.
+    // Leave on the Saturday; the shift runs Friday 22:00 – Saturday 02:00
+    // Singapore, so hour 26 is 02:00 on the second day.
     await service.createOverride(fullTimer, {
-      date: "2026-08-15T00:00:00.000Z",
+      date: NEXT_DAY,
       isAvailable: false,
       reason: "Away",
     });
-    const task = await shift("2026-08-14T14:00:00.000Z", "2026-08-14T18:00:00.000Z");
+    const task = await shift(at(22), at(26));
 
     const flagged = await service.getPendingLeaveForTask(task.id, tenant.orgId);
     expect(flagged.map((f) => f.membershipId)).toEqual([fullTimer]);
@@ -519,8 +544,8 @@ describe("what the assign screen is told", () => {
         organizationId: other.orgId,
         createdById: other.admin.userId,
         status: "open",
-        scheduledStart: new Date("2026-08-14T02:00:00.000Z"),
-        scheduledEnd: new Date("2026-08-14T06:00:00.000Z"),
+        scheduledStart: new Date(at(10)),
+        scheduledEnd: new Date(at(14)),
       },
     });
 
@@ -539,7 +564,12 @@ describe("the review endpoint", () => {
     const body = await bodyOf(res);
 
     expect(res.status).toBe(200);
-    expect(body).toHaveLength(1);
+    // `{ rows, total, counts, ... }` since the queue became a register.
+    expect(body.rows).toHaveLength(1);
+    // `toMatchObject` rather than reaching into `body.counts.awaiting`:
+    // `bodyOf` returns Record<string, unknown>, so the second hop needs a cast,
+    // and a cast in a test is a claim about a shape nothing is checking.
+    expect(body.counts).toMatchObject({ awaiting: 1 });
   });
 
   // Approved and rejected rows are decided, not waiting. A list that kept them
@@ -551,7 +581,9 @@ describe("the review endpoint", () => {
     asUser(tenant.admin.userId);
     const res = await listLeave(req("GET"), ctx({ orgId: tenant.orgId }));
 
-    expect(await bodyOf(res)).toHaveLength(0);
+    // Gone from the DEFAULT view, which is what is awaiting a decision. The
+    // register can still be asked for it — see the leave-register tests.
+    expect((await bodyOf(res)).rows).toHaveLength(0);
   });
 
   it("approves through the route", async () => {

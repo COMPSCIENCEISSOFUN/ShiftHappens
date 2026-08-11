@@ -7,6 +7,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { AuditLogService } from "@/services/audit-log.service";
+import { DATE_RANGE_MESSAGE } from "@/lib/date-range";
 import { SubscriptionService } from "@/services/subscription.service";
 import { SubscriptionLimitError, FeatureNotAvailableError } from "@/lib/subscription-tiers";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
@@ -36,12 +37,13 @@ export async function GET(
       action: searchParams.get("action") || undefined,
       entityType: searchParams.get("entityType") || undefined,
       userId: searchParams.get("userId") || undefined,
-      startDate: searchParams.get("startDate")
-        ? new Date(searchParams.get("startDate")!)
-        : undefined,
-      endDate: searchParams.get("endDate")
-        ? new Date(searchParams.get("endDate")!)
-        : undefined,
+      /*
+       * Calendar days, passed through untouched. Building instants here meant
+       * doing timezone arithmetic in the Boundary layer, and doing it in the
+       * READER's zone rather than the organisation's — see `getLogs`.
+       */
+      from: searchParams.get("from"),
+      to: searchParams.get("to"),
     };
     const limit = parseInt(searchParams.get("limit") || "50");
     const offset = parseInt(searchParams.get("offset") || "0");
@@ -51,6 +53,13 @@ export async function GET(
   } catch (error) {
     if (error instanceof SubscriptionLimitError || error instanceof FeatureNotAvailableError) {
       return NextResponse.json({ error: error.message }, { status: 403 });
+    }
+    // A range that cannot mean anything is the caller's mistake, not a fault.
+    if (
+      error instanceof Error &&
+      Object.values(DATE_RANGE_MESSAGE).includes(error.message)
+    ) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
     }
     console.error("[Audit Logs Error]", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
