@@ -374,7 +374,21 @@ async function seedAll(tx: Tx) {
   // Set subscription tier for demo (Pro enables all features except audit log)
   await tx.organization.update({
     where: { id: orgId },
-    data: { subscriptionTier: "pro" },
+    /*
+     * `subscriptionStatus` and `currentPeriodEnd` so the billing page shows a
+     * status and a renewal date rather than two dashes.
+     *
+     * `stripeCustomerId` is deliberately left null. Setting a fake one would
+     * put a "Manage billing" button on screen that fails the moment it is
+     * pressed, because Stripe has never heard of it — a demo that breaks when
+     * touched is worse than one that says "nothing to manage yet".
+     */
+    data: {
+      subscriptionTier: "pro",
+      subscriptionStatus: "active",
+      billingInterval: "month",
+      currentPeriodEnd: new Date(Date.now() + 18 * 86_400_000),
+    },
   });
   console.log("Admin user, organization, and Pro tier ready");
 
@@ -1599,6 +1613,156 @@ async function seedAll(tx: Tx) {
   }
 
   console.log("Created eligibility overrides across 4 rule types");
+
+  // ============================================================
+  // Leave requests — one in every state the register can show
+  // ============================================================
+  /*
+   * Without these the entire leave feature is invisible in a demo: an empty
+   * register, four tiles reading zero, a nav badge that never appears, and no
+   * way to look at the thing the browser check is meant to check.
+   *
+   * Alex, Jamie and Taylor are the FULL-TIME staff, and all three are in
+   * Kitchen — so Sarah sees them as a scoped manager and the admin sees them
+   * org-wide. A casual member's override is written `approved` the moment they
+   * save it and never reaches this queue, which is why the fixtures cannot use
+   * Jordan or Casey.
+   *
+   * Written straight through Prisma rather than through `createOverride`,
+   * deliberately: the service refuses a date already past, and correctly so.
+   * A lapsed request can only be reached by a live one ageing into it, which a
+   * seed cannot wait for.
+   */
+
+  /**
+   * Midnight UTC of a Singapore calendar day — the shape `overrideDateKey`
+   * produces, restated here because a seed must not import from `src/`.
+   *
+   * ## Why NOT `daysFromToday`, which is right there
+   *
+   * That helper returns the INSTANT of Singapore midnight, which is 16:00Z on
+   * the previous day. This column stores a normalised KEY: midnight UTC of the
+   * Singapore calendar date. The two are eight hours apart, and a row written
+   * the first way would not collide with one the application later wrote the
+   * second way for the same day — so the unique constraint on
+   * `[membershipId, date]` would silently permit two overrides for one date.
+   *
+   * They read almost identically, which is exactly why this is written out
+   * rather than reused.
+   */
+  const leaveDay = (dayOffset: number): Date => {
+    const shifted = new Date(Date.now() + SGT_OFFSET_MS + dayOffset * DAY_MS);
+    return new Date(
+      Date.UTC(shifted.getUTCFullYear(), shifted.getUTCMonth(), shifted.getUTCDate())
+    );
+  };
+
+  /** Days rather than hours, on top of the `hoursAgo` declared above. */
+  const agoDays = (n: number) => hoursAgo(n * 24);
+
+  const leaveFixtures: {
+    staffIndex: number;
+    dayOffset: number;
+    reason: string;
+    status: string;
+    submittedAt: Date;
+    remindedAt?: Date;
+    escalatedAt?: Date;
+    lapseNotifiedAt?: Date;
+    reviewed?: boolean;
+    note: string;
+  }[] = [
+    /*
+     * Awaiting, and genuinely calm. The date has to be beyond the 14-day
+     * horizon AND the request younger than the 48-hour SLA, or it would show as
+     * "closing soon" — which is most of the point of having both clocks.
+     */
+    {
+      staffIndex: 0, dayOffset: 25, reason: "Family wedding", status: "pending",
+      submittedAt: hoursAgo(3), note: "awaiting — far out and freshly asked",
+    },
+    /*
+     * Closing soon by the HORIZON: asked for yesterday, but the date is inside
+     * the fortnight the product already treats as live work.
+     */
+    {
+      staffIndex: 1, dayOffset: 6, reason: "Hospital appointment", status: "pending",
+      submittedAt: hoursAgo(20), note: "closing soon — date inside the horizon",
+    },
+    /*
+     * Closing soon by the SLA: the date is months away, but nobody has looked
+     * at it in five days. Chased once already, which is why `remindedAt` is set.
+     */
+    {
+      staffIndex: 2, dayOffset: 45, reason: "Moving house", status: "pending",
+      submittedAt: agoDays(5), remindedAt: agoDays(3),
+      note: "closing soon — past its SLA, reminder sent",
+    },
+    /*
+     * The headline state. Pending, its date gone, chased twice and answered by
+     * nobody. Dismiss is the only verdict the register offers on it.
+     */
+    {
+      staffIndex: 0, dayOffset: -6, reason: "Dentist", status: "pending",
+      submittedAt: agoDays(20), remindedAt: agoDays(18), escalatedAt: agoDays(17),
+      lapseNotifiedAt: agoDays(5),
+      note: "LAPSED — nobody answered before the day arrived",
+    },
+    {
+      staffIndex: 1, dayOffset: -20, reason: "Annual leave", status: "approved",
+      submittedAt: agoDays(35), reviewed: true, note: "approved — history",
+    },
+    {
+      staffIndex: 2, dayOffset: -27, reason: "Concert tickets", status: "rejected",
+      submittedAt: agoDays(40), reviewed: true, note: "declined — history",
+    },
+    /*
+     * Lapsed, then cleared. Carries a reviewer because somebody dismissed it,
+     * and no notification was ever sent for the dismissal itself — there is
+     * nothing true to tell a member beyond what their own screen already says.
+     */
+    {
+      staffIndex: 0, dayOffset: -50, reason: "Car trouble", status: "dismissed",
+      submittedAt: agoDays(60), remindedAt: agoDays(58), escalatedAt: agoDays(57),
+      lapseNotifiedAt: agoDays(49), reviewed: true,
+      note: "dismissed — a lapsed request somebody tidied away",
+    },
+  ];
+
+  for (const fixture of leaveFixtures) {
+    const membershipId = staffMembershipIds[fixture.staffIndex];
+    const date = leaveDay(fixture.dayOffset);
+    await tx.availabilityOverride.upsert({
+      where: { membershipId_date: { membershipId, date } },
+      update: {
+        isAvailable: false,
+        reason: fixture.reason,
+        status: fixture.status,
+        submittedAt: fixture.submittedAt,
+        remindedAt: fixture.remindedAt ?? null,
+        escalatedAt: fixture.escalatedAt ?? null,
+        lapseNotifiedAt: fixture.lapseNotifiedAt ?? null,
+        reviewedById: fixture.reviewed ? adminUser.id : null,
+      },
+      create: {
+        membershipId,
+        date,
+        isAvailable: false,
+        reason: fixture.reason,
+        status: fixture.status,
+        submittedAt: fixture.submittedAt,
+        remindedAt: fixture.remindedAt ?? null,
+        escalatedAt: fixture.escalatedAt ?? null,
+        lapseNotifiedAt: fixture.lapseNotifiedAt ?? null,
+        reviewedById: fixture.reviewed ? adminUser.id : null,
+      },
+    });
+  }
+
+  console.log(
+    `Created ${leaveFixtures.length} leave requests: 1 awaiting, 2 closing soon, ` +
+      "1 lapsed, 1 approved, 1 declined, 1 dismissed"
+  );
 
   // ============================================================
   // Unaffiliated user (for onboarding demo)
