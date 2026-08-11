@@ -19,6 +19,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { ChevronDown } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import { useTheme } from "next-themes";
@@ -337,6 +338,44 @@ function CloseIcon() {
       <line x1="18" y1="6" x2="6" y2="18" />
       <line x1="6" y1="6" x2="18" y2="18" />
     </svg>
+  );
+}
+
+/** The initial tile. Identical in both branches, so it lives in one place. */
+function OrgMark({ name }: { name?: string }) {
+  return (
+    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-white/20 text-sm font-extrabold backdrop-blur-sm">
+      {(name || "S")[0].toUpperCase()}
+    </div>
+  );
+}
+
+/**
+ * Name above plan, in one column.
+ *
+ * `min-w-0` on the column and `truncate` on the name: without both, a long
+ * organisation name pushes the caret off the edge of a fixed-width sidebar
+ * rather than shortening itself.
+ */
+function OrgIdentity({
+  orgName,
+  tierName,
+}: {
+  orgName?: string;
+  /** Null where a plan is not a fact — onboarding has no organisation yet. */
+  tierName: string | null;
+}) {
+  return (
+    <div className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
+      <span className="w-full truncate text-[15px] font-bold tracking-tight">
+        {orgName}
+      </span>
+      {tierName && (
+        <span className="rounded-full bg-white/15 px-2 py-px text-[10px] font-semibold text-white/80">
+          {tierName}
+        </span>
+      )}
+    </div>
   );
 }
 
@@ -716,83 +755,93 @@ export function AppSidebar({
         {/* Dot-grid overlay */}
         <div className="app-sidebar-dots" aria-hidden="true" />
 
-      {/* Logo, and — for anyone in more than one organisation — the switcher */}
-      <div className="relative z-[1] mb-9">
-        <div className="flex items-center gap-2.5">
-          <div className="flex h-9 w-9 items-center justify-center rounded-[10px] bg-white/20 text-sm font-extrabold backdrop-blur-sm">
-            {(orgName || "S")[0].toUpperCase()}
-          </div>
-          <div className="flex flex-col gap-0.5">
+      {/*
+        The organisation header, and — for anyone in more than one — the
+        switcher.
+
+        ## Why the whole header is the control
+
+        The first version made only the NAME a button and drew a border round
+        it. That fixed discoverability and created two new problems: the box sat
+        inside a row it did not fill, so its edges lined up with nothing, and
+        the plan badge underneath was left hanging off a border that started
+        three pixels to its left. It read as tight and slightly crooked because
+        it was.
+
+        A workspace switcher is the whole identity block — mark, name, plan —
+        with the caret at the far end. That is what every product with one does,
+        and the reason is structural rather than fashionable: there is one box,
+        so there is one thing to align, and the hit area is the size of the
+        thing it represents rather than the size of one word.
+
+        ## Both branches share a layout
+
+        The switchable and non-switchable versions render the same padding and
+        the same rows, so the header does not visibly shift depending on how
+        many organisations you happen to belong to. Only the caret and the hover
+        appear — which is the honest difference between them.
+      */}
+      <div className="relative z-[1] mb-9 -mx-2">
+        {canSwitchOrg ? (
+          <button
+            type="button"
+            onClick={() => setSwitcherOpen((open) => !open)}
+            aria-expanded={switcherOpen}
+            aria-label={`Switch organisation. Currently ${orgName}`}
+            title="Switch organisation"
+            className="flex w-full items-center gap-2.5 rounded-xl px-2 py-2 text-left transition-colors hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/60"
+          >
+            <OrgMark name={orgName} />
+            <OrgIdentity orgName={orgName} tierName={orgId ? tierName : null} />
             {/*
-              The name becomes a control ONLY when there is somewhere to go.
+              From the house icon set, not drawn here.
 
-              A disclosure that opens onto a list of one is worse than plain
-              text: it advertises a choice, costs a click to discover there
-              isn't one, and trains people to stop pressing it. So the
-              single-organisation case — which is almost everybody — renders
-              exactly what it rendered before this feature existed.
+              This file predates `no-inline-icons` and carries several
+              hand-written glyphs — and the scan only walks `src/app`, so it is
+              exempt by geography rather than by decision. Adding a 47th would
+              be taking advantage of that.
             */}
-            {canSwitchOrg ? (
-              /*
-                Bordered, not bare.
-
-                The first version was the org name with a small caret beside
-                it. It worked and nobody found it: a bold heading that happens
-                to respond to a click reads as a heading, and the caret is four
-                pixels of contradiction next to twenty of typography. A box
-                with an edge is the difference between "this is the name of the
-                place" and "this is the control that changes it".
-              */
-              <button
-                type="button"
-                onClick={() => setSwitcherOpen((open) => !open)}
-                aria-expanded={switcherOpen}
-                aria-label={`Switch organisation. Currently ${orgName}`}
-                title="Switch organisation"
-                className="-ml-1.5 flex items-center gap-1.5 rounded-lg border border-white/25 px-1.5 py-0.5 text-left text-[15px] font-bold tracking-tight transition-colors hover:border-white/50 hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/60"
-              >
-                <span className="truncate">{orgName}</span>
-                <span aria-hidden="true" className="text-[9px] text-white/70">
-                  {switcherOpen ? "\u25B2" : "\u25BC"}
-                </span>
-              </button>
-            ) : (
-              <span className="text-[15px] font-bold tracking-tight">{orgName || "Smart Task"}</span>
-            )}
-            {/* Only where a plan is a fact. Onboarding has no organisation yet,
-                and a "Free" badge there would be describing nothing. */}
-            {orgId && (
-              <span className="w-fit rounded-full bg-white/15 px-2 py-px text-[10px] font-semibold text-white/80">
-                {tierName}
-              </span>
-            )}
+            <ChevronDown
+              aria-hidden="true"
+              className={`h-4 w-4 shrink-0 text-white/60 transition-transform ${
+                switcherOpen ? "rotate-180" : ""
+              }`}
+            />
+          </button>
+        ) : (
+          <div className="flex w-full items-center gap-2.5 px-2 py-2">
+            <OrgMark name={orgName} />
+            <OrgIdentity
+              orgName={orgName || "Smart Task"}
+              tierName={orgId ? tierName : null}
+            />
           </div>
-        </div>
+        )}
 
         {/*
           Every organisation, including the current one.
 
-          Listing only the OTHERS would save a row and cost the reader the
-          thing a menu is for: seeing where they are among the alternatives.
-          The current entry is marked and not a link, so pressing it cannot
-          produce a navigation that appears to do nothing.
+          Listing only the OTHERS would save a row and cost the reader the thing
+          a menu is for: seeing where they are among the alternatives. The
+          current entry is marked and not a link, so pressing it cannot produce
+          a navigation that appears to do nothing.
 
           Each destination is that organisation's dashboard rather than the
-          equivalent of the current page. Switching to an organisation where
-          you are staff while standing on Work Rules would otherwise land you
-          on a page you cannot open, and the honest answer to "take me to the
-          other organisation" is its front door.
+          equivalent of the current page. Switching to an organisation where you
+          are staff while standing on Work Rules would otherwise land you on a
+          page you cannot open, and the honest answer to "take me to the other
+          organisation" is its front door.
         */}
         {canSwitchOrg && switcherOpen && (
-          <ul className="mt-2 space-y-0.5 rounded-lg bg-black/20 p-1.5">
+          <ul className="mt-1 space-y-0.5 rounded-xl bg-black/25 p-1.5">
             {organizations.map((candidate) =>
               candidate.id === orgId ? (
                 <li
                   key={candidate.id}
-                  className="flex items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-[12px] font-semibold text-white"
+                  className="flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-[13px] font-semibold text-white"
                 >
                   <span className="truncate">{candidate.name}</span>
-                  <span className="shrink-0 text-[10px] font-normal text-white/60">
+                  <span className="shrink-0 text-[10px] font-normal text-white/50">
                     current
                   </span>
                 </li>
@@ -804,7 +853,7 @@ export function AppSidebar({
                       setSwitcherOpen(false);
                       setMobileOpen(false);
                     }}
-                    className="block truncate rounded-md px-2.5 py-1.5 text-[12px] text-white/75 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/60"
+                    className="block truncate rounded-lg px-3 py-2 text-[13px] text-white/75 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/60"
                   >
                     {candidate.name}
                   </Link>
