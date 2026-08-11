@@ -15,15 +15,17 @@
  */
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { CalendarAssignModal } from "@/components/calendar/calendar-assign-modal";
 import { PageLoading } from "@/components/ui/page-loading";
 import { EmptyState } from "@/components/ui/empty-state";
-import { CalendarDays, LayoutGrid, Lock } from "lucide-react";
+import { CalendarDays, LayoutGrid, Lock, X } from "lucide-react";
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { occupiesSlot } from "@/lib/assignment-status";
+import { PRIMARY_BUTTON } from "@/components/ui/button-styles";
+import { cn } from "@/lib/utils";
+import { occupiesSlot, remainingFromOccupied } from "@/lib/assignment-status";
 import { StatTile } from "@/components/ui/stat-tile";
 import {
   businessDayRangeStartingOn,
@@ -196,76 +198,323 @@ function avatarColour(name: string | null): string {
 /*  Task Detail Panel (shared)                                         */
 /* ------------------------------------------------------------------ */
 
-function TaskDetailPanel({ task, onClose }: { task: Task; onClose: () => void }) {
+/**
+ * The detail for one shift, as a right-hand drawer.
+ *
+ * ## Why it moved out of the flow
+ *
+ * It rendered BELOW the calendar. On a week grid running 6 AM to 10 PM that is
+ * a screen and a half down, so clicking a shift appeared to do nothing and the
+ * reader had to scroll away from the thing they had just clicked to read about
+ * it. The grid also has its own scroll, so "scroll down" meant two different
+ * gestures depending on where the pointer was.
+ *
+ * ## Why a drawer and not a popover or a sticky bar
+ *
+ * A sticky bar would have been five lines and would cover 5 PM to 10 PM — the
+ * busiest hours of a hospitality rota, and the ones somebody clicking an
+ * understaffed shift is most likely looking at.
+ *
+ * A popover anchored to the block is what a dedicated calendar does and is the
+ * better answer in the abstract; it is also edge-case positioning work against
+ * a scrolling grid.
+ *
+ * A drawer is the pattern this product ALREADY has — `MemberEditDrawer`, same
+ * geometry, same backdrop, same Escape handling. A second answer to "show me
+ * the detail of the thing I clicked" is how a codebase ends up with two of
+ * everything, which is the argument `button-styles` and `canBeRostered` both
+ * make. It overlays rather than pushes, so the grid does not reflow and the
+ * column you clicked stays exactly where it was.
+ *
+ * ## What is different from the members drawer
+ *
+ * Nothing here writes. There is no form, no error region and no unsaved state,
+ * so closing can never lose anything — which is why the backdrop closes on a
+ * single click with no confirmation.
+ */
+function TaskDetailDrawer({
+  task,
+  canAssign,
+  onAssign,
+  onClose,
+}: {
+  task: Task;
+  /** `tasks:assign`. Without it the drawer is a read-only view. */
+  canAssign: boolean;
+  onAssign: () => void;
+  onClose: () => void;
+}) {
+  const panel = useRef<HTMLDivElement>(null);
   const active = activeAssignments(task);
+  /*
+   * The people who are NOT on this shift, separated from the people who are.
+   *
+   * The panel read "0/2" and then listed two names under "Assigned staff",
+   * both of whom had rejected it. Every number on the screen was right and the
+   * screen was still wrong: a chip with a name and an avatar reads as somebody
+   * turning up, and the `(rejected)` in grey after it is doing all the work of
+   * saying they are not.
+   *
+   * `occupiesSlot` is the shared rule for whether a row still holds a place —
+   * the same one the headcount uses — so these two groups cannot disagree with
+   * the figure above them.
+   */
+  const declined = task.assignments.filter((a) => !occupiesSlot(a.status));
+  const short = remainingFromOccupied(task.requiredHeadcount, active.length);
   const color = task.department?.color || "#94A3B8";
 
-  return (
-    <div className="mt-4 overflow-hidden rounded-xl border border-border bg-card">
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-border px-4 py-3">
-        <div className="flex items-center gap-2.5 font-semibold">
-          <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: color }} />
-          <span className="text-[15px]">{task.title}</span>
-        </div>
-        <button
-          onClick={onClose}
-          className="rounded-lg border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-indigo-400 hover:text-foreground"
-        >
-          Close
-        </button>
-      </div>
+  // Escape closes. A panel covering part of the grid it came from, dismissable
+  // only by aiming at a small ×, is a trap for anyone not using a mouse.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
 
-      {/* Body — responsive grid */}
-      <div className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-4">
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Department</p>
-          <p className="mt-1 text-[13px] font-medium">{task.department?.name || "None"}</p>
-        </div>
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Status</p>
-          <div className="mt-1">
-            <StatusBadge value={task.status} palette="taskStatus" />
+  // Focus moves into the panel on open, so the next Tab lands on its own
+  // controls rather than continuing through the calendar behind it.
+  useEffect(() => {
+    panel.current?.focus();
+  }, []);
+
+  return (
+    <>
+      {/*
+        A real button, not a div with onClick: clicking away is the commonest
+        way to dismiss a panel and it should be reachable without a mouse.
+        Labelled, because a full-screen element with no text announces nothing.
+      */}
+      <button
+        type="button"
+        aria-label={`Close ${task.title}`}
+        onClick={onClose}
+        className="fixed inset-0 z-40 cursor-default bg-black/20 dark:bg-black/40"
+      />
+
+      <div
+        ref={panel}
+        role="dialog"
+        aria-modal="true"
+        aria-label={task.title}
+        tabIndex={-1}
+        className="fixed right-0 top-0 z-50 flex h-full w-full max-w-sm flex-col overflow-y-auto border-l border-border bg-card shadow-xl outline-none"
+      >
+        <div className="flex items-start justify-between gap-3 border-b border-border bg-muted/30 px-5 py-4">
+          <div className="flex min-w-0 items-start gap-2.5">
+            <span
+              className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full"
+              style={{ backgroundColor: color }}
+              aria-hidden="true"
+            />
+            <div className="min-w-0">
+              <p className="text-[15px] font-semibold leading-snug">{task.title}</p>
+              <p className="truncate text-[12px] text-muted-foreground">
+                {task.department?.name || "No department"}
+              </p>
+            </div>
           </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="shrink-0 rounded-lg p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            <X className="h-4 w-4" aria-hidden="true" />
+          </button>
         </div>
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Priority</p>
-          <div className="mt-1">
-            <StatusBadge value={task.priority} palette="priority" />
+
+        {/*
+          One column, not four.
+
+          The old panel was the full width of the page and laid its fields out
+          four across. In 384px that would be four columns of two characters
+          each — the layout has to change with the container, and a wrapper
+          round the old grid would have produced exactly that.
+        */}
+        {/*
+          One column, not four.
+
+          The old panel was the full width of the page and laid its fields out
+          four across. In 384px that would be four columns of two characters
+          each — the layout has to change with the container, and a wrapper
+          round the old grid would have produced exactly that.
+        */}
+        <div className="flex flex-1 flex-col gap-4 px-5 py-4">
+          <Field label="Schedule">
+            <p className="text-[13px] font-medium">
+              {task.scheduledStart &&
+                new Date(task.scheduledStart).toLocaleString([], {
+                  weekday: "short",
+                  month: "short",
+                  day: "numeric",
+                  hour: "numeric",
+                  minute: "2-digit",
+                })}
+              {task.scheduledEnd &&
+                ` — ${new Date(task.scheduledEnd).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`}
+            </p>
+          </Field>
+
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Status">
+              <StatusBadge value={task.status} palette="taskStatus" />
+            </Field>
+            <Field label="Priority">
+              <StatusBadge value={task.priority} palette="priority" />
+            </Field>
           </div>
-        </div>
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Staffing</p>
-          <p className={`mt-1 text-[13px] font-medium ${active.length >= task.requiredHeadcount ? "text-green-600 dark:text-green-400" : "text-amber-600 dark:text-amber-400"}`}>
-            {active.length}/{task.requiredHeadcount} {active.length >= task.requiredHeadcount ? "✓" : ""}
-          </p>
-        </div>
-        <div className="col-span-2">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Schedule</p>
-          <p className="mt-1 text-[13px] font-medium">
-            {task.scheduledStart && new Date(task.scheduledStart).toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
-            {task.scheduledEnd && ` — ${new Date(task.scheduledEnd).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`}
-          </p>
-        </div>
-        <div className="col-span-2 sm:col-span-2">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Assigned Staff</p>
-          <div className="mt-1.5 flex flex-wrap gap-1.5">
-            {task.assignments.length === 0 ? (
-              <span className="text-xs text-muted-foreground">No staff assigned</span>
-            ) : (
-              task.assignments.map((a) => (
-                <span key={a.id} className="inline-flex items-center gap-1.5 rounded-md bg-muted px-2 py-1 text-xs">
-                  <span className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-[8px] font-bold text-white ${avatarColour(a.membership.user.name)}`}>
-                    {initials(a.membership.user.name)}
-                  </span>
-                  <span className="font-medium">{a.membership.user.name || "Unnamed"}</span>
-                  <span className="text-muted-foreground">({a.status.replace(/_/g, " ")})</span>
-                </span>
-              ))
+
+          {/*
+            A bar, matching the tasks page.
+
+            The same shift is described on two screens, and a figure on one and
+            a bar on the other made them look like different facts. The colours
+            are the tasks page's rule as well: red at none, amber part-way,
+            green when the shift is covered.
+          */}
+          <Field label="Staffing">
+            <div className="flex items-center gap-2.5">
+              <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
+                <div
+                  className={`h-full rounded-full transition-all ${
+                    active.length >= task.requiredHeadcount
+                      ? "bg-emerald-500"
+                      : active.length > 0
+                        ? "bg-amber-500"
+                        : "bg-red-500"
+                  }`}
+                  style={{
+                    width: `${task.requiredHeadcount > 0 ? Math.min(100, Math.round((active.length / task.requiredHeadcount) * 100)) : 0}%`,
+                  }}
+                />
+              </div>
+              <span
+                className={`shrink-0 text-[13px] font-semibold ${
+                  active.length >= task.requiredHeadcount
+                    ? "text-emerald-600 dark:text-emerald-400"
+                    : "text-amber-600 dark:text-amber-400"
+                }`}
+              >
+                {active.length}/{task.requiredHeadcount}
+              </span>
+            </div>
+            {short > 0 && (
+              <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">
+                Needs {short} more
+              </p>
             )}
-          </div>
+          </Field>
+
+          <Field label="On this shift">
+            <div className="flex flex-wrap gap-1.5">
+              {active.length === 0 ? (
+                <span className="text-xs text-muted-foreground">
+                  Nobody yet
+                </span>
+              ) : (
+                active.map((a) => (
+                  <PersonChip key={a.id} assignment={a} />
+                ))
+              )}
+            </div>
+          </Field>
+
+          {/*
+            Kept, and kept apart.
+
+            Somebody who declined is not noise — a manager looking at an empty
+            shift wants to know it has already been round two people, and which
+            two. Muted and below, because the question the panel opens with is
+            who IS on it.
+          */}
+          {declined.length > 0 && (
+            <Field label={`Not available (${declined.length})`}>
+              <div className="flex flex-wrap gap-1.5 opacity-70">
+                {declined.map((a) => (
+                  <PersonChip key={a.id} assignment={a} muted />
+                ))}
+              </div>
+            </Field>
+          )}
         </div>
+
+        {/*
+          The action, at the bottom and stuck there.
+
+          The drawer answered "who is on this shift" with "nobody" and offered
+          no way to change that — which is the reason most people open one. The
+          same `setAssignTask` the Needs Staff list beside the calendar already
+          uses, so both entry points reach one flow rather than two.
+
+          Hidden without `tasks:assign` rather than disabled: a control that
+          exists to be refused is a control somebody has to think about every
+          time they see it.
+        */}
+        {canAssign && (
+          <div className="sticky bottom-0 border-t border-border bg-card px-5 py-4">
+            <button
+              type="button"
+              onClick={onAssign}
+              className={cn(PRIMARY_BUTTON, "w-full justify-center py-2")}
+            >
+              {active.length === 0 ? "Assign staff" : "Assign more"}
+            </button>
+          </div>
+        )}
       </div>
+    </>
+  );
+}
+
+/**
+ * One person on a shift.
+ *
+ * Extracted because it is now rendered twice — on the shift and not available —
+ * and two copies of a chip is how the four field labels drifted before it.
+ */
+function PersonChip({
+  assignment,
+  muted = false,
+}: {
+  assignment: Task["assignments"][number];
+  muted?: boolean;
+}) {
+  const name = assignment.membership.user.name;
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs ${
+        muted ? "bg-muted/60 line-through decoration-muted-foreground/40" : "bg-muted"
+      }`}
+    >
+      <span
+        className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-[8px] font-bold text-white ${avatarColour(name)}`}
+      >
+        {initials(name)}
+      </span>
+      <span className="font-medium">{name || "Unnamed"}</span>
+      <span className="text-muted-foreground">
+        ({assignment.status.replace(/_/g, " ")})
+      </span>
+    </span>
+  );
+}
+
+/** One labelled field. Four copies of this markup is how the old panel drifted. */
+function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+        {label}
+      </p>
+      <div className="mt-1">{children}</div>
     </div>
   );
 }
@@ -833,7 +1082,7 @@ export default function CalendarPage() {
                   return (
                     <div
                       key={task.id}
-                      className="absolute cursor-pointer overflow-hidden px-2.5 py-2 transition-all hover:shadow-md hover:-translate-y-px z-10"
+                      className="absolute cursor-pointer overflow-hidden px-2.5 py-2 transition-all hover:shadow-md hover:-translate-y-px z-10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500"
                       style={{
                         top: pos.top, height: pos.height,
                         left: `calc(${leftPercent}% + 4px)`, width: `calc(${widthPercent}% - 8px)`,
@@ -847,7 +1096,32 @@ export default function CalendarPage() {
                         borderBottomRightRadius: pos.continuesAfter ? 0 : "0.5rem",
                         ...(isUnderstaffed ? { outline: "1.5px dashed #F59E0B", outlineOffset: "-1px" } : {}),
                       }}
+                      /*
+                        Reachable by keyboard, which it was not.
+
+                        The drawer this opens manages focus and closes on
+                        Escape — and all of that is decoration if the only way
+                        to open it is a pointer. Same defect the Members table
+                        had when its Actions column was removed: the control
+                        existed and nothing could reach it.
+
+                        `role`/`tabIndex` rather than a real `<button>`,
+                        because the block contains `<div>`s and phrasing
+                        content is all a button may hold — a button wrapping
+                        them is invalid markup that browsers repair
+                        unpredictably.
+                      */
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`${task.title}, ${active.length} of ${task.requiredHeadcount} staff`}
                       onClick={() => setSelectedTask(selectedTask?.id === task.id ? null : task)}
+                      onKeyDown={(e) => {
+                        if (e.key !== "Enter" && e.key !== " ") return;
+                        // Space scrolls the page by default, which on a grid
+                        // this tall moves the thing being opened out of view.
+                        e.preventDefault();
+                        setSelectedTask(selectedTask?.id === task.id ? null : task);
+                      }}
                     >
                       <div className="truncate text-[13px] font-semibold" style={{ color }}>
                         {pos.continuesBefore && "↑ "}{task.title}{pos.continuesAfter && " ↓"}
@@ -966,7 +1240,7 @@ export default function CalendarPage() {
                     <div key={t.id} className="flex items-center justify-between border-b border-border py-1.5 last:border-b-0">
                       <div>
                         <p className="text-xs font-medium">{t.title}</p>
-                        <p className="text-[11px] text-amber-600 dark:text-amber-400">needs {t.requiredHeadcount - activeCount} more</p>
+                        <p className="text-[11px] text-amber-600 dark:text-amber-400">needs {remainingFromOccupied(t.requiredHeadcount, activeCount)} more</p>
                       </div>
                       {canAssign && (
                       <button
@@ -1000,8 +1274,22 @@ export default function CalendarPage() {
           />
         )}
 
-        {/* Task detail panel */}
-        {selectedTask && <TaskDetailPanel task={selectedTask} onClose={() => setSelectedTask(null)} />}
+        {/* Task detail — a drawer, so the grid behind it does not move */}
+        {selectedTask && (
+          <TaskDetailDrawer
+            task={selectedTask}
+            canAssign={canAssign}
+            onAssign={() =>
+              setAssignTask({
+                id: selectedTask.id,
+                title: selectedTask.title,
+                requiredHeadcount: selectedTask.requiredHeadcount,
+                currentCount: activeAssignments(selectedTask).length,
+              })
+            }
+            onClose={() => setSelectedTask(null)}
+          />
+        )}
       </div>
     );
   }
@@ -1202,7 +1490,7 @@ export default function CalendarPage() {
                   return (
                     <div
                       key={task.id}
-                      className="absolute cursor-pointer overflow-hidden px-1 py-0.5 text-xs transition-opacity hover:opacity-90 z-10"
+                      className="absolute cursor-pointer overflow-hidden px-1 py-0.5 text-xs transition-opacity hover:opacity-90 z-10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500"
                       style={{
                         top: pos.top, height: pos.height,
                         left: `calc(${leftPercent}% + 2px)`, width: `calc(${widthPercent}% - 4px)`,
@@ -1213,7 +1501,32 @@ export default function CalendarPage() {
                         borderBottomRightRadius: pos.continuesAfter ? 0 : "0.375rem",
                         ...(isUnderstaffed ? { outline: "1.5px dashed #F59E0B", outlineOffset: "-1px" } : {}),
                       }}
+                      /*
+                        Reachable by keyboard, which it was not.
+
+                        The drawer this opens manages focus and closes on
+                        Escape — and all of that is decoration if the only way
+                        to open it is a pointer. Same defect the Members table
+                        had when its Actions column was removed: the control
+                        existed and nothing could reach it.
+
+                        `role`/`tabIndex` rather than a real `<button>`,
+                        because the block contains `<div>`s and phrasing
+                        content is all a button may hold — a button wrapping
+                        them is invalid markup that browsers repair
+                        unpredictably.
+                      */
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`${task.title}, ${activeCount} of ${task.requiredHeadcount} staff`}
                       onClick={() => setSelectedTask(selectedTask?.id === task.id ? null : task)}
+                      onKeyDown={(e) => {
+                        if (e.key !== "Enter" && e.key !== " ") return;
+                        // Space scrolls the page by default, which on a grid
+                        // this tall moves the thing being opened out of view.
+                        e.preventDefault();
+                        setSelectedTask(selectedTask?.id === task.id ? null : task);
+                      }}
                     >
                       <div className="truncate font-medium" style={{ color }}>
                         {pos.continuesBefore && "↑ "}{task.title}{pos.continuesAfter && " ↓"}
@@ -1256,8 +1569,51 @@ export default function CalendarPage() {
         )}
       </div>
 
-      {/* Task detail panel */}
-      {selectedTask && <TaskDetailPanel task={selectedTask} onClose={() => setSelectedTask(null)} />}
+      {/* Task detail — a drawer, so the grid behind it does not move */}
+      {selectedTask && (
+          <TaskDetailDrawer
+            task={selectedTask}
+            canAssign={canAssign}
+            onAssign={() =>
+              setAssignTask({
+                id: selectedTask.id,
+                title: selectedTask.title,
+                requiredHeadcount: selectedTask.requiredHeadcount,
+                currentCount: activeAssignments(selectedTask).length,
+              })
+            }
+            onClose={() => setSelectedTask(null)}
+          />
+        )}
+
+      {/*
+        The assign modal, in the WEEK view too.
+
+        It was rendered only inside the day view's branch, which was fine while
+        the only way to reach it was the day view's "Needs Staff" list. The
+        drawer now offers Assign from either view, so a button in the week grid
+        would have set the state and shown nothing — a control that appears to
+        do nothing is worse than one that is absent.
+      */}
+      {assignTask && (
+        <CalendarAssignModal
+          taskId={assignTask.id}
+          taskTitle={assignTask.title}
+          requiredHeadcount={assignTask.requiredHeadcount}
+          currentCount={assignTask.currentCount}
+          orgId={orgId}
+          onClose={() => setAssignTask(null)}
+          onAssigned={() => {
+            fetchTasks();
+            fetchCoverage();
+            // The drawer behind it is showing the staffing it had before the
+            // assignment. Closing it is honest; leaving it stale is not, and
+            // re-deriving it here would need the refetched task this callback
+            // does not have.
+            setSelectedTask(null);
+          }}
+        />
+      )}
     </div>
   );
 }

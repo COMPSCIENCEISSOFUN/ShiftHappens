@@ -164,18 +164,40 @@ export function countOccupied(
 }
 
 /**
- * Seats still to fill on a shift.
+ * Seats still to fill, given a count that has ALREADY been filtered.
  *
  * Never negative. Over-assignment should be impossible — `assignStaff` refuses
  * it — but a shift whose headcount was later REDUCED below the number already
- * assigned is legitimately over-filled, and a negative here would flow into a
- * selection cap and a "need -1 more" badge.
+ * assigned is legitimately over-filled, and a negative here flows into a
+ * selection cap and a "needs -1 more" badge.
+ *
+ * Exists as its own function because three callers hold the occupied COUNT and
+ * not the rows: the calendar's assign modal takes it as a prop, and the
+ * calendar's two "needs n more" labels have already computed it for the badge
+ * beside them. All three wrote the subtraction by hand and all three lost the
+ * clamp, so an over-filled shift read "needs -1 more" on the calendar while the
+ * tasks page beside it said nothing. The clamp is the whole point of this
+ * module's existence being one definition rather than seven.
+ */
+export function remainingFromOccupied(
+  requiredHeadcount: number,
+  occupied: number
+): number {
+  return Math.max(0, requiredHeadcount - occupied);
+}
+
+/**
+ * Seats still to fill on a shift.
+ *
+ * The same question as `remainingFromOccupied`, asked by a caller that holds
+ * the assignment rows — which is most of them, and which means they cannot
+ * accidentally count a rejected row into the numerator.
  */
 export function remainingSlots(
   requiredHeadcount: number,
   assignments: readonly { status: string }[]
 ): number {
-  return Math.max(0, requiredHeadcount - countOccupied(assignments));
+  return remainingFromOccupied(requiredHeadcount, countOccupied(assignments));
 }
 
 /**

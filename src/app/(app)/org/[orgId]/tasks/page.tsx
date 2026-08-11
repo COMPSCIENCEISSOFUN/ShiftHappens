@@ -43,6 +43,7 @@ import {
 } from "@/lib/assignment-status";
 import { CompositionRulesEditor } from "@/components/tasks/composition-rules-editor";
 import { PendingLeaveFlag } from "@/components/tasks/pending-leave-flag";
+import { useAssignData } from "@/components/tasks/use-assign-data";
 import {
   annotateSelection,
   describeRule,
@@ -151,33 +152,6 @@ function avatarColor(id: string): string {
 // ============================================================
 
 /**
- * The eligibility engine's per-member verdict, as returned by
- * `GET /tasks/[taskId]/eligibility`.
- *
- * Mirrors `StaffEligibility` in `@/services/eligibility.service`. It is
- * restated rather than imported because that module pulls in every repository
- * it uses, and importing it here would drag the server's Prisma client into the
- * client bundle. `checks` is deliberately a `Record` rather than the service's
- * fixed five keys, so a new dimension added server-side renders here without a
- * build failure — this page only ever iterates it.
- */
-interface EligibilityCheck {
-  eligible: boolean;
-  reason?: string;
-}
-
-interface EligibilityResult {
-  membershipId: string;
-  memberName: string;
-  employmentType?: string;
-  eligible: boolean;
-  checks: Record<string, EligibilityCheck>;
-  overrides: string[];
-  /** How often this member has been waved past their own availability lately. */
-  askedDespiteUnavailable?: number;
-}
-
-/**
  * Maps a failed check to the `ruleOverridden` key recorded for waiving it.
  *
  * This screen used to post `ruleOverridden: "all"` for every waiver, whatever
@@ -195,48 +169,6 @@ const RULE_KEY: Record<string, string> = {
   hoursLimit: "hours_limit",
   certifications: "certification",
 };
-
-/**
- * The task's composition rules plus each candidate's attributes, from
- * `GET /tasks/[taskId]/composition`.
- *
- * Sent as data rather than as a verdict because the verdict changes with every
- * tick: the panel runs `evaluateComposition` and `candidateEffect` — the same
- * pure functions the server enforces with — over whoever is currently selected.
- * Asking the server per click would be a request per click and would still be a
- * frame behind.
- */
-interface CompositionInfo {
-  rules: CompositionRule[];
-  requiredHeadcount: number;
-  assignedMembershipIds: string[];
-  members: CompositionCandidate[];
-}
-
-/**
- * An unanswered leave request covering a day this shift runs on, from
- * `GET /tasks/[taskId]/pending-leave`.
- *
- * A warning rather than a block. Leave binds on approval, so this person is
- * genuinely still rosterable — the point is that the manager should know they
- * asked before deciding, instead of finding out when the request is approved
- * and the shift has to be unpicked.
- */
-interface PendingLeave {
-  id: string;
-  membershipId: string;
-  date: string;
-  isAvailable: boolean;
-  reason: string | null;
-}
-
-/** One AI-ranked candidate from `GET /tasks/[taskId]/suggest`. */
-interface AISuggestion {
-  membershipId: string;
-  rank: number;
-  score: number;
-  explanation: string;
-}
 
 /** A ranked replacement for a shift somebody is asking to come off. */
 interface CoverOption {
@@ -430,13 +362,31 @@ export default function TasksPage() {
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   /** Which assignment's clock form is open, if any. */
   const [correctingId, setCorrectingId] = useState<string | null>(null);
-  const [eligibility, setEligibility] = useState<Record<string, EligibilityResult>>({});
-  const [composition, setComposition] = useState<CompositionInfo | null>(null);
-  const [pendingLeave, setPendingLeave] = useState<PendingLeave[]>([]);
-  const [suggestions, setSuggestions] = useState<AISuggestion[]>([]);
-  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+  /*
+   * Everything the assign panel knows about a shift comes from one hook, shared
+   * with the calendar's assign modal. Six pieces of state and four fetches used
+   * to live here and three of the four had no counterpart on the calendar,
+   * which is how assigning from the calendar could build a shift the
+   * composition rules would have flagged. See `use-assign-data` for why the
+   * fetching is shared and the markup is not.
+   */
+  const {
+    eligibility,
+    loadingEligibility,
+    composition,
+    pendingLeave,
+    suggestions,
+    loadingSuggestions,
+    load: loadAssignData,
+    loadSuggestions,
+    reset: resetAssignData,
+  } = useAssignData(orgId);
+  /*
+   * Stays here: whether the ranking is on screen is this panel's state, not a
+   * fact about the shift. The calendar shows its suggestions always and has no
+   * equivalent.
+   */
   const [showSuggestions, setShowSuggestions] = useState(false);
-  const [loadingEligibility, setLoadingEligibility] = useState(false);
   const [naturalInput, setNaturalInput] = useState("");
   const [parsing, setParsing] = useState(false);
   // "manual" | "suggested" | "auto" — auto-assign is only offered in "auto" mode
@@ -640,66 +590,20 @@ export default function TasksPage() {
     } catch {}
   }
 
-  async function fetchEligibility(taskId: string) {
-    setLoadingEligibility(true);
-    try {
-      const res = await fetch(
-        `/api/organizations/${orgId}/tasks/${taskId}/eligibility`
-      );
-      const data = await res.json();
-      // An error body is not iterable; the for..of threw into the empty catch
-      // and every member silently showed as "eligibility unknown".
-      if (!res.ok || !Array.isArray(data)) return;
-      const map: Record<string, EligibilityResult> = {};
-      for (const item of data) {
-        map[item.membershipId] = item;
-      }
-      setEligibility(map);
-    } catch {} finally {
-      setLoadingEligibility(false);
-    }
-  }
-
   /**
-   * Unanswered leave covering this shift's day(s).
+   * The AI ranking, on demand.
    *
-   * Silent on failure and cleared, like the composition fetch: the panel is
-   * usable without it, and a half-loaded warning is worse than none — a
-   * candidate with no flag because the request failed reads as a candidate who
-   * did not ask.
-   */
-  async function fetchPendingLeave(taskId: string) {
-    try {
-      const res = await fetch(
-        `/api/organizations/${orgId}/tasks/${taskId}/pending-leave`
-      );
-      const data = await res.json();
-      setPendingLeave(res.ok && Array.isArray(data) ? data : []);
-    } catch {
-      setPendingLeave([]);
-    }
-  }
-
-  /**
-   * Composition attributes for the same panel.
+   * The fetch moved into `useAssignData`; the other three things this does did
+   * not, because they are all this panel's business rather than facts about the
+   * shift. Toggling the list shut is presentation. Auto-ticking the top
+   * candidates depends on how many seats are left and on what the manager has
+   * already selected. And the error belongs to the button that was pressed.
    *
-   * Failure is silent and clears the state: the annotations are guidance, and
-   * the server refuses an illegal assignment whether or not this loaded. Half a
-   * picture would be worse than none — a member with no "would break" badge
-   * because the fetch failed reads as a member who is fine.
+   * `null` back from the hook means the request failed; `[]` means it succeeded
+   * and ranked nobody, which happens whenever every candidate is already busy.
+   * Reporting the second as a failure would train managers to ignore the
+   * message.
    */
-  async function fetchComposition(taskId: string) {
-    try {
-      const res = await fetch(
-        `/api/organizations/${orgId}/tasks/${taskId}/composition`
-      );
-      const data = await res.json();
-      setComposition(res.ok && Array.isArray(data?.rules) ? data : null);
-    } catch {
-      setComposition(null);
-    }
-  }
-
   async function fetchSuggestions(taskId: string, force = false) {
     // Toggle visibility if already loaded (unless force-fetching)
     if (!force && suggestions.length > 0) {
@@ -707,35 +611,24 @@ export default function TasksPage() {
       return;
     }
 
-    setLoadingSuggestions(true);
     setShowSuggestions(true);
-    try {
-      const res = await fetch(
-        `/api/organizations/${orgId}/tasks/${taskId}/suggest`
-      );
-      const data = await res.json();
-      if (res.ok) {
-        setSuggestions(data);
-        // Seats still to fill, NOT the full headcount. Sliced on
-        // requiredHeadcount, a shift needing 3 with 1 already assigned
-        // auto-selected 3 more — the server refuses that (assignStaff checks
-        // currentCount + selected against requiredHeadcount), so the manager
-        // met "Assignment exceeds required headcount" after the panel had
-        // proposed the over-selection itself.
-        const task = tasks.find((t) => t.id === taskId);
-        const remaining = task
-          ? slotsLeft(task.requiredHeadcount, task.assignments)
-          : 1;
-        const topIds = data
-          .slice(0, remaining)
-          .map((s: AISuggestion) => s.membershipId);
-        setSelectedMembers(topIds);
-      }
-    } catch {
+    const list = await loadSuggestions(taskId);
+    if (list === null) {
       setError("Failed to get AI suggestions");
-    } finally {
-      setLoadingSuggestions(false);
+      return;
     }
+
+    // Seats still to fill, NOT the full headcount. Sliced on
+    // requiredHeadcount, a shift needing 3 with 1 already assigned
+    // auto-selected 3 more — the server refuses that (assignStaff checks
+    // currentCount + selected against requiredHeadcount), so the manager met
+    // "Assignment exceeds required headcount" after the panel had proposed the
+    // over-selection itself.
+    const task = tasks.find((t) => t.id === taskId);
+    const remaining = task
+      ? slotsLeft(task.requiredHeadcount, task.assignments)
+      : 1;
+    setSelectedMembers(list.slice(0, remaining).map((s) => s.membershipId));
   }
 
   // ── Handlers ─────────────────────────────────────
@@ -1925,19 +1818,20 @@ export default function TasksPage() {
                             setSelectedMembers([]);
                             setOverrideReasons({});
                             setAssignError(null);
-                            setSuggestions([]);
                             setShowSuggestions(false);
-                            setComposition(null);
-                            setPendingLeave([]);
+                            /*
+                             * Clears eligibility too, which the four separate
+                             * clears here did not: opening a second shift
+                             * showed the first shift's verdicts until its own
+                             * request came back.
+                             */
+                            resetAssignData();
                             if (newId) {
-                              // Concurrent: neither answer depends on the
-                              // other, and the panel is already open and empty
-                              // while they run.
-                              await Promise.all([
-                                fetchEligibility(newId),
-                                fetchComposition(newId),
-                                fetchPendingLeave(newId),
-                              ]);
+                              // One call, three concurrent requests — none of
+                              // the three answers depends on the others, and
+                              // the panel is already open and empty while they
+                              // run.
+                              await loadAssignData(newId);
                               // In "suggested" mode, auto-fetch AI suggestions
                               if (allocationMode === "suggested") {
                                 fetchSuggestions(newId, true);
@@ -2906,8 +2800,8 @@ export default function TasksPage() {
                                 setSelectedMembers([]);
                                 setOverrideReasons({});
                                 setAssignError(null);
-                                setSuggestions([]);
                                 setShowSuggestions(false);
+                                resetAssignData();
                               }}
                             >
                               Cancel

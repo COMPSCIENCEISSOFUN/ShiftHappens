@@ -12,26 +12,12 @@
 import { useEffect, useState } from "react";
 import { Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
-
-interface EligibilityCheck {
-  eligible: boolean;
-  reason?: string;
-}
-
-interface EligibilityResult {
-  membershipId: string;
-  memberName: string;
-  eligible: boolean;
-  checks: Record<string, EligibilityCheck>;
-  overrides: string[];
-}
-
-interface AISuggestion {
-  membershipId: string;
-  rank: number;
-  score: number;
-  explanation: string;
-}
+import {
+  useAssignData,
+  type EligibilityCheck,
+} from "@/components/tasks/use-assign-data";
+import { annotateSelection } from "@/lib/composition-rules";
+import { remainingFromOccupied } from "@/lib/assignment-status";
 
 interface CalendarAssignModalProps {
   taskId: string;
@@ -43,6 +29,53 @@ interface CalendarAssignModalProps {
   onAssigned: () => void;
 }
 
+/**
+ * The two things that make a perfectly eligible person the wrong choice.
+ *
+ * Both are warnings, not blocks. Leave binds only on approval, so somebody who
+ * has asked for the day is still rosterable — the point is that the manager
+ * knows before deciding rather than when the request is approved and the shift
+ * has to be unpicked. Composition is enforced by the server either way; showing
+ * it here answers "who is right" instead of only "you were wrong", which is all
+ * a refusal on submit can say.
+ *
+ * One component rather than two copies, because it renders in both the AI list
+ * and the plain list, and two copies of a warning is how one of them ends up
+ * saying something slightly different.
+ */
+function RowWarnings({
+  leave,
+  helps,
+  breaks,
+}: {
+  leave?: { reason: string | null };
+  helps: string[];
+  breaks: string[];
+}) {
+  if (!leave && helps.length === 0 && breaks.length === 0) return null;
+
+  return (
+    <div className="mt-0.5 space-y-0.5">
+      {leave && (
+        <p className="text-xs text-amber-600 dark:text-amber-400">
+          Asked for this day off{leave.reason ? ` — ${leave.reason}` : ""} (not
+          yet answered)
+        </p>
+      )}
+      {breaks.map((rule) => (
+        <p key={rule} className="text-xs text-red-600 dark:text-red-400">
+          Would break: {rule}
+        </p>
+      ))}
+      {helps.map((rule) => (
+        <p key={rule} className="text-xs text-emerald-600 dark:text-emerald-400">
+          Helps: {rule}
+        </p>
+      ))}
+    </div>
+  );
+}
+
 export function CalendarAssignModal({
   taskId,
   taskTitle,
@@ -52,55 +85,49 @@ export function CalendarAssignModal({
   onClose,
   onAssigned,
 }: CalendarAssignModalProps) {
-  const [eligibility, setEligibility] = useState<EligibilityResult[]>([]);
-  const [suggestions, setSuggestions] = useState<AISuggestion[]>([]);
+  /*
+   * Eligibility, the AI ranking, composition and pending leave all come from
+   * `useAssignData` — the same hook the tasks page's panel reads.
+   *
+   * This modal had its own copies of two of those four fetches and neither of
+   * the other two, so the same shift showed a manager different WARNINGS
+   * depending on which screen they opened it from: no composition annotations
+   * and no "they have asked for this day off". Both are cases where the
+   * calendar let somebody do a thing the tasks page would have warned them
+   * about.
+   *
+   * Selection stays local. Which people are ticked is this panel's business,
+   * not the shared layer's.
+   */
+  const {
+    eligibility: eligibilityById,
+    loadingEligibility,
+    suggestions,
+    loadingSuggestions,
+    pendingLeave,
+    composition,
+    load,
+    loadSuggestions,
+  } = useAssignData(orgId);
+
   const [selected, setSelected] = useState<string[]>([]);
-  const [loadingEligibility, setLoadingEligibility] = useState(true);
-  const [loadingSuggestions, setLoadingSuggestions] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
-  const remaining = requiredHeadcount - currentCount;
-
-  async function fetchSuggestions() {
-    setLoadingSuggestions(true);
-    try {
-      const res = await fetch(
-        `/api/organizations/${orgId}/tasks/${taskId}/suggest`
-      );
-      if (res.ok) {
-        const data = await res.json();
-        setSuggestions(Array.isArray(data) ? data : data.suggestions || []);
-      }
-    } catch {
-      // AI suggestions are non-critical — eligibility still works
-    } finally {
-      setLoadingSuggestions(false);
-    }
-  }
-
-  async function fetchEligibility() {
-    setLoadingEligibility(true);
-    try {
-      const res = await fetch(
-        `/api/organizations/${orgId}/tasks/${taskId}/eligibility`
-      );
-      if (res.ok) setEligibility(await res.json());
-      else setError("Failed to load eligible staff");
-    } catch {
-      setError("Failed to load eligible staff");
-    } finally {
-      setLoadingEligibility(false);
-    }
-  }
+  /*
+   * Clamped, through the same helper the tasks page's panel reaches. Written by
+   * hand this was negative on a shift whose headcount had been reduced below
+   * the number already on it, which reads as "needs -1 more" and caps selection
+   * at a negative.
+   */
+  const remaining = remainingFromOccupied(requiredHeadcount, currentCount);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronising with an external system, which is what effects are for: loads eligibility and AI suggestions for the task being assigned
-    fetchEligibility();
-    fetchSuggestions();
-  }, [taskId]);
-
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronising with an external system: loads this shift's eligibility, warnings and ranking when the modal opens
+    load(taskId);
+    loadSuggestions(taskId);
+  }, [taskId, load, loadSuggestions]);
 
   async function handleAssign() {
     if (selected.length === 0) return;
@@ -153,8 +180,57 @@ export function CalendarAssignModal({
   }
 
   const loading = loadingEligibility;
+  /*
+   * The hook keys eligibility by membership id, because that is how a panel
+   * asks "what about this person". This modal walks a list, so it takes the
+   * values — one expression, rather than a second shape in the shared layer.
+   */
+  const eligibility = Object.values(eligibilityById);
   const eligible = eligibility.filter((e) => e.eligible);
   const ineligible = eligibility.filter((e) => !e.eligible);
+
+  /*
+   * Unanswered leave, by membership.
+   *
+   * The tasks page has flagged this at the point of assigning since it was
+   * built; this modal did not fetch it at all, so a manager assigning from the
+   * calendar could roster somebody onto a day they had just asked off and find
+   * out when the request was approved and the shift had to be unpicked.
+   *
+   * A warning, never a block — leave binds on approval, so the person is
+   * genuinely still rosterable.
+   */
+  const leaveByMember = new Map(pendingLeave.map((l) => [l.membershipId, l]));
+
+  /*
+   * Composition, evaluated with `annotateSelection` — the same pure function
+   * the tasks page runs and the same one the server enforces with.
+   *
+   * Recomputed on every render so the annotations follow the ticks: whether a
+   * person helps or breaks a rule depends on who else is currently selected,
+   * so a verdict fetched once would be a frame behind from the first click.
+   *
+   * This modal had no composition data at all, so a manager could assemble a
+   * shift here that the tasks page would have flagged while they were choosing
+   * — and then meet the refusal on submit, which tells them they were wrong
+   * without telling them who was right.
+   */
+  const { effects: compEffects } = annotateSelection({
+    rules: composition?.rules ?? [],
+    members: composition?.members ?? [],
+    assignedMembershipIds: composition?.assignedMembershipIds ?? [],
+    selectedMembershipIds: selected,
+    requiredHeadcount: composition?.requiredHeadcount ?? requiredHeadcount,
+  });
+
+  /** The two warnings a row carries, in one place so both lists render them. */
+  function annotations(membershipId: string) {
+    return {
+      leave: leaveByMember.get(membershipId),
+      helps: compEffects[membershipId]?.helps ?? [],
+      breaks: compEffects[membershipId]?.breaks ?? [],
+    };
+  }
 
   // Split eligible into AI-suggested (ranked) and remaining
   const suggestedIds = new Set(suggestions.map((s) => s.membershipId));
@@ -254,6 +330,7 @@ export function CalendarAssignModal({
                           Override: {staffEligibility.overrides.join(", ")}
                         </p>
                       )}
+                      <RowWarnings {...annotations(suggestion.membershipId)} />
                     </div>
                   </label>
                 );
@@ -291,6 +368,7 @@ export function CalendarAssignModal({
                         Override: {staff.overrides.join(", ")}
                       </p>
                     )}
+                    <RowWarnings {...annotations(staff.membershipId)} />
                   </div>
                   <span className="text-xs text-green-600 dark:text-green-400">
                     Eligible

@@ -15,6 +15,7 @@ import {
   countOccupied,
   occupiesSlot,
   occupyingStatusFilter,
+  remainingFromOccupied,
   remainingSlots,
 } from "@/lib/assignment-status";
 
@@ -187,5 +188,30 @@ describe("remainingSlots", () => {
 
   it("is the full headcount when nobody is assigned", () => {
     expect(remainingSlots(4, [])).toBe(4);
+  });
+});
+
+/*
+ * The count-taking half, tested separately because it has callers of its own.
+ *
+ * Three screens hold the occupied count and not the rows — the calendar's
+ * assign modal takes it as a prop, and the calendar's two "needs n more"
+ * labels have already computed it. All three wrote `required - occupied` by
+ * hand and all three dropped the clamp, so the same over-filled shift said
+ * "needs -1 more" on the calendar and nothing on the tasks page. Only the last
+ * test here fails if the clamp goes; the first two pin that routing this
+ * through a helper did not change the arithmetic.
+ */
+describe("remainingFromOccupied", () => {
+  it("subtracts an already-filtered count", () => {
+    expect(remainingFromOccupied(3, 2)).toBe(1);
+  });
+
+  it("is the full headcount when nobody holds a slot", () => {
+    expect(remainingFromOccupied(4, 0)).toBe(4);
+  });
+
+  it("is zero, not negative, when the roster outgrew the headcount", () => {
+    expect(remainingFromOccupied(1, 2)).toBe(0);
   });
 });
