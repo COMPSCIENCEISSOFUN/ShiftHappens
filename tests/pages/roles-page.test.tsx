@@ -48,9 +48,12 @@ vi.mock("@/components/layout/plan-provider", () => ({
   usePlan: () => ({
     tier: planTier,
     tierName: planTier === "free" ? "Free" : planTier === "pro" ? "Pro" : "Enterprise",
+    // `priority_support` is the Enterprise-only example now; `audit_log`
+    // moved to Pro on 2026-08-11. The mock has to keep ONE feature above Pro
+    // or the page's plan-locked branch stops being exercised at all.
     has: (feature: string) =>
       planTier !== "free" &&
-      (feature !== "audit_log" || planTier === "enterprise"),
+      (feature !== "priority_support" || planTier === "enterprise"),
     requiredTier: () => "pro",
     limitFor: () => (planTier === "enterprise" ? null : 10),
     usageOf: () => customRoleUsage,

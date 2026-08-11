@@ -267,11 +267,20 @@ describe("the plan hides what it does not include", () => {
     expect(screen.getByRole("link", { name: "Roles" })).toBeInTheDocument();
   });
 
-  // Enterprise-only, so Pro is the case worth pinning: it is the tier where the
-  // permission says yes and the plan says no.
-  it("hides the Audit Log on Pro", () => {
-    renderNav(["audit:view"], "company_admin", "pro");
+  /*
+   * FREE is the case worth pinning now: it is the tier where the permission
+   * says yes and the plan says no. `audit_log` moved to Pro on 2026-08-11, so
+   * the Pro assertion below is inverted rather than deleted — the entry it
+   * proves is hidden-then-shown is the same one, at a different boundary.
+   */
+  it("hides the Audit Log on Free", () => {
+    renderNav(["audit:view"], "company_admin", "free");
     expect(screen.queryByRole("link", { name: "Audit Log" })).not.toBeInTheDocument();
+  });
+
+  it("shows the Audit Log on Pro", () => {
+    renderNav(["audit:view"], "company_admin", "pro");
+    expect(screen.getByRole("link", { name: "Audit Log" })).toBeInTheDocument();
   });
 
   it("shows the Audit Log on Enterprise", () => {

@@ -252,6 +252,12 @@ describe("SubscriptionService", () => {
       expect(
         await subscriptionService.canUseFeature(orgId, "mass_import")
       ).toBe(true);
+      // Moved down from Enterprise on 2026-08-11. Inverted rather than
+      // deleted: the assertion still earns its place, it just says the
+      // opposite now.
+      expect(
+        await subscriptionService.canUseFeature(orgId, "audit_log")
+      ).toBe(true);
     });
 
     it("returns false for enterprise-only features on pro tier", async () => {
@@ -260,9 +266,8 @@ describe("SubscriptionService", () => {
         data: { subscriptionTier: "pro" },
       });
 
-      expect(
-        await subscriptionService.canUseFeature(orgId, "audit_log")
-      ).toBe(false);
+      // `priority_support` is what is left above Pro. This case must keep a
+      // subject or the suite stops checking that the top tier means anything.
       expect(
         await subscriptionService.canUseFeature(orgId, "priority_support")
       ).toBe(false);
@@ -313,8 +318,19 @@ describe("SubscriptionService", () => {
       });
 
       await expect(
-        subscriptionService.enforceFeatureAccess(orgId, "audit_log")
+        subscriptionService.enforceFeatureAccess(orgId, "priority_support")
       ).rejects.toThrow(FeatureNotAvailableError);
+    });
+
+    it("no longer throws for the audit log on pro tier", async () => {
+      await prisma.organization.update({
+        where: { id: orgId },
+        data: { subscriptionTier: "pro" },
+      });
+
+      await expect(
+        subscriptionService.enforceFeatureAccess(orgId, "audit_log")
+      ).resolves.toBeUndefined();
     });
 
     it("does not throw for any feature on enterprise tier", async () => {
@@ -381,7 +397,8 @@ describe("SubscriptionService", () => {
 
       expect(usage.features.custom_roles).toBe(true);
       expect(usage.features.pdf_export).toBe(true);
-      expect(usage.features.audit_log).toBe(false);
+      expect(usage.features.audit_log).toBe(true);
+      expect(usage.features.priority_support).toBe(false);
     });
 
     it("includes member count from org creation", async () => {

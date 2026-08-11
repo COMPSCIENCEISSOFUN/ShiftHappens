@@ -98,6 +98,20 @@ export const TIER_CONFIG: Record<SubscriptionTier, TierDefinition> = {
       'mass_import',
       'assistant',
       'calendar_sync',
+      /*
+       * Moved down from Enterprise on 2026-08-11.
+       *
+       * It was the only gated feature that a Pro organisation could be granted
+       * a PERMISSION for and still never use: `audit:view` maps to this
+       * feature, custom roles are Pro-and-above, and the route guard checks the
+       * plan before the permission — so the role builder offered every Pro
+       * organisation a checkbox that could not do anything for anybody.
+       *
+       * `role.service.getAllPermissions` was written to explain that box rather
+       * than to remove it. With this move the box becomes real, which is the
+       * better resolution of the same problem.
+       */
+      'audit_log',
     ],
   },
   enterprise: {

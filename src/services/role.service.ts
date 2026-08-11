@@ -352,15 +352,22 @@ export class RoleService {
    * builder just did not know about it and rendered the entry as an ordinary
    * checkbox.
    *
-   * The result was a control that could never work for anybody able to see it:
-   * custom roles are Pro-and-above, `audit_log` is Enterprise-only, so every
-   * organisation with a role builder is one for which that box is a guaranteed
-   * no-op. An interface implying something the system will not do — the same
-   * shape as the AI badge over algorithmic output, and the "Internal name"
-   * field read by nothing.
+   * The result was a control that could never work for anybody able to see it.
+   * Custom roles are Pro-and-above and `audit_log` was Enterprise-only, so
+   * every organisation with a role builder was one for which that box was a
+   * guaranteed no-op — an interface implying something the system would not do,
+   * the same shape as the AI badge over algorithmic output.
+   *
+   * **`audit_log` moved to Pro on 2026-08-11, so that particular box now
+   * works.** This method is unchanged and did not need to be: it computes
+   * availability from `isFeatureAvailable` rather than naming a tier, so the
+   * move propagated on its own. The example is kept because the SHAPE recurs —
+   * `priority_support` is Enterprise-only today and reachable through no
+   * permission at all, and the next gated feature added at the top tier will
+   * land in exactly this position.
    *
    * `requiredTier` is returned rather than a bare boolean so the screen can say
-   * WHICH plan is needed. "Enterprise" is actionable; "unavailable" invites a
+   * WHICH plan is needed. A named plan is actionable; "unavailable" invites a
    * support ticket.
    */
   async getAllPermissions(organizationId?: string) {

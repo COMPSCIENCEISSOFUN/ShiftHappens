@@ -369,16 +369,19 @@ describe("permissions the plan cannot honour", () => {
   /*
    * Enforcement was always correct — the route guard checks the plan BEFORE the
    * permission. The role builder just did not know, and rendered the entry as
-   * an ordinary checkbox. Since custom roles are Pro-and-above while the audit
-   * log is Enterprise-only, that box was a guaranteed no-op for every
-   * organisation able to see it.
+   * an ordinary checkbox.
+   *
+   * `audit_log` moved from Enterprise to Pro on 2026-08-11, so FREE is the tier
+   * that now cannot honour it. The annotation is what is under test, not the
+   * particular tier: `getAllPermissions` computes it from `isFeatureAvailable`,
+   * so it followed the move without being touched.
    */
   it("are marked unavailable on a plan that cannot honour them", async () => {
     // The fixture defaults to enterprise so feature gates do not mask
     // authorisation results elsewhere; this is the case that needs a lower one.
     await prisma.organization.update({
       where: { id: tenant.orgId },
-      data: { subscriptionTier: "pro" },
+      data: { subscriptionTier: "free" },
     });
 
     const catalogue = await roles.getAllPermissions(tenant.orgId);
@@ -387,13 +390,14 @@ describe("permissions the plan cannot honour", () => {
     ) as { available?: boolean; requiredTier?: string } | undefined;
 
     expect(audit?.available).toBe(false);
-    expect(audit?.requiredTier).toBe("enterprise");
+    // Named so the screen can say WHICH plan is needed. Pro now, not Enterprise.
+    expect(audit?.requiredTier).toBe("pro");
   });
 
   it("are available once the plan carries the feature", async () => {
     await prisma.organization.update({
       where: { id: tenant.orgId },
-      data: { subscriptionTier: "enterprise" },
+      data: { subscriptionTier: "pro" },
     });
 
     const catalogue = await roles.getAllPermissions(tenant.orgId);

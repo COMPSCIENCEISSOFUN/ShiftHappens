@@ -21,6 +21,11 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 vi.mock("@/lib/auth", () => ({ auth: vi.fn() }));
 
 import { prisma } from "@/lib/prisma";
+import { PERMISSION_FEATURE } from "@/lib/permissions";
+import {
+  getMinimumTierForFeature,
+  isFeatureAvailable,
+} from "@/lib/subscription-tiers";
 import { cleanDatabase } from "../helpers/cleanup";
 import { createTenant, type Tenant } from "../helpers/fixtures";
 import { asUser } from "../helpers/session";
@@ -219,27 +224,43 @@ describe("members without a custom role are unaffected", () => {
 describe("the subscription plan overrules the permission", () => {
   /**
    * The case worth being explicit about: `audit:view` is a real permission an
-   * admin can tick, and the audit log is Enterprise-only. If the permission
-   * gate ran first, or ran alone, a Pro organisation could grant itself an
-   * Enterprise feature by composing a role.
+   * admin can tick, and the audit log is plan-gated. If the permission gate ran
+   * first, or ran alone, an organisation could grant itself a paid feature by
+   * ticking a box.
    *
    * Note the caller is the ADMIN — who holds every permission by definition —
-   * so nothing here is being refused for lack of permission. Only the plan is
-   * saying no.
+   * so nothing here is refused for lack of permission. Only the plan says no.
+   *
+   * ## Why this is a FREE organisation, when it used to be a Pro one
+   *
+   * `audit_log` moved from Enterprise to Pro on 2026-08-11. The demonstration
+   * needs a tier that HOLDS the permission and LACKS the feature, and Free is
+   * now the only one.
    */
-  it("refuses audit access on a Pro plan even though the caller holds audit:view", async () => {
+  it("refuses audit access on a plan without it, though the caller holds audit:view", async () => {
     await prisma.organization.update({
       where: { id: tenant.orgId },
-      data: { subscriptionTier: "pro" },
+      data: { subscriptionTier: "free" },
     });
 
     const res = await callAuditLogs(tenant.admin.userId);
     expect(res.status).toBe(403);
 
     // The plan's message, not a bare "Forbidden" — an admin refused on plan
-    // needs an upgrade button, not a permissions bug hunt.
+    // needs an upgrade button, not a permissions bug hunt. It names the tier
+    // that would work, which is Pro now rather than Enterprise.
     const body = await res.json();
-    expect(body.error).toMatch(/enterprise/i);
+    expect(body.error).toMatch(/pro/i);
+  });
+
+  it("allows it on Pro", async () => {
+    await prisma.organization.update({
+      where: { id: tenant.orgId },
+      data: { subscriptionTier: "pro" },
+    });
+
+    const res = await callAuditLogs(tenant.admin.userId);
+    expect(res.status).toBe(200);
   });
 
   it("allows it on Enterprise", async () => {
@@ -248,27 +269,38 @@ describe("the subscription plan overrules the permission", () => {
   });
 
   /**
-   * And the same veto through a custom role, which is the path an admin would
-   * actually take to try to hand the feature to someone else.
+   * ## The two tests that used to live here, and why they cannot
+   *
+   * They proved that an admin could not hand a paid feature to somebody else
+   * by composing a custom role: a Pro organisation granted `audit:view`
+   * through a custom role, and the plan refused anyway.
+   *
+   * That scenario is now unreachable. Custom roles require Pro, and every
+   * permission in `PERMISSION_FEATURE` maps to a feature available at Pro — so
+   * there is no organisation that can BUILD a custom role and still be refused
+   * by the plan for anything it could grant.
+   *
+   * The guard is untouched and still correct; the configuration simply no
+   * longer produces the case. Deleting the tests silently would leave that as
+   * folklore, so this is the test that replaces them: it pins the property
+   * that makes the escalation impossible.
+   *
+   * **If this goes red, the escalation path exists again** — somebody has gated
+   * a feature above Pro and mapped a permission to it — and the two deleted
+   * tests should be written back against that feature.
    */
-  it("refuses a custom role granted audit:view on a Pro plan", async () => {
-    await prisma.organization.update({
-      where: { id: tenant.orgId },
-      data: { subscriptionTier: "pro" },
-    });
-    await giveCustomRole(tenant.manager.membershipId, ["audit:view"]);
+  it("has no plan-gated permission a custom role could reach but not use", () => {
+    const CUSTOM_ROLE_TIER = getMinimumTierForFeature("custom_roles");
 
-    const res = await callAuditLogs(tenant.manager.userId);
-    expect(res.status).toBe(403);
-  });
+    const unreachable = Object.entries(PERMISSION_FEATURE).filter(
+      ([, feature]) => !isFeatureAvailable(CUSTOM_ROLE_TIER, feature)
+    );
 
-  // On Enterprise the same role works — proving the refusal above was the plan
-  // and not something incidental about custom roles.
-  it("allows that same custom role on Enterprise", async () => {
-    await giveCustomRole(tenant.manager.membershipId, ["audit:view"]);
-
-    const res = await callAuditLogs(tenant.manager.userId);
-    expect(res.status).toBe(200);
+    expect(
+      unreachable,
+      "a permission gated above the tier that custom roles require means an " +
+        "admin can tick a box that can never work — restore the escalation tests"
+    ).toEqual([]);
   });
 });
 
@@ -347,14 +379,17 @@ describe("the guard's own tier veto", () => {
    * whole suite stayed green — because `audit-logs/route.ts` calls
    * `enforceFeatureAccess` itself, so the guard's copy never decides anything
    * today. That makes it defence in depth rather than dead code: it is what
-   * protects the NEXT Enterprise-gated route, whose author forgets the explicit
+   * protects the NEXT plan-gated route, whose author forgets the explicit
    * call. Defence in depth that nothing tests is just an untested claim, so the
    * guard is exercised on its own terms below.
+   *
+   * On FREE, not Pro. `audit_log` moved down to Pro on 2026-08-11, and this
+   * needs a tier that holds the permission and lacks the feature.
    */
   it("refuses a gated permission on a plan that does not include it", async () => {
     await prisma.organization.update({
       where: { id: tenant.orgId },
-      data: { subscriptionTier: "pro" },
+      data: { subscriptionTier: "free" },
     });
 
     const result = await requirePermission(
@@ -367,8 +402,9 @@ describe("the guard's own tier veto", () => {
     if (!result.ok) {
       expect(result.response.status).toBe(403);
       const body = await result.response.json();
-      // The plan's wording, so the caller learns it is a plan problem.
-      expect(body.error).toMatch(/enterprise/i);
+      // The plan's wording, so the caller learns it is a plan problem — and it
+      // names the tier that would work, which is Pro now.
+      expect(body.error).toMatch(/pro/i);
     }
   });
 

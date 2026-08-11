@@ -39,13 +39,20 @@ import { join } from "node:path";
  * underneath for a toast to float over, and the user's next act is to press
  * the sign-in button directly beneath it.
  *
- * `settings`: the post-checkout banner reports a state that has NOT finished —
- * "your plan will update momentarily" — and it is driven by a URL parameter
- * rather than by a click, so it survives the reload it invites.
+ * `billing`: the post-checkout banner reports a state that has NOT finished —
+ * "your plan will update momentarily", because the tier is granted by the
+ * WEBHOOK and not by the redirect — and it is driven by a URL parameter rather
+ * than by a click, so it survives the reload it invites.
+ *
+ * It was on `settings` until 2026-08-11, when the upgrade flow moved to the
+ * billing page and the banner went with it. **The canary below is what caught
+ * that**: the allowlist still named a file that no longer had a success banner
+ * in it, which is an exemption quietly protecting nothing. An allowlist nobody
+ * checks is how a scan comes to look thorough while covering less every month.
  */
 const ALLOWED = [
   join("src", "app", "(auth)", "verify-email", "page.tsx"),
-  join("src", "app", "(app)", "org", "[orgId]", "settings", "page.tsx"),
+  join("src", "app", "(app)", "org", "[orgId]", "billing", "page.tsx"),
 ];
 
 function tsxFilesUnder(dir: string): string[] {

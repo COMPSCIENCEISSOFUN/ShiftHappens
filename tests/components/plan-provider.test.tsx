@@ -26,7 +26,11 @@ function Probe() {
       <li data-testid="tier-name">{plan.tierName}</li>
       <li data-testid="custom-roles">{String(plan.has("custom_roles"))}</li>
       <li data-testid="audit">{String(plan.has("audit_log"))}</li>
-      <li data-testid="needs">{plan.requiredTier("audit_log")}</li>
+      {/* The Enterprise-only probe. `audit_log` held this job until it moved
+          to Pro on 2026-08-11, and the test below needs a feature that still
+          answers differently at Pro than at Enterprise. */}
+      <li data-testid="top-tier">{String(plan.has("priority_support"))}</li>
+      <li data-testid="needs">{plan.requiredTier("priority_support")}</li>
       <li data-testid="limit">{String(plan.limitFor("members"))}</li>
       <li data-testid="usage">{String(plan.usageOf("members"))}</li>
       <li data-testid="at-limit">{String(plan.atLimit("members"))}</li>
@@ -70,6 +74,7 @@ describe("what the plan includes", () => {
 
     expect(value("custom-roles")).toBe("true");
     expect(value("audit")).toBe("true");
+    expect(value("top-tier")).toBe("true");
   });
 
   it("refuses everything on the lowest tier", () => {
@@ -81,11 +86,19 @@ describe("what the plan includes", () => {
 
     expect(value("custom-roles")).toBe("false");
     expect(value("audit")).toBe("false");
+    expect(value("top-tier")).toBe("false");
   });
 
-  // Pro is the tier worth pinning: it is the one where the two gated features
-  // give different answers, so a check that returned the same value for both
-  // would pass on Free and Enterprise alone.
+  /*
+   * Pro is the tier worth pinning: it is the one where gated features give
+   * DIFFERENT answers, so a check that returned the same value for every
+   * feature would pass on Free and Enterprise alone and prove nothing.
+   *
+   * The pair changed on 2026-08-11 when `audit_log` moved down to Pro. The
+   * test is not about the audit log — it is about the boundary existing — so
+   * it now uses `priority_support`, which is what remains above Pro. Kept
+   * rather than deleted for that reason.
+   */
   it("separates the two tiers of feature on Pro", () => {
     render(
       <PlanProvider tier="pro">
@@ -94,7 +107,8 @@ describe("what the plan includes", () => {
     );
 
     expect(value("custom-roles")).toBe("true");
-    expect(value("audit")).toBe("false");
+    expect(value("audit")).toBe("true");
+    expect(value("top-tier")).toBe("false");
   });
 
   it("names the plan a locked feature needs", () => {
@@ -104,6 +118,8 @@ describe("what the plan includes", () => {
       </PlanProvider>
     );
 
+    // Still enterprise, but now for `priority_support` rather than the audit
+    // log — `requiredTier` names a plan, so its subject had to move with it.
     expect(value("needs")).toBe("enterprise");
   });
 });
