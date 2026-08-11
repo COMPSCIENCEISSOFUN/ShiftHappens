@@ -23,6 +23,11 @@ import { FileText, FileX2, Search, SearchX, ShieldCheck } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { PageLoading } from "@/components/ui/page-loading";
 import { AlertBanner } from "@/components/ui/alert-banner";
+import {
+  DATE_RANGE_MESSAGE,
+  parseDateRange,
+  withinDateRange,
+} from "@/lib/date-range";
 import { toast } from "sonner";
 import { EmptyState } from "@/components/ui/empty-state";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -366,6 +371,22 @@ export default function CertificationsPage() {
   });
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
+  /*
+   * An EXPIRY range, not an issue-date one.
+   *
+   * "Whose certificates lapse before the end of the month" is the question a
+   * compliance officer actually asks; when a certificate was issued is a fact
+   * about the past that changes nothing. Not debounced, unlike the search box
+   * beside it — a picker is one deliberate act, not one per keystroke.
+   *
+   * Filtered in the browser like everything else here, which this page's own
+   * docblock argues for: expiring and expired are DERIVED from `expiryDate`
+   * against the clock, so they are not states the server can be asked about.
+   * The rule is shared with tasks and the leave register even though the
+   * mechanism is not.
+   */
+  const [expiryFrom, setExpiryFrom] = useState("");
+  const [expiryTo, setExpiryTo] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyIds, setBusyIds] = useState<string[]>([]);
@@ -681,8 +702,20 @@ export default function CertificationsPage() {
       (a.user.name || a.user.email).localeCompare(b.user.name || b.user.email)
     );
 
+  /*
+   * A reversed range narrows nothing — `withinDateRange` passes everything
+   * through while `problem` is set, and the notice below says why. Filtering on
+   * it would empty the list, which reads as "nothing expires that month".
+   *
+   * A certificate with NO expiry is out whenever a range is set. One that never
+   * expires does not expire in March, and letting it through because it has no
+   * date to exclude it by would put every permanent certificate in every range.
+   */
+  const expiryRange = parseDateRange(expiryFrom, expiryTo);
+
   const matching = withState.filter(({ cert, state }) => {
     if (filter !== "all" && state !== filter) return false;
+    if (!withinDateRange(cert.expiryDate, expiryRange)) return false;
     if (!search) return true;
     // Search covers the member and the certificate: a reviewer looking for
     // "first aid" and one looking for "Mike" are both plausible.
@@ -846,6 +879,44 @@ export default function CertificationsPage() {
           })}
         </div>
 
+        <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+          <span className="text-xs text-muted-foreground">Expires</span>
+          {/* `max`/`min` bound each picker by the other, the pattern the audit
+              log already used — it stops most reversals at the calendar rather
+              than reporting them afterwards. Not a guard: a typed or pasted
+              value slips past it in several browsers, and a hand-written URL
+              never sees it at all, which is why the rule is also enforced in
+              `parseDateRange` and again in the service. */}
+          <input
+            type="date"
+            value={expiryFrom}
+            max={expiryTo || undefined}
+            onChange={(e) => setExpiryFrom(e.target.value)}
+            aria-label="Expires on or after"
+            className="h-9 rounded-lg border border-border bg-background px-2.5 text-xs text-muted-foreground"
+          />
+          <input
+            type="date"
+            value={expiryTo}
+            min={expiryFrom || undefined}
+            onChange={(e) => setExpiryTo(e.target.value)}
+            aria-label="Expires on or before"
+            className="h-9 rounded-lg border border-border bg-background px-2.5 text-xs text-muted-foreground"
+          />
+          {(expiryFrom || expiryTo) && (
+            <button
+              type="button"
+              onClick={() => {
+                setExpiryFrom("");
+                setExpiryTo("");
+              }}
+              className="h-9 rounded-lg px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            >
+              Clear dates
+            </button>
+          )}
+        </div>
+
         <div className="relative shrink-0 sm:w-60">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
           <Input
@@ -857,6 +928,17 @@ export default function CertificationsPage() {
           />
         </div>
       </div>
+
+      {/* Said out loud rather than inferred from an empty list — and the list
+          is left unfiltered while it shows, so the reader can see the range is
+          the problem and not the data. */}
+      {expiryRange.problem && (
+        <AlertBanner
+          message={DATE_RANGE_MESSAGE[expiryRange.problem]}
+          variant="error"
+          className="mb-4"
+        />
+      )}
 
       {/* ── List ──
           The Uncertified view renders MEMBERS; every other view renders
