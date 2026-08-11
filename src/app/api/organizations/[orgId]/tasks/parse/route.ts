@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { AITaskParserService } from "@/services/ai-task-parser.service";
 import { getAuthenticatedUser, unauthorizedResponse, checkOrgSuspended } from "@/lib/auth-guard";
 import { requirePermission } from "@/lib/permission-guard";
+import { departmentScopeFor } from "@/lib/department-scope";
 
 const parser = new AITaskParserService();
 
@@ -38,7 +39,20 @@ export async function POST(
       return NextResponse.json({ error: "Text is required" }, { status: 400 });
     }
 
-    const parsed = await parser.parseTaskDescription(text.trim(), orgId);
+    /*
+     * The caller's scope, resolved from the membership the guard already
+     * loaded — the same expression the `tasks` POST beside this uses to refuse
+     * an out-of-scope department.
+     *
+     * Passing it here means the two agree by construction rather than by
+     * coincidence: the parser cannot suggest a department the create route
+     * would reject, because it is never shown one.
+     */
+    const parsed = await parser.parseTaskDescription(
+      text.trim(),
+      orgId,
+      departmentScopeFor(gate.membership)
+    );
     return NextResponse.json(parsed);
   } catch (error) {
     console.error("[Task Parser Error]", error);

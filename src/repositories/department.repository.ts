@@ -132,9 +132,25 @@ export class DepartmentRepository {
    * departments must stay out of it — the model would happily file a new task
    * into a department the organisation has already retired.
    */
-  async findActiveNames(organizationId: string) {
+  async findActiveNames(
+    organizationId: string,
+    /**
+     * The caller's department scope, or null/undefined for an unrestricted one.
+     *
+     * `null` and `undefined` mean every department, matching
+     * `departmentScopeFor`. An EMPTY array does not: a manager assigned to no
+     * departments is scoped to nothing, and a check written as
+     * `if (departmentIds?.length)` would hand them the whole organisation.
+     * Same trap, same shape, as `findByOrganizationId` above.
+     */
+    departmentIds?: string[] | null
+  ) {
     return prisma.department.findMany({
-      where: { organizationId, archivedAt: null },
+      where: {
+        organizationId,
+        archivedAt: null,
+        ...(departmentIds != null ? { id: { in: departmentIds } } : {}),
+      },
       select: { id: true, name: true },
     });
   }

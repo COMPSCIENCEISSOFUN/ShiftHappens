@@ -51,7 +51,26 @@ export class AITaskParserService {
    */
   async parseTaskDescription(
     text: string,
-    organizationId: string
+    organizationId: string,
+    /**
+     * The caller's department scope — null for a company admin, their own list
+     * for anybody else.
+     *
+     * ## This is the guard, not a convenience
+     *
+     * The model is only ever shown the departments the caller may actually
+     * create in, and `parseResponse` resolves its answer against that same
+     * list. So a request to "add 2 bar staff tomorrow" from a Kitchen manager
+     * cannot produce Bar — not because the reply is filtered afterwards, but
+     * because Bar was never a value the model could return. The same is true of
+     * anything an injected instruction talks it into naming: an id it was not
+     * given is an id it cannot invent.
+     *
+     * The create route checks `isDepartmentInScope` independently and always
+     * has, so this was never a hole. What it was: a form filled in by AI with a
+     * department the person would then be refused for choosing.
+     */
+    departmentIds?: string[] | null
   ): Promise<ParsedTask> {
     /*
      * Shared, not private.
@@ -63,7 +82,10 @@ export class AITaskParserService {
      */
     const sanitizedText = sanitisePromptInput(text);
 
-    const departments = await this.departmentRepo.findActiveNames(organizationId);
+    const departments = await this.departmentRepo.findActiveNames(
+      organizationId,
+      departmentIds
+    );
 
     if (sanitizedText.length < 3) {
       return this.fallbackParse(sanitizedText, departments);
@@ -187,19 +209,34 @@ RULES:
       const cleaned = content.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
       const parsed = JSON.parse(cleaned);
 
+      /*
+       * Matched against the departments this caller may use, and the NAME
+       * comes back from our row rather than from the reply.
+       *
+       * It used to echo `parsed.departmentName` whatever happened — so an
+       * unmatched or invented name was handed to the form and shown to the
+       * user beside an empty id. That is the same defect the priority call has
+       * a comment about: a label the model wrote, presented as though we had
+       * looked it up. If it did not match, there is no department, and the
+       * form should say nothing rather than something unusable.
+       */
       let departmentId: string | null = null;
+      let departmentName: string | null = null;
       if (parsed.departmentName) {
         const match = departments.find(
-          (d) => d.name.toLowerCase() === parsed.departmentName.toLowerCase()
+          (d) => d.name.toLowerCase() === String(parsed.departmentName).toLowerCase()
         );
-        if (match) departmentId = match.id;
+        if (match) {
+          departmentId = match.id;
+          departmentName = match.name;
+        }
       }
 
       return {
         title: parsed.title || "New Task",
         description: parsed.description || "",
         departmentId,
-        departmentName: parsed.departmentName || null,
+        departmentName,
         priority: ["low", "medium", "high", "urgent"].includes(parsed.priority)
           ? parsed.priority
           : "medium",
