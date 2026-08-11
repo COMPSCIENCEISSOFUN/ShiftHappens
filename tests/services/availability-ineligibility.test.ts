@@ -29,7 +29,14 @@ const tasks = new TaskService();
 let tenant: Tenant;
 let otherDept: string;
 
-/** Next Tuesday 09:00–17:00 in the org's timezone, comfortably in the future. */
+/**
+ * A shift 09:00–17:00 Singapore time, `daysAhead` days out.
+ *
+ * NOT "next Tuesday", which is what this said: today plus seven is whatever
+ * weekday today is. Nothing here depends on the weekday — the availability
+ * fixtures below cover all seven — so the code was right and only the comment
+ * was wrong, which is the harder of the two to notice.
+ */
 function upcoming(daysAhead = 7) {
   const start = new Date(Date.now() + daysAhead * 24 * 60 * 60 * 1000);
   start.setUTCHours(1, 0, 0, 0); // 09:00 Singapore

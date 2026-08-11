@@ -49,12 +49,31 @@ export function todaySgtAt(hour: number, dayOffset = 0, now: Date = new Date()):
   );
 }
 
+/**
+ * The next occurrence of a weekday, at midnight Singapore time.
+ *
+ * Strictly in the future — asking on a Friday for a Friday gives the following
+ * week, never today. Fixtures that need a specific weekday usually also need
+ * the day to be one nothing has happened on yet.
+ *
+ * Exists because a fixture pinned to a literal date is a bomb with a fuse: a
+ * suite built on "Friday 14 August 2026" passes until the 14th and then fails
+ * every run afterwards, for a reason no assertion message mentions.
+ *
+ * @param weekday 0 = Sunday, matching `Date.getUTCDay` and the `dayOfWeek`
+ *                column, so a caller cannot line the two up wrongly.
+ */
+export function nextWeekdaySgt(weekday: number, now: Date = new Date()): Date {
+  const today = startOfTodaySgt(now);
+  const current = new Date(today.getTime() + SGT_OFFSET_MS).getUTCDay();
+  // 1..7 rather than 0..6: a difference of zero would return today.
+  const diff = ((weekday - current + 7) % 7) || 7;
+  return new Date(today.getTime() + diff * DAY_MS);
+}
+
 /** The next Monday at midnight, Singapore time. */
 export function nextMondaySgt(now: Date = new Date()): Date {
-  const today = startOfTodaySgt(now);
-  const weekday = new Date(today.getTime() + SGT_OFFSET_MS).getUTCDay();
-  const diff = weekday === 0 ? 1 : 8 - weekday;
-  return new Date(today.getTime() + diff * DAY_MS);
+  return nextWeekdaySgt(1, now);
 }
 
 /** The next Sunday at midnight, Singapore time. */
