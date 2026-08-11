@@ -21,6 +21,7 @@ export class TaskRepository {
     description?: string;
     organizationId: string;
     departmentId?: string;
+    projectId?: string;
     requiredHeadcount?: number;
     requiredCertifications?: string[];
     priority?: string;
@@ -39,6 +40,7 @@ export class TaskRepository {
         description: data.description,
         organizationId: data.organizationId,
         departmentId: data.departmentId,
+        projectId: data.projectId,
         requiredHeadcount: data.requiredHeadcount ?? 1,
         requiredCertifications: data.requiredCertifications ?? [],
         priority: data.priority ?? "medium",
@@ -267,6 +269,7 @@ export class TaskRepository {
       title?: string;
       description?: string;
       departmentId?: string | null;
+      projectId?: string | null;
       requiredHeadcount?: number;
       requiredCertifications?: string[];
       priority?: string;

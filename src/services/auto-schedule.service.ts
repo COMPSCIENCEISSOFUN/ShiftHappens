@@ -44,22 +44,11 @@ import { aiTimeoutSignal, hasApiKey } from "@/lib/ai-limits";
 import { FallbackRanker } from "@/services/fallback-ranker";
 import { availabilityFit, certificationRelevance } from "@/lib/ranking-inputs";
 import {
-<<<<<<< HEAD
   parseWeights,
   describeWeightsForPrompt,
   type RankingWeights,
 } from "@/lib/ranking-weights";
 import type { RankedStaff } from "@/services/ai-provider";
-=======
-  getProjectTeamRestrictions,
-  isAllowedByProjectTeam,
-} from "@/lib/project-staffing";
-import {
-  DEFAULT_TIMEZONE,
-  dayOfWeekInTimeZone,
-  timeOfDayInTimeZone,
-} from "@/lib/timezone";
->>>>>>> d79cc88 (wip: project feature 80% done)
 
 interface StaffInfo {
   membershipId: string;
@@ -93,7 +82,6 @@ interface TaskInfo {
   currentAssignments: number;
   scheduledStart: Date;
   scheduledEnd: Date;
-<<<<<<< HEAD
   /** Hard constraint in the engine, so the prompt has to state it. */
   requiredCertifications: string[];
   /**
@@ -111,14 +99,6 @@ interface TaskInfo {
    * people already on it are part of what a proposal is measured against.
    */
   assignedMembershipIds: string[];
-=======
-  /**
-   * Membership ids allowed to staff this task, or null when unrestricted.
-   * Populated for work items of a `project_team` project so the draft never
-   * proposes someone the final eligibility gate would reject.
-   */
-  projectTeam: Set<string> | null;
->>>>>>> d79cc88 (wip: project feature 80% done)
 }
 
 export interface DraftAssignment {
@@ -227,11 +207,6 @@ export class AutoScheduleService {
 
     const allTasks = await this.taskRepo.findByOrganizationId(organizationId, { status: "open" });
 
-    const projectTeams = await getProjectTeamRestrictions(
-      allTasks.map((task) => task.projectId),
-      organizationId
-    );
-
     const tasks: TaskInfo[] = [];
     for (const task of allTasks) {
       if (!task.scheduledStart || !task.scheduledEnd) continue;
@@ -259,7 +234,6 @@ export class AutoScheduleService {
         currentAssignments,
         scheduledStart: start,
         scheduledEnd: end,
-<<<<<<< HEAD
         requiredCertifications: task.requiredCertifications ?? [],
         compositionRules: parseCompositionRules(task.compositionRules),
         // From the rows already loaded — same filter `countActiveByTaskId`
@@ -267,11 +241,6 @@ export class AutoScheduleService {
         assignedMembershipIds: task.assignments
           .filter((a) => occupiesSlot(a.status))
           .map((a) => a.membershipId),
-=======
-        projectTeam: task.projectId
-          ? projectTeams.get(task.projectId) ?? null
-          : null,
->>>>>>> d79cc88 (wip: project feature 80% done)
       });
     }
 
@@ -785,38 +754,6 @@ export class AutoScheduleService {
         });
 
       const assignedToThisTask: DraftAssignment[] = [];
-<<<<<<< HEAD
-=======
-
-      const candidates = context.staff
-        .filter((s) => {
-          // Project Team staffing narrows the pool before any other check.
-          // An empty team yields no candidates rather than falling back to
-          // the wider organization.
-          if (!isAllowedByProjectTeam(task.projectTeam, s.membershipId)) return false;
-          if (requiresManagedAvailability(s.employmentType)) {
-            const daySchedule = s.availability.find((a) => a.dayOfWeek === taskDayOfWeek);
-            if (!daySchedule || !daySchedule.isAvailable) return false;
-            if (daySchedule.startTime > taskStartHour) return false;
-            if (daySchedule.endTime < taskEndHour) return false;
-          }
-          const existingSlots = staffSlots.get(s.membershipId) || [];
-          if (existingSlots.some((slot) => taskStart < slot.end && taskEnd > slot.start)) return false;
-          const hours = cumulativeHours.get(s.membershipId) || 0;
-          for (const rule of context.workRules) {
-            if (rule.type === "max_hours_weekly" && rule.maxHours && hours + taskDuration > rule.maxHours) return false;
-            if (rule.type === "max_hours_daily" && rule.maxHours && taskDuration > rule.maxHours) return false;
-          }
-          return true;
-        })
-        .map((s) => {
-          const hours = cumulativeHours.get(s.membershipId) || 0;
-          const inDepartment = task.departmentName ? s.departments.includes(task.departmentName) : false;
-          return { ...s, score: (100 - Math.min(hours, 100)) + (inDepartment ? 25 : 0) + 25, hours, inDepartment };
-        })
-        .sort((a, b) => b.score - a.score);
-
->>>>>>> d79cc88 (wip: project feature 80% done)
       for (let i = 0; i < candidates.length && assignedToThisTask.length < slotsNeeded; i++) {
         const c = candidates[i];
 
@@ -845,7 +782,6 @@ export class AutoScheduleService {
 
       assignments.push(...assignedToThisTask);
       if (assignedToThisTask.length < slotsNeeded) {
-<<<<<<< HEAD
         // Naming the composition rule matters here. "No eligible staff
         // remaining" sends a manager looking for more people when the problem
         // is the mix — there may be plenty of candidates and no legal one.
@@ -858,15 +794,6 @@ export class AutoScheduleService {
           taskTitle: task.title,
           reason: `${assignedToThisTask.length} of ${slotsNeeded} filled — ${why}`,
         });
-=======
-        const pool =
-          task.projectTeam?.size === 0
-            ? "the Project Team has no members yet"
-            : task.projectTeam
-              ? "no eligible Project Team member remaining"
-              : "no eligible staff remaining";
-        unfilledTasks.push({ taskId: task.id, taskTitle: task.title, reason: `${assignedToThisTask.length} of ${slotsNeeded} filled — ${pool}` });
->>>>>>> d79cc88 (wip: project feature 80% done)
       }
     }
 

@@ -66,9 +66,6 @@ export class ProjectService {
         id: true,
         title: true,
         description: true,
-        location: true,
-        instructions: true,
-
         status: true,
         priority: true,
 
@@ -655,6 +652,7 @@ export class ProjectService {
   private async assertDepartment(
     departmentId:
       | string
+      | null
       | undefined,
     organizationId: string
   ) {

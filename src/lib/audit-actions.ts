@@ -27,6 +27,9 @@ export const ACTIONS = {
   TASK_ASSIGNED: "task.assigned",
   TASK_UNASSIGNED: "task.unassigned",
   RECURRING_TASKS_GENERATED: "task.recurring_generated",
+  // Projects
+  PROJECT_CREATED: "project.created",
+  PROJECT_UPDATED: "project.updated",
   // Assignments
   ASSIGNMENT_ACCEPTED: "assignment.accepted",
   ASSIGNMENT_REJECTED: "assignment.rejected",

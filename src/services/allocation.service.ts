@@ -35,7 +35,6 @@ import { MembershipRepository } from "@/repositories/membership.repository";
 import { TaskAssignmentRepository } from "@/repositories/task-assignment.repository";
 import { AvailabilityRepository } from "@/repositories/availability.repository";
 import { TaskService } from "./task.service";
-<<<<<<< HEAD
 import { countOccupied } from "@/lib/assignment-status";
 
 /**
@@ -48,14 +47,6 @@ import { countOccupied } from "@/lib/assignment-status";
  * other.
  */
 const SHORT_NOTICE_MS = 48 * 60 * 60 * 1000;
-=======
-import { prisma } from "@/lib/prisma";
-import { parseAllocationWeights, type AllocationWeights } from "@/lib/allocation-weights";
-import {
-  getProjectTeamRestriction,
-  isAllowedByProjectTeam,
-} from "@/lib/project-staffing";
->>>>>>> d79cc88 (wip: project feature 80% done)
 
 export class AllocationService {
   private providers: AIProvider[];
@@ -213,7 +204,6 @@ export class AllocationService {
     };
   }
 
-<<<<<<< HEAD
   /**
    * A second look at shifts auto mode could not staff the first time.
    *
@@ -302,30 +292,6 @@ export class AllocationService {
         }
       }
     }
-=======
-    /*
-    * Project Team Mode:
-    *
-    * The Project Team is a persistent
-    * candidate pool.
-    *
-    * Normal eligibility STILL runs first.
-    * Being on the team never bypasses:
-    *
-    * - availability
-    * - schedule conflicts
-    * - hour limits
-    * - certifications
-    * - department rules
-    *
-    * It only narrows WHO may be ranked.
-    */
-    const projectTeam =
-      await getProjectTeamRestriction(
-        task.projectId,
-        organizationId
-      );
->>>>>>> d79cc88 (wip: project feature 80% done)
 
     return result;
   }
@@ -383,26 +349,8 @@ export class AllocationService {
     const { rankings } = await this.rankWithoutAI(taskId, organizationId);
     if (rankings.length === 0) return [];
 
-<<<<<<< HEAD
     const { candidates } = await this.buildCandidatePool(taskId, organizationId);
     const nameOf = new Map(candidates.map((c) => [c.membershipId, c.name]));
-=======
-        /*
-        * task_based project:
-        * no restriction.
-        *
-        * project_team project:
-        * only team members survive.
-        */
-        if (
-          !isAllowedByProjectTeam(
-            projectTeam,
-            entry.membershipId
-          )
-        ) {
-          return false;
-        }
->>>>>>> d79cc88 (wip: project feature 80% done)
 
     return rankings.slice(0, limit).map((r) => ({
       membershipId: r.membershipId,

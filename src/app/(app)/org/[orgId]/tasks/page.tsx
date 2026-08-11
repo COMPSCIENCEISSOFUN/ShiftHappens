@@ -1806,33 +1806,8 @@ export default function TasksPage() {
 
                     {/* ── Badges ──────────────────── */}
                     <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-<<<<<<< HEAD
                       <StatusBadge value={task.status} palette="taskStatus" />
                       <StatusBadge value={task.priority} palette="priority" />
-=======
-                      <StatusBadge
-                        value={task.status}
-                        palette="taskStatus"
-                      />
-
-                      <StatusBadge
-                        value={task.priority}
-                        palette="priority"
-                      />
-                      {task.project && (
-                        <Link
-                          href={`/org/${orgId}/projects/${task.project.id}`}
-                          onClick={(event) =>
-                            event.stopPropagation()
-                          }
-                          className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700 transition hover:bg-indigo-100 dark:border-indigo-800 dark:bg-indigo-950 dark:text-indigo-300"
-                        >
-                          Project ·{" "}
-                          {task.project.title}
-                        </Link>
-                      )}
-
->>>>>>> d79cc88 (wip: project feature 80% done)
                       {task.isRecurring && (
                         <span
                           className="rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[11px] font-medium text-violet-700 dark:border-violet-800 dark:bg-violet-950 dark:text-violet-300"
@@ -2489,7 +2464,7 @@ export default function TasksPage() {
                       // Split members into eligible / ineligible for grouped display
                       const eligibleMembers = members.filter((m) => {
                         const elig = eligibility[m.id];
-                        return elig ? elig.eligible : false;
+                        return elig ? elig.eligible : true;
                       });
                       const ineligibleMembers = members.filter((m) => {
                         const elig = eligibility[m.id];

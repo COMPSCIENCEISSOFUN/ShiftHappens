@@ -64,8 +64,8 @@ export interface TeamMember {
 const TEAM: TeamMember[] = [
   {
     name: "Chen Zhijie",
-    role: "Frontend Developer, Documentation",
-    contribution: "Supported the Web UI for user roles; Responsible for Dashboard layouts, Task Management views, Calendar integration, and iCal feed.",
+    role: "UI/UX Designer, Documentation",
+    contribution: "Supported the Web UI for user roles; Responsible for designing Dashboard layouts, Task Management views, Calendar integration, and iCal feed.",
     photo: "/team/zhijie.jpg",
     github: "", // optional — delete the line if unused
     linkedin: "", // optional — delete the line if unused
@@ -104,11 +104,11 @@ const TEAM: TeamMember[] = [
   },
   {
     name: "Steven Lim",
-    role: "Lead Documentation, Assistant Developer",
-    contribution: "Lead Project Documentation; Supported frontend and backend Development;",
+    role: "Documentation Lead, Full-Stack Developer",
+    contribution: "Led all project documentation; maintained requirements, user stories, diagrams, use cases and technical design; coordinated documentation revisions with implementation changes while contributing to full-stack development, testing and debugging.",
     photo: "/team/steven.jpg",
-    github: "",
-    linkedin: "",
+    github: "https://github.com/nvliteesm",
+    linkedin: "https://www.linkedin.com/in/steven-lim-/",
   },
 ];
 

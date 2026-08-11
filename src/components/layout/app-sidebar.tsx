@@ -19,7 +19,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, FolderKanban } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import { useTheme } from "next-themes";
@@ -50,6 +50,10 @@ function TasksIcon() {
       <rect x="9" y="3" width="6" height="4" rx="1" />
     </svg>
   );
+}
+
+function ProjectsIcon() {
+  return <FolderKanban className={iconClass} aria-hidden="true" />;
 }
 
 function CalendarIcon() {
@@ -560,6 +564,7 @@ export function AppSidebar({
     // a role that may assign but not create still needs the page.
     if (canAny("tasks:create", "tasks:update", "tasks:delete", "tasks:assign")) {
       overviewItems.push({ href: `/org/${orgId}/tasks`, label: "Tasks", icon: TasksIcon });
+      overviewItems.push({ href: `/org/${orgId}/projects`, label: "Projects", icon: ProjectsIcon });
     }
     if (can("calendar:view_team")) {
       overviewItems.push({ href: `/org/${orgId}/calendar`, label: "Calendar", icon: CalendarIcon });

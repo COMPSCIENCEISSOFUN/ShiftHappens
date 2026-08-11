@@ -35,6 +35,7 @@ import {
 import { occupiesSlot, wasWorked } from "@/lib/assignment-status";
 import { canBeRostered } from "@/lib/role-config";
 import { assignmentRefusalFor } from "@/lib/task-status";
+import { prisma } from "@/lib/prisma";
 
 export class TaskService {
   private taskRepo = new TaskRepository();
@@ -85,6 +86,13 @@ export class TaskService {
     if (input.departmentId) {
       await this.assertDepartmentOwned(input.departmentId, orgId);
     }
+
+    const project = input.projectId
+      ? await this.projectForWorkItem(input.projectId, orgId)
+      : null;
+    if (project?.departmentId && input.departmentId && project.departmentId !== input.departmentId) {
+      throw new Error("Task department must match its project department");
+    }
     
     if ((input.scheduledStart && !input.scheduledEnd) || (!input.scheduledStart && input.scheduledEnd)) {
       throw new Error("Must provide both start and end time, or neither");
@@ -96,6 +104,7 @@ export class TaskService {
       if (end <= start) {
         throw new Error("End time must be after start time");
       }
+      this.assertWithinProjectTimeframe(project, start, end);
     }
 
     // A recurring series needs a schedule (it defines the time-of-day and
@@ -113,10 +122,11 @@ export class TaskService {
       title: input.title,
       description: input.description,
       organizationId: orgId,
-      departmentId: input.departmentId,
+      departmentId: input.departmentId ?? project?.departmentId ?? undefined,
+      projectId: input.projectId,
       requiredHeadcount: input.requiredHeadcount,
       requiredCertifications: input.requiredCertifications,
-      priority: input.priority,
+      priority: input.priority ?? project?.priority,
       scheduledStart: input.scheduledStart ? new Date(input.scheduledStart) : undefined,
       scheduledEnd: input.scheduledEnd ? new Date(input.scheduledEnd) : undefined,
       isRecurring: input.isRecurring,
@@ -168,6 +178,37 @@ export class TaskService {
     });
 
     return task;
+  }
+
+  private async projectForWorkItem(projectId: string, organizationId: string) {
+    const project = await prisma.project.findFirst({
+      where: { id: projectId, organizationId },
+      select: {
+        departmentId: true,
+        priority: true,
+        status: true,
+        plannedStart: true,
+        plannedEnd: true,
+      },
+    });
+    if (!project) throw new Error("Project not found");
+    if (project.status === "completed" || project.status === "cancelled") {
+      throw new Error("Cannot add work items to a completed or cancelled project");
+    }
+    return project;
+  }
+
+  private assertWithinProjectTimeframe(
+    project: { plannedStart: Date | null; plannedEnd: Date | null } | null,
+    start: Date,
+    end: Date
+  ) {
+    if (project?.plannedStart && start < project.plannedStart) {
+      throw new Error("Work item schedule must stay within the project timeframe");
+    }
+    if (project?.plannedEnd && end > project.plannedEnd) {
+      throw new Error("Work item schedule must stay within the project timeframe");
+    }
   }
 
   /**
