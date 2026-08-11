@@ -788,6 +788,12 @@ export class TaskService {
     const closed = assignmentRefusalFor(task.status);
     if (closed) throw new Error(closed);
 
+    await this.eligibilityService.assertEligibleForAssignment(
+      taskId,
+      organizationId,
+      uniqueIds
+    );
+
     for (const membId of uniqueIds) {
       const membership = await this.membershipRepo.findById(membId);
       // A membership from another tenant must never be assignable to this

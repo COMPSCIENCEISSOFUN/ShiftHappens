@@ -28,6 +28,7 @@ import type {
 import { GroqProvider } from "./providers/groq.provider";
 import { GeminiProvider } from "./providers/gemini.provider";
 import { EligibilityService } from "./eligibility.service";
+import { getProjectTeamRestriction, isAllowedByProjectTeam } from "@/lib/project-staffing";
 import { CertificationRepository } from "@/repositories/certification.repository";
 import { SettingsRepository } from "@/repositories/settings.repository";
 import { TaskRepository } from "@/repositories/task.repository";
@@ -400,8 +401,10 @@ export class AllocationService {
      * filter it leaks into the suggestion path.
      */
     const settled = new Set(task.assignments.map((a) => a.membershipId));
+    const projectTeam = await getProjectTeamRestriction(task.projectId, organizationId);
     const eligibleStaff = eligibility
       .filter((e) => e.eligible)
+      .filter((e) => isAllowedByProjectTeam(projectTeam, e.membershipId))
       .filter((e) => !settled.has(e.membershipId));
 
     if (eligibleStaff.length === 0) return { task, candidates: [] };

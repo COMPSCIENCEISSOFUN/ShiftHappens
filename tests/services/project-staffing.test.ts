@@ -58,6 +58,15 @@ async function addStaff(name: string, email: string, inDepartment = true) {
       data: { membershipId: membership.id, departmentId },
     });
   }
+  await prisma.availability.createMany({
+    data: Array.from({ length: 7 }, (_, dayOfWeek) => ({
+      membershipId: membership.id,
+      dayOfWeek,
+      startTime: "00:00",
+      endTime: "23:59",
+      isAvailable: true,
+    })),
+  });
   return membership.id;
 }
 
@@ -112,7 +121,7 @@ beforeEach(async () => {
   orgId = org.id;
 
   await prisma.companySettings.create({
-    data: { organizationId: orgId, allocationMode: "manual", breakRuleHoursWorked: 8 },
+    data: { organizationId: orgId, allocationMode: "manual", workingDayHours: 8 },
   });
 
   const department = await prisma.department.create({
@@ -251,7 +260,7 @@ describe("Project Team staffing", () => {
 
       await expect(
         eligibility.assertEligibleForAssignment(task.id, orgId, [strangerId])
-      ).rejects.toThrow(/not assigned to the task department/i);
+      ).rejects.toThrow(/failed final eligibility validation/i);
     });
 
     it("does not reserve a team member's calendar for the project duration", async () => {
@@ -312,7 +321,7 @@ describe("Project Team staffing", () => {
       );
 
       expect(draft.assignments).toHaveLength(0);
-      expect(draft.unfilledTasks[0]?.reason).toMatch(/Project Team has no members/i);
+      expect(draft.unfilledTasks[0]?.reason).toMatch(/no eligible staff remaining/i);
     });
   });
 

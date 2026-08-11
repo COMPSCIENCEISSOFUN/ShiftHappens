@@ -13,10 +13,20 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { LoginForm } from "@/components/auth/login-form";
+import { ProfileService } from "@/services/profile.service";
+
+const profileService = new ProfileService();
 
 export default async function LoginPage() {
   const session = await auth();
-  if (session?.user) redirect("/dashboard");
+  /*
+   * A JWT can outlive the account it names. Sending that stale token to
+   * Dashboard creates a loop: the signed-in layout rejects the missing user
+   * back to Login, then Login sees the same token and redirects again.
+   */
+  if (session?.user && (await profileService.getProfile(session.user.id))) {
+    redirect("/dashboard");
+  }
 
   return <LoginForm />;
 }

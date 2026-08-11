@@ -22,6 +22,7 @@ import { MembershipRepository } from "@/repositories/membership.repository";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 import { NotificationService, NOTIFICATION_TYPES } from "@/services/notification.service";
 import { DEFAULT_TIMEZONE, SERVER_LOCALE } from "@/lib/timezone";
+import { getProjectTeamRestriction, isAllowedByProjectTeam } from "@/lib/project-staffing";
 import {
   EligibilityService,
   type ProvisionalAssignments,
@@ -527,10 +528,17 @@ export class AutoScheduleService {
       ),
       this.assignmentRepo.findByTaskId(taskId),
     ]);
+    const task = await this.taskRepo.findByIdWithoutRelations(taskId);
+    const projectTeam = await getProjectTeamRestriction(task?.projectId, organizationId);
     const settled = new Set(existing.map((a) => a.membershipId));
     return new Set(
       verdicts
-        .filter((v) => v.eligible && !settled.has(v.membershipId))
+        .filter(
+          (v) =>
+            v.eligible &&
+            isAllowedByProjectTeam(projectTeam, v.membershipId) &&
+            !settled.has(v.membershipId)
+        )
         .map((v) => v.membershipId)
     );
   }
