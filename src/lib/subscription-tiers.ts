@@ -19,6 +19,15 @@ export const RESOURCE_TYPES = [
   'departments',
   'work_rules',
   'custom_roles',
+  /*
+   * Counted concurrently, like every other resource here: deleting a project
+   * frees the slot. Pro's single project is therefore one project AT A TIME
+   * rather than one ever, which is the same promise `departments` and
+   * `work_rules` already make and the only one the schema can keep — `Project`
+   * has no soft-delete, so a lifetime count would need a separate column that
+   * never decrements.
+   */
+  'projects',
 ] as const;
 export type ResourceType = (typeof RESOURCE_TYPES)[number];
 
@@ -76,6 +85,7 @@ export const TIER_CONFIG: Record<SubscriptionTier, TierDefinition> = {
       departments: 2,
       work_rules: 3,
       custom_roles: 0,
+      projects: 0,
     },
     gatedFeatures: [],
   },
@@ -91,6 +101,14 @@ export const TIER_CONFIG: Record<SubscriptionTier, TierDefinition> = {
       departments: 10,
       work_rules: 20,
       custom_roles: 10,
+      /*
+       * The included project. Raised above this by buying add-on quota, which
+       * is added to this baseline per-organisation — see
+       * `SubscriptionService.checkResourceLimit`. It is deliberately not
+       * unlimited-on-purchase: the add-on is a recurring subscription item, so
+       * the quota lasts exactly as long as it is paid for.
+       */
+      projects: 1,
     },
     gatedFeatures: [
       'custom_roles',
@@ -118,14 +136,15 @@ export const TIER_CONFIG: Record<SubscriptionTier, TierDefinition> = {
     name: 'enterprise',
     displayName: 'Enterprise',
     tagline: 'For large organizations with complex needs',
-    monthlyPrice: 79,
-    yearlyPrice: 790,
+    monthlyPrice: 59,
+    yearlyPrice: 590,
     limits: {
       members: null,
       active_tasks: null,
       departments: null,
       work_rules: null,
       custom_roles: null,
+      projects: null,
     },
     gatedFeatures: [
       'custom_roles',
@@ -262,6 +281,7 @@ export const PRICING_FEATURES: PricingFeatureRow[] = [
   { name: 'Active tasks', free: 'Up to 20', pro: 'Up to 200', enterprise: 'Unlimited', category: 'scale' },
   { name: 'Departments', free: 'Up to 2', pro: 'Up to 10', enterprise: 'Unlimited', category: 'scale' },
   { name: 'Work rules', free: 'Up to 3', pro: 'Up to 20', enterprise: 'Unlimited', category: 'scale' },
+  { name: 'Projects', free: '—', pro: '1 included', enterprise: 'Unlimited', category: 'scale' },
   // AI — all tiers
   { name: 'AI-powered suggestions', free: true, pro: true, enterprise: true, category: 'ai' },
   { name: 'Smart auto-schedule', free: true, pro: true, enterprise: true, category: 'ai' },
@@ -276,6 +296,19 @@ export const PRICING_FEATURES: PricingFeatureRow[] = [
   { name: 'Custom roles (RBAC)', free: false, pro: true, enterprise: true, category: 'tools' },
   { name: 'PDF report export', free: false, pro: true, enterprise: true, category: 'tools' },
   { name: 'Mass import (Excel)', free: false, pro: true, enterprise: true, category: 'tools' },
-  { name: 'Audit log', free: false, pro: false, enterprise: true, category: 'tools' },
+  /*
+   * Both of these are in GATED_FEATURES and have been sold to Pro all along —
+   * they were simply missing from this table, so the pricing page advertised
+   * neither. Listed as 'tools' rather than 'ai' because the pricing cards
+   * render only the 'tools' rows; an 'ai' row is data nothing displays.
+   */
+  { name: 'AI assistant', free: false, pro: true, enterprise: true, category: 'tools' },
+  { name: 'Calendar sync', free: false, pro: true, enterprise: true, category: 'tools' },
+  /*
+   * Pro since 2026-08-11 — see the note beside `audit_log` in the Pro tier
+   * above. This row still said Enterprise-only, which put an ✗ on the pricing
+   * page against a feature every Pro organisation already had.
+   */
+  { name: 'Audit log', free: false, pro: true, enterprise: true, category: 'tools' },
   { name: 'Priority support', free: false, pro: false, enterprise: true, category: 'tools' },
 ];

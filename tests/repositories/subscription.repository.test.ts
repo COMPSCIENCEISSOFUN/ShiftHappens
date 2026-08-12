@@ -115,6 +115,7 @@ describe("getResourceCounts", () => {
       departments: 0,
       workRules: 0,
       customRoles: 0,
+      projects: 0,
     });
   });
 });

@@ -419,3 +419,4 @@ Staff Members have an employment type that affects scheduling:
 - Manager clock-time adjustment
 - iCal feed endpoint
 - Certification expiry scheduled notifications
+

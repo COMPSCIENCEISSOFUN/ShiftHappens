@@ -203,6 +203,7 @@ describe("BillingService.handleEvent", () => {
     await billingService.handleEvent(
       event("checkout.session.completed", {
         id: "cs_1",
+        mode: "subscription",
         client_reference_id: orgId,
         customer: "cus_1",
         subscription: "sub_1",
@@ -222,6 +223,7 @@ describe("BillingService.handleEvent", () => {
     await billingService.handleEvent(
       event("checkout.session.completed", {
         id: "cs_2",
+        mode: "subscription",
         client_reference_id: orgId,
         customer: "cus_2",
         subscription: "sub_2",
@@ -231,6 +233,51 @@ describe("BillingService.handleEvent", () => {
 
     const billing = await billingRepo.getByOrgId(orgId);
     expect(billing!.subscriptionTier).toBe("pro");
+  });
+
+  /*
+   * The handler used to run for EVERY completed checkout, and everything it
+   * does assumes a plan was bought: the tier falls back to "pro" when metadata
+   * is silent, and `session.subscription` — null on a one-off — is written
+   * straight through.
+   *
+   * So the moment anything else is sold (a project-quota pack, a one-time
+   * unlock), an Enterprise organisation buying it would have been demoted to
+   * Pro and had its subscription id erased, on the SUCCESS path, with no error
+   * anywhere. This pins the guard before that second product exists, because
+   * the bug only becomes reachable on the day someone adds one.
+   */
+  it("ignores a non-subscription checkout instead of overwriting the plan", async () => {
+    await billingService.handleEvent(
+      event("checkout.session.completed", {
+        id: "cs_sub",
+        mode: "subscription",
+        client_reference_id: orgId,
+        customer: "cus_ent",
+        subscription: "sub_ent",
+        metadata: { organizationId: orgId, tier: "enterprise", interval: "year" },
+      })
+    );
+    expect((await billingRepo.getByOrgId(orgId))!.subscriptionTier).toBe(
+      "enterprise"
+    );
+
+    // A one-off purchase by the same organisation. Carries no subscription,
+    // and says nothing about the tier — because it is not about the tier.
+    await billingService.handleEvent(
+      event("checkout.session.completed", {
+        id: "cs_pack",
+        mode: "payment",
+        client_reference_id: orgId,
+        customer: "cus_ent",
+        subscription: null,
+        metadata: { organizationId: orgId },
+      })
+    );
+
+    const after = await billingRepo.getByOrgId(orgId);
+    expect(after!.subscriptionTier).toBe("enterprise");
+    expect(after!.stripeSubscriptionId).toBe("sub_ent");
   });
 
   it("customer.subscription.updated with an active status keeps Pro", async () => {

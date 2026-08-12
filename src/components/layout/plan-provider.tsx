@@ -120,8 +120,19 @@ export function PlanProvider({
   tier: SubscriptionTier;
   children: ReactNode;
 }) {
+  /*
+   * The server's answer for both halves, not just the count.
+   *
+   * The limit used to be computed here from the tier alone, which was true
+   * until quota could be bought on top of it. An organisation that had paid for
+   * extra projects would then be shown "1 of 1 — limit reached" beside a button
+   * the server would have happily accepted: the UI enforcing a stricter rule
+   * than the API, against the customer, on the thing they had just paid for.
+   *
+   * `getUsage` already folds the add-on in, so the fix is to believe it.
+   */
   const [usage, setUsage] = useState<Partial<
-    Record<ResourceType, number>
+    Record<ResourceType, { current: number; limit?: number | null }>
   > | null>(null);
 
   useEffect(() => {
@@ -134,11 +145,23 @@ export function PlanProvider({
         if (!res.ok) return;
         const data = await res.json();
         if (cancelled || !data?.resources) return;
-        const counts: Partial<Record<ResourceType, number>> = {};
+        const counts: Partial<
+          Record<ResourceType, { current: number; limit?: number | null }>
+        > = {};
         for (const [resource, value] of Object.entries(data.resources)) {
-          counts[resource as ResourceType] = (
-            value as { current: number }
-          ).current;
+          const served = value as { current: number; limit?: number | null };
+          counts[resource as ResourceType] = {
+            current: served.current,
+            /*
+             * Carried through as-is, including `undefined`. The three states
+             * are distinct and collapsing any two of them is a bug: a number
+             * is the cap, `null` is unlimited, and ABSENT means the response
+             * did not say — which must fall back to the tier rather than
+             * default to unlimited. Coalescing absent to null would let a
+             * truncated or partial payload silently uncap every screen.
+             */
+            limit: served.limit,
+          };
         }
         setUsage(counts);
       } catch {
@@ -157,8 +180,19 @@ export function PlanProvider({
   }, [orgId]);
 
   const value = useMemo<PlanContextValue>(() => {
-    const limitFor = (resource: ResourceType) => getResourceLimit(tier, resource);
-    const usageOf = (resource: ResourceType) => usage?.[resource] ?? null;
+    /*
+     * The served limit when the usage call has answered, the tier's baseline
+     * before it has. Presence is tested rather than `??`, because `null` is a
+     * legitimate served value meaning UNLIMITED — coalescing it would quietly
+     * reimpose the tier cap on an Enterprise organisation.
+     */
+    const limitFor = (resource: ResourceType) => {
+      const served = usage?.[resource];
+      return served && served.limit !== undefined
+        ? served.limit
+        : getResourceLimit(tier, resource);
+    };
+    const usageOf = (resource: ResourceType) => usage?.[resource]?.current ?? null;
 
     return {
       tier,

@@ -6,6 +6,7 @@ import {
   AuditLogService,
   ACTIONS,
 } from "@/services/audit-log.service";
+import { SubscriptionService } from "@/services/subscription.service";
 
 import type {
   CreateProjectInput,
@@ -14,6 +15,7 @@ import type {
 
 export class ProjectService {
   private auditService = new AuditLogService();
+  private subscriptionService = new SubscriptionService();
 
   private include = {
     createdBy: {
@@ -131,6 +133,14 @@ export class ProjectService {
     organizationId: string,
     userId: string
   ) {
+    /*
+     * First, as in every other create that is capped — before the dates are
+     * validated and before any department is read. An organisation that is over
+     * its limit should be told that, not walked through the reasons its input
+     * was also wrong.
+     */
+    await this.subscriptionService.enforceResourceLimit(organizationId, "projects");
+
     this.validateDates(
       input.plannedStart,
       input.plannedEnd

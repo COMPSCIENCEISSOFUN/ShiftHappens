@@ -819,16 +819,37 @@ function Pricing() {
                     </p>
                     <div className="mt-4">
                       {tier.monthlyPrice !== null ? (
-                        <div className="flex items-baseline gap-1">
-                          <span className="text-4xl font-bold text-slate-900">
-                            ${tier.monthlyPrice}
-                          </span>
-                          {tier.monthlyPrice > 0 && (
-                            <span className="text-slate-500 text-sm">
-                              /month
+                        <>
+                          <div className="flex items-baseline gap-1">
+                            <span className="text-4xl font-bold text-slate-900">
+                              ${tier.monthlyPrice}
                             </span>
+                            {tier.monthlyPrice > 0 && (
+                              <span className="text-slate-500 text-sm">
+                                /month
+                              </span>
+                            )}
+                          </div>
+                          {/*
+                            The annual price was reachable only from the billing
+                            page, i.e. after signing up — so the discount that
+                            most influences which plan somebody picks was
+                            invisible at the moment they were picking. Saving is
+                            derived, never written down, so it cannot contradict
+                            the two prices it sits beneath.
+                          */}
+                          {tier.monthlyPrice > 0 && tier.yearlyPrice !== null && (
+                            <p className="mt-1.5 text-sm text-slate-500">
+                              or{" "}
+                              <span className="font-medium text-slate-700">
+                                ${tier.yearlyPrice}/yr
+                              </span>
+                              <span className="ml-1.5 font-medium text-indigo-600">
+                                save ${tier.monthlyPrice * 12 - tier.yearlyPrice}
+                              </span>
+                            </p>
                           )}
-                        </div>
+                        </>
                       ) : (
                         <span className="text-4xl font-bold text-slate-900">
                           Custom
@@ -853,7 +874,9 @@ function Pricing() {
                                 ? "Departments"
                                 : key === "work_rules"
                                   ? "Work rules"
-                                  : "Custom roles"}
+                                  : key === "projects"
+                                    ? "Projects"
+                                    : "Custom roles"}
                         </span>
                         <span className="font-medium text-slate-900">
                           {value === null

@@ -3,6 +3,7 @@ import { checkOrgSuspended, getAuthenticatedUser, unauthorizedResponse } from "@
 import { departmentScopeFor, isDepartmentInScope } from "@/lib/department-scope";
 import { hasPermission, PERMISSIONS } from "@/lib/permission-guard";
 import { createProjectSchema } from "@/lib/validations";
+import { SubscriptionLimitError } from "@/lib/subscription-tiers";
 import { MembershipRepository } from "@/repositories/membership.repository";
 import { ProjectService } from "@/services/project.service";
 import { DepartmentService } from "@/services/department.service";
@@ -51,6 +52,16 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     }
     return NextResponse.json(await projects.create({ ...parsed.data, departmentIds }, orgId, user.id), { status: 201 });
   } catch (error) {
+    /*
+     * The plan limit is a refusal, not a fault — 403 like every other capped
+     * create. Left in the 500 branch it would have been reported as a server
+     * error, and the message it carries ("projects limit reached (1/1).
+     * Upgrade to Enterprise…") is the one thing on that path a reader can act
+     * on, so it must not arrive dressed as a crash.
+     */
+    if (error instanceof SubscriptionLimitError) {
+      return NextResponse.json({ error: error.message }, { status: 403 });
+    }
     const message = error instanceof Error ? error.message : "Could not create project";
     const validationError = message === "A project needs both a start and end date, or neither" || message === "Project end must be after its start";
     return NextResponse.json({ error: message }, { status: validationError ? 400 : 500 });

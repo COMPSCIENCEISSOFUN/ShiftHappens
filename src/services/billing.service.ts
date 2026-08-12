@@ -17,11 +17,13 @@ import Stripe from "stripe";
 import {
   getStripe,
   paidPlanLineItem,
+  createPlanPrice,
   isBillingInterval,
   type BillingInterval,
   type PaidPlan,
 } from "@/lib/stripe";
 import { BillingRepository } from "@/repositories/billing.repository";
+import { SubscriptionRepository } from "@/repositories/subscription.repository";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 import { SubscriptionService } from "@/services/subscription.service";
 
@@ -87,6 +89,7 @@ function toId(value: string | { id: string } | null | undefined): string | null 
 
 export class BillingService {
   private billingRepo = new BillingRepository();
+  private subscriptionRepo = new SubscriptionRepository();
   private auditService = new AuditLogService();
   private subscriptionService = new SubscriptionService();
 
@@ -222,6 +225,12 @@ export class BillingService {
       needsAttention: status !== null && ATTENTION_STATUSES.includes(status),
       interval: billing?.billingInterval ?? null,
       currentPeriodEnd: billing?.currentPeriodEnd ?? null,
+      /*
+       * Turns `currentPeriodEnd` from a renewal date into an expiry date. The
+       * page shows one or the other from this flag; without it a cancelled
+       * subscription still advertised its next charge.
+       */
+      cancelAtPeriodEnd: billing?.cancelAtPeriodEnd ?? false,
       /** True once Stripe knows this organisation — the portal needs it. */
       hasStripeCustomer: Boolean(billing?.stripeCustomerId),
       // Checkout creates a customer before a payment succeeds. This is kept
@@ -260,6 +269,140 @@ export class BillingService {
     return session.url;
   }
 
+  /**
+   * Stop the subscription at the END of the paid period.
+   *
+   * Not an immediate cancellation, and the difference is the whole point: the
+   * organisation has paid up to `currentPeriodEnd`, and revoking access the
+   * instant somebody clicks would take away time already bought. Stripe emits
+   * `customer.subscription.deleted` when the period actually expires, and the
+   * existing handler drops the tier then — so the downgrade happens once, in
+   * the place every other tier change happens, rather than twice from two
+   * directions.
+   *
+   * Returns when access ends, so the caller can say so rather than implying
+   * the plan is already gone.
+   */
+  async cancelSubscription(
+    organizationId: string,
+    userId: string
+  ): Promise<{ accessUntil: Date | null }> {
+    const billing = await this.billingRepo.getByOrgId(organizationId);
+    if (!billing?.stripeSubscriptionId) {
+      throw new Error("This organisation has no subscription to cancel");
+    }
+
+    const updated = await getStripe().subscriptions.update(
+      billing.stripeSubscriptionId,
+      { cancel_at_period_end: true }
+    );
+
+    void this.auditService.log({
+      organizationId,
+      userId,
+      action: ACTIONS.SUBSCRIPTION_CANCELED,
+      entityType: "subscription",
+      entityId: billing.stripeSubscriptionId,
+      details: { scheduled: true, tier: billing.subscriptionTier },
+    });
+
+    return { accessUntil: periodEndOf(updated) };
+  }
+
+  /**
+   * Undo a scheduled cancellation.
+   *
+   * The counterpart to `cancelSubscription`, and the reason cancelling is
+   * scheduled rather than immediate: between clicking and the period ending
+   * there is a window in which somebody can change their mind, and it should
+   * cost them one button rather than a new checkout at a price that may have
+   * moved.
+   */
+  async resumeSubscription(
+    organizationId: string,
+    userId: string
+  ): Promise<void> {
+    const billing = await this.billingRepo.getByOrgId(organizationId);
+    if (!billing?.stripeSubscriptionId) {
+      throw new Error("This organisation has no subscription to resume");
+    }
+
+    await getStripe().subscriptions.update(billing.stripeSubscriptionId, {
+      cancel_at_period_end: false,
+    });
+
+    void this.auditService.log({
+      organizationId,
+      userId,
+      action: ACTIONS.SUBSCRIPTION_UPDATED,
+      entityType: "subscription",
+      entityId: billing.stripeSubscriptionId,
+      details: { resumed: true },
+    });
+  }
+
+  /**
+   * Move an existing subscription to a different paid plan.
+   *
+   * Replaces the price on the subscription's single item rather than creating a
+   * second subscription — `createCheckoutSession` refuses outright when one
+   * already exists, and two live subscriptions would bill the same organisation
+   * twice for the same product.
+   *
+   * `proration_behavior: "create_prorations"` is what makes a DOWNGRADE fair:
+   * the unused remainder of the dearer plan becomes a credit against the
+   * cheaper one, so somebody stepping from Enterprise to Pro in week one is not
+   * charged twice for the same month. Without it the switch would silently cost
+   * them the balance of what they had already paid.
+   *
+   * The tier is NOT written here. Stripe emits `customer.subscription.updated`,
+   * and that handler applies it — the same single path every other tier change
+   * takes, so a failed write cannot leave the plan and the billing disagreeing.
+   */
+  async changePlan(
+    organizationId: string,
+    plan: PaidPlan,
+    userId: string
+  ): Promise<void> {
+    const billing = await this.billingRepo.getByOrgId(organizationId);
+    if (!billing?.stripeSubscriptionId) {
+      throw new Error("This organisation has no subscription to change");
+    }
+
+    const stripe = getStripe();
+    const subscription = await stripe.subscriptions.retrieve(
+      billing.stripeSubscriptionId
+    );
+    const item = subscription.items.data[0];
+    if (!item) {
+      throw new Error("This subscription has no billable item to change");
+    }
+
+    // Keep whatever cadence they are already on; this call changes the PLAN,
+    // not the billing interval, and silently flipping someone from annual to
+    // monthly would change what they pay next without them asking.
+    const interval = item.price.recurring?.interval;
+    const priceId = await createPlanPrice(
+      plan,
+      isBillingInterval(interval) ? interval : "month"
+    );
+
+    await stripe.subscriptions.update(billing.stripeSubscriptionId, {
+      items: [{ id: item.id, price: priceId }],
+      proration_behavior: "create_prorations",
+      metadata: { organizationId, tier: plan },
+    });
+
+    void this.auditService.log({
+      organizationId,
+      userId,
+      action: ACTIONS.SUBSCRIPTION_UPDATED,
+      entityType: "subscription",
+      entityId: billing.stripeSubscriptionId,
+      details: { from: billing.subscriptionTier, to: plan },
+    });
+  }
+
   async constructEvent(rawBody: string, signature: string): Promise<Stripe.Event> {
     const secret = process.env.STRIPE_WEBHOOK_SECRET;
     if (!secret) {
@@ -287,12 +430,30 @@ export class BillingService {
     }
   }
 
-  /** Payment completed — grant the Pro tier. */
+  /** Payment completed — grant the tier that was bought. */
   private async onCheckoutCompleted(session: Stripe.Checkout.Session): Promise<void> {
     const organizationId =
       session.metadata?.organizationId ?? session.client_reference_id ?? null;
     if (!organizationId) {
       console.error("[Billing] checkout.session.completed missing organizationId");
+      return;
+    }
+
+    /*
+     * Only a SUBSCRIPTION checkout may write the tier.
+     *
+     * Everything below assumes this session bought a plan: the tier falls back
+     * to "pro" when metadata does not say otherwise, and `session.subscription`
+     * is written straight through. Both are wrong for any other kind of
+     * checkout — a one-off session carries no subscription, so an Enterprise
+     * organisation buying anything at all would have been demoted to Pro and
+     * had its subscription id set to null, by the success path, silently.
+     *
+     * Guarding on the mode rather than on the presence of a subscription id
+     * keeps that reasoning visible: this handler is about plans, and a session
+     * that did not buy a plan is not its business.
+     */
+    if (session.mode !== "subscription") {
       return;
     }
 
@@ -340,6 +501,13 @@ export class BillingService {
       stripeSubscriptionId: sub.id,
       billingInterval: isBillingInterval(interval) ? interval : null,
       currentPeriodEnd: periodEndOf(sub),
+      /*
+       * Captured here rather than at the moment we call Stripe, so a
+       * cancellation scheduled from the Stripe portal — which this application
+       * never sees the request for — lands in the database the same way as one
+       * scheduled from our own button.
+       */
+      cancelAtPeriodEnd: sub.cancel_at_period_end === true,
     });
 
     void this.auditService.log({
@@ -364,7 +532,25 @@ export class BillingService {
       // Cleared with the rest. A renewal date left behind on a cancelled
       // subscription is a screen promising a charge that will never happen.
       currentPeriodEnd: null,
+      // The cancellation has now HAPPENED, so it is no longer scheduled. Left
+      // true, the free tier would keep showing "your plan ends on…" about a
+      // plan that already ended.
+      cancelAtPeriodEnd: false,
     });
+
+    /*
+     * Purchased project quota goes with the subscription that carried it.
+     * The add-on is a recurring item on that subscription, so once it is gone
+     * nothing is being charged for the quota — and quota that outlives its
+     * payments is indistinguishable from a free permanent upgrade.
+     *
+     * Deliberately AFTER the tier reset and not merged into it: this is a
+     * different question (what was bought) from the one above (what plan is
+     * held), and the free tier allows no projects at all, so leaving a stale
+     * addon here would grant an ex-customer exactly the projects they stopped
+     * paying for.
+     */
+    await this.subscriptionRepo.setProjectQuotaAddon(organizationId, 0);
 
     void this.auditService.log({
       organizationId,

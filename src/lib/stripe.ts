@@ -71,3 +71,41 @@ export function paidPlanLineItem(
 export function proPlanLineItem(interval: BillingInterval) {
   return paidPlanLineItem("pro", interval);
 }
+
+/**
+ * A Price id for a plan, created on demand.
+ *
+ * Changing the plan on an EXISTING subscription cannot use the inline
+ * `price_data` above: a subscription item's price_data requires `product` — an
+ * id that must already exist — whereas Checkout accepts `product_data` and
+ * makes the product for you. The two shapes look alike and are not
+ * interchangeable, which is why this is a separate function rather than a
+ * cast.
+ *
+ * `prices.create` does accept `product_data`, so a price and its product are
+ * still made in one call and nothing has to be set up in the Stripe dashboard
+ * first — the property the inline line items were chosen for is kept.
+ *
+ * Amounts come from TIER_CONFIG, so a price change in one file moves checkout
+ * and plan changes together.
+ */
+export async function createPlanPrice(
+  plan: PaidPlan,
+  interval: BillingInterval
+): Promise<string> {
+  const tier = TIER_CONFIG[plan];
+  const dollars = interval === "year" ? tier.yearlyPrice : tier.monthlyPrice;
+
+  if (dollars == null) {
+    throw new Error(`${tier.displayName} plan pricing is not configured.`);
+  }
+
+  const price = await getStripe().prices.create({
+    currency: BILLING_CURRENCY,
+    unit_amount: Math.round(dollars * 100),
+    recurring: { interval },
+    product_data: { name: `ShiftHappens ${tier.displayName}` },
+  });
+
+  return price.id;
+}

@@ -43,13 +43,31 @@ function value(id: string) {
 }
 
 /** The subscription endpoint, answering with a member count. */
-function mockUsage(members: number) {
+/**
+ * The usage endpoint's answer, INCLUDING the limit it computes.
+ *
+ * The limit used to be passed as `null` here regardless of the tier under test,
+ * which was harmless only because the provider ignored the field and derived
+ * the cap from the tier itself. It cannot any more: quota can be bought on top
+ * of a tier, so the served limit is now the authority and this double has to
+ * return what the real endpoint would.
+ *
+ * `null` genuinely means unlimited, so it is passed explicitly by the
+ * Enterprise test rather than defaulted to.
+ */
+function mockUsage(members: number, limit: number | null = 10) {
   vi.stubGlobal(
     "fetch",
     vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
-        resources: { members: { current: members, limit: null, percentage: null } },
+        resources: {
+          members: {
+            current: members,
+            limit,
+            percentage: limit === null ? null : Math.round((members / limit) * 100),
+          },
+        },
       }),
     })
   );
@@ -192,7 +210,7 @@ describe("the limit, before and after the count arrives", () => {
   });
 
   it("is never full on an unlimited plan", async () => {
-    mockUsage(4000);
+    mockUsage(4000, null);
     render(
       <PlanProvider orgId="org1" tier="enterprise">
         <Probe />
@@ -210,6 +228,46 @@ describe("the limit, before and after the count arrives", () => {
    * working because a secondary request failed would be a worse outcome than
    * one that lets the real answer come back.
    */
+  /*
+   * The served limit is trusted, but only when it was actually served. A
+   * response that carries the count and omits the cap must fall back to the
+   * tier — treating "not stated" as "unlimited" would uncap every screen in
+   * the product on a partial payload, which is the one direction this file
+   * refuses to fail in.
+   */
+  it("falls back to the tier cap when the response omits the limit", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ resources: { members: { current: 10 } } }),
+      })
+    );
+    render(
+      <PlanProvider orgId="org1" tier="free">
+        <Probe />
+      </PlanProvider>
+    );
+
+    await waitFor(() => expect(value("usage")).toBe("10"));
+    expect(value("limit")).toBe("10");
+    expect(value("at-limit")).toBe("true");
+  });
+
+  /* Purchased quota raises the cap above the tier's own allowance. */
+  it("believes a served limit higher than the tier allows", async () => {
+    mockUsage(12, 25);
+    render(
+      <PlanProvider orgId="org1" tier="free">
+        <Probe />
+      </PlanProvider>
+    );
+
+    await waitFor(() => expect(value("usage")).toBe("12"));
+    expect(value("limit")).toBe("25");
+    expect(value("at-limit")).toBe("false");
+  });
+
   it("stays permissive when the count cannot be loaded", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
     render(

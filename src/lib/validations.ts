@@ -93,6 +93,18 @@ export const createOrganizationSchema = z.object({
 });
 
 /** Validates a Stripe checkout request for a paid plan. */
+/**
+ * Moving an existing subscription between paid plans.
+ *
+ * No `interval` — this changes the PLAN, not the cadence. Someone switching
+ * Enterprise to Pro has not asked to be moved from annual to monthly, and
+ * accepting a field for it invites a caller to change what they pay next
+ * without them choosing to.
+ */
+export const changePlanSchema = z.object({
+  plan: z.enum(["pro", "enterprise"]),
+});
+
 export const createCheckoutSchema = z.object({
   interval: z.enum(["month", "year"]),
   source: z.enum(["onboarding", "settings", "billing"]),
@@ -342,6 +354,7 @@ export const createProjectSchema = z.object({
   title: z.string().trim().min(1, "Project title is required").max(200),
   description: z.string().trim().max(4000).optional(),
   departmentId: z.string().optional(),
+  departmentIds: z.array(z.string()).min(1).max(50).optional(),
   priority: z.enum(["low", "medium", "high", "urgent"]).optional(),
   staffingMode: z.enum(["task_based", "project_team"]).default("task_based"),
   plannedStart: z.string().datetime().optional(),

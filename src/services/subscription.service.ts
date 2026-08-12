@@ -17,6 +17,7 @@ import {
   type ResourceType,
   type GatedFeature,
   SUBSCRIPTION_TIERS,
+  GATED_FEATURES,
   TIER_CONFIG,
   getTierConfig,
   getResourceLimit,
@@ -42,6 +43,32 @@ export interface UsageReport {
   features: Record<GatedFeature, boolean>;
 }
 
+/** A stored tier string is only trusted if it is one we know; anything else is Free. */
+function validateTier(raw: string): SubscriptionTier {
+  return SUBSCRIPTION_TIERS.includes(raw as SubscriptionTier)
+    ? (raw as SubscriptionTier)
+    : 'free';
+}
+
+/**
+ * The limit actually in force: the tier's allowance plus any quota bought on
+ * top of it.
+ *
+ * Unlimited stays unlimited — adding to `null` would turn Enterprise's absence
+ * of a cap into a number. Only `projects` currently sells add-on quota; every
+ * other resource returns its tier allowance untouched, so a pack can never
+ * silently raise a limit nobody sold.
+ */
+function effectiveLimit(
+  tier: SubscriptionTier,
+  resource: ResourceType,
+  projectQuotaAddon: number
+): number | null {
+  const base = getResourceLimit(tier, resource);
+  if (base === null) return null;
+  return resource === 'projects' ? base + projectQuotaAddon : base;
+}
+
 export class SubscriptionService {
   private subscriptionRepository = new SubscriptionRepository();
 
@@ -51,10 +78,7 @@ export class SubscriptionService {
    */
   async getOrganizationTier(organizationId: string): Promise<SubscriptionTier> {
     const raw = await this.subscriptionRepository.getOrganizationTier(organizationId);
-    if (SUBSCRIPTION_TIERS.includes(raw as SubscriptionTier)) {
-      return raw as SubscriptionTier;
-    }
-    return 'free';
+    return validateTier(raw);
   }
 
   /**
@@ -65,8 +89,9 @@ export class SubscriptionService {
     organizationId: string,
     resource: ResourceType
   ): Promise<LimitCheckResult> {
-    const tier = await this.getOrganizationTier(organizationId);
-    const limit = getResourceLimit(tier, resource);
+    const state = await this.subscriptionRepository.getPlanState(organizationId);
+    const tier = validateTier(state.tier);
+    const limit = effectiveLimit(tier, resource, state.projectQuotaAddon);
     const current = await this.subscriptionRepository.countResource(
       organizationId,
       resource
@@ -130,7 +155,8 @@ export class SubscriptionService {
    * Get full usage report for an org — used by settings page and upgrade prompts.
    */
   async getUsage(organizationId: string): Promise<UsageReport> {
-    const tier = await this.getOrganizationTier(organizationId);
+    const state = await this.subscriptionRepository.getPlanState(organizationId);
+    const tier = validateTier(state.tier);
     const config = getTierConfig(tier);
     const counts = await this.subscriptionRepository.getResourceCounts(organizationId);
 
@@ -140,12 +166,15 @@ export class SubscriptionService {
       departments: counts.departments,
       work_rules: counts.workRules,
       custom_roles: counts.customRoles,
+      projects: counts.projects,
     };
 
     const resources = {} as UsageReport['resources'];
     for (const resource of Object.keys(config.limits) as ResourceType[]) {
       const current = resourceMap[resource];
-      const limit = config.limits[resource];
+      // Same function the enforcement path uses, so the number shown on the
+      // usage panel is the number `create` will actually apply.
+      const limit = effectiveLimit(tier, resource, state.projectQuotaAddon);
       resources[resource] = {
         current,
         limit,
@@ -153,15 +182,14 @@ export class SubscriptionService {
       };
     }
 
+    /*
+     * Derived from GATED_FEATURES rather than a list repeated here. The copy
+     * this replaces had fallen two behind — `assistant` and `calendar_sync`
+     * were gated and sold, but absent from every usage report, so the return
+     * value did not satisfy the `Record<GatedFeature, boolean>` it claims.
+     */
     const features = {} as UsageReport['features'];
-    const allGated: GatedFeature[] = [
-      'custom_roles',
-      'pdf_export',
-      'mass_import',
-      'audit_log',
-      'priority_support',
-    ];
-    for (const feature of allGated) {
+    for (const feature of GATED_FEATURES) {
       features[feature] = isFeatureAvailable(tier, feature);
     }
 

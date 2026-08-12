@@ -150,6 +150,14 @@ export class TaskRepository {
       },
       include: {
         department: { select: { id: true, name: true, color: true } },
+        project: {
+          select: {
+            id: true,
+            staffingMode: true,
+            createdById: true,
+            projectMembers: { select: { membershipId: true } },
+          },
+        },
         createdBy: { select: { id: true, name: true } },
         assignments: {
           include: {

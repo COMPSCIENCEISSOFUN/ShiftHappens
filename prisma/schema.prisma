@@ -58,7 +58,29 @@ model Organization {
    * when that third party is slow, to display a date that changes monthly.
    * Written by the same webhook that already writes the three fields above.
    */
+  /*
+   * True once a cancellation has been SCHEDULED — the subscription runs to the
+   * end of the paid period and stops.
+   *
+   * Stored rather than read live from Stripe for the same reason as
+   * `currentPeriodEnd` beneath it, and written by the same webhook. Without it
+   * the billing screen cannot tell "renews on the 4th" from "ends on the 4th",
+   * which are opposite meanings for one date, and somebody who cancelled would
+   * keep seeing a renewal promised.
+   */
+  cancelAtPeriodEnd    Boolean  @default(false)
   currentPeriodEnd     DateTime?
+  /*
+   * Extra projects bought on top of the tier's included allowance, added to
+   * `TIER_CONFIG[tier].limits.projects` at check time rather than replacing it.
+   *
+   * Mirrored from the quantity of the add-on Stripe subscription ITEM, so it is
+   * only ever as current as the last webhook — and it goes back to zero when the
+   * subscription ends, because the add-on is billed for as long as the quota is
+   * held. A one-time purchase would have made this permanent, which prices a
+   * recurring entitlement once and makes the Enterprise upgrade pointless.
+   */
+  projectQuotaAddon    Int      @default(0)
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 

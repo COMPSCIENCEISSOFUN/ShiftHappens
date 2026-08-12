@@ -44,6 +44,8 @@ interface AuditEntry {
  * built from this map, so an unnamed action would also have been unfilterable.
  */
 const ACTION_LABELS: Record<AuditAction, string> = {
+  "project.created": "Project created",
+  "project.updated": "Project updated",
   "task.created": "Task created",
   "task.updated": "Task updated",
   "task.deleted": "Task deleted",
