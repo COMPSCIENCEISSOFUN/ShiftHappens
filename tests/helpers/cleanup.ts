@@ -7,6 +7,15 @@ import { prisma } from "@/lib/prisma";
 
 export async function cleanDatabase() {
   await prisma.notification.deleteMany();
+  // Product feedback, before Membership and Organization which it cascades
+  // from — stated rather than left to cascade, like calendarFeed below.
+  await prisma.feedback.deleteMany();
+  // Nullable owners with SET NULL, so nothing cascades these away either.
+  await prisma.question.deleteMany();
+  await prisma.review.deleteMany();
+  // No tenant at all, so nothing cascades it away. Left out, every FAQ test
+  // would inherit the entries the one before it wrote.
+  await prisma.faqEntry.deleteMany();
   await prisma.auditLog.deleteMany();
   await prisma.eligibilityOverride.deleteMany();
   await prisma.certification.deleteMany();

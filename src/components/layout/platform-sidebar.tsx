@@ -52,6 +52,9 @@ import {
   Sun,
   X,
   type LucideIcon,
+  MessagesSquare,
+  HelpCircle,
+  Stars,
 } from "lucide-react";
 
 interface PlatformSidebarProps {
@@ -80,6 +83,9 @@ const links: PlatformNavLink[] = [
     icon: Building2,
   },
   { href: "/platform-admin/templates", label: "Templates", icon: LayoutTemplate },
+  { href: "/platform-admin/feedback", label: "Feedback", icon: MessagesSquare },
+  { href: "/platform-admin/faq", label: "FAQ", icon: HelpCircle },
+  { href: "/platform-admin/reviews", label: "Reviews", icon: Stars },
 ];
 
 export function PlatformSidebar({ user }: PlatformSidebarProps) {

@@ -109,6 +109,9 @@ export const ROUTES: RouteSpec[] = [
    */
   org("billing", "GET", ADMIN),
   org("billing/portal", "POST", ADMIN, { suspension: true }),
+  org("billing/cancel", "POST", ADMIN, { suspension: true }),
+  org("billing/cancel", "DELETE", ADMIN, { suspension: true }),
+  org("billing/change-plan", "POST", ADMIN, { suspension: true }),
   org("invitations", "GET", ADMIN),
   org("invitations", "POST", ADMIN, { suspension: true }),
   /*
@@ -169,6 +172,32 @@ export const ROUTES: RouteSpec[] = [
   org("tasks/[taskId]", "GET", MEMBER, { extraParams: ["taskId"] }),
   org("tasks/[taskId]", "PATCH", MANAGER, { suspension: true, extraParams: ["taskId"] }),
   org("tasks/[taskId]", "DELETE", MANAGER, { suspension: true, extraParams: ["taskId"] }),
+
+  /*
+   * Projects group work items; they do not introduce a permission of their
+   * own. The routes reuse the task vocabulary deliberately — whoever may
+   * build a roster may group it — so a change to who reads the task board
+   * moves these with it instead of leaving a second answer behind.
+   */
+  org("projects", "GET", MANAGER),
+  org("projects", "POST", MANAGER, { suspension: true }),
+  org("projects/[projectId]", "GET", MANAGER, { extraParams: ["projectId"] }),
+  org("projects/[projectId]", "PATCH", MANAGER, { suspension: true, extraParams: ["projectId"] }),
+  org("projects/[projectId]/team", "GET", MANAGER, { extraParams: ["projectId"] }),
+  org("projects/[projectId]/team", "PUT", MANAGER, { suspension: true, extraParams: ["projectId"] }),
+
+  /*
+   * MEMBER, and gated by nothing else.
+   *
+   * Every member may say what they think of the product. A permission here
+   * would let an organisation configure some of its own people out of being
+   * heard, and a plan tier would be selling the tenant a feature whose
+   * beneficiary is us. Rate limiting does the work a gate would.
+   */
+  org("feedback", "POST", MEMBER, { suspension: false }),
+  /* Same reasoning as feedback: every member may have an opinion. */
+  org("reviews", "GET", MEMBER),
+  org("reviews", "POST", MEMBER, { suspension: false }),
   org("tasks/[taskId]/assign", "POST", MANAGER, { suspension: true, extraParams: ["taskId"] }),
   org("tasks/[taskId]/auto-allocate", "POST", MANAGER, { suspension: true, extraParams: ["taskId"] }),
   org("tasks/[taskId]/composition", "GET", MANAGER, { extraParams: ["taskId"] }),
@@ -364,6 +393,16 @@ export const ROUTES: RouteSpec[] = [
   { path: "platform/templates/[templateId]", method: "GET", auth: "session", extraParams: ["templateId"] },
   { path: "platform/templates/[templateId]", method: "PATCH", auth: "session", extraParams: ["templateId"] },
   { path: "platform/templates/[templateId]", method: "DELETE", auth: "session", extraParams: ["templateId"] },
+  { path: "platform/feedback", method: "GET", auth: "platform" },
+  { path: "platform/feedback/[feedbackId]", method: "PATCH", auth: "platform", extraParams: ["feedbackId"] },
+  { path: "platform/faq", method: "GET", auth: "platform" },
+  { path: "platform/faq", method: "POST", auth: "platform" },
+  { path: "platform/faq/[faqId]", method: "PATCH", auth: "platform", extraParams: ["faqId"] },
+  { path: "platform/faq/[faqId]", method: "DELETE", auth: "platform", extraParams: ["faqId"] },
+  { path: "platform/questions", method: "GET", auth: "platform" },
+  { path: "platform/questions/[questionId]", method: "PATCH", auth: "platform", extraParams: ["questionId"] },
+  { path: "platform/reviews", method: "GET", auth: "platform" },
+  { path: "platform/reviews/[reviewId]", method: "PATCH", auth: "platform", extraParams: ["reviewId"] },
 
   /*
    * The member-facing half of what `platform/templates` GET used to serve.
@@ -401,6 +440,21 @@ export const ROUTES: RouteSpec[] = [
   },
   { path: "cron", method: "GET", auth: "secret", note: "Authorization: Bearer CRON_SECRET" },
   { path: "stripe/webhook", method: "POST", auth: "secret", note: "stripe-signature header" },
+  /*
+   * The only unauthenticated WRITE in the application.
+   *
+   * Everything else marked public is a read. This one exists because the FAQ
+   * is written for people who have not signed up, and the only way to know
+   * what they want to know is to let them say it. Bounded by an address-keyed
+   * rate limit and a honeypot rather than by a session, and nothing it stores
+   * is ever rendered to another visitor.
+   */
+  {
+    path: "questions",
+    method: "POST",
+    auth: "public",
+    note: "landing page contact form; rate limited by address",
+  },
 ];
 
 /** Every distinct route file path the manifest declares. */

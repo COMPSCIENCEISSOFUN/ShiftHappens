@@ -1765,6 +1765,328 @@ async function seedAll(tx: Tx) {
   );
 
   // ============================================================
+  // Product feedback, and the landing page FAQ
+  // ============================================================
+
+  /*
+   * Enough messages that the queue is worth looking at, and several that are
+   * plainly the same complaint worded differently — the auto-schedule ones, and
+   * the two about not knowing a shift changed. A themes pass has nothing to find
+   * on a table of six unrelated sentences, so a seed that gives one message per
+   * area would demonstrate the feature by hiding what it is for.
+   *
+   * `agoDays` rather than fixed dates: these have to stay inside the 90-day
+   * window the area counts use, whenever the seed is next run.
+   */
+  const feedbackFixtures: {
+    staffIndex: number;
+    area: string;
+    message: string;
+    daysAgo: number;
+    archived?: boolean;
+  }[] = [
+    {
+      staffIndex: 0, area: "scheduling", daysAgo: 3,
+      message:
+        "The auto-schedule is great but I can't tell why it picked someone. A one-line reason next to each name would save me checking every person by hand.",
+    },
+    {
+      staffIndex: 1, area: "scheduling", daysAgo: 6,
+      message:
+        "When the AI drafts a week I have no idea what it was thinking. Some explanation of the choice would help me trust it enough to just confirm.",
+    },
+    {
+      staffIndex: 2, area: "scheduling", daysAgo: 11,
+      message:
+        "Would love to see the reasoning behind each auto-assignment. Right now I re-check all of them, which is most of the time it was meant to save.",
+    },
+    {
+      staffIndex: 3, area: "notifications", daysAgo: 2,
+      message:
+        "My shift moved by two hours and I only found out because I opened the app. An email for a reschedule would have caught it.",
+    },
+    {
+      staffIndex: 4, area: "notifications", daysAgo: 9,
+      message:
+        "I didn't know my Thursday had changed until I turned up. Please email us when a shift time changes, not just the in-app bell.",
+    },
+    {
+      staffIndex: 4, area: "availability", daysAgo: 5,
+      message:
+        "Setting availability one day at a time is slow. Could I copy last week, or set a pattern once and adjust the exceptions?",
+    },
+    {
+      staffIndex: 0, area: "members", daysAgo: 14,
+      message:
+        "Our head chef needs to approve leave for the kitchen but not touch billing. The custom role got me most of the way there — it just needs to be easier to find.",
+    },
+    {
+      staffIndex: 1, area: "billing", daysAgo: 21,
+      message:
+        "Can I see what the Pro plan would cost for 30 people before I commit? The pricing page shows the tier but not my number.",
+    },
+    {
+      staffIndex: 2, area: "other", daysAgo: 30,
+      message:
+        "Dark mode is genuinely good. Whoever did the contrast on the calendar, thank you — I do the roster at night and it is much easier on the eyes.",
+    },
+    {
+      staffIndex: 3, area: "other", daysAgo: 45, archived: true,
+      message:
+        "Tried it on an iPad and the sidebar covered the page. Looks like it was fixed in an update, so ignore this one.",
+    },
+  ];
+
+  /*
+   * Cleared first, because this seed is run more than once.
+   *
+   * Every other fixture loop in this file either upserts or checks before it
+   * writes. A bare create in a loop is the one shape that accumulates: a second
+   * run would leave twenty messages and twelve FAQ entries, and the landing
+   * page would render every question twice, one directly under the other.
+   *
+   * Scoped to this organisation, so feedback from the second tenant seeded
+   * further down survives.
+   */
+  await tx.feedback.deleteMany({ where: { organizationId: orgId } });
+
+  for (const fixture of feedbackFixtures) {
+    await tx.feedback.create({
+      data: {
+        organizationId: orgId,
+        membershipId: staffMembershipIds[fixture.staffIndex],
+        area: fixture.area,
+        message: fixture.message,
+        createdAt: agoDays(fixture.daysAgo),
+        archivedAt: fixture.archived ? agoDays(fixture.daysAgo - 1) : null,
+      },
+    });
+  }
+
+  console.log(
+    `Created ${feedbackFixtures.length} pieces of product feedback ` +
+      "(3 saying the same thing about auto-schedule, 2 about reschedule alerts)"
+  );
+
+  /*
+   * The FAQ, with one deliberate draft.
+   *
+   * A landing page that renders every row hides the difference between writing
+   * an answer and publishing it, which is the whole reason the flag exists —
+   * so the seed carries an unpublished entry to prove the public page respects
+   * it.
+   */
+  const faqFixtures: {
+    question: string;
+    answer: string;
+    position: number;
+    published: boolean;
+  }[] = [
+    {
+      position: 0, published: true,
+      question: "Do I need to enter everyone's availability before I can start?",
+      answer:
+        "No. Full-time staff are treated as available during your operating hours unless they say otherwise, so you can build a roster on day one. Casual staff declare the hours they can work, and the scheduler only offers them shifts inside those hours.",
+    },
+    {
+      position: 1, published: true,
+      question: "What happens if the AI is unavailable?",
+      answer:
+        "Scheduling carries on. Every allocation path falls back to a ranking the app computes itself, using the same rules — hours, availability, certifications and your work rules. You are told which strategy produced a draft, so a quiet week of fallbacks is visible rather than silent.",
+    },
+    {
+      position: 2, published: true,
+      question: "Can a manager assign someone the system says is not eligible?",
+      answer:
+        "Yes, with a recorded reason. Eligibility informs the decision; it does not make it. The override is stored against the shift and the person, so the exception is auditable rather than invisible.",
+    },
+    {
+      position: 3, published: true,
+      question: "Can I change plans later?",
+      answer:
+        "At any time. Upgrades take effect immediately and are charged pro rata. If you downgrade below what you are using, nothing is deleted — the limits apply to creating new items, so you keep what you have.",
+    },
+    {
+      position: 4, published: true,
+      question: "Does everyone see everyone else's shifts?",
+      answer:
+        "No. Managers see the departments they are assigned to, and staff see their own schedule. Company admins see everything. Work on a private project is visible only to that project's team.",
+    },
+    {
+      position: 5, published: false,
+      question: "Is there a mobile app?",
+      answer:
+        "DRAFT — do not publish until the native app has a date. The web app is responsive and works on a phone browser today.",
+    },
+  ];
+
+  // No tenant to scope by — there is one marketing site.
+  await tx.faqEntry.deleteMany();
+
+  for (const fixture of faqFixtures) {
+    await tx.faqEntry.create({ data: fixture });
+  }
+
+  console.log(
+    `Created ${faqFixtures.length} FAQ entries ` +
+      `(${faqFixtures.filter((f) => f.published).length} published, 1 left as a draft)`
+  );
+
+
+  /*
+   * Questions people asked, which is what the FAQ is written FROM.
+   *
+   * Mostly anonymous, because the form is on the landing page and the people it
+   * exists for have not signed up — an all-attributed list would demonstrate the
+   * feature while hiding the case it was built for. Two ask the same thing about
+   * trialling before paying, which is the pattern that makes one worth
+   * answering; one is already dealt with, so the "handled" filter has something
+   * to show.
+   *
+   * `slice(0, 200)` is what the FAQ form applies when you press "Answer this",
+   * so these stay comfortably inside it.
+   */
+  const questionFixtures: {
+    body: string;
+    name?: string;
+    email?: string;
+    daysAgo: number;
+    fromStaffIndex?: number;
+    handled?: boolean;
+  }[] = [
+    {
+      daysAgo: 2,
+      name: "Priya",
+      email: "priya@example.com",
+      body: "Can I try this with my team before paying for anything? We are six people and would want a fortnight to see whether it sticks.",
+    },
+    {
+      daysAgo: 5,
+      body: "Is there a free trial? I do not want to put a card in before I know the roster actually works for a kitchen.",
+    },
+    {
+      daysAgo: 8,
+      name: "Marcus",
+      body: "Does this handle split shifts? Our bar staff often do a lunch and then come back for the evening.",
+    },
+    {
+      daysAgo: 13,
+      email: "ops@harbourside.example",
+      body: "We have two venues. Is that two accounts, or can one account cover both with separate rosters?",
+    },
+    {
+      daysAgo: 19,
+      body: "What happens to our data if we stop paying? I need to know we can get the roster history out.",
+    },
+    {
+      /* Asked from inside the app, so it carries a name and an organisation. */
+      daysAgo: 6,
+      fromStaffIndex: 1,
+      body: "Is there a way to see who has not responded to a shift offer yet, without opening each one?",
+    },
+    {
+      daysAgo: 26,
+      handled: true,
+      name: "Dana",
+      body: "Do you support dark mode?",
+    },
+  ];
+
+  await tx.question.deleteMany();
+
+  for (const fixture of questionFixtures) {
+    await tx.question.create({
+      data: {
+        body: fixture.body,
+        name: fixture.name ?? null,
+        email: fixture.email ?? null,
+        membershipId:
+          fixture.fromStaffIndex === undefined
+            ? null
+            : staffMembershipIds[fixture.fromStaffIndex],
+        organizationId: fixture.fromStaffIndex === undefined ? null : orgId,
+        createdAt: agoDays(fixture.daysAgo),
+        handledAt: fixture.handled ? agoDays(fixture.daysAgo - 1) : null,
+      },
+    });
+  }
+
+  console.log(
+    `Created ${questionFixtures.length} asked questions ` +
+      `(${questionFixtures.filter((q) => !q.handled).length} waiting, 2 asking the same thing about a trial)`
+  );
+
+
+  /*
+   * Reviews, mostly approved, because the carousel is the point.
+   *
+   * The landing page renders nothing at all when none are approved — correct
+   * behaviour, and indistinguishable on the day from a section that is broken.
+   * One pending and one rejected so the moderation queue has all three states
+   * to show, and so the filter chips are not two zeroes and a number.
+   *
+   * `upsert` on the membership, because the column is unique: a second seed run
+   * must change the row rather than fail on it.
+   */
+  const reviewFixtures: {
+    staffIndex: number;
+    rating: number;
+    body: string;
+    status: string;
+    daysAgo: number;
+  }[] = [
+    {
+      staffIndex: 0, rating: 5, status: "approved", daysAgo: 12,
+      body: "Building next week's roster used to take me a Sunday evening. It now takes about twenty minutes, and the part I actually spend time on is the exceptions rather than the whole grid.",
+    },
+    {
+      staffIndex: 1, rating: 5, status: "approved", daysAgo: 25,
+      body: "The eligibility checks have stopped two double-bookings and one certificate that had quietly expired. That last one would have been a real problem for us.",
+    },
+    {
+      staffIndex: 2, rating: 4, status: "approved", daysAgo: 40,
+      body: "Staff can see their shifts on their own phones and swap without going through me. Half my messages disappeared overnight. Docking a star only because I want the auto-schedule to explain itself more.",
+    },
+    {
+      staffIndex: 3, rating: 4, status: "approved", daysAgo: 55,
+      body: "Leave requests no longer get lost. They chase themselves now, and the ones nobody answered are somewhere I can see rather than somewhere I have to remember.",
+    },
+    {
+      /* Written yesterday, nobody has looked yet. */
+      staffIndex: 4, rating: 5, status: "pending", daysAgo: 1,
+      body: "Genuinely the first rostering tool the team has not complained about. The calendar in dark mode is lovely at 11pm.",
+    },
+  ];
+
+  for (const fixture of reviewFixtures) {
+    const membershipId = staffMembershipIds[fixture.staffIndex];
+    await tx.review.upsert({
+      where: { membershipId },
+      update: {
+        rating: fixture.rating,
+        body: fixture.body,
+        status: fixture.status,
+        updatedAt: agoDays(fixture.daysAgo),
+      },
+      create: {
+        membershipId,
+        organizationId: orgId,
+        rating: fixture.rating,
+        body: fixture.body,
+        status: fixture.status,
+        createdAt: agoDays(fixture.daysAgo),
+        updatedAt: agoDays(fixture.daysAgo),
+      },
+    });
+  }
+
+  console.log(
+    `Created ${reviewFixtures.length} reviews ` +
+      `(${reviewFixtures.filter((r) => r.status === "approved").length} published to the carousel, 1 awaiting a decision)`
+  );
+
+
+  // ============================================================
   // Unaffiliated user (for onboarding demo)
   // ============================================================
   await tx.user.upsert({
@@ -2010,6 +2332,52 @@ async function seedAll(tx: Tx) {
       ],
     });
   }
+  /*
+   * Harbour Cafe speaks too.
+   *
+   * The platform queue exists to read ACROSS tenants — it is the one screen in
+   * the application whose question has no organisation in it. Seeded from Ocean
+   * Grill alone it would demonstrate that by showing a single company name,
+   * which is indistinguishable from a queue that is quietly org-scoped.
+   *
+   * The first of these is deliberately the same complaint the Ocean Grill staff
+   * made about reschedule alerts: two customers, one problem, which is the
+   * pattern the platform admin is looking for.
+   */
+  const cafeFeedback = [
+    {
+      area: "notifications",
+      daysAgo: 4,
+      message:
+        "We need an email when a shift is moved. Two people missed a changed start last week because nobody had the app open.",
+    },
+    {
+      area: "billing",
+      daysAgo: 12,
+      message:
+        "We are on Free and keep hitting the ten-member limit at Christmas. A seasonal top-up for one month would suit us better than upgrading for the year.",
+    },
+  ];
+
+  // The admin's membership in this organisation, upserted above without being
+  // captured — read back rather than re-derived, so the two cannot disagree.
+  const cafeAdminMembership = await tx.membership.findFirstOrThrow({
+    where: { userId: adminUser.id, organizationId: secondOrg.id },
+  });
+
+  await tx.feedback.deleteMany({ where: { organizationId: secondOrg.id } });
+  for (const fixture of cafeFeedback) {
+    await tx.feedback.create({
+      data: {
+        organizationId: secondOrg.id,
+        membershipId: cafeAdminMembership.id,
+        area: fixture.area,
+        message: fixture.message,
+        createdAt: agoDays(fixture.daysAgo),
+      },
+    });
+  }
+
   console.log("Second organisation ready: Harbour Cafe (Free tier)");
 
   // ============================================================

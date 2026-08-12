@@ -35,7 +35,8 @@ import {
   TrendingUp,
   Star,
   Send,
-  MessageSquare,
+  ChevronDown,
+  ChevronLeft,
 } from "lucide-react";
 import {
   TIER_CONFIG,
@@ -958,32 +959,6 @@ function Pricing() {
 
 // ─── Testimonials ────────────────────────────────────────────────────────
 
-const TESTIMONIALS = [
-  {
-    name: "Rachel Lim",
-    role: "Operations Manager",
-    company: "Greenfield Medical Centre",
-    quote:
-      "We used to spend hours juggling nurse rosters across three wards. Now the AI handles the heavy lifting — compliance checks, fair distribution, the lot. Our scheduling time dropped significantly.",
-    rating: 5,
-  },
-  {
-    name: "Marcus Chen",
-    role: "Store Manager",
-    company: "Urban Threads Retail",
-    quote:
-      "The smart-swap feature alone justified the switch. When someone calls in sick, I get a qualified replacement suggestion within seconds instead of working through a call list.",
-    rating: 5,
-  },
-  {
-    name: "Priya Nair",
-    role: "Shift Coordinator",
-    company: "Horizon Hotel Group",
-    quote:
-      "Managing availability across full-time, part-time, and casual staff was a nightmare on spreadsheets. The role-based dashboards mean everyone sees exactly what they need.",
-    rating: 4,
-  },
-];
 
 function StarRating({ rating }: { rating: number }) {
   return (
@@ -1002,53 +977,125 @@ function StarRating({ rating }: { rating: number }) {
   );
 }
 
-function Testimonials() {
+/**
+ * What customers said, as a carousel.
+ *
+ * This section used to render five invented quotes from a constant in this
+ * file. It now renders reviews real members wrote and a platform admin
+ * approved — so it is empty until somebody says something, and it renders
+ * NOTHING rather than a heading over a blank strip.
+ *
+ * ## Why a scroll container rather than a slide library
+ *
+ * The track is `overflow-x-auto` with CSS scroll snapping, so on a phone it is
+ * an ordinary swipe: native momentum, native rubber-banding, and it works
+ * before any JavaScript has run. The arrows are a desktop affordance layered on
+ * top — they scroll the same container — rather than a separate mechanism.
+ *
+ * It never advances on its own. A panel that moves while somebody is reading it
+ * is the most-complained-about pattern on the web, and it fails an
+ * accessibility review outright.
+ */
+function Testimonials({ reviews }: { reviews: LandingReview[] }) {
+  const track = useRef<HTMLDivElement | null>(null);
+
+  if (reviews.length === 0) return null;
+
+  function scrollByCard(direction: -1 | 1) {
+    const node = track.current;
+    if (!node) return;
+    // One card plus its gap, measured from the DOM rather than assumed, so the
+    // arrows stay correct at every breakpoint.
+    const card = node.firstElementChild as HTMLElement | null;
+    const step = card ? card.offsetWidth + 24 : node.clientWidth;
+    node.scrollBy({
+      left: step * direction,
+      // Honours the reader's own setting; `smooth` is ignored when they have
+      // asked for less motion.
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        ? "auto"
+        : "smooth",
+    });
+  }
+
   return (
     <section className="py-20 sm:py-24 bg-white">
       <div className="mx-auto max-w-6xl px-6">
         <Reveal>
-          <div className="text-center max-w-2xl mx-auto mb-16">
-            <p className="text-sm font-medium text-indigo-600 mb-2">
-              Testimonials
-            </p>
-            <h2 className="text-3xl sm:text-4xl font-bold text-slate-900 tracking-tight">
-              Trusted by teams across industries
-            </h2>
-            <p className="mt-4 text-slate-500">
-              See what managers and coordinators say about switching to
-              Smart&nbsp;Task&nbsp;Allocation.
-            </p>
+          <div className="mb-10 flex flex-col gap-4 sm:mb-16 sm:flex-row sm:items-end sm:justify-between">
+            <div className="max-w-2xl">
+              <p className="text-sm font-medium text-indigo-600 mb-2">
+                Testimonials
+              </p>
+              <h2 className="text-3xl sm:text-4xl font-bold text-slate-900 tracking-tight">
+                What teams say
+              </h2>
+              <p className="mt-4 text-slate-500">
+                From people running rosters on Smart&nbsp;Task&nbsp;Allocation
+                every week.
+              </p>
+            </div>
+
+            {/*
+              Hidden on touch, where the gesture is the control. Showing both
+              would be two mechanisms for one job on the smaller screen.
+            */}
+            <div className="hidden shrink-0 gap-2 sm:flex">
+              <button
+                type="button"
+                onClick={() => scrollByCard(-1)}
+                aria-label="Previous reviews"
+                className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 text-slate-600 transition-colors hover:border-indigo-200 hover:text-indigo-600"
+              >
+                <ChevronLeft className="h-5 w-5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => scrollByCard(1)}
+                aria-label="More reviews"
+                className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 text-slate-600 transition-colors hover:border-indigo-200 hover:text-indigo-600"
+              >
+                <ChevronRight className="h-5 w-5" />
+              </button>
+            </div>
           </div>
         </Reveal>
 
-        <div className="grid md:grid-cols-3 gap-6">
-          {TESTIMONIALS.map((t, i) => (
-            <Reveal key={t.name} delay={i * 100}>
-              <div className="group h-full rounded-xl border border-slate-200 bg-white p-6 hover:shadow-lg hover:border-indigo-200/50 transition-all duration-300 flex flex-col">
-                {/* Stars */}
-                <StarRating rating={t.rating} />
+        {/*
+          `-mx-6 px-6` lets the track bleed to the screen edge on a phone, so a
+          card is visibly cut off — which is what tells somebody there is more to
+          swipe to. `snap-x` parks each card at the left edge rather than leaving
+          it halfway.
+        */}
+        <div
+          ref={track}
+          className="-mx-6 flex snap-x snap-mandatory gap-6 overflow-x-auto px-6 pb-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        >
+          {reviews.map((review) => (
+            <div
+              key={review.id}
+              className="flex w-[85%] shrink-0 snap-start flex-col rounded-xl border border-slate-200 bg-white p-6 transition-all duration-300 hover:border-indigo-200/50 hover:shadow-lg sm:w-[calc(50%-12px)] lg:w-[calc(33.333%-16px)]"
+            >
+              <StarRating rating={review.rating} />
 
-                {/* Quote */}
-                <p className="mt-4 flex-1 text-sm leading-relaxed text-slate-600">
-                  &ldquo;{t.quote}&rdquo;
-                </p>
+              <p className="mt-4 flex-1 text-sm leading-relaxed text-slate-600">
+                &ldquo;{review.body}&rdquo;
+              </p>
 
-                {/* Author */}
-                <div className="mt-6 flex items-center gap-3 pt-4 border-t border-slate-100">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-violet-500 text-sm font-bold text-white">
-                    {t.name.charAt(0)}
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-slate-900">
-                      {t.name}
-                    </p>
-                    <p className="text-xs text-slate-500">
-                      {t.role}, {t.company}
-                    </p>
-                  </div>
+              <div className="mt-6 flex items-center gap-3 border-t border-slate-100 pt-4">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-violet-500 text-sm font-bold text-white">
+                  {(review.authorName ?? "?").charAt(0)}
+                </div>
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-slate-900">
+                    {review.authorName ?? "A customer"}
+                  </p>
+                  <p className="truncate text-xs text-slate-500">
+                    {review.organizationName}
+                  </p>
                 </div>
               </div>
-            </Reveal>
+            </div>
           ))}
         </div>
       </div>
@@ -1058,200 +1105,277 @@ function Testimonials() {
 
 // ─── Contact / Enquiry Form ─────────────────────────────────────────────
 
-function ContactForm() {
-  const [submitted, setSubmitted] = useState(false);
-  const [loading, setLoading] = useState(false);
 
-  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+
+/**
+ * The address enquiries reach.
+ *
+ * The form that stood here waited 800ms on a `setTimeout` and then said
+ * "submitted" — it sent nothing, stored nothing, and a visitor who used it was
+ * simply never heard from. A real address is a smaller feature and an honest
+ * one; members who are already signed in have `Send feedback` in the app, which
+ * arrives with an account attached and is worth more than an anonymous form.
+ */
+const CONTACT_EMAIL = "hello@shifthappens.app";
+
+export interface LandingFaqEntry {
+  id: string;
+  question: string;
+  answer: string;
+}
+
+export interface LandingReview {
+  id: string;
+  rating: number;
+  body: string;
+  authorName: string | null;
+  organizationName: string;
+}
+
+export interface LandingPageProps {
+  /**
+   * Published entries, read on the server as this page renders.
+   *
+   * Passed down rather than fetched here: the landing page is the first thing a
+   * visitor sees, and a client fetch would show an empty accordion for as long
+   * as the round trip takes. It also means the FAQ has no public endpoint of
+   * its own to rate limit or defend.
+   */
+  faq?: LandingFaqEntry[];
+  /** Approved reviews, read on the server for the same reason as the FAQ. */
+  reviews?: LandingReview[];
+}
+
+/**
+ * Answers, one open at a time.
+ *
+ * Renders nothing at all when there is nothing published — an empty "Frequently
+ * asked questions" heading above a blank strip reads as a broken page rather
+ * than an empty one.
+ */
+function Faq({ entries }: { entries: LandingFaqEntry[] }) {
+  const [openId, setOpenId] = useState<string | null>(null);
+
+  if (entries.length === 0) return null;
+
+  return (
+    <section id="faq" className="py-20 sm:py-24 bg-white">
+      <div className="mx-auto max-w-3xl px-6">
+        <div className="text-center">
+          <p className="text-sm font-medium text-indigo-600 mb-2">FAQ</p>
+          <h2 className="text-3xl sm:text-4xl font-bold text-slate-900 tracking-tight">
+            Frequently asked questions
+          </h2>
+        </div>
+
+        <div className="mt-10 divide-y divide-slate-200 border-y border-slate-200">
+          {entries.map((entry) => {
+            const open = openId === entry.id;
+            return (
+              <div key={entry.id}>
+                <button
+                  type="button"
+                  onClick={() => setOpenId(open ? null : entry.id)}
+                  aria-expanded={open}
+                  className="flex w-full items-center justify-between gap-4 py-5 text-left"
+                >
+                  <span className="text-base font-semibold text-slate-900 sm:text-lg">
+                    {entry.question}
+                  </span>
+                  <ChevronDown
+                    className={`h-5 w-5 shrink-0 text-slate-400 transition-transform ${
+                      open ? "rotate-180" : ""
+                    }`}
+                  />
+                </button>
+                {open && (
+                  <p className="-mt-1 pb-5 pr-8 text-sm leading-relaxed text-slate-500 whitespace-pre-wrap">
+                    {entry.answer}
+                  </p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/**
+ * Ask a question.
+ *
+ * The form that stood here waited 800ms on a `setTimeout` and then said
+ * "submitted" — it sent nothing and stored nothing, so a visitor who used it was
+ * simply never heard from. This one posts to `/api/questions`, which is the only
+ * unauthenticated write in the application and exists for exactly this: a public
+ * FAQ is written for people who have not signed up, and the only way to know
+ * what they want to know is to let them say it.
+ *
+ * Nothing typed here is ever published. What arrives is read by the platform
+ * admin, who answers it by writing an FAQ entry in their own words.
+ */
+function ContactSection() {
+  const [body, setBody] = useState("");
+  const [email, setEmail] = useState("");
+  const [name, setName] = useState("");
+  /* Hidden from people, filled by scripts. Never shown, never focusable. */
+  const [website, setWebsite] = useState("");
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
-      setSubmitted(true);
-    }, 800);
+    if (!body.trim() || sending) return;
+
+    setSending(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/questions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ body, email, name, website }),
+      });
+      const result = await response.json().catch(() => null);
+      if (!response.ok) {
+        setError(result?.error || "That did not send. Please try again.");
+        return;
+      }
+      setSent(true);
+      setBody("");
+      setEmail("");
+      setName("");
+    } catch {
+      setError("Could not reach the server. Please try again.");
+    } finally {
+      setSending(false);
+    }
   }
 
   return (
     <section id="contact" className="py-20 sm:py-24 bg-slate-50">
-      <div className="mx-auto max-w-6xl px-6">
-        <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 items-start">
-          {/* Left — info */}
-          <Reveal>
-            <div>
-              <p className="text-sm font-medium text-indigo-600 mb-2">
-                Get in touch
-              </p>
-              <h2 className="text-3xl sm:text-4xl font-bold text-slate-900 tracking-tight">
-                Have a question?
-              </h2>
-              <p className="mt-4 text-slate-500 leading-relaxed">
-                Whether you&apos;re exploring the platform for your team or need
-                help with an Enterprise setup, we&apos;d love to hear from you.
-              </p>
+      <div className="mx-auto max-w-2xl px-6">
+        <div className="text-center">
+          <p className="text-sm font-medium text-indigo-600 mb-2">Get in touch</p>
+          <h2 className="text-3xl sm:text-4xl font-bold text-slate-900 tracking-tight">
+            Have a question?
+          </h2>
+          <p className="mt-4 text-slate-500 leading-relaxed">
+            Ask anything about the platform. Questions people ask often end up
+            answered above, and you can always reach us at{" "}
+            <a
+              href={`mailto:${CONTACT_EMAIL}`}
+              className="font-medium text-indigo-600 hover:underline"
+            >
+              {CONTACT_EMAIL}
+            </a>
+            .
+          </p>
+        </div>
 
-              <div className="mt-10 space-y-5">
-                <div className="flex items-start gap-4">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
-                    <MessageSquare className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-slate-900">
-                      General enquiries
-                    </p>
-                    <p className="text-sm text-slate-500">
-                      Questions about features, pricing, or getting started.
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-start gap-4">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
-                    <Users className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-slate-900">
-                      Enterprise &amp; custom plans
-                    </p>
-                    <p className="text-sm text-slate-500">
-                      Need unlimited members, audit logs, or priority support?
-                      Let&apos;s talk.
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-start gap-4">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
-                    <Clock className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-slate-900">
-                      Quick response
-                    </p>
-                    <p className="text-sm text-slate-500">
-                      We typically respond within one business day.
-                    </p>
-                  </div>
-                </div>
+        {sent ? (
+          <div className="mt-8 rounded-xl border border-emerald-200 bg-emerald-50 p-6 text-center">
+            <p className="font-semibold text-emerald-900">Thanks — we have it.</p>
+            <p className="mt-1 text-sm text-emerald-800">
+              We read every question. We cannot promise a reply, but the ones we
+              hear most get answered in the FAQ above.
+            </p>
+            <button
+              type="button"
+              onClick={() => setSent(false)}
+              className="mt-4 text-sm font-medium text-emerald-900 underline"
+            >
+              Ask another
+            </button>
+          </div>
+        ) : (
+          <form onSubmit={submit} className="mt-8 space-y-4">
+            {error && (
+              <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {error}
+              </p>
+            )}
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label
+                  htmlFor="ask-name"
+                  className="block text-sm font-medium text-slate-700"
+                >
+                  Your name <span className="text-slate-400">(optional)</span>
+                </label>
+                <input
+                  id="ask-name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  maxLength={120}
+                  className="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                />
+              </div>
+              <div>
+                <label
+                  htmlFor="ask-email"
+                  className="block text-sm font-medium text-slate-700"
+                >
+                  Email <span className="text-slate-400">(optional)</span>
+                </label>
+                <input
+                  id="ask-email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  maxLength={254}
+                  className="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                />
               </div>
             </div>
-          </Reveal>
 
-          {/* Right — form */}
-          <Reveal delay={150}>
-            <div className="rounded-2xl border border-slate-200 bg-white p-8 sm:p-10 shadow-sm">
-              {submitted ? (
-                <div className="text-center py-16">
-                  <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-indigo-50">
-                    <Check className="h-8 w-8 text-indigo-600" />
-                  </div>
-                  <h3 className="text-xl font-semibold text-slate-900">
-                    Message sent!
-                  </h3>
-                  <p className="mt-3 text-sm text-slate-500 max-w-xs mx-auto">
-                    Thanks for reaching out. We&apos;ll get back to you shortly.
-                  </p>
-                  <button
-                    onClick={() => setSubmitted(false)}
-                    className="mt-8 text-sm font-medium text-indigo-600 hover:text-indigo-700 transition-colors"
-                  >
-                    Send another message
-                  </button>
-                </div>
-              ) : (
-                <form onSubmit={handleSubmit} className="space-y-6">
-                  {/* Form header */}
-                  <div className="mb-2">
-                    <h3 className="text-lg font-semibold text-slate-900">
-                      Send us a message
-                    </h3>
-                    <p className="text-sm text-slate-500 mt-1">
-                      Fill out the form below and we&apos;ll be in touch.
-                    </p>
-                  </div>
-
-                  <div className="grid sm:grid-cols-2 gap-5">
-                    <div>
-                      <label
-                        htmlFor="contact-name"
-                        className="block text-sm font-medium text-slate-700 mb-2"
-                      >
-                        Name
-                      </label>
-                      <input
-                        id="contact-name"
-                        type="text"
-                        required
-                        placeholder="Your name"
-                        className="w-full rounded-lg border border-slate-200 bg-slate-50/50 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent focus:bg-white transition-all"
-                      />
-                    </div>
-                    <div>
-                      <label
-                        htmlFor="contact-email"
-                        className="block text-sm font-medium text-slate-700 mb-2"
-                      >
-                        Email
-                      </label>
-                      <input
-                        id="contact-email"
-                        type="email"
-                        required
-                        placeholder="you@company.com"
-                        className="w-full rounded-lg border border-slate-200 bg-slate-50/50 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent focus:bg-white transition-all"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label
-                      htmlFor="contact-company"
-                      className="block text-sm font-medium text-slate-700 mb-2"
-                    >
-                      Company{" "}
-                      <span className="text-slate-400 font-normal">
-                        (optional)
-                      </span>
-                    </label>
-                    <input
-                      id="contact-company"
-                      type="text"
-                      placeholder="Your company"
-                      className="w-full rounded-lg border border-slate-200 bg-slate-50/50 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent focus:bg-white transition-all"
-                    />
-                  </div>
-
-                  <div>
-                    <label
-                      htmlFor="contact-message"
-                      className="block text-sm font-medium text-slate-700 mb-2"
-                    >
-                      Message
-                    </label>
-                    <textarea
-                      id="contact-message"
-                      required
-                      rows={5}
-                      placeholder="Tell us what you're looking for..."
-                      className="w-full rounded-lg border border-slate-200 bg-slate-50/50 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent focus:bg-white transition-all resize-none"
-                    />
-                  </div>
-
-                  <button
-                    type="submit"
-                    disabled={loading}
-                    className="w-full rounded-lg bg-gradient-to-r from-indigo-600 to-indigo-500 px-6 py-3.5 text-sm font-medium text-white hover:from-indigo-700 hover:to-indigo-600 transition-colors flex items-center justify-center gap-2 disabled:opacity-60 mt-2"
-                  >
-                    {loading ? (
-                      "Sending..."
-                    ) : (
-                      <>
-                        Send message <Send className="h-4 w-4" />
-                      </>
-                    )}
-                  </button>
-                </form>
-              )}
+            <div>
+              <label
+                htmlFor="ask-body"
+                className="block text-sm font-medium text-slate-700"
+              >
+                Your question
+              </label>
+              <textarea
+                id="ask-body"
+                value={body}
+                onChange={(e) => setBody(e.target.value)}
+                rows={5}
+                required
+                maxLength={1000}
+                placeholder="Can I try it with my team before paying?"
+                className="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+              />
             </div>
-          </Reveal>
-        </div>
+
+            {/*
+              The honeypot. Hidden from people and from screen readers, and out
+              of the tab order — a script filling every input it finds gets a
+              200 and is quietly dropped.
+            */}
+            <div className="hidden" aria-hidden="true">
+              <label htmlFor="ask-website">Do not fill this in</label>
+              <input
+                id="ask-website"
+                tabIndex={-1}
+                autoComplete="off"
+                value={website}
+                onChange={(e) => setWebsite(e.target.value)}
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={sending || !body.trim()}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700 disabled:opacity-50 sm:w-auto"
+            >
+              <Send className="h-4 w-4" />
+              {sending ? "Sending…" : "Send question"}
+            </button>
+          </form>
+        )}
       </div>
     </section>
   );
@@ -1372,7 +1496,10 @@ function Footer() {
 
 // ─── Landing Page ────────────────────────────────────────────────────────
 
-export default function LandingPage() {
+export default function LandingPage({
+  faq = [],
+  reviews = [],
+}: LandingPageProps) {
   return (
     <div className="min-h-screen bg-white text-slate-900 antialiased">
       <Navbar />
@@ -1381,9 +1508,10 @@ export default function LandingPage() {
       <Features />
       <HowItWorks />
       <Pricing />
-      <Testimonials />
+      <Testimonials reviews={reviews} />
       <TeamSection />
-      <ContactForm />
+      <Faq entries={faq} />
+      <ContactSection />
       <FinalCTA />
       <Footer />
     </div>

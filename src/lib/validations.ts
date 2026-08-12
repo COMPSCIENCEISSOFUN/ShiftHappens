@@ -10,6 +10,7 @@
 import { z } from "zod";
 import { DECLINE_REASONS } from "@/lib/decline-reasons";
 import { compositionRulesSchema } from "@/lib/composition-rules";
+import { FEEDBACK_AREAS, FEEDBACK_MAX_LENGTH } from "@/lib/feedback-areas";
 import { SENIORITY_LEVELS } from "@/lib/seniority";
 
 /**
@@ -678,3 +679,85 @@ export const correctClockSchema = z.object({
   clockOutTime: z.string().datetime().nullable(),
   reason: z.string().trim().min(1, "A reason is required").max(500),
 });
+
+
+/**
+ * Product feedback from a member.
+ *
+ * `area` is an enum rather than free text so counting it stays SQL's job. The
+ * length cap is enforced here as well as in the service: the service owns the
+ * rule, this owns the 400 — a caller who sends a novel should be told why
+ * before any of it is trimmed.
+ */
+export const submitFeedbackSchema = z.object({
+  area: z.enum(FEEDBACK_AREAS),
+  message: z.string().trim().min(1, "Feedback cannot be empty").max(FEEDBACK_MAX_LENGTH),
+});
+
+/** Archive, or put it back. Required rather than optional — see `correctClockSchema`. */
+export const archiveFeedbackSchema = z.object({
+  archived: z.boolean(),
+});
+
+export const createFaqSchema = z.object({
+  question: z.string().trim().min(1, "A question is required").max(200),
+  answer: z.string().trim().min(1, "An answer is required").max(2000),
+});
+
+/**
+ * Every field optional, because this endpoint serves four different edits:
+ * rewording, reordering, publishing and unpublishing. `.strict()` is not used
+ * elsewhere here, so an unknown key is ignored rather than refused.
+ */
+export const updateFaqSchema = z.object({
+  question: z.string().trim().min(1).max(200).optional(),
+  answer: z.string().trim().min(1).max(2000).optional(),
+  position: z.number().int().min(0).max(9999).optional(),
+  published: z.boolean().optional(),
+});
+
+export type SubmitFeedbackInput = z.infer<typeof submitFeedbackSchema>;
+export type CreateFaqInput = z.infer<typeof createFaqSchema>;
+export type UpdateFaqInput = z.infer<typeof updateFaqSchema>;
+
+
+/**
+ * A question from the landing page.
+ *
+ * `website` is a honeypot: hidden from people, filled by scripts. It is part of
+ * the schema rather than checked ad hoc in the route so that a caller sending
+ * an unexpected shape is refused here, before anything reads it.
+ */
+export const askQuestionSchema = z.object({
+  body: z.string().trim().min(1, "Please write your question").max(1000),
+  email: z.string().trim().max(254).optional(),
+  name: z.string().trim().max(120).optional(),
+  website: z.string().optional(),
+});
+
+/** Dealt with, or back on the list. Required rather than optional. */
+export const handleQuestionSchema = z.object({
+  handled: z.boolean(),
+});
+
+export type AskQuestionInput = z.infer<typeof askQuestionSchema>;
+
+
+/**
+ * A customer review.
+ *
+ * The rating is an integer 1–5 here as well as in the service: the column is a
+ * plain Int and cannot express the range, so refusing 0 or 6 at the boundary is
+ * what stops one reaching the landing page and rendering as no stars at all.
+ */
+export const submitReviewSchema = z.object({
+  rating: z.number().int().min(1).max(5),
+  body: z.string().trim().min(1, "Please write a few words").max(600),
+});
+
+/** Approve or reject. "pending" is not offered — an edit is what returns it. */
+export const moderateReviewSchema = z.object({
+  status: z.enum(["approved", "rejected"]),
+});
+
+export type SubmitReviewInput = z.infer<typeof submitReviewSchema>;

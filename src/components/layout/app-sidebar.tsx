@@ -245,6 +245,26 @@ function MyCertificationsIcon() {
   );
 }
 
+function FeedbackIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={iconClass}>
+      {/* A speech bubble with a plus: saying something new, rather than reading a reply. */}
+      <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5Z" />
+      <path d="M12 8v6" />
+      <path d="M9 11h6" />
+    </svg>
+  );
+}
+
+function ReviewIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={iconClass}>
+      {/* A star: the one mark everybody already reads as "rate this". */}
+      <path d="m12 3 2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8L3.5 9.2l5.9-.9L12 3Z" />
+    </svg>
+  );
+}
+
 function ProfileIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={iconClass}>
@@ -757,6 +777,30 @@ export function AppSidebar({
    * The bare address stays for the person with no organisation at all, who is
    * the only one for whom it is the right answer.
    */
+  /*
+   * Every member, no permission and no plan.
+   *
+   * Deliberately not behind `can(...)`: a permission would let an
+   * organisation configure some of its own people out of being heard, which
+   * is not a setting a tenant should be able to express about us.
+   *
+   * Only when the sidebar knows which organisation it is rendering — the
+   * route is org-scoped because the queue shows who said it and where from.
+   */
+  if (orgId) {
+    systemItems.push({
+      href: `/org/${orgId}/feedback`,
+      label: "Send feedback",
+      icon: FeedbackIcon,
+    });
+    // Same audience, same reasoning: one review per member, theirs to edit.
+    systemItems.push({
+      href: `/org/${orgId}/reviews`,
+      label: "Write a review",
+      icon: ReviewIcon,
+    });
+  }
+
   systemItems.push({
     href: orgId ? `/org/${orgId}/profile` : "/settings/profile",
     label: "Profile",

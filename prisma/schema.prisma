@@ -95,6 +95,9 @@ model Organization {
   workRules        WorkRule[]
   notifications    Notification[]
   certificationTypes CertificationType[]
+  feedback         Feedback[]
+  questions        Question[]
+  reviews          Review[]
 }
 
 model Membership {
@@ -130,6 +133,9 @@ model Membership {
   availabilityOverrides AvailabilityOverride[]
   certifications        Certification[]
   eligibilityOverrides  EligibilityOverride[]
+  feedback              Feedback[]
+  questions             Question[]
+  review                Review?
 
   @@unique([userId, organizationId])
   @@index([organizationId])
@@ -867,4 +873,154 @@ model IndustryTemplate {
   isAiGenerated  Boolean  @default(false)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
+}
+
+/**
+ * Product feedback from a member, read by the platform admin.
+ *
+ * Deliberately NOT the org-scoped shape everything else here has. Every other
+ * table answers "what belongs to this tenant"; this one answers "what are our
+ * customers telling us", which is a question only the platform admin asks and
+ * only across tenants. `organizationId` is provenance — who said it — not a
+ * filter the reader applies.
+ *
+ * It is FEEDBACK, not a ticket: there is no status, no assignee and no reply.
+ * The sender is told it was received and nothing more, and the UI says so. A
+ * status column would be a promise the product does not keep.
+ *
+ * `archivedAt` is the platform admin's own housekeeping, invisible to the
+ * sender for the same reason — clearing an item from a queue is not a decision
+ * about it.
+ *
+ * Both foreign keys cascade. A tenant that deletes takes its feedback with it,
+ * which loses product insight but keeps the deletion honest: "remove my data"
+ * cannot quietly mean "except the parts we found useful".
+ */
+model Feedback {
+  id             String    @id @default(cuid())
+  organizationId String
+  membershipId   String
+  /** One of FEEDBACK_AREAS — see src/lib/feedback-areas.ts. */
+  area           String
+  message        String
+  createdAt      DateTime  @default(now())
+  archivedAt     DateTime?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  membership   Membership   @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+
+  @@index([archivedAt, createdAt])
+  @@index([organizationId])
+}
+
+/**
+ * A published question and answer on the public landing page.
+ *
+ * Platform-level, so no `organizationId` — there is one marketing site and one
+ * person editing it. Read on the server when the landing page renders, so there
+ * is no public endpoint for it and nothing to rate limit.
+ *
+ * `position` rather than ordering by creation: the order these are read in is
+ * an editorial decision, and the most useful question is rarely the oldest.
+ * `published` so a draft can be written now and shown later.
+ */
+model FaqEntry {
+  id        String   @id @default(cuid())
+  question  String
+  answer    String
+  position  Int      @default(0)
+  published Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([published, position])
+}
+
+/**
+ * A question somebody asked, from the landing page or from inside the app.
+ *
+ * Separate from `Feedback` rather than a flag on it, because the two differ in
+ * the one thing that matters: a Feedback row REQUIRES a membership and an
+ * organisation, which is what guarantees every message has a real sender behind
+ * it. A visitor has neither. Folding them together would mean making both
+ * columns nullable and giving up that guarantee for every existing row.
+ *
+ * `membershipId` and `organizationId` are set when the asker was signed in and
+ * null when they were not. Null is the interesting case, not the degenerate
+ * one: an unregistered visitor is exactly who the public FAQ is written for.
+ *
+ * The text is NEVER published as written. The platform admin answers a
+ * question by creating a FaqEntry, wording the question themselves — so nothing
+ * a stranger typed reaches the marketing site unedited.
+ */
+model Question {
+  id       String  @id @default(cuid())
+  /** What they asked, verbatim. Displayed to the platform admin only. */
+  body     String
+  /** Optional, and only ever used to reply by hand. Never displayed publicly. */
+  email    String?
+  /** Optional; a visitor who gives no name is still worth hearing. */
+  name     String?
+
+  /** Set when the asker was signed in; null for a landing page visitor. */
+  membershipId   String?
+  organizationId String?
+
+  /**
+   * Cleared from the list once it has been dealt with — answered in the FAQ,
+   * or judged not worth an entry. Deliberately not a status enum: the admin's
+   * two options are "handled" and "not yet", and a richer vocabulary would
+   * imply a workflow that does not exist.
+   */
+  handledAt DateTime?
+  createdAt DateTime  @default(now())
+
+  membership   Membership?   @relation(fields: [membershipId], references: [id], onDelete: SetNull)
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+
+  @@index([handledAt, createdAt])
+}
+
+/**
+ * What a customer says about the product, for the public landing page.
+ *
+ * ## One per member, updated rather than appended
+ *
+ * `membershipId` is UNIQUE, so the rule is enforced by the schema rather than
+ * by a check somebody can forget. A review is a standing opinion, not an event:
+ * a person who changes their mind has not written a second review, they have
+ * changed the one they have. The alternative — a row per submission — puts the
+ * same name on a marketing page repeatedly and grows a moderation queue that
+ * never shrinks.
+ *
+ * ## Editing returns it to pending
+ *
+ * `status` goes back to "pending" on every edit, and that is the whole reason
+ * the field is not a boolean. Without it, somebody submits something kind, is
+ * approved, and then edits the text — leaving words nobody approved on a public
+ * page with an approval attached to them.
+ *
+ * The reviewer's name and organisation are shown when it is published, which
+ * the form states before they write anything.
+ */
+model Review {
+  id             String @id @default(cuid())
+  /** Unique: one standing opinion per person. */
+  membershipId   String @unique
+  organizationId String
+
+  /** 1 to 5. Validated in the service; the column cannot express the range. */
+  rating Int
+  body   String
+
+  /** "pending" | "approved" | "rejected" — see REVIEW_STATUSES. */
+  status String @default("pending")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  membership   Membership   @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([status, updatedAt])
 }
