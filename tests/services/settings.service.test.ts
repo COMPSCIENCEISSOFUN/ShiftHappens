@@ -45,8 +45,10 @@ describe("SettingsService", () => {
     it("returns default settings for new org", async () => {
       const settings = await settingsService.getSettings(orgId);
 
-      expect(settings.allocationMode).toBe("manual");
-      expect(settings.taskAcceptanceMode).toBe("auto_accept");
+      // "auto" since 2026-08-13. A new organisation gets the automation it
+      // signed up for; existing ones were left where they were by the
+      // migration rather than switched under them.
+      expect(settings.allocationMode).toBe("auto");
       expect(settings.workingDayHours).toBe(8);
     });
 
@@ -77,13 +79,6 @@ describe("SettingsService", () => {
           allocationMode: "auto",
         });
         expect(updated.allocationMode).toBe("auto");
-      });
-
-      it("updates task acceptance mode", async () => {
-        const updated = await settingsService.updateSettings(orgId, {
-          taskAcceptanceMode: "require_acceptance",
-        });
-        expect(updated.taskAcceptanceMode).toBe("require_acceptance");
       });
 
       /*
@@ -120,7 +115,6 @@ describe("SettingsService", () => {
         });
 
         expect(updated.allocationMode).toBe("suggested");
-        expect(updated.taskAcceptanceMode).toBe("auto_accept");
       });
     });
 
@@ -261,7 +255,6 @@ describe("SettingsService", () => {
         // allocation weights must not travel with it.
         await settingsService.updateSettings(orgId, {
           allocationMode: "auto",
-          taskAcceptanceMode: "require_acceptance",
         });
 
         const display = await settingsService.getDisplaySettings(orgId);
@@ -285,7 +278,6 @@ describe("SettingsService", () => {
         // Set all fields
         await settingsService.updateSettings(orgId, {
           allocationMode: "suggested",
-          taskAcceptanceMode: "require_acceptance",
           workingDayHours: 10,
           operatingHoursStart: 7,
           operatingHoursEnd: 23,
@@ -298,7 +290,6 @@ describe("SettingsService", () => {
 
         // All other fields should remain unchanged
         expect(updated.allocationMode).toBe("auto");
-        expect(updated.taskAcceptanceMode).toBe("require_acceptance");
         expect(updated.workingDayHours).toBe(10);
         expect(updated.operatingHoursStart).toBe(7);
         expect(updated.operatingHoursEnd).toBe(23);

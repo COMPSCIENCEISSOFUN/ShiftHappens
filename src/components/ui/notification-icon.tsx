@@ -56,6 +56,8 @@ import {
   UserCheck,
   UserPlus,
   UserSearch,
+  UserX,
+  Users,
   type LucideIcon,
 } from "lucide-react";
 import type { NotificationType } from "@/lib/notification-types";
@@ -164,6 +166,18 @@ const NOTIFICATION_ICON: Record<NotificationType, NotificationIcon> = {
   leave_lapsed: { Icon: CalendarSync, tint: "bg-muted", tone: "text-muted-foreground" },
   backfill_needed: { Icon: UserSearch, ...RED },
   backfill_offered: { Icon: UserPlus, ...INDIGO },
+  /*
+   * The two staffing shortfalls, and the tint carries the difference rather
+   * than the glyph: amber for a shift that has SOMEBODY on it and red for one
+   * that has nobody. Partly staffed can often wait for the hourly sweep to top
+   * it up; not staffed at all cannot, and the colours should not suggest those
+   * are the same size of problem.
+   *
+   * `Users` and `UserX` keep the people family that backfill already uses —
+   * every one of these is about finding a person, not about a date.
+   */
+  task_partially_filled: { Icon: Users, ...AMBER },
+  task_unfilled: { Icon: UserX, ...RED },
 };
 
 const UNKNOWN: NotificationIcon = {

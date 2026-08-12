@@ -41,7 +41,6 @@ export class SettingsRepository {
     organizationId: string,
     data: {
       allocationMode?: string;
-      taskAcceptanceMode?: string;
       workingDayHours?: number;
       smartAllocationWeights?: string;
       notificationPreferences?: string;

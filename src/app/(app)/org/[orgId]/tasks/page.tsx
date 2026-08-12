@@ -29,6 +29,7 @@ import {
 } from "@/lib/recurrence";
 import { PageLoading } from "@/components/ui/page-loading";
 import { AlertBanner } from "@/components/ui/alert-banner";
+import { AiResultBanner } from "@/components/tasks/ai-result-banner";
 import { toast } from "sonner";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Clock, Lock, Plus, Sparkles, SquarePen, Trash2, Users, Zap } from "lucide-react";
@@ -407,8 +408,22 @@ export default function TasksPage() {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [naturalInput, setNaturalInput] = useState("");
   const [parsing, setParsing] = useState(false);
-  // "manual" | "suggested" | "auto" — auto-assign is only offered in "auto" mode
-  const [allocationMode, setAllocationMode] = useState<string>("manual");
+  /** Which fields the request never stated. Empty ⇒ no form was needed. */
+  const [parseGaps, setParseGaps] = useState<string[]>([]);
+  /** True when both providers were down and keywords produced the parse. */
+  const [parseDegraded, setParseDegraded] = useState(false);
+  /** The task a clean parse just created, for the result banner. */
+  const [aiResult, setAiResult] = useState<{
+    taskId: string;
+    title: string;
+    assigned: number;
+    required: number;
+  } | null>(null);
+  const [undoing, setUndoing] = useState(false);
+  // "suggested" | "auto" — auto-assign is only offered in "auto" mode.
+  // ("manual" was a third mode until 2026-08-13; rows were migrated to
+  // "suggested" and the stored value kept its name.)
+  const [allocationMode, setAllocationMode] = useState<string>("suggested");
   const [autoAssigningId, setAutoAssigningId] = useState<string | null>(null);
   /**
    * Ranked replacements, keyed by the ASSIGNMENT being decided rather than by
@@ -526,13 +541,13 @@ export default function TasksPage() {
     if (!element) return;
 
     element.scrollIntoView({ behavior: "smooth", block: "center" });
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronising with an external system: the DOM node only exists after the list has rendered, so this cannot be derived during render
     setHighlightId(focusTaskId);
 
     // Long enough to find with your eye, short enough that it does not read as
     // a permanent state of the row.
     const clear = setTimeout(() => setHighlightId(null), 2500);
     return () => clearTimeout(clear);
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronising with an external system: the DOM node only exists after the list has rendered, so this cannot be derived during render
   }, [loading, focusTaskId]);
 
   async function fetchTasks() {
@@ -552,6 +567,10 @@ export default function TasksPage() {
 
       setTasks(data);
       setError(null);
+      // Returned as well as stored, so a caller that has just created a task
+      // can read its staffing back — `setTasks` will not have reached state by
+      // the time the next line runs.
+      return data as Task[];
     } catch {
       setError("Failed to load tasks");
     } finally {
@@ -572,7 +591,7 @@ export default function TasksPage() {
       const res = await fetch(`/api/organizations/${orgId}/settings`);
       if (!res.ok) return;
       const data = await res.json();
-      setAllocationMode(data.allocationMode ?? "manual");
+      setAllocationMode(data.allocationMode ?? "suggested");
     } catch {}
   }
 
@@ -698,6 +717,29 @@ export default function TasksPage() {
 
       const parsed = await res.json();
 
+      /*
+       * The gate: a form only opens when the request left something out.
+       *
+       * This page always opened one, filled it in, and waited — which reads as
+       * a slower way to type a task rather than as automation. The parser now
+       * reports what it could not determine, so the ordinary case (a request
+       * that says what, when and where) is created and staffed without anybody
+       * confirming it, and the form is kept for the cases that genuinely need
+       * an answer.
+       *
+       * `parsedBy: "keywords"` always asks: both providers were down, so the
+       * schedule was dropped and the department matched only on a verbatim
+       * name. Its own comment in the parser says as much.
+       */
+      const gaps: string[] = parsed.missing ?? [];
+      if (gaps.length === 0 && parsed.parsedBy !== "keywords") {
+        await createFromParse(parsed);
+        setNaturalInput("");
+        return;
+      }
+
+      setParseGaps(gaps);
+      setParseDegraded(parsed.parsedBy === "keywords");
       setShowCreate(true);
       setNaturalInput("");
 
@@ -740,6 +782,84 @@ export default function TasksPage() {
       setError("Something went wrong");
     } finally {
       setParsing(false);
+    }
+  }
+
+  /**
+   * Create straight from a clean parse, then say what happened.
+   *
+   * Staffing is read back from a refreshed list rather than from the create
+   * response: allocation runs inside `TaskService.create`, so the row it
+   * returns predates it and would report nobody assigned on a shift the engine
+   * had just filled.
+   */
+  async function createFromParse(parsed: {
+    title: string;
+    description?: string | null;
+    departmentId?: string | null;
+    priority?: string;
+    requiredHeadcount?: number;
+    scheduledStart?: string | null;
+    scheduledEnd?: string | null;
+  }) {
+    try {
+      const res = await fetch(`/api/organizations/${orgId}/tasks`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: parsed.title,
+          description: parsed.description || undefined,
+          departmentId: parsed.departmentId || undefined,
+          priority: parsed.priority || "medium",
+          requiredHeadcount: parsed.requiredHeadcount || 1,
+          scheduledStart: parsed.scheduledStart ?? undefined,
+          scheduledEnd: parsed.scheduledEnd ?? undefined,
+        }),
+      });
+      const created = await res.json().catch(() => null);
+      if (!res.ok || !created?.id) {
+        setError(created?.error || "Could not create the task");
+        return;
+      }
+
+      const refreshed = await fetchTasks();
+      const placed = refreshed?.find((task) => task.id === created.id);
+      // The shared rule, like everywhere else that counts a shift's people: a
+      // rejected row is a row with nobody on it.
+      const assigned = placed ? countOccupied(placed.assignments) : 0;
+
+      setAiResult({
+        taskId: created.id,
+        title: created.title,
+        assigned,
+        required: placed?.requiredHeadcount ?? parsed.requiredHeadcount ?? 1,
+      });
+    } catch {
+      setError("Could not create the task");
+    }
+  }
+
+  /** Remove a task the AI just made. Assigned staff are told it is cancelled. */
+  async function undoAiResult() {
+    if (!aiResult) return;
+    setUndoing(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/organizations/${orgId}/tasks/${aiResult.taskId}`,
+        { method: "DELETE" }
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        setError(body?.error || "Could not undo — delete it from the list instead");
+        return;
+      }
+      setAiResult(null);
+      await fetchTasks();
+    } catch {
+      setError("Could not undo — delete it from the list instead");
+    } finally {
+      setUndoing(false);
     }
   }
 
@@ -821,6 +941,9 @@ export default function TasksPage() {
       }
 
       setShowCreate(false);
+      // The parser's question has been answered by creating the task.
+      setParseGaps([]);
+      setParseDegraded(false);
       /*
        * Clear the selections the form does NOT own.
        *
@@ -1336,7 +1459,14 @@ export default function TasksPage() {
               size="sm"
               className="gap-1.5"
               disabled={!showCreate && plan.atLimit("active_tasks")}
-              onClick={() => setShowCreate(!showCreate)}
+              onClick={() => {
+                // A form opened by hand is not answering the parser, so the
+                // "I could not work out…" line goes with it. Left behind, it
+                // would ask about a request nobody made.
+                setParseGaps([]);
+                setParseDegraded(false);
+                setShowCreate(!showCreate);
+              }}
             >
               {showCreate ? (
                 "Cancel"
@@ -1415,6 +1545,22 @@ export default function TasksPage() {
           {parsing ? "Parsing..." : "AI Create"}
         </Button>
       </div>
+
+      {/*
+        What the last AI Create actually did. Shown instead of a confirmation
+        step, not as well as one: a clean request is created and staffed
+        immediately, and this is where somebody finds out and can take it back.
+      */}
+      {aiResult && (
+        <AiResultBanner
+          title={aiResult.title}
+          assigned={aiResult.assigned}
+          required={aiResult.required}
+          undoing={undoing}
+          onUndo={undoAiResult}
+          onDismiss={() => setAiResult(null)}
+        />
+      )}
 
       {/* ──────────────────────────────────────────────── */}
       {/* Alerts                                           */}
@@ -1522,6 +1668,33 @@ export default function TasksPage() {
               <Plus className="h-[18px] w-[18px] text-indigo-600 dark:text-indigo-400" aria-hidden="true" />
               New Task
             </p>
+
+            {/*
+              Only present when AI Create could not answer something. It names
+              the field rather than saying "check this" — a form that asks for
+              a review of nothing in particular is one people learn to skip.
+            */}
+            {(parseGaps.length > 0 || parseDegraded) && (
+              <div className="mb-5 rounded-lg border border-indigo-200 bg-indigo-50/70 px-3 py-2 dark:border-indigo-900 dark:bg-indigo-950/40">
+                <p className="text-xs font-medium text-indigo-900 dark:text-indigo-200">
+                  {parseGaps.includes("schedule") && parseGaps.includes("department")
+                    ? "I could not work out when this should happen or which department it belongs to — fill those in and I will staff it."
+                    : parseGaps.includes("schedule")
+                      ? "I could not work out when this should happen — give me a start and end and I will staff it."
+                      : parseGaps.includes("department")
+                        ? "I could not tell which department this belongs to — pick one and I will staff it."
+                        : parseGaps.includes("title")
+                          ? "I could not work out a title for this — name it and I will staff it."
+                          : "Check this before creating it."}
+                </p>
+                {parseDegraded && (
+                  <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+                    AI was unavailable, so this was filled in from keywords —
+                    dates and departments are likely to be missing.
+                  </p>
+                )}
+              </div>
+            )}
 
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5 sm:col-span-2">
@@ -1742,7 +1915,16 @@ export default function TasksPage() {
                 <Button type="submit" disabled={creating} className={PRIMARY_BUTTON}>
                   {creating ? "Creating…" : "Create Task"}
                 </Button>
-                <Button type="button" variant="outline" disabled={creating} onClick={() => setShowCreate(false)}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={creating}
+                  onClick={() => {
+                    setParseGaps([]);
+                    setParseDegraded(false);
+                    setShowCreate(false);
+                  }}
+                >
                   Cancel
                 </Button>
               </div>

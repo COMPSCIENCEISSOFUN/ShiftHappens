@@ -15,7 +15,13 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 
-import { ChevronLeft, ClipboardList, Users } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronLeft,
+  ChevronUp,
+  ClipboardList,
+  Users,
+} from "lucide-react";
 
 import { toast } from "sonner";
 
@@ -26,6 +32,7 @@ import { AlertBanner } from "@/components/ui/alert-banner";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageLoading } from "@/components/ui/page-loading";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { AiResultBanner } from "@/components/tasks/ai-result-banner";
 
 type Department = { id: string; name: string; color: string | null };
 
@@ -51,6 +58,8 @@ type ProjectTask = {
   scheduledEnd: string | null;
   requiredHeadcount: number;
   requiredCertifications: string[];
+  /** Position in the project's running order. Presentation only. */
+  orderIndex: number;
   assignments: Assignment[];
 };
 
@@ -170,7 +179,26 @@ export default function ProjectDetailPage() {
   const [showAddWork, setShowAddWork] = useState(false);
   const [aiWorkRequest, setAiWorkRequest] = useState("");
   const [parsingWork, setParsingWork] = useState(false);
-  const [aiDraft, setAiDraft] = useState<{ title?: string; description?: string; priority?: string; requiredHeadcount?: number; departmentId?: string | null; scheduledStart?: string | null; scheduledEnd?: string | null } | null>(null);
+  const [aiDraft, setAiDraft] = useState<{ title?: string; description?: string | null; priority?: string; requiredHeadcount?: number; departmentId?: string | null; scheduledStart?: string | null; scheduledEnd?: string | null } | null>(null);
+  /** True when the model proposed a time that falls outside the project window. */
+  const [draftOutOfWindow, setDraftOutOfWindow] = useState(false);
+  /** Which fields the request never stated. Drives what the form asks for. */
+  const [draftMissing, setDraftMissing] = useState<string[]>([]);
+  /** True when both AI providers were down and keywords produced this. */
+  const [draftDegraded, setDraftDegraded] = useState(false);
+  /** The work item a clean parse just created, for the result banner. */
+  const [aiResult, setAiResult] = useState<{
+    taskId: string;
+    title: string;
+    assigned: number;
+    required: number;
+    unscheduled: boolean;
+  } | null>(null);
+  const [undoing, setUndoing] = useState(false);
+  /** Bumped per generated draft, used as the form's key so defaults re-apply. */
+  const [draftSeq, setDraftSeq] = useState(0);
+  /** Disables both arrows on every row while a swap is in flight. */
+  const [reordering, setReordering] = useState(false);
   const [selectedTeam, setSelectedTeam] = useState<Set<string>>(new Set());
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -196,14 +224,23 @@ export default function ProjectDetailPage() {
         new Set(projectData.projectMembers.map((member) => member.membershipId))
       );
       setOrgMembers(memberResponse.ok ? await memberResponse.json() : []);
+      /*
+       * Returned as well as stored. A caller that has just created a work item
+       * needs to read its staffing back, and `setProject` will not have landed
+       * in state by the time the next line runs — so reaching for `project`
+       * there would report the figures from before the create.
+       */
+      return projectData;
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Failed to load project");
+      return null;
     } finally {
       setLoading(false);
     }
   }, [orgId, projectId]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronising with an external system: loads the project and its work items on mount
     void load();
   }, [load]);
 
@@ -299,7 +336,157 @@ export default function ProjectDetailPage() {
       },
       "Work item added."
     );
-    if (ok) setShowAddWork(false);
+    if (ok) {
+      // The draft has become a real work item, so it must not survive to
+      // pre-fill the NEXT one — an empty "Add work item" quietly carrying the
+      // last AI suggestion is how somebody creates the same task twice.
+      setShowAddWork(false);
+      setAiDraft(null);
+      setDraftOutOfWindow(false);
+      setDraftMissing([]);
+      setDraftDegraded(false);
+      setAiWorkRequest("");
+    }
+  }
+
+  /**
+   * Swap a work item with its neighbour.
+   *
+   * ## Why positions are rewritten rather than the two values swapped
+   *
+   * Every existing row carries `orderIndex: 0`, so the first reorder in a
+   * project is a swap between two identical values — which changes nothing.
+   * Writing the whole list's positions makes the first drag work like every
+   * later one, and repairs any duplicate or gap left by an earlier partial
+   * write on the way past.
+   *
+   * ## Why only the rows that moved are PATCHed
+   *
+   * A project can hold a lot of work items and this runs on a click. Sending
+   * the ones whose position actually differs keeps a reorder to two requests in
+   * the ordinary case, and only degrades to more when the list was already
+   * inconsistent.
+   */
+  async function moveWorkItem(position: number, direction: -1 | 1) {
+    if (!project) return;
+    const target = position + direction;
+    if (target < 0 || target >= project.tasks.length) return;
+
+    const reordered = [...project.tasks];
+    [reordered[position], reordered[target]] = [
+      reordered[target],
+      reordered[position],
+    ];
+
+    setReordering(true);
+    try {
+      const changed = reordered
+        .map((task, index) => ({ task, index }))
+        .filter(({ task, index }) => task.orderIndex !== index);
+
+      await Promise.all(
+        changed.map(({ task, index }) =>
+          fetch(`/api/organizations/${orgId}/tasks/${task.id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ orderIndex: index }),
+          })
+        )
+      );
+      await load();
+    } catch {
+      setError("Could not reorder the work items");
+    } finally {
+      setReordering(false);
+    }
+  }
+
+  /**
+   * Create straight from a clean parse, then report what happened.
+   *
+   * The staffing figures are read back from the reloaded project rather than
+   * from the create response: allocation runs inside `TaskService.create` and
+   * the row it returns predates it, so trusting that response would report
+   * "assigned 0" on a shift the engine had just filled.
+   */
+  async function createFromParse(result: {
+    title: string;
+    description?: string | null;
+    priority?: string;
+    requiredHeadcount?: number;
+    scheduledStart?: string | null;
+    scheduledEnd?: string | null;
+  }) {
+    setSaving(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/organizations/${orgId}/tasks`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: result.title,
+          description: result.description || undefined,
+          projectId,
+          departmentId: project?.departmentId || undefined,
+          priority: result.priority || project?.priority || "medium",
+          requiredHeadcount: result.requiredHeadcount || 1,
+          scheduledStart: result.scheduledStart ?? undefined,
+          scheduledEnd: result.scheduledEnd ?? undefined,
+        }),
+      });
+      const created = await response.json().catch(() => null);
+      if (!response.ok || !created?.id) {
+        setError(created?.error || "Could not create the work item");
+        return;
+      }
+
+      const refreshed = await load();
+      const placed = refreshed?.tasks.find(
+        (task: ProjectTask) => task.id === created.id
+      );
+      const assigned =
+        placed?.assignments.filter((a) => SLOT_STATUSES.has(a.status)).length ??
+        0;
+
+      setAiWorkRequest("");
+      setAiResult({
+        taskId: created.id,
+        title: created.title,
+        assigned,
+        required: placed?.requiredHeadcount ?? result.requiredHeadcount ?? 1,
+        unscheduled: !created.scheduledStart,
+      });
+    } catch {
+      setError("Could not create the work item");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  /** Remove a work item the AI just made, cancellation notices and all. */
+  async function undoAiResult() {
+    if (!aiResult) return;
+    setUndoing(true);
+    setError(null);
+    try {
+      const response = await fetch(
+        `/api/organizations/${orgId}/tasks/${aiResult.taskId}`,
+        { method: "DELETE" }
+      );
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        // `delete` refuses a shift somebody has already worked, which is a
+        // rule worth reading rather than a failure worth hiding.
+        setError(body?.error || "Could not undo — remove it from the list instead");
+        return;
+      }
+      setAiResult(null);
+      await load();
+    } catch {
+      setError("Could not undo — remove it from the list instead");
+    } finally {
+      setUndoing(false);
+    }
   }
 
   async function generateWorkDraft() {
@@ -320,31 +507,68 @@ export default function ProjectDetailPage() {
           (!projectStart || parsedStart >= projectStart) &&
           (!projectEnd || parsedEnd <= projectEnd)
       );
-      const created = await send(
-        `/api/organizations/${orgId}/tasks`,
-        "POST",
-        {
+      /*
+       * A DRAFT, put in front of somebody — not a task.
+       *
+       * This function is called `generateWorkDraft`, the form below reads
+       * `aiDraft` as the default value of all seven of its fields, and
+       * `setAiDraft` was never called with anything but `null`. The review step
+       * was designed, wired up, and unreachable: a parse went straight to
+       * POST, so whatever the model returned became real work before anybody
+       * read it.
+       *
+       * Out-of-window dates are cleared rather than silently dropped on the
+       * way to creation, and said out loud beneath the form. The old flow
+       * mentioned it in the success message — after the fact, about a task
+       * that already existed.
+       */
+      /*
+       * The gate. A form is the EXCEPTION now, not the rule.
+       *
+       * Asking a manager to confirm every generated item makes an automated
+       * product feel like a slower manual one — so the review step is reserved
+       * for the cases where the parser genuinely could not answer:
+       *
+       *   missing        the request never said (title, when, which department)
+       *   keywords       both providers were down, so dates and departments
+       *                  were quietly dropped rather than understood
+       *   out of window  the proposed time conflicts with the project itself
+       *
+       * The project department is supplied by this page rather than the model,
+       * so a "department" gap here is not one — the answer is already known.
+       */
+      const gaps = (result.missing ?? []).filter(
+        (field: string) => field !== "department"
+      );
+      const outOfWindow = Boolean(parsedStart && parsedEnd && !scheduleFitsProject);
+      const degraded = result.parsedBy === "keywords";
+
+      if (gaps.length > 0 || degraded || outOfWindow) {
+        setAiDraft({
           title: result.title,
-          description: result.description || undefined,
-          projectId,
-          // TaskService currently enforces the project's primary task department.
-          // Do not let the generic parser suggest a different org department and
-          // turn an otherwise valid auto-create into a 400 response.
-          departmentId: project?.departmentId || result.departmentId || undefined,
+          description: result.description ?? null,
+          // The project's own department wins. TaskService enforces it, so a
+          // department the generic parser preferred would be refused on save.
+          departmentId: project?.departmentId ?? result.departmentId ?? null,
           priority: result.priority || project?.priority || "medium",
           requiredHeadcount: result.requiredHeadcount || 1,
-          scheduledStart: scheduleFitsProject ? result.scheduledStart : undefined,
-          scheduledEnd: scheduleFitsProject ? result.scheduledEnd : undefined,
-        },
-        scheduleFitsProject
-          ? "AI work item created and sent for automatic allocation."
-          : "AI work item created and sent for automatic allocation. Its suggested time was outside this project's timeframe, so it was left unscheduled."
-      );
-      if (created) {
-        setAiWorkRequest("");
-        setAiDraft(null);
-        setShowAddWork(false);
+          scheduledStart: scheduleFitsProject ? result.scheduledStart : null,
+          scheduledEnd: scheduleFitsProject ? result.scheduledEnd : null,
+        });
+        setDraftOutOfWindow(outOfWindow);
+        setDraftMissing(gaps);
+        setDraftDegraded(degraded);
+        // Remounts the form so the new defaults are actually picked up:
+        // `defaultValue` is read once, and a second Generate into an open form
+        // would otherwise change nothing on screen.
+        setDraftSeq((n) => n + 1);
+        setShowAddWork(true);
+        return;
       }
+
+      // Nothing to ask. Create it, let auto mode staff it, and say what
+      // happened afterwards rather than asking permission beforehand.
+      await createFromParse(result);
     } catch (error) {
       setError(error instanceof Error ? error.message : "Could not generate a work item");
     } finally {
@@ -686,7 +910,21 @@ export default function ProjectDetailPage() {
               View all project tasks
             </Link>
             {!isClosed && (
-              <Button size="sm" onClick={() => setShowAddWork((open) => !open)}>
+              <Button
+                size="sm"
+                onClick={() => {
+                  // Cancelling discards the draft with the form. Keeping it
+                  // would silently re-open a stale AI suggestion the next time
+                  // somebody wanted a blank one.
+                  if (showAddWork) {
+                    setAiDraft(null);
+                    setDraftOutOfWindow(false);
+                    setDraftMissing([]);
+                    setDraftDegraded(false);
+                  }
+                  setShowAddWork((open) => !open);
+                }}
+              >
                 {showAddWork ? "Cancel" : "Add work item"}
               </Button>
             )}
@@ -701,15 +939,74 @@ export default function ProjectDetailPage() {
               <Input id="aiWorkRequest" value={aiWorkRequest} onChange={(event) => setAiWorkRequest(event.target.value)} placeholder="Describe the work that needs to be done" />
               <Button type="button" onClick={generateWorkDraft} disabled={parsingWork || !aiWorkRequest.trim()}>{parsingWork ? "Generating…" : "Generate"}</Button>
             </div>
-            <p className="mt-2 text-xs leading-relaxed text-muted-foreground">Describe what needs doing. AI creates one linked work item and starts automatic allocation; use Add work item for a manual draft.</p>
+            <p className="mt-2 text-xs leading-relaxed text-muted-foreground">Describe what needs doing. It is created and staffed straight away — you are only asked when the request leaves something out.</p>
           </div>
+        )}
+
+        {aiResult && (
+          <AiResultBanner
+            title={aiResult.title}
+            assigned={aiResult.assigned}
+            required={aiResult.required}
+            unscheduled={aiResult.unscheduled}
+            undoing={undoing}
+            onUndo={undoAiResult}
+            onDismiss={() => setAiResult(null)}
+          />
         )}
 
         {showAddWork && (
           <form
+            /*
+             * Keyed on the draft number so a generated draft actually reaches
+             * the fields. `defaultValue` is read on mount only, so without this
+             * a Generate into an already-open form would update `aiDraft` and
+             * change nothing anybody can see.
+             */
+            key={draftSeq}
             onSubmit={addWorkItem}
             className="mt-4 grid gap-4 rounded-xl border border-border bg-card p-5 sm:grid-cols-2"
           >
+            {/*
+              The form only opens for a generated item when something has to be
+              ASKED, so this says what — in the AI's own voice, naming the
+              field rather than telling somebody to check everything. A banner
+              reading "review this" on a form with nothing wrong with it is how
+              people learn to click past banners.
+            */}
+            {aiDraft && (
+              <div className="sm:col-span-2 rounded-lg border border-indigo-200 bg-indigo-50/70 px-3 py-2 dark:border-indigo-900 dark:bg-indigo-950/40">
+                <p className="text-xs font-medium text-indigo-900 dark:text-indigo-200">
+                  {draftMissing.includes("schedule") && draftMissing.includes("title")
+                    ? "I could not work out what this is or when it should happen — fill those in and I will staff it."
+                    : draftMissing.includes("schedule")
+                      ? "I could not work out when this should happen — give me a start and end and I will staff it."
+                      : draftMissing.includes("title")
+                        ? "I could not work out a title for this — name it and I will staff it."
+                        : "Check this before adding it."}
+                </p>
+                {draftOutOfWindow && (
+                  <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+                    The time I suggested falls outside this project&apos;s
+                    timeframe, so I left the dates blank. Set them yourself, or
+                    leave them empty to schedule later.
+                  </p>
+                )}
+                {/*
+                  Returned by the API since the fallback was written and shown
+                  by nobody. It is the difference between "the model read your
+                  sentence" and "both providers were down, so a keyword scan
+                  did" — which is exactly what a reader needs to know when
+                  deciding how hard to check the fields.
+                */}
+                {draftDegraded && (
+                  <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+                    AI was unavailable, so this was filled in from keywords —
+                    dates and departments are likely to be missing.
+                  </p>
+                )}
+              </div>
+            )}
             <div className="sm:col-span-2">
               <Label htmlFor="workTitle">Title</Label>
               <Input id="workTitle" name="title" defaultValue={aiDraft?.title} className="mt-1" required />
@@ -721,7 +1018,7 @@ export default function ProjectDetailPage() {
                 id="workDescription"
                 name="description"
                 rows={2}
-                defaultValue={aiDraft?.description}
+                defaultValue={aiDraft?.description ?? undefined}
                 className="mt-1 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
               />
             </div>
@@ -816,7 +1113,7 @@ export default function ProjectDetailPage() {
           </div>
         ) : (
           <ul className="mt-4 space-y-3">
-            {project.tasks.map((task) => {
+            {project.tasks.map((task, position) => {
               const filled = task.assignments.filter((assignment) =>
                 SLOT_STATUSES.has(assignment.status)
               );
@@ -824,26 +1121,64 @@ export default function ProjectDetailPage() {
 
               return (
                 <li key={task.id} className="rounded-xl border border-border bg-card">
-                  <button
-                    type="button"
-                    onClick={() => setOpenTaskId(isOpen ? null : task.id)}
-                    aria-expanded={isOpen}
-                    className="flex w-full items-start justify-between gap-3 p-4 text-left"
-                  >
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold">{task.title}</p>
-                      <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                        <StatusBadge value={task.status} palette="taskStatus" />
-                        <StatusBadge value={task.priority} palette="priority" />
-                        <span className="text-xs text-muted-foreground">
-                          {filled.length}/{task.requiredHeadcount} staffed
+                  <div className="flex items-start gap-1 p-4">
+                    {/*
+                      Running order, and only that. The number is the position
+                      in the list rather than the stored `orderIndex`, which may
+                      have gaps after a reorder and would read as a numbering
+                      bug on screen.
+
+                      Up/down rather than drag: it works on a phone, it works
+                      with a keyboard, and it needs no library.
+                    */}
+                    {!isClosed && (
+                      <div className="flex shrink-0 flex-col items-center gap-0.5 pr-1">
+                        <button
+                          type="button"
+                          onClick={() => moveWorkItem(position, -1)}
+                          disabled={position === 0 || reordering}
+                          aria-label={`Move "${task.title}" earlier`}
+                          className="rounded p-0.5 text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
+                        >
+                          <ChevronUp className="size-3.5" aria-hidden="true" />
+                        </button>
+                        <span className="text-[10px] font-medium tabular-nums text-muted-foreground">
+                          {position + 1}
                         </span>
+                        <button
+                          type="button"
+                          onClick={() => moveWorkItem(position, 1)}
+                          disabled={
+                            position === project.tasks.length - 1 || reordering
+                          }
+                          aria-label={`Move "${task.title}" later`}
+                          className="rounded p-0.5 text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
+                        >
+                          <ChevronDown className="size-3.5" aria-hidden="true" />
+                        </button>
                       </div>
-                    </div>
-                    <span className="shrink-0 text-xs text-muted-foreground">
-                      {formatDateTime(task.scheduledStart) || "Unscheduled"}
-                    </span>
-                  </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setOpenTaskId(isOpen ? null : task.id)}
+                      aria-expanded={isOpen}
+                      className="flex w-full items-start justify-between gap-3 text-left"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold">{task.title}</p>
+                        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                          <StatusBadge value={task.status} palette="taskStatus" />
+                          <StatusBadge value={task.priority} palette="priority" />
+                          <span className="text-xs text-muted-foreground">
+                            {filled.length}/{task.requiredHeadcount} staffed
+                          </span>
+                        </div>
+                      </div>
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        {formatDateTime(task.scheduledStart) || "Unscheduled"}
+                      </span>
+                    </button>
+                  </div>
 
                   {isOpen && (
                     <div className="border-t border-border px-4 py-4 text-sm">

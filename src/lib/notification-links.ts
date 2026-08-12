@@ -93,6 +93,14 @@ export const NOTIFICATION_DESTINATIONS: Record<NotificationType, Destination> = 
   withdrawal_denied: { preferred: "tasks", requires: TASK_LIST_READERS, fallback: "my-tasks" },
   backfill_needed: { preferred: "tasks", requires: TASK_LIST_READERS, fallback: "my-tasks" },
   backfill_offered: { preferred: "tasks", requires: TASK_LIST_READERS, fallback: "my-tasks" },
+  /*
+   * The board, where the assign panel is — these two exist so somebody can put
+   * people on the shift, and that is the only screen where they can. The
+   * personal fallback matches the rest of the task family rather than being a
+   * dead end, though in practice only task-list readers are ever sent these.
+   */
+  task_partially_filled: { preferred: "tasks", requires: TASK_LIST_READERS, fallback: "my-tasks" },
+  task_unfilled: { preferred: "tasks", requires: TASK_LIST_READERS, fallback: "my-tasks" },
 
   /*
    * Finished work, so the personal fallback is My History rather than My Tasks

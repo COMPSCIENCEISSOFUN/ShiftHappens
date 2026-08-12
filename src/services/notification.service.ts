@@ -63,6 +63,30 @@ const TYPE_TO_PREFERENCE: Record<string, string> = {
   [NOTIFICATION_TYPES.ASSIGNMENT_REJECTED]: "taskRejection",
   [NOTIFICATION_TYPES.HOUR_LIMIT_WARNING]: "hourLimitWarning",
   [NOTIFICATION_TYPES.CERT_EXPIRING]: "certificationExpiry",
+  /*
+   * Staffing shortfalls get their own switch rather than joining
+   * `taskAssignment`.
+   *
+   * That one is about a member's OWN shifts changing and is read by staff; these
+   * two are addressed to whoever finds people, and an organisation that wants
+   * one does not necessarily want the other. Sharing a key would mean silencing
+   * "you have been assigned" also silenced "this shift has nobody on it".
+   */
+  [NOTIFICATION_TYPES.TASK_PARTIALLY_FILLED]: "taskStaffing",
+  [NOTIFICATION_TYPES.TASK_UNFILLED]: "taskStaffing",
+  /*
+   * The OUTCOME of a withdrawal, and only the outcome.
+   *
+   * `WITHDRAWAL_REQUESTED` is deliberately absent and must stay absent. It is
+   * in `NEEDS_ACTION_TYPES` because a manager has to answer it, and a switch
+   * that hides it would let an organisation silence a decision that is waiting
+   * on them — the request would sit unanswered with nothing anywhere saying so.
+   * Same reasoning `LEAVE_REMINDER` is given in `notification-types`: a setting
+   * whose only effect is to make the first warning somebody gets be the angry
+   * one.
+   */
+  [NOTIFICATION_TYPES.WITHDRAWAL_APPROVED]: "taskWithdrawal",
+  [NOTIFICATION_TYPES.WITHDRAWAL_DENIED]: "taskWithdrawal",
 };
 
 export interface NotificationFeedOptions {

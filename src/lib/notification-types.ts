@@ -94,6 +94,31 @@ export const NOTIFICATION_TYPES = {
    * than by them.
    */
   BACKFILL_OFFERED: "backfill_offered",
+  /*
+   * Auto mode staffed the shift and could not finish the job: fewer people
+   * were assigned than the headcount asks for.
+   *
+   * The case this product was silent about. `autoAllocate` takes the top N
+   * candidates for N places and only fails when it finds NOBODY — so needing
+   * three and finding one assigned that one, returned normally, and told
+   * nobody. The shift then looked staffed on every screen that reads a status
+   * rather than a count, and the first person to discover otherwise was
+   * whoever turned up to work it.
+   *
+   * Distinct from BACKFILL_NEEDED, which is a hole opened in a shift that WAS
+   * covered. This is a shift that never got there.
+   */
+  TASK_PARTIALLY_FILLED: "task_partially_filled",
+  /*
+   * Auto mode was asked to staff a shift and found nobody at all.
+   *
+   * Split out of BACKFILL_NEEDED, which it used to borrow. That type means
+   * "approved leave has taken somebody off a covered shift" — a different
+   * event with a different cause, and the shared wording made the two
+   * indistinguishable in the feed. One says somebody left; this says nobody
+   * ever came.
+   */
+  TASK_UNFILLED: "task_unfilled",
 } as const;
 
 /**
@@ -139,6 +164,11 @@ export const NOTIFICATION_CATEGORIES = {
     NOTIFICATION_TYPES.STAFF_INELIGIBLE,
     NOTIFICATION_TYPES.SHIFT_RATED_LOW,
     NOTIFICATION_TYPES.BACKFILL_NEEDED,
+    // Staffing shortfalls are alerts, not assignment news: they are addressed
+    // to somebody who has to find people, not to somebody whose own shift
+    // changed.
+    NOTIFICATION_TYPES.TASK_PARTIALLY_FILLED,
+    NOTIFICATION_TYPES.TASK_UNFILLED,
   ],
 } as const;
 
@@ -159,6 +189,11 @@ export const NEEDS_ACTION_TYPES: string[] = [
   NOTIFICATION_TYPES.BACKFILL_NEEDED,
   // And a request nobody has answered is the definition of something overdue.
   NOTIFICATION_TYPES.LEAVE_REMINDER,
+  // Both for the same reason as BACKFILL_NEEDED: a shift short of people is
+  // work waiting for a human, and the whole point of raising them is that
+  // somebody assigns or overrides before the day arrives.
+  NOTIFICATION_TYPES.TASK_PARTIALLY_FILLED,
+  NOTIFICATION_TYPES.TASK_UNFILLED,
 ];
 
 export type NotificationType =
@@ -199,6 +234,11 @@ export const NOTIFICATION_LABELS: Record<NotificationType, string> = {
   cert_expiring: "Expiring",
   backfill_needed: "Cover needed",
   backfill_offered: "Cover offered",
+  // Says the SHAPE of the problem, not just that there is one. "Understaffed"
+  // would read the same on a shift missing one of six as on one missing five,
+  // and the number is what decides whether it can wait.
+  task_partially_filled: "Partly staffed",
+  task_unfilled: "Not staffed",
 };
 
 /** Every type, for tests and exhaustiveness checks. */

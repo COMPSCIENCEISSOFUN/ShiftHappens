@@ -55,8 +55,9 @@ beforeEach(async () => {
   await prisma.membership.create({
     data: { userId: admin.id, organizationId: orgId, role: "company_admin", status: "active" },
   });
+  // Stated rather than inherited — see the note in auto-schedule.service.test.
   await prisma.companySettings.create({
-    data: { organizationId: orgId, taskAcceptanceMode: "require_acceptance" },
+    data: { organizationId: orgId, allocationMode: "suggested" },
   });
 
   const dept = await prisma.department.create({

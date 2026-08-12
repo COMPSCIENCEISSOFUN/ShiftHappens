@@ -86,7 +86,30 @@ export async function createTenant(
   await prisma.companySettings.create({
     data: {
       organizationId: org.id,
-      taskAcceptanceMode: "require_acceptance",
+      /*
+       * Stated, not inherited from the column default.
+       *
+       * That default became "auto" on 2026-08-13 so new organisations get the
+       * automation they signed up for — which would have silently put every
+       * test tenant into automatic assignment, so any test creating a task
+       * would fire the allocation engine and half the suite would be exercising
+       * a path it never meant to.
+       *
+       * Pinning it here is the right shape regardless: a fixture whose
+       * behaviour turns on a column default is one nobody can read.
+       */
+      allocationMode: "suggested",
+      /*
+       * `taskAcceptanceMode: "require_acceptance"` stood here until the setting
+       * was removed on 2026-08-13, and it is worth knowing what it was doing:
+       * every assignment a test made was written `pending`, because the tenant
+       * asked for staff to accept first.
+       *
+       * Assignments now land `accepted`, which is what the product does. A test
+       * that needs one waiting on a member has to create that state on purpose
+       * — via a backfill offer, or by booking somebody over their own stated
+       * availability — rather than inheriting it from the fixture.
+       */
       workingDayHours: 8,
     },
   });

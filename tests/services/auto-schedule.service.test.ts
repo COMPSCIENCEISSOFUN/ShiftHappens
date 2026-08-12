@@ -37,8 +37,11 @@ beforeEach(async () => {
     data: { userId: admin.id, organizationId: orgId, role: "company_admin", status: "active" },
   });
 
+  // Stated rather than inherited: the column default became "auto" on
+  // 2026-08-13, and these tests drive the scheduler directly — a second,
+  // implicit allocation on every task create is not what they are measuring.
   await prisma.companySettings.create({
-    data: { organizationId: orgId, taskAcceptanceMode: "require_acceptance" },
+    data: { organizationId: orgId, allocationMode: "suggested" },
   });
 
   const dept = await prisma.department.create({

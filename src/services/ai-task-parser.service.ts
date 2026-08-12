@@ -40,6 +40,58 @@ interface ParsedTask {
    * both providers were down and "next Tuesday" had been silently dropped.
    */
   parsedBy?: "ai" | "keywords";
+  /**
+   * What the request did not say, and the parser therefore could not fill in.
+   *
+   * Empty means the caller may create the task WITHOUT showing anybody a form
+   * — which is the point of it. An automated product that asks permission every
+   * time is not automated, so the review step is now the exception rather than
+   * the rule, and this is what decides which.
+   *
+   * ## Why only these three
+   *
+   * Because these are the only fields where "not stated" is distinguishable
+   * from "stated". The prompt tells the model to return null for a date it
+   * cannot work out and null for a department the text does not clearly name,
+   * so null genuinely means "the request did not say".
+   *
+   * `priority` and `requiredHeadcount` are deliberately absent. The prompt
+   * gives both a default — "default = medium", "if headcount not specified,
+   * default to 1" — so a returned value cannot be told apart from a filled-in
+   * blank. Gating on them would open the form on nearly every request, which is
+   * the behaviour this exists to remove. Both are also one edit away afterwards
+   * and neither prevents the shift being staffed.
+   */
+  missing: MissingField[];
+}
+
+/**
+ * `schedule` covers both ends of the shift as one answer, because they are one
+ * question to the person answering it and no useful state has only one of them.
+ */
+export type MissingField = "title" | "schedule" | "department";
+
+/**
+ * What the caller must be asked about before this can be created unattended.
+ *
+ * `departmentCount` is the number of departments THIS CALLER may create in, not
+ * the number the organisation has. A manager who runs one department has only
+ * one possible answer, so asking them to choose is a question with a single
+ * option — while a company admin with ten genuinely has to be asked.
+ */
+function gapsIn(
+  task: Omit<ParsedTask, "missing">,
+  rawTitle: string,
+  departmentCount: number
+): MissingField[] {
+  const missing: MissingField[] = [];
+  if (!rawTitle.trim()) missing.push("title");
+  // Both ends, or neither: a start with no end cannot be staffed any more than
+  // no times at all, and the eligibility check needs a window rather than an
+  // instant.
+  if (!task.scheduledStart || !task.scheduledEnd) missing.push("schedule");
+  if (!task.departmentId && departmentCount > 1) missing.push("department");
+  return missing;
 }
 
 export class AITaskParserService {
@@ -232,8 +284,15 @@ RULES:
         }
       }
 
-      return {
-        title: parsed.title || "New Task",
+      /*
+       * Kept before the "New Task" default is applied, so the gap check can
+       * still tell an absent title from a real one. Afterwards the two are
+       * indistinguishable without matching on the sentinel string.
+       */
+      const rawTitle = typeof parsed.title === "string" ? parsed.title : "";
+
+      const task = {
+        title: rawTitle.trim() || "New Task",
         description: parsed.description || "",
         departmentId,
         departmentName,
@@ -244,6 +303,8 @@ RULES:
         scheduledStart: parsed.scheduledStart || null,
         scheduledEnd: parsed.scheduledEnd || null,
       };
+
+      return { ...task, missing: gapsIn(task, rawTitle, departments.length) };
     } catch {
       /*
        * THROWS rather than returning a fallback.
@@ -316,8 +377,9 @@ RULES:
       scheduledEnd = atLocalHour(22);
     }
 
-    return {
-      title: text.slice(0, 100) || "New Task",
+    const rawTitle = text.slice(0, 100);
+    const task = {
+      title: rawTitle || "New Task",
       description: text,
       departmentId,
       departmentName,
@@ -326,5 +388,16 @@ RULES:
       scheduledStart,
       scheduledEnd,
     };
+
+    /*
+     * Computed here too, though callers treat `parsedBy: "keywords"` as
+     * needing review regardless.
+     *
+     * Not skipped on that basis: this path is also reached for input under
+     * three characters, which never touches a provider and is not a degraded
+     * parse — and leaving the field empty there would say "nothing is missing"
+     * about a request that said almost nothing.
+     */
+    return { ...task, missing: gapsIn(task, rawTitle, departments.length) };
   }
 }

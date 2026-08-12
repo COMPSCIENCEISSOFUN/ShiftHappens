@@ -62,7 +62,10 @@ async function createTenant(slug: string): Promise<Tenant> {
   await prisma.companySettings.create({
     data: {
       organizationId: org.id,
-      taskAcceptanceMode: "require_acceptance",
+      // Stated rather than inherited: the column default became "auto" on
+      // 2026-08-13, and an implicit allocation on task create would put staff
+      // on shifts these isolation tests never asked to be staffed.
+      allocationMode: "suggested",
       workingDayHours: 8,
     },
   });

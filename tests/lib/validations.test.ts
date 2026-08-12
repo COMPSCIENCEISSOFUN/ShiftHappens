@@ -336,7 +336,7 @@ describe("updateRoleSchema", () => {
 describe("updateCompanySettingsSchema", () => {
   it("accepts valid settings", () => {
     const result = updateCompanySettingsSchema.safeParse({
-      allocationMode: "suggested", taskAcceptanceMode: "require_acceptance",
+      allocationMode: "suggested",
       workingDayHours: 6,
     });
     expect(result.success).toBe(true);
@@ -421,6 +421,41 @@ describe("createTaskSchema", () => {
   it("accepts task with scheduling", () => {
     const result = createTaskSchema.safeParse({ title: "Morning prep", scheduledStart: "2026-06-01T08:00:00.000Z", scheduledEnd: "2026-06-01T10:00:00.000Z" });
     expect(result.success).toBe(true);
+  });
+
+  /*
+   * The format the AI task parser actually produces.
+   *
+   * Its prompt instructs the model to return an offset and never a bare "Z",
+   * because a local time labelled UTC lands hours from what was asked for. Zod's
+   * plain `.datetime()` rejects exactly that, so the application's own parser
+   * emitted values its own create endpoint refused — invisible for as long as a
+   * form sat between them normalising through `new Date().toISOString()`, and
+   * "Validation failed" on every AI Create with a time in it once the form was
+   * removed.
+   */
+  it("accepts a scheduled time carrying a timezone offset", () => {
+    const result = createTaskSchema.safeParse({
+      title: "Decorate bar for CNY event",
+      scheduledStart: "2026-08-26T15:00:00+08:00",
+      scheduledEnd: "2026-08-26T16:00:00+08:00",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts an offset on update too", () => {
+    const result = updateTaskSchema.safeParse({
+      scheduledStart: "2026-08-26T15:00:00+08:00",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("still refuses something that is not a datetime at all", () => {
+    const result = createTaskSchema.safeParse({
+      title: "Task",
+      scheduledStart: "tomorrow morning",
+    });
+    expect(result.success).toBe(false);
   });
 
   it("rejects invalid priority", () => {

@@ -1328,8 +1328,16 @@ Use the exact task numbers (1, 2, 3...) and staff letters (A, B, C...) from abov
         ? draftProvider
         : undefined;
 
-    const settings = await this.settingsRepo.getOrCreate(organizationId);
-    const assignmentStatus = settings.taskAcceptanceMode === "auto_accept" ? "accepted" : "pending";
+    /*
+     * Accepted, not pending. Rostering is automatic since the acceptance
+     * setting was removed on 2026-08-13 — a member who cannot work a shift
+     * asks to withdraw from it rather than being asked to take it on first.
+     *
+     * Unlike `TaskService.assignStaff` there is no offer path here: an
+     * auto-schedule draft is a manager committing a whole roster they have
+     * looked at, not the system finding cover on somebody's behalf.
+     */
+    const assignmentStatus = "accepted";
 
     // The draft comes back from the client, so every id in it is caller-supplied
     // and must be re-checked against this organisation before anything is

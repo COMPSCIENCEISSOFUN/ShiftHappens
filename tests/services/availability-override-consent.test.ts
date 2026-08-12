@@ -41,12 +41,19 @@ let staffMembership: string;
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
 
-/** Auto-accept, so a forced `pending` can only come from the waiver. */
+/**
+ * Rostering has been automatic since the acceptance setting was removed on
+ * 2026-08-13, so this no longer has to arrange it — which makes the point of
+ * these tests sharper rather than weaker: a `pending` assignment can now ONLY
+ * have come from the waiver or from a backfill offer, because nothing else in
+ * the product writes one.
+ *
+ * Kept as a named no-op call site rather than deleted from each test, so the
+ * precondition every assertion below depends on is still stated where it is
+ * relied upon.
+ */
 async function autoAccept() {
-  await prisma.companySettings.updateMany({
-    where: { organizationId: tenant.orgId },
-    data: { taskAcceptanceMode: "auto_accept" },
-  });
+  /* Nothing to do — it is the only behaviour. */
 }
 
 async function futureTask(title = "Saturday close") {

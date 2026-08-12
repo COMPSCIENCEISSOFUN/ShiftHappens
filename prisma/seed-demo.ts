@@ -1257,7 +1257,6 @@ async function seedAll(tx: Tx) {
       data: {
         organizationId: orgId,
         allocationMode: "suggested",
-        taskAcceptanceMode: "require_acceptance",
         workingDayHours: 8,
       },
     });

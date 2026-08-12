@@ -297,6 +297,8 @@ export class TaskRepository {
       status?: string;
       scheduledStart?: Date | null;
       scheduledEnd?: Date | null;
+      /** Display order within a project. Presentation only. */
+      orderIndex?: number;
       // `undefined` leaves the rules alone, `null` clears them. Prisma ignores
       // undefined, which is exactly the distinction the API needs: omitting
       // the key on a partial update must not wipe a task's constraints.

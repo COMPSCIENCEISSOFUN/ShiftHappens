@@ -32,7 +32,7 @@ import {
   parseCompositionRules,
   serialiseCompositionRules,
 } from "@/lib/composition-rules";
-import { occupiesSlot, wasWorked } from "@/lib/assignment-status";
+import { countOccupied, occupiesSlot, wasWorked } from "@/lib/assignment-status";
 import { canBeRostered } from "@/lib/role-config";
 import { assignmentRefusalFor } from "@/lib/task-status";
 import { ProjectRepository } from "@/repositories/project.repository";
@@ -175,7 +175,7 @@ export class TaskService {
      * instances.
      */
     await this.autoAllocateIfEnabled(task.id, orgId, userId, {
-      announceFailure: !task.isRecurring,
+      announceShortfall: !task.isRecurring,
     });
 
     return task;
@@ -212,7 +212,17 @@ export class TaskService {
     taskId: string,
     orgId: string,
     userId: string,
-    options?: { announceFailure?: boolean }
+    /**
+     * `announceShortfall: false` silences BOTH outcomes — nobody found and not
+     * enough found.
+     *
+     * Was `announceFailure`, when failing was the only outcome that said
+     * anything. Recurring templates pass false for the same reason as before:
+     * the recurring materialiser sends one aggregated message for a fortnight
+     * of instances, and a per-instance notice on top of it is the same shift
+     * reported twice.
+     */
+    options?: { announceShortfall?: boolean }
   ) {
     /*
      * The mode is read in its own try, and the outcome carried out of it.
@@ -237,10 +247,31 @@ export class TaskService {
       // field here would make the two constructors recurse forever.
       const { AllocationService } = await import("@/services/allocation.service");
       await new AllocationService().autoAllocate(taskId, orgId, userId);
+
+      /*
+       * Success is not the same as finished.
+       *
+       * `autoAllocate` takes the top N candidates for N places and only throws
+       * when it finds NOBODY — so a task needing three people and offered one
+       * assigned that one and returned normally. Nothing was wrong, nothing
+       * threw, and nothing was said; the shift then read as staffed on every
+       * screen that checks a status rather than a count.
+       *
+       * Checked here by counting rather than by reading a shortfall back out
+       * of `autoAllocate`, because its return value is the assignment array and
+       * two callers — the recurring materialiser and the auto-allocate route —
+       * already consume it as one.
+       */
+      if (options?.announceShortfall !== false) {
+        await this.tellWatchersShortfall(taskId, orgId, userId);
+      }
     } catch (error) {
       console.error("[Auto-Allocate Error]", error);
-      if (options?.announceFailure !== false) {
-        await this.tellWatchersUnfilled(taskId, orgId, userId);
+      if (options?.announceShortfall !== false) {
+        // Same method: it counts what is on the task, so the throw path
+        // naturally lands on "nobody at all" without being told that is what
+        // happened.
+        await this.tellWatchersShortfall(taskId, orgId, userId);
       }
     }
   }
@@ -259,7 +290,7 @@ export class TaskService {
    * they did one second ago is how a notification list becomes something people
    * stop opening.
    */
-  private async tellWatchersUnfilled(
+  private async tellWatchersShortfall(
     taskId: string,
     orgId: string,
     createdByUserId: string
@@ -268,16 +299,53 @@ export class TaskService {
       const task = await this.taskRepo.findById(taskId);
       if (!task) return;
 
+      /*
+       * The shared rule, never `assignments.length`. A shift everyone rejected
+       * has rows on it and no people — counting rows is exactly how the
+       * dashboard and the reporting layer once reported two different numbers
+       * for one shift.
+       */
+      const occupied = countOccupied(task.assignments);
+
+      // Auto mode finished the job. The overwhelmingly common case, and the
+      // only one that must stay silent: a notification per successfully
+      // staffed shift is how a feed becomes something people stop opening.
+      if (occupied >= task.requiredHeadcount) return;
+
       const watchers = (
         await taskWatcherUserIds(orgId, task.departmentId)
       ).filter((id) => id !== createdByUserId);
 
+      /*
+       * Two messages, because they are two different problems. Nobody at all
+       * needs somebody to find people or reconsider the requirements; a shift
+       * one short is often fine until the sweep tops it up. Sending one wording
+       * for both leaves the reader to open the task to find out which they are
+       * looking at.
+       *
+       * The shortfall is stated as a number for the same reason — "understaffed"
+       * reads identically on a shift missing one of six and one missing five.
+       */
+      const short = task.requiredHeadcount - occupied;
+      const { type, title, message } =
+        occupied === 0
+          ? {
+              type: NOTIFICATION_TYPES.TASK_UNFILLED,
+              title: "Shift could not be filled automatically",
+              message: `"${task.title}" was created but nobody eligible was available, so it is unassigned.`,
+            }
+          : {
+              type: NOTIFICATION_TYPES.TASK_PARTIALLY_FILLED,
+              title: "Shift is only partly staffed",
+              message: `"${task.title}" needs ${task.requiredHeadcount} people and only ${occupied} could be assigned — ${short} place${short === 1 ? "" : "s"} still open.`,
+            };
+
       await this.notificationService.notifyManyIfEnabled(
         orgId,
         watchers,
-        NOTIFICATION_TYPES.BACKFILL_NEEDED,
-        "Shift could not be filled automatically",
-        `"${task.title}" was created but nobody eligible was available, so it is unassigned.`,
+        type,
+        title,
+        message,
         "task",
         taskId
       );
@@ -431,6 +499,10 @@ export class TaskService {
       requiredCertifications: input.requiredCertifications,
       priority: input.priority,
       status: input.status,
+      // Display order within a project. Passed straight through — nothing
+      // downstream reads it, so there is no eligibility or schedule
+      // consequence to re-check the way the fields above have.
+      orderIndex: input.orderIndex,
       // Absent key → leave the rules alone; an explicit empty array clears
       // them. `serialiseCompositionRules([])` returns null, which is the
       // stored form of "no constraints", so the two cases stay distinct
@@ -710,8 +782,8 @@ export class TaskService {
     provenance?: AllocationProvenance,
     /**
      * Forces the assignment to be written `pending` — an OFFER the member
-     * accepts or declines — whatever the organisation's `taskAcceptanceMode`
-     * says.
+     * accepts or declines — rather than the automatic rostering everything
+     * else gets.
      *
      * Exists for the leave backfill. A member picked to cover somebody's
      * approved leave may be a full-timer whose all-week availability was opened
@@ -885,9 +957,23 @@ export class TaskService {
       uniqueIds
     );
 
-    const settings = await this.settingsRepo.getOrCreate(organizationId);
-    const autoAccept =
-      settings.taskAcceptanceMode === "auto_accept" && !options?.asOffer;
+    /*
+     * Rostering is automatic. Staff are put on the shift, and leave it by
+     * asking to withdraw rather than by accepting it first.
+     *
+     * This used to read the organisation's `taskAcceptanceMode`, which offered
+     * a "require acceptance" mode where every assignment waited on the member.
+     * The setting was removed on 2026-08-13: the product's answer to "I cannot
+     * do this shift" is the withdrawal request, which works after the fact and
+     * for both employment types, so a second mechanism that worked only before
+     * the fact was a second way to say the same thing.
+     *
+     * `asOffer` survives it and is the only remaining way to write a whole
+     * assignment `pending` — the leave backfill, where the person being asked
+     * may be a full-timer whose all-week availability was set by default rather
+     * than chosen.
+     */
+    const autoAccept = !options?.asOffer;
 
     /*
      * Who is being asked to work a time they said they could not.
@@ -897,16 +983,19 @@ export class TaskService {
      * WILL ring the person who said no. What it must not become is a booking.
      *
      * So the waiver is an ask: the assignment is written `pending` for that
-     * member however the organisation has `taskAcceptanceMode` set. Availability
-     * that somebody explicitly closed is a stronger statement than availability
-     * merely left open by default — and `asOffer` already refuses to auto-book
-     * on the weaker one, for the leave backfill. Auto-booking someone over their
-     * own stated unavailability would be the system overruling a person, which
-     * no setting should be able to express.
+     * member whatever else is true. Availability that somebody explicitly
+     * closed is a stronger statement than availability merely left open by
+     * default — and `asOffer` already refuses to auto-book on the weaker one,
+     * for the leave backfill. Auto-booking someone over their own stated
+     * unavailability would be the system overruling a person, which nothing
+     * should be able to express.
+     *
+     * This is why removing the acceptance setting did not remove the accept and
+     * reject flow: this path and `asOffer` both still produce assignments a
+     * member has to answer.
      *
      * Per member, not per call: one assignment may mix a waived candidate with
-     * three ordinary ones, and the ordinary three should still auto-accept where
-     * the organisation asked for that.
+     * three ordinary ones, and the ordinary three should still auto-accept.
      */
     const asked = new Set<string>();
     if (autoAccept) {

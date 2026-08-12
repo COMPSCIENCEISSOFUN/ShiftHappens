@@ -52,7 +52,9 @@ beforeEach(async () => {
   });
 
   await prisma.companySettings.create({
-    data: { organizationId: orgId, taskAcceptanceMode: "require_acceptance" },
+    // Stated rather than inherited: the column default became "auto" on
+    // 2026-08-13, which would allocate staff on every task create in this file.
+    data: { organizationId: orgId, allocationMode: "suggested" },
   });
 
   const dept = await prisma.department.create({

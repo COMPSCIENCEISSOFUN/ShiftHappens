@@ -249,8 +249,13 @@ export const updateRoleSchema = z.object({
 
 /**
  * Validates company settings updates.
- * allocationMode: manual (admin picks), suggested (AI suggests), auto (AI assigns)
- * taskAcceptanceMode: auto_accept (instant) or require_acceptance (staff confirms)
+ * allocationMode: suggested (a human assigns, shown the engine's ranking) or
+ * auto (the engine assigns). Presented as "Manual" and "Auto".
+ *
+ * `taskAcceptanceMode` was removed on 2026-08-13. Rostering is automatic and a
+ * member who cannot work a shift asks to withdraw from it, so the mode that
+ * made every assignment wait on an acceptance was a second way to express a
+ * refusal the product already handled after the fact.
  *
  * Operating hours are two plain hour integers, and ANY pair is legal. There is
  * deliberately no cross-field rule that the end must be after the start:
@@ -263,8 +268,7 @@ export const updateRoleSchema = z.object({
  * See `@/lib/business-day` for how the pair is interpreted.
  */
 export const updateCompanySettingsSchema = z.object({
-  allocationMode: z.enum(["manual", "suggested", "auto"]).optional(),
-  taskAcceptanceMode: z.enum(["auto_accept", "require_acceptance"]).optional(),
+  allocationMode: z.enum(["suggested", "auto"]).optional(),
   workingDayHours: z.number().int().min(1).max(24).optional(),
   operatingHoursStart: z.number().int().min(0).max(23).optional(),
   operatingHoursEnd: z.number().int().min(1).max(24).optional(),
@@ -275,9 +279,22 @@ export const updateCompanySettingsSchema = z.object({
   // left where it was.
   experiencedShiftThreshold: z.number().int().min(1).max(500).optional(),
   seniorShiftThreshold: z.number().int().min(1).max(500).optional(),
+  /*
+   * Every key optional and every absent key meaning "enabled", which is what
+   * `NotificationService.isTypeEnabled` already assumes — so adding a key here
+   * needs no migration and no backfill: an organisation whose stored JSON
+   * predates the key keeps receiving the notification until it says otherwise.
+   */
   notificationPreferences: z.object({
     emailNotifications: z.boolean().optional(),
     taskAssignment: z.boolean().optional(),
+    // Shortfalls: partly staffed and not staffed. Separate from taskAssignment
+    // because that one is staff-facing news about their own shifts and this is
+    // a manager's queue of work to fix.
+    taskStaffing: z.boolean().optional(),
+    // The outcome of a withdrawal. The REQUEST is never gated — see the note
+    // beside TYPE_TO_PREFERENCE in notification.service.
+    taskWithdrawal: z.boolean().optional(),
     taskRejection: z.boolean().optional(),
     hourLimitWarning: z.boolean().optional(),
     certificationExpiry: z.boolean().optional(),
@@ -308,6 +325,31 @@ export const updateCompanySettingsSchema = z.object({
 // ============================================================
 
 /** Validates new task creation */
+/**
+ * An ISO 8601 instant, with or without a timezone offset.
+ *
+ * ## Why `offset: true` is not optional here
+ *
+ * Zod's bare `.datetime()` accepts ONLY a `Z` time and rejects
+ * "2026-08-26T15:00:00+08:00". The AI task parser deliberately produces the
+ * second form — its prompt says "Return ISO 8601 WITH the offset… Never return
+ * a bare Z time — it would be read as UTC and land hours away from what the
+ * user asked for" — so the application's own parser emitted values its own
+ * create endpoint refused.
+ *
+ * That went unnoticed for as long as a form sat between them: the parsed value
+ * was loaded into a `datetime-local` input and submitted as
+ * `new Date(value).toISOString()`, which is a `Z` string. The moment a clean
+ * parse began creating the task directly, the mismatch became "Validation
+ * failed" on every AI Create with a time in it.
+ *
+ * Widening rather than normalising at the call site, because the narrowness
+ * bought nothing: both forms are the same instant, `new Date()` reads them
+ * identically, and requiring `Z` only means every caller must remember to
+ * convert — which is the bug, restated.
+ */
+const isoInstant = z.string().datetime({ offset: true });
+
 export const createTaskSchema = z.object({
   title: z.string().min(1, "Title is required").max(200),
   description: z.string().max(2000).optional(),
@@ -316,8 +358,8 @@ export const createTaskSchema = z.object({
   requiredHeadcount: z.number().int().min(1).max(50).optional(),
   requiredCertifications: z.array(z.string().min(1).max(200)).max(20).optional(),
   priority: z.enum(["low", "medium", "high", "urgent"]).optional(),
-  scheduledStart: z.string().datetime().optional(),
-  scheduledEnd: z.string().datetime().optional(),
+  scheduledStart: isoInstant.optional(),
+  scheduledEnd: isoInstant.optional(),
   isRecurring: z.boolean().optional(),
   recurringPattern: z.string().max(200).optional(),
   // Constraints on the SET of assignees rather than on each of them. The
@@ -339,8 +381,17 @@ export const updateTaskSchema = z.object({
   requiredCertifications: z.array(z.string().min(1).max(200)).max(20).optional(),
   priority: z.enum(["low", "medium", "high", "urgent"]).optional(),
   status: z.enum(["open", "in_progress", "completed", "cancelled"]).optional(),
-  scheduledStart: z.string().datetime().optional().or(z.literal("")),
-  scheduledEnd: z.string().datetime().optional().or(z.literal("")),
+  // Same widening as create — an edit that re-sends a parsed time must not be
+  // refused where the create accepted it.
+  scheduledStart: isoInstant.optional().or(z.literal("")),
+  scheduledEnd: isoInstant.optional().or(z.literal("")),
+  /*
+   * Position in the project's running order. Presentation only — nothing gates
+   * on it — so it is bounded rather than validated against siblings: a gap or a
+   * duplicate sorts harmlessly and is not worth a read-modify-write of every
+   * task in the project to prevent.
+   */
+  orderIndex: z.number().int().min(0).max(10000).optional(),
   // An empty array is meaningful and distinct from omission: it clears every
   // rule. Omitting the key leaves them untouched.
   compositionRules: compositionRulesSchema.optional(),

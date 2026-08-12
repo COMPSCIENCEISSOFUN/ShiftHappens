@@ -79,7 +79,6 @@ interface OrgDetails {
 
 interface Settings {
   allocationMode: string;
-  taskAcceptanceMode: string;
   experiencedShiftThreshold: number;
   seniorShiftThreshold: number;
   operatingHoursStart: number;
@@ -217,8 +216,10 @@ export default function SettingsPage() {
   const [subscription, setSubscription] = useState<SubscriptionData | null>(
     null
   );
-  const [allocationMode, setAllocationMode] = useState("manual");
-  const [taskAcceptanceMode, setTaskAcceptanceMode] = useState("auto_accept");
+  // The unautomated mode, until the load says otherwise. Starting on "auto"
+  // would show an organisation the automatic option pre-selected for the
+  // moment before its real setting arrives.
+  const [allocationMode, setAllocationMode] = useState("suggested");
   const [weights, setWeights] = useState<RankingWeights>(DEFAULT_WEIGHTS);
   // Completed-shift counts at which a member is treated as experienced, then
   // senior. Held as strings so the field can be emptied while typing without
@@ -245,6 +246,8 @@ export default function SettingsPage() {
   const [notifPrefs, setNotifPrefs] = useState({
     emailNotifications: true,
     taskAssignment: true,
+    taskStaffing: true,
+    taskWithdrawal: true,
     taskRejection: true,
     hourLimitWarning: true,
     certificationExpiry: true,
@@ -352,7 +355,6 @@ export default function SettingsPage() {
 
       setSettings(data);
       setAllocationMode(data.allocationMode);
-      setTaskAcceptanceMode(data.taskAcceptanceMode);
       // The service hands these back already parsed, so the screen never has an
       // opinion about a malformed column.
       /*
@@ -511,7 +513,6 @@ export default function SettingsPage() {
     saveSettings(
       {
         allocationMode,
-        taskAcceptanceMode,
         experiencedShiftThreshold: Number(experiencedThreshold),
         seniorShiftThreshold: Number(seniorThreshold),
         smartAllocationWeights: weights,
@@ -800,12 +801,62 @@ export default function SettingsPage() {
                     />
                   </div>
 
-                  {/* Task rejection */}
+                  {/* Staffing shortfalls */}
                   <div className="flex items-center justify-between py-3.5 first:pt-0 last:pb-0">
                     <div className="pr-4">
-                      <p className="text-sm font-medium">Task rejection</p>
+                      <p className="text-sm font-medium">Staffing shortfalls</p>
                       <p className="text-xs text-muted-foreground">
-                        When staff reject an assigned task
+                        When a shift is only partly staffed, or nobody eligible
+                        could be found
+                      </p>
+                    </div>
+                    <Switch
+                      checked={notifPrefs.taskStaffing}
+                      onCheckedChange={(v) =>
+                        setNotifPrefs({ ...notifPrefs, taskStaffing: v })
+                      }
+                    />
+                  </div>
+
+                  {/* Withdrawal outcomes */}
+                  <div className="flex items-center justify-between py-3.5 first:pt-0 last:pb-0">
+                    <div className="pr-4">
+                      <p className="text-sm font-medium">Withdrawal outcomes</p>
+                      <p className="text-xs text-muted-foreground">
+                        When a withdrawal request is approved or declined.
+                        Requests awaiting your decision are always sent.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={notifPrefs.taskWithdrawal}
+                      onCheckedChange={(v) =>
+                        setNotifPrefs({ ...notifPrefs, taskWithdrawal: v })
+                      }
+                    />
+                  </div>
+
+                  {/*
+                    Unconditional again.
+
+                    This row was briefly hidden unless the organisation ran in
+                    "require acceptance" mode, on the reasoning that nothing is
+                    ever rejected when staff are rostered automatically. That
+                    setting has since been removed — which would have made the
+                    condition permanently false, and hidden the only switch for
+                    a notification that still fires.
+
+                    It still fires because two paths outstanding of any setting
+                    write an assignment the member has to answer: a leave
+                    backfill offer, and anyone booked over their own stated
+                    availability. Both can be turned down.
+                  */}
+                  <div className="flex items-center justify-between py-3.5 first:pt-0 last:pb-0">
+                    <div className="pr-4">
+                      <p className="text-sm font-medium">Declined shifts</p>
+                      <p className="text-xs text-muted-foreground">
+                        When staff turn down a shift they were asked to confirm
+                        — cover offers, or a booking over their stated
+                        availability
                       </p>
                     </div>
                     <Switch
@@ -896,21 +947,25 @@ export default function SettingsPage() {
                 <div className="space-y-2">
                   <Label>Allocation Mode</Label>
                   <div className="space-y-2">
-                    <RadioCard
-                      name="allocationMode"
-                      value="manual"
-                      selected={allocationMode === "manual"}
-                      onSelect={setAllocationMode}
-                      title="Manual"
-                      description="Admin assigns staff directly to each task"
-                    />
+                    {/*
+                      Two modes, not three. The stored value is still
+                      "suggested" — it is the one that was KEPT, because
+                      assigning with the engine's ranking in front of you is
+                      what this product wants its unautomated mode to be.
+                      Removing it and keeping the old bare "manual" would have
+                      deleted the behaviour and kept the word.
+
+                      A pre-2026-08-13 organisation on "manual" was migrated
+                      across, so neither radio appearing unselected is not a
+                      state anybody should reach.
+                    */}
                     <RadioCard
                       name="allocationMode"
                       value="suggested"
                       selected={allocationMode === "suggested"}
                       onSelect={setAllocationMode}
-                      title="Suggested"
-                      description="AI recommends staff, admin confirms assignment"
+                      title="Manual"
+                      description="You assign each shift, with the best-fit staff ranked and shown to you"
                     />
                     <RadioCard
                       name="allocationMode"
@@ -1013,55 +1068,34 @@ export default function SettingsPage() {
                 <Separator />
 
                 {/*
-                  Task Acceptance.
+                  Task acceptance was a setting until 2026-08-13, offering a
+                  "require acceptance" mode where every assignment waited on the
+                  member. It was removed because the product already answers "I
+                  cannot do this shift" with the withdrawal request — which
+                  works after the fact, for both employment types, and is the
+                  only exit from an accepted assignment. A second mechanism that
+                  worked only BEFORE the fact was a second way to say the same
+                  thing.
 
-                  Both descriptions used to overstate what the setting does, in
-                  the same direction — they described the happy path and left
-                  out every case where the system asks anyway or refuses to let
-                  go.
+                  What is left is a statement rather than a control, and both
+                  halves of it are worth keeping. The first surprises people who
+                  assume automatic rostering means the system can book anybody:
+                  waiving somebody's stated availability still writes the
+                  assignment `pending`, because booking a person onto a day they
+                  said they could not work is an ask.
 
-                  "Staff are automatically assigned without needing to confirm"
-                  stopped being true when waiving somebody's stated
-                  availability began writing the assignment `pending` on
-                  purpose: booking a person onto a day they said they could not
-                  work is an ask, not a booking.
-
-                  "Staff must accept or reject each assigned task" was never
-                  true for a full-time member. Their rejection is routed to
-                  `decline_requested` and waits for a manager, because a
-                  contracted employee refusing a rostered shift is a different
-                  act from a casual turning down an offer.
-
-                  The line about leaving a shift is the one most worth having.
-                  It is the same for everybody and it surprises people: under
-                  auto-accept a casual is booked without being asked and then
-                  needs approval to get out, since `requestWithdrawal` is the
-                  only exit from an accepted assignment and is not gated on
-                  employment type.
+                  The second is the one this page's old footnote called the most
+                  worth having — under automatic rostering a casual is booked
+                  without being asked and then needs approval to get out.
                 */}
-                <div className="space-y-2">
-                  <Label>Task Acceptance</Label>
-                  <div className="space-y-2">
-                    <RadioCard
-                      name="taskAcceptanceMode"
-                      value="auto_accept"
-                      selected={taskAcceptanceMode === "auto_accept"}
-                      onSelect={setTaskAcceptanceMode}
-                      title="Auto Accept"
-                      description="Staff are rostered without being asked. Anyone booked over their stated availability is still asked to confirm."
-                    />
-                    <RadioCard
-                      name="taskAcceptanceMode"
-                      value="require_acceptance"
-                      selected={taskAcceptanceMode === "require_acceptance"}
-                      onSelect={setTaskAcceptanceMode}
-                      title="Require Acceptance"
-                      description="Staff accept or reject each shift. A full-time member's rejection goes to their manager to approve."
-                    />
-                  </div>
-                  <p className="text-[11px] text-muted-foreground">
-                    Either way, leaving a shift already accepted is a request a
-                    manager approves — for full-time and casual staff alike.
+                <div className="space-y-1.5">
+                  <Label>Task acceptance</Label>
+                  <p className="text-[12px] leading-relaxed text-muted-foreground">
+                    Staff are rostered automatically — nobody is asked to accept
+                    a shift first. Anyone booked over their stated availability
+                    is still asked to confirm, and leaving a shift already
+                    assigned is a request a manager approves, for full-time and
+                    casual staff alike.
                   </p>
                 </div>
 

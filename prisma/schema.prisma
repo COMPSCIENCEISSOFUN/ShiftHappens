@@ -283,8 +283,32 @@ model RolePermission {
 model CompanySettings {
   id                      String   @id @default(cuid())
   organizationId          String   @unique
-  allocationMode          String   @default("manual")
-  taskAcceptanceMode      String   @default("auto_accept")
+  /// "suggested" (a human assigns, with the engine's ranking offered) or
+  /// "auto" (the engine assigns).
+  ///
+  /// A third value, "manual", existed until 2026-08-13 and meant assignment
+  /// with no suggestions at all. It was removed rather than "suggested",
+  /// because manual-with-suggestions is what the product wants its unautomated
+  /// mode to be — deleting the wrong one of the two would have deleted the
+  /// behaviour and kept the label. Existing rows were migrated across.
+  ///
+  /// Defaults to "auto" so a new organisation gets the automation it signed up
+  /// for. Existing organisations were deliberately NOT flipped: switching a
+  /// live rota to automatic assignment without being asked would start putting
+  /// real people on real shifts.
+  allocationMode          String   @default("auto")
+  /// `taskAcceptanceMode` stood here until 2026-08-13.
+  ///
+  /// It chose between rostering staff automatically and making every
+  /// assignment wait for the member to accept it. Removed because the product
+  /// already answers "I cannot work this shift" with the withdrawal request —
+  /// which works after the fact, applies to full-time and casual alike, and is
+  /// the only exit from an accepted assignment. A mode that expressed the same
+  /// refusal beforehand was a second answer to one question.
+  ///
+  /// Assignments a member must still answer did NOT go with it: a leave
+  /// backfill offer (`asOffer`), and anyone booked over their own stated
+  /// availability. Both are written `pending` and can be declined.
   /// The most hours a member may be rostered in one day.
   ///
   /// NOT a break rule, despite the column name. It is the daily cap the
@@ -326,6 +350,20 @@ model Task {
   organizationId    String
   departmentId      String?
   projectId         String?
+  /// Where this work item sits in its project's running order.
+  ///
+  /// Presentation only, and deliberately so: it does NOT block, gate or defer
+  /// anything. Auto-allocation, eligibility and scheduling all ignore it — a
+  /// work item ordered third is staffed exactly when its own dates say, not
+  /// after the two above it finish. Real dependencies are a different feature
+  /// with a different shape (a join table, cycle detection, and a rule about
+  /// what "blocked" does to staffing), and calling this one a dependency
+  /// because it happens to be an integer is how it would grow into one by
+  /// accident.
+  ///
+  /// Ties are broken by the existing schedule/creation ordering, so a project
+  /// whose items have never been reordered reads exactly as it did before.
+  orderIndex        Int       @default(0)
   title             String
   description       String?
   requiredHeadcount Int       @default(1)

@@ -1,0 +1,23 @@
+-- Removes the task-acceptance setting. Rostering is automatic.
+--
+-- The mode chose between assigning staff outright and making every assignment
+-- wait for the member to accept it. It goes because the withdrawal request
+-- already answers "I cannot work this shift" — after the fact, for full-time
+-- and casual alike, and as the only exit from an accepted assignment. A second
+-- mechanism that expressed the same refusal beforehand was one answer too many.
+--
+-- Assignments a member must still answer are unaffected: a leave backfill offer
+-- and anyone booked over their own stated availability are both still written
+-- `pending`, and both can still be declined. Nothing about TaskAssignment
+-- changes here.
+--
+-- ############################################################
+-- # RUN THIS ONE *AFTER* THE CODE IS DEPLOYED, NOT BEFORE.    #
+-- ############################################################
+--
+-- Every other migration in this project has been additive, so applying them
+-- early was safe. This one is not. Prisma names columns explicitly in its
+-- SELECTs, so a running instance built against the old schema will ask for
+-- "taskAcceptanceMode" and get a 500 from every settings read the moment the
+-- column disappears. Deploy first, then drop.
+ALTER TABLE "CompanySettings" DROP COLUMN "taskAcceptanceMode";

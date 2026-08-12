@@ -42,12 +42,17 @@ beforeEach(async () => {
   );
   orgId = org.id;
 
-  // Ensure require_acceptance mode for assignment tests
+  /*
+   * `allocationMode` stated, not inherited.
+   *
+   * The column default became "auto" on 2026-08-13, which would run the
+   * allocation engine on every `taskService.create` in this file — filling the
+   * single slot of a headcount-1 task before the test had assigned anybody, so
+   * the assertions below would meet "exceeds required headcount" instead of
+   * the rule they are actually about.
+   */
   await prisma.companySettings.create({
-    data: {
-      organizationId: orgId,
-      taskAcceptanceMode: "require_acceptance",
-    },
+    data: { organizationId: orgId, allocationMode: "suggested" },
   });
 
   const dept = await deptRepo.create({
@@ -314,7 +319,19 @@ describe("TaskService", () => {
   });
 
   describe("assignStaff", () => {
-    it("assigns a member to a task", async () => {
+    /*
+     * These two were a pair, one per acceptance mode. The setting was removed
+     * on 2026-08-13 and rostering is automatic, so the "pending" half no longer
+     * describes anything a plain assignment can do — a member who cannot work
+     * the shift withdraws from it instead of being asked first.
+     *
+     * The remaining ways to produce a `pending` row are covered where they
+     * live rather than here, because both are about a different question:
+     * `leave-backfill` pins the offer path, and
+     * `availability-override-consent` pins booking somebody over their own
+     * stated availability.
+     */
+    it("assigns a member to a task, rostered rather than offered", async () => {
       const task = await taskService.create({ title: "Test" }, orgId, userId);
 
       const assignments = await taskService.assignStaff(
@@ -326,27 +343,23 @@ describe("TaskService", () => {
 
       expect(assignments).toHaveLength(1);
       expect(assignments[0].membershipId).toBe(staffMembershipId);
-      expect(assignments[0].status).toBe("pending");
+      expect(assignments[0].status).toBe("accepted");
     });
 
-    it("auto-accepts assignments when taskAcceptanceMode is auto_accept", async () => {
-      // Update settings to auto_accept
-      await prisma.companySettings.updateMany({
-        where: { organizationId: orgId },
-        data: { taskAcceptanceMode: "auto_accept" },
-      });
-
-      const task = await taskService.create({ title: "Auto test" }, orgId, userId);
+    /* The one path that still writes an assignment the member has to answer. */
+    it("writes a pending offer when assigned as one", async () => {
+      const task = await taskService.create({ title: "Cover" }, orgId, userId);
 
       const assignments = await taskService.assignStaff(
         task.id,
         orgId,
         [staffMembershipId],
-        userId
+        userId,
+        undefined,
+        { asOffer: true }
       );
 
-      expect(assignments).toHaveLength(1);
-      expect(assignments[0].status).toBe("accepted");
+      expect(assignments[0].status).toBe("pending");
     });
 
     it("throws if exceeding required headcount", async () => {

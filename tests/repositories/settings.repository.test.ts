@@ -51,8 +51,10 @@ describe("SettingsRepository", () => {
     it("creates settings with default values", async () => {
       const settings = await settingsRepo.createDefaults(orgId);
 
-      expect(settings.allocationMode).toBe("manual");
-      expect(settings.taskAcceptanceMode).toBe("auto_accept");
+      // "auto" since the column default changed on 2026-08-13, and
+      // `createDefaults` writes nothing but the org id — so this is the
+      // database's answer, not the service's.
+      expect(settings.allocationMode).toBe("auto");
       expect(settings.workingDayHours).toBe(8);
     });
   });
@@ -62,13 +64,13 @@ describe("SettingsRepository", () => {
       await settingsRepo.createDefaults(orgId);
 
       const settings = await settingsRepo.getOrCreate(orgId);
-      expect(settings.allocationMode).toBe("manual");
+      expect(settings.allocationMode).toBe("auto");
     });
 
     it("creates defaults if none exist", async () => {
       const settings = await settingsRepo.getOrCreate(orgId);
       expect(settings).not.toBeNull();
-      expect(settings.allocationMode).toBe("manual");
+      expect(settings.allocationMode).toBe("auto");
     });
   });
 
@@ -113,7 +115,6 @@ describe("SettingsRepository", () => {
         allocationMode: "auto",
       });
       expect(updated.allocationMode).toBe("auto");
-      expect(updated.taskAcceptanceMode).toBe("auto_accept");
       expect(updated.workingDayHours).toBe(8);
     });
   });

@@ -88,7 +88,6 @@ export class SettingsService {
     // Build update data, serializing nested objects to JSON
     const updateData: {
       allocationMode?: string;
-      taskAcceptanceMode?: string;
       experiencedShiftThreshold?: number;
       seniorShiftThreshold?: number;
       workingDayHours?: number;
@@ -99,7 +98,6 @@ export class SettingsService {
     } = {};
 
     if (input.allocationMode !== undefined) updateData.allocationMode = input.allocationMode;
-    if (input.taskAcceptanceMode !== undefined) updateData.taskAcceptanceMode = input.taskAcceptanceMode;
     if (input.workingDayHours !== undefined) updateData.workingDayHours = input.workingDayHours;
     if (input.operatingHoursStart !== undefined) updateData.operatingHoursStart = input.operatingHoursStart;
     if (input.operatingHoursEnd !== undefined) updateData.operatingHoursEnd = input.operatingHoursEnd;

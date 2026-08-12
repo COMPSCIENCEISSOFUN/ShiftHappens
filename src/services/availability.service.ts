@@ -1517,6 +1517,22 @@ export class AvailabilityService {
 
     const settings = await this.settingsRepo.getOrCreate(commitment.organizationId);
 
+    /*
+     * A legacy value, kept on purpose rather than deleted with the mode.
+     *
+     * "manual" stopped being settable on 2026-08-13 and every row was migrated
+     * to "suggested", so this should be unreachable. It stays because the
+     * consequence of being wrong about that is not cosmetic: without this
+     * branch a row still reading "manual" falls past the "suggested" check
+     * below and lands on the AUTO path, and an organisation that never asked
+     * for automatic assignment would have somebody put on a shift by a
+     * background job.
+     *
+     * Migration history on this project is applied by hand to three databases
+     * (see the note on `workingDayHours` in schema.prisma), so "every row was
+     * migrated" is a statement about intent, not a guarantee. Six lines is a
+     * cheap price for that gap.
+     */
     if (settings.allocationMode === "manual") {
       await tell(
         NOTIFICATION_TYPES.BACKFILL_NEEDED,

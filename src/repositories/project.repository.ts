@@ -105,6 +105,9 @@ export class ProjectRepository {
         scheduledEnd: true,
         requiredHeadcount: true,
         requiredCertifications: true,
+        // Selected as well as sorted on: the reorder controls need to know
+        // what the current position is to write the swapped one back.
+        orderIndex: true,
         assignments: {
           select: {
             id: true,
@@ -119,7 +122,13 @@ export class ProjectRepository {
           },
         },
       },
+      /*
+       * Running order first, then the original schedule/creation ordering as
+       * the tiebreak. Every existing row has orderIndex 0, so a project nobody
+       * has reordered reads exactly as it did before this column existed.
+       */
       orderBy: [
+        { orderIndex: "asc" as const },
         { scheduledStart: "asc" as const },
         { createdAt: "asc" as const },
       ],

@@ -233,10 +233,9 @@ describe("finding cover", () => {
    */
   it("auto mode offers rather than books, even under auto-accept", async () => {
     await setMode("auto");
-    await prisma.companySettings.update({
-      where: { organizationId: tenant.orgId },
-      data: { taskAcceptanceMode: "auto_accept" },
-    });
+    // Nothing to arrange: automatic rostering is the only behaviour since the
+    // acceptance setting was removed, which is exactly the condition this test
+    // wants — a `pending` row here can only be the offer.
     const start = daysAway(10);
     const task = await shiftOn(start);
     await book(task.id, absentee);
