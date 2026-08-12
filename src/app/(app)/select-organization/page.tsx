@@ -76,7 +76,7 @@ export default async function SelectOrganizationPage() {
             S
           </div>
           <span className="text-[15px] font-bold tracking-tight">
-            Smart Task
+            ShiftHappens
           </span>
         </div>
 

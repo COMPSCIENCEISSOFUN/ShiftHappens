@@ -1,7 +1,7 @@
 /**
  * Landing Page Component (Boundary Layer)
  *
- * Public-facing marketing page for Smart Task Allocation.
+ * Public-facing marketing page for ShiftHappens.
  * Pricing section pulls from the centralized tier config —
  * same source of truth as the backend enforcement.
  *
@@ -214,7 +214,7 @@ function Navbar() {
               scrolled ? "text-slate-900" : "text-white"
             }`}
           >
-            Smart Task Allocation
+            ShiftHappens
           </span>
         </div>
 
@@ -420,7 +420,7 @@ function Hero() {
 
         <Reveal delay={200}>
           <p className="mt-6 text-base sm:text-lg text-white/70 max-w-2xl mx-auto leading-relaxed">
-            Smart Task Allocation matches staff to shifts using AI that
+            ShiftHappens matches staff to shifts using AI that
             considers availability, certifications, work rules, and fairness
             — so your schedule builds itself.
           </p>
@@ -1031,7 +1031,7 @@ function Testimonials({ reviews }: { reviews: LandingReview[] }) {
                 What teams say
               </h2>
               <p className="mt-4 text-slate-500">
-                From people running rosters on Smart&nbsp;Task&nbsp;Allocation
+                From people running rosters on ShiftHappens
                 every week.
               </p>
             </div>
@@ -1451,7 +1451,7 @@ function Footer() {
             </div>
             <div>
               <span className="text-lg font-bold text-white tracking-tight">
-                Smart Task Allocation
+                ShiftHappens
               </span>
               <p className="text-sm text-slate-500">
                 Intelligent workforce scheduling for modern teams.
@@ -1486,7 +1486,7 @@ function Footer() {
           </div>
         </div>
         <div className="mt-8 pt-8 border-t border-slate-800 text-center text-xs text-slate-600">
-          &copy; {new Date().getFullYear()} Smart Task Allocation. CSIT321
+          &copy; {new Date().getFullYear()} ShiftHappens. CSIT321
           Final Year Project — University of Wollongong (SIM Campus).
         </div>
       </div>

@@ -43,7 +43,7 @@ export default function AuthLayout({
               S
             </div>
             <span className="text-sm font-bold text-white">
-              Smart Task Allocation
+              ShiftHappens
             </span>
           </div>
         </div>
@@ -57,7 +57,7 @@ export default function AuthLayout({
             S
           </div>
           <span className="text-lg font-bold text-foreground">
-            Smart Task Allocation
+            ShiftHappens
           </span>
         </Link>
 

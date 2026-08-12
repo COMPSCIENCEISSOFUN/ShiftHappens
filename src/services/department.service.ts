@@ -165,6 +165,49 @@ export class DepartmentService {
    * Returns counts of entities that would be affected by archiving a department.
    * Shown to the admin as an impact summary before they confirm.
    */
+  /**
+   * Who works in this department.
+   *
+   * Read-only. Department assignment is written from the member drawer, and a
+   * second writer for the same relationship is how two screens come to
+   * disagree about it.
+   *
+   * Returns null when the department is not this organisation's or not in the
+   * caller's scope — one answer for both, so the id cannot be used to discover
+   * which departments exist elsewhere.
+   */
+  async getMembers(
+    departmentId: string,
+    organizationId: string,
+    /** null or undefined for an unrestricted caller; an array scopes. */
+    departmentScope?: string[] | null
+  ) {
+    const department = await this.deptRepo.findById(departmentId);
+    if (!department || department.organizationId !== organizationId) return null;
+
+    if (
+      departmentScope !== null &&
+      departmentScope !== undefined &&
+      !departmentScope.includes(departmentId)
+    ) {
+      return null;
+    }
+
+    const rows = await this.deptRepo.findMembers(departmentId);
+    const members = rows.map((row) => row.membership);
+
+    return {
+      department: { id: department.id, name: department.name },
+      members,
+      /*
+       * Both numbers, because they answer different questions. The card shows
+       * `total`; a roster is built from `active`.
+       */
+      total: members.length,
+      active: members.filter((member) => member.status === "active").length,
+    };
+  }
+
   async getImpactSummary(departmentId: string, organizationId: string) {
     await this.requireOwned(departmentId, organizationId);
     return this.deptRepo.getImpactSummary(departmentId);

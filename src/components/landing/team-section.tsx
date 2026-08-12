@@ -231,7 +231,7 @@ export default function TeamSection() {
               Meet the people behind it
             </h2>
             <p className="mt-4 text-slate-400">
-              Smart Task Allocation was built as a final-year project by a team
+              ShiftHappens was built as a final-year project by a team
               of Computer Science students.
             </p>
             <p className="mt-3 text-sm text-slate-500">{COURSE_LINE}</p>

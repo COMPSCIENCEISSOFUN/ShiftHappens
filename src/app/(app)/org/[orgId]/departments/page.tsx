@@ -22,6 +22,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PageLoading } from "@/components/ui/page-loading";
 import { AlertBanner } from "@/components/ui/alert-banner";
+import { DepartmentMembersDrawer } from "@/components/departments/department-members-drawer";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Archive, CheckCheck, Loader2, Lock, RefreshCw, Search, SquarePen, Trash2, Users } from "lucide-react";
 import { StatTile } from "@/components/ui/stat-tile";
@@ -391,6 +392,11 @@ export default function DepartmentsPage() {
   const params = useParams();
   const orgId = params.orgId as string;
   const [departments, setDepartments] = useState<Department[]>([]);
+  /* Which department's people are open, by id and name — the drawer needs
+     both, and holding the row itself would go stale on a refetch. */
+  const [peopleOf, setPeopleOf] = useState<{ id: string; name: string } | null>(
+    null
+  );
   const [showCreate, setShowCreate] = useState(false);
   /*
    * This page had NO role check of any kind. A manager arriving by URL was
@@ -909,12 +915,25 @@ export default function DepartmentsPage() {
 
                   {/* Counts */}
                   <div className="mt-3 flex items-center gap-2">
-                    <div className="flex items-center gap-1.5 rounded-lg bg-muted/60 px-2.5 py-1">
+                    {/*
+                      The count is the way in, rather than the whole card.
+                      The card already carries Edit and Archive buttons, and a
+                      clickable card wrapping its own buttons is both a click
+                      target conflict and invalid nesting for a screen reader.
+                    */}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setPeopleOf({ id: dept.id, name: dept.name })
+                      }
+                      aria-label={`See who is in ${dept.name}`}
+                      className="flex items-center gap-1.5 rounded-lg bg-muted/60 px-2.5 py-1 transition-colors hover:bg-accent"
+                    >
                       <Users className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
                       <span className="text-xs font-medium text-muted-foreground">
                         {dept._count.departmentMemberships} member{dept._count.departmentMemberships !== 1 ? "s" : ""}
                       </span>
-                    </div>
+                    </button>
                     <div className="flex items-center gap-1.5 rounded-lg bg-muted/60 px-2.5 py-1">
                       <CheckCheck className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
                       <span className="text-xs font-medium text-muted-foreground">
@@ -958,6 +977,16 @@ export default function DepartmentsPage() {
           submitting={archiving}
           onConfirm={confirmArchive}
           onCancel={() => { setArchiveTarget(null); setImpactSummary(null); }}
+        />
+      )}
+
+      {/* ── Who works here ── */}
+      {peopleOf && (
+        <DepartmentMembersDrawer
+          orgId={orgId}
+          departmentId={peopleOf.id}
+          departmentName={peopleOf.name}
+          onClose={() => setPeopleOf(null)}
         />
       )}
 

@@ -912,7 +912,7 @@ export function AppSidebar({
           <div className="flex w-full items-center gap-2.5 px-2 py-2">
             <OrgMark name={orgName} />
             <OrgIdentity
-              orgName={orgName || "Smart Task"}
+              orgName={orgName || "ShiftHappens"}
               tierName={orgId ? tierName : null}
             />
           </div>

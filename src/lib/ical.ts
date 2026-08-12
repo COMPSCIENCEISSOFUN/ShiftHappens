@@ -143,7 +143,7 @@ export function buildCalendar({
   const lines = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
-    "PRODID:-//Smart Task Allocation//Shift Schedule//EN",
+    "PRODID:-//ShiftHappens//Shift Schedule//EN",
     "CALSCALE:GREGORIAN",
     "METHOD:PUBLISH",
     `X-WR-CALNAME:${escapeText(name)}`,

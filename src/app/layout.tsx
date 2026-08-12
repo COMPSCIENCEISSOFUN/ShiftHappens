@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Smart Task Allocation",
+  title: "ShiftHappens",
   description: "AI-powered workforce management platform",
 };
 
