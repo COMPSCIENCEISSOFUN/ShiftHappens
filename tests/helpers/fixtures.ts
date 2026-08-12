@@ -146,6 +146,33 @@ export async function createTenant(
   };
 }
 
+/**
+ * Declares an open week for one or more members.
+ *
+ * Availability is a hard eligibility rule for anyone not contracted, and a
+ * casual who has declared nothing is unavailable rather than unconstrained.
+ * Since assignment gained a final eligibility gate, a suite about scheduling
+ * conflicts or notifications fails on availability — the one rule it never
+ * meant to exercise — unless it says out loud that these people are free.
+ *
+ * `skipDuplicates` because several suites already declare a week of their own
+ * for the member they are actually testing.
+ */
+export async function declareOpenWeek(...membershipIds: string[]) {
+  await prisma.availability.createMany({
+    data: membershipIds.flatMap((membershipId) =>
+      Array.from({ length: 7 }, (_, dayOfWeek) => ({
+        membershipId,
+        dayOfWeek,
+        startTime: "00:00",
+        endTime: "23:59",
+        isAvailable: true,
+      }))
+    ),
+    skipDuplicates: true,
+  });
+}
+
 /** Suspends the organisation, for asserting the suspension gate. */
 export async function suspendOrg(orgId: string) {
   await prisma.organization.update({

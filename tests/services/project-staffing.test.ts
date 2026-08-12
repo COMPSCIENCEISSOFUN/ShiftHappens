@@ -13,7 +13,7 @@
  *  - An empty Project Team yields no candidates rather than silently
  *    falling back to the whole organization.
  */
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 
 import { prisma } from "@/lib/prisma";
 import { AllocationService } from "@/services/allocation.service";
@@ -22,6 +22,7 @@ import { EligibilityService } from "@/services/eligibility.service";
 import { ProjectService } from "@/services/project.service";
 import { TaskService } from "@/services/task.service";
 import { OrganizationRepository } from "@/repositories/organization.repository";
+import { ProjectRepository } from "@/repositories/project.repository";
 import { UserRepository } from "@/repositories/user.repository";
 
 import { cleanDatabase } from "../helpers/cleanup";
@@ -32,6 +33,7 @@ const userRepo = new UserRepository();
 const projects = new ProjectService();
 const allocation = new AllocationService();
 const eligibility = new EligibilityService();
+const autoSchedule = new AutoScheduleService();
 const tasks = new TaskService();
 
 let orgId: string;
@@ -108,6 +110,7 @@ async function createProject(staffingMode: "task_based" | "project_team") {
 }
 
 beforeEach(async () => {
+  vi.restoreAllMocks();
   await cleanDatabase();
 
   const admin = await userRepo.create({
@@ -119,6 +122,18 @@ beforeEach(async () => {
 
   const org = await orgRepo.create({ name: "Acme", slug: "acme" }, admin.id);
   orgId = org.id;
+
+  /*
+   * Projects are sold, not free. A new organisation starts on Free, which
+   * allows none, so every createProject below would refuse at the plan gate
+   * before reaching the staffing rule under test. Enterprise removes the cap
+   * without saying anything about staffing — the limits themselves are
+   * covered in project-limits.test.ts.
+   */
+  await prisma.organization.update({
+    where: { id: orgId },
+    data: { subscriptionTier: "enterprise" },
+  });
 
   await prisma.companySettings.create({
     data: { organizationId: orgId, allocationMode: "manual", workingDayHours: 8 },
@@ -322,6 +337,117 @@ describe("Project Team staffing", () => {
 
       expect(draft.assignments).toHaveLength(0);
       expect(draft.unfilledTasks[0]?.reason).toMatch(/no eligible staff remaining/i);
+    });
+
+    /*
+     * The team is read once for the run, not once per shift.
+     *
+     * `eligibleFor` used to discover a task's project by re-reading the task,
+     * which put two extra queries on every shift in the week — inside the one
+     * method whose stated contract is that a generated week does not reload per
+     * task. A count rather than a timing assertion because the cost is the
+     * round trips, and a timing assertion would be flaky on a loaded machine.
+     *
+     * Exactly one, because the suite has no AI provider configured and only the
+     * algorithmic pass runs. Configure one and this becomes two — a pass each —
+     * which is still per RUN and not per shift, and is worth being told about.
+     */
+    it("reads the Project Team once for the whole week", async () => {
+      const project = await createProject("project_team");
+      await projects.setTeam(project.id, orgId, [insiderMembershipId], adminUserId);
+      for (const day of ["07", "08", "09", "10"]) {
+        await createWorkItem(project.id, {
+          title: `Shift ${day}`,
+          start: new Date(`2026-09-${day}T09:00:00.000Z`),
+          end: new Date(`2026-09-${day}T17:00:00.000Z`),
+        });
+      }
+
+      const reads = vi.spyOn(ProjectRepository.prototype, "findTeamRestrictions");
+
+      const draft = await new AutoScheduleService().generateSchedule(
+        orgId,
+        new Date("2026-09-07T00:00:00.000Z")
+      );
+
+      // The run drafted something, so the path under test actually ran.
+      expect(draft.assignments.length).toBeGreaterThan(0);
+      expect(reads).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  /*
+   * Confirming a draft is the one write path that never passes through
+   * `assignStaff`, so the gate that refuses an outsider on the manual path
+   * never runs here. The draft also round-trips through the browser, which is
+   * why confirm already re-reads headcount, composition and eligibility rather
+   * than trusting what comes back. Project Team was the one it did not re-read.
+   */
+  describe("confirming an auto-schedule draft", () => {
+    async function draftRow(taskId: string, membershipId: string) {
+      return [
+        {
+          taskId,
+          taskTitle: "Work item",
+          membershipId,
+          staffName: "Someone",
+          reasoning: "hand-edited",
+        },
+      ];
+    }
+
+    it("refuses a row naming somebody outside the Project Team", async () => {
+      const project = await createProject("project_team");
+      await projects.setTeam(project.id, orgId, [insiderMembershipId], adminUserId);
+      const task = await createWorkItem(project.id);
+
+      const result = await autoSchedule.confirmSchedule(
+        orgId,
+        await draftRow(task.id, outsiderMembershipId),
+        adminUserId
+      );
+
+      expect(result.created).toBe(0);
+      expect(result.ineligible).toBe(1);
+      expect(
+        await prisma.taskAssignment.count({ where: { taskId: task.id } })
+      ).toBe(0);
+    });
+
+    /*
+     * The control. Without it the test above would pass on a confirm path that
+     * refuses everybody, and would be asserting the fixture rather than the
+     * rule.
+     */
+    it("still writes a row naming a team member", async () => {
+      const project = await createProject("project_team");
+      await projects.setTeam(project.id, orgId, [insiderMembershipId], adminUserId);
+      const task = await createWorkItem(project.id);
+
+      const result = await autoSchedule.confirmSchedule(
+        orgId,
+        await draftRow(task.id, insiderMembershipId),
+        adminUserId
+      );
+
+      expect(result.created).toBe(1);
+      expect(
+        await prisma.taskAssignment.count({ where: { taskId: task.id } })
+      ).toBe(1);
+    });
+
+    /* A task_based project places no restriction, at confirm as anywhere. */
+    it("leaves a task_based project alone", async () => {
+      const project = await createProject("task_based");
+      const task = await createWorkItem(project.id);
+
+      const result = await autoSchedule.confirmSchedule(
+        orgId,
+        await draftRow(task.id, outsiderMembershipId),
+        adminUserId
+      );
+
+      expect(result.created).toBe(1);
     });
   });
 

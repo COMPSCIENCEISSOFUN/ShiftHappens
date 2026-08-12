@@ -17,6 +17,8 @@ import { useParams } from "next/navigation";
 
 import { ChevronLeft, ClipboardList, Users } from "lucide-react";
 
+import { toast } from "sonner";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -162,7 +164,6 @@ export default function ProjectDetailPage() {
   const [orgMembers, setOrgMembers] = useState<OrgMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
 
   const [showEdit, setShowEdit] = useState(false);
   const [showTeam, setShowTeam] = useState(false);
@@ -222,7 +223,6 @@ export default function ProjectDetailPage() {
   async function send(url: string, method: string, body: unknown, okMessage: string) {
     setSaving(true);
     setError(null);
-    setSuccess(null);
     try {
       const response = await fetch(url, {
         method,
@@ -234,7 +234,7 @@ export default function ProjectDetailPage() {
         setError(result?.error || "Request failed");
         return false;
       }
-      setSuccess(okMessage);
+      toast.success(okMessage);
       await load();
       return true;
     } catch {
@@ -387,15 +387,6 @@ export default function ProjectDetailPage() {
       {error && (
         <div className="mt-4">
           <AlertBanner variant="error" message={error} onDismiss={() => setError(null)} />
-        </div>
-      )}
-      {success && (
-        <div className="mt-4">
-          <AlertBanner
-            variant="success"
-            message={success}
-            onDismiss={() => setSuccess(null)}
-          />
         </div>
       )}
 

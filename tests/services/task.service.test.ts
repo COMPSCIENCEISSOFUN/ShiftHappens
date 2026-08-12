@@ -11,6 +11,7 @@ import { UserRepository } from "@/repositories/user.repository";
 import { NOTIFICATION_TYPES } from "@/services/notification.service";
 import { prisma } from "@/lib/prisma";
 import { cleanDatabase } from "../helpers/cleanup";
+import { declareOpenWeek } from "../helpers/fixtures";
 import { eventuallyAtLeast, pauseForAbsence } from "../helpers/settle";
 
 const taskService = new TaskService();
@@ -77,6 +78,7 @@ beforeEach(async () => {
     },
   });
   staffMembershipId = staffMembership.id;
+  await declareOpenWeek(staffMembershipId);
 });
 
 describe("TaskService", () => {

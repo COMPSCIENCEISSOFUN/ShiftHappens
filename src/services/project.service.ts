@@ -1,6 +1,6 @@
-import { Prisma } from "@prisma/client";
-
-import { prisma } from "@/lib/prisma";
+import { DepartmentRepository } from "@/repositories/department.repository";
+import { MembershipRepository } from "@/repositories/membership.repository";
+import { ProjectRepository } from "@/repositories/project.repository";
 import { projectTimeframeError } from "@/lib/project-timeframe";
 import {
   AuditLogService,
@@ -16,117 +16,9 @@ import type {
 export class ProjectService {
   private auditService = new AuditLogService();
   private subscriptionService = new SubscriptionService();
-
-  private include = {
-    createdBy: {
-      select: {
-        id: true,
-        name: true,
-        email: true,
-      },
-    },
-
-    department: {
-      select: {
-        id: true,
-        name: true,
-        color: true,
-      },
-    },
-
-    projectDepartments: {
-      include: {
-        department: {
-          select: { id: true, name: true, color: true },
-        },
-      },
-      orderBy: { department: { name: "asc" as const } },
-    },
-
-    projectMembers: {
-      orderBy: {
-        createdAt: "asc" as const,
-      },
-
-      include: {
-        membership: {
-          select: {
-            id: true,
-            role: true,
-            status: true,
-            employmentType: true,
-
-            user: {
-              select: {
-                id: true,
-                name: true,
-                email: true,
-                image: true,
-              },
-            },
-
-            departmentMemberships: {
-              include: {
-                department: {
-                  select: {
-                    id: true,
-                    name: true,
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-    },
-
-    tasks: {
-      select: {
-        id: true,
-        title: true,
-        description: true,
-        status: true,
-        priority: true,
-
-        scheduledStart: true,
-        scheduledEnd: true,
-
-        requiredHeadcount: true,
-        requiredCertifications: true,
-
-        assignments: {
-          select: {
-            id: true,
-            membershipId: true,
-            status: true,
-
-            membership: {
-              select: {
-                id: true,
-
-                user: {
-                  select: {
-                    id: true,
-                    name: true,
-                    email: true,
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-
-      orderBy: [
-        {
-          scheduledStart: "asc" as const,
-        },
-        {
-          createdAt: "asc" as const,
-        },
-      ],
-    },
-  } satisfies Prisma.ProjectInclude;
+  private projectRepo = new ProjectRepository();
+  private departmentRepo = new DepartmentRepository();
+  private membershipRepo = new MembershipRepository();
 
   async create(
     input: CreateProjectInput,
@@ -148,50 +40,22 @@ export class ProjectService {
 
     const departmentIds = [...new Set(input.departmentIds ?? (input.departmentId ? [input.departmentId] : []))];
     if (departmentIds.length === 0) throw new Error("Select at least one department");
-    const owned = await prisma.department.count({ where: { id: { in: departmentIds }, organizationId, archivedAt: null } });
+    const owned = await this.departmentRepo.countActiveOwned(departmentIds, organizationId);
     if (owned !== departmentIds.length) throw new Error("Department not found");
 
     const project =
-      await prisma.project.create({
-        data: {
-          organizationId,
-
-          departmentId: departmentIds[0],
-
-          projectDepartments: {
-            create: departmentIds.map((departmentId) => ({ departmentId })),
-          },
-
-          title: input.title,
-
-          description:
-            input.description,
-
-          priority:
-            input.priority ?? "medium",
-
-          staffingMode:
-            input.staffingMode ??
-            "task_based",
-
-          plannedStart:
-            input.plannedStart
-              ? new Date(
-                  input.plannedStart
-                )
-              : undefined,
-
-          plannedEnd:
-            input.plannedEnd
-              ? new Date(
-                  input.plannedEnd
-                )
-              : undefined,
-
-          createdById: userId,
-        },
-
-        include: this.include,
+      await this.projectRepo.create({
+        organizationId,
+        departmentIds,
+        title: input.title,
+        description: input.description,
+        priority: input.priority ?? "medium",
+        staffingMode: input.staffingMode ?? "task_based",
+        plannedStart: input.plannedStart
+          ? new Date(input.plannedStart)
+          : undefined,
+        plannedEnd: input.plannedEnd ? new Date(input.plannedEnd) : undefined,
+        createdById: userId,
       });
 
     await this.auditService.log({
@@ -223,32 +87,7 @@ export class ProjectService {
       | null,
     viewer?: { membershipId: string; userId: string; role: string }
   ) {
-    const projects = await prisma.project.findMany({
-      where: {
-        organizationId,
-
-        ...(departmentScope === null ||
-        departmentScope === undefined
-          ? {}
-          : {
-              OR: [
-                { departmentId: { in: departmentScope } },
-                { departmentId: null },
-              ],
-            }),
-      },
-
-      include: this.include,
-
-      orderBy: [
-        {
-          plannedStart: "asc",
-        },
-        {
-          createdAt: "desc",
-        },
-      ],
-    });
+    const projects = await this.projectRepo.findByOrganizationId(organizationId, departmentScope);
     if (!viewer || viewer.role === "company_admin") return projects;
     return projects.filter((project) => project.staffingMode !== "project_team" || project.createdById === viewer.userId || project.projectMembers.some((member) => member.membershipId === viewer.membershipId));
   }
@@ -257,14 +96,7 @@ export class ProjectService {
     projectId: string,
     organizationId: string
   ) {
-    return prisma.project.findFirst({
-      where: {
-        id: projectId,
-        organizationId,
-      },
-
-      include: this.include,
-    });
+    return this.projectRepo.findById(projectId, organizationId);
   }
 
   async update(
@@ -431,63 +263,27 @@ export class ProjectService {
         "project_team";
 
     const project =
-      await prisma.$transaction(
-        async (tx) => {
-          if (clearsTeam) {
-            await tx.projectMember.deleteMany(
-              {
-                where: {
-                  projectId,
-                },
-              }
-            );
-          }
-
-          return tx.project.update({
-            where: {
-              id: projectId,
-            },
-
-            data: {
-              title: input.title,
-
-              description:
-                input.description,
-
-              departmentId:
-                input.departmentId,
-
-              priority:
-                input.priority,
-
-              staffingMode:
-                input.staffingMode,
-
-              status: input.status,
-
-              plannedStart:
-                plannedStart
-                  ? new Date(
-                      plannedStart
-                    )
-                  : plannedStart ===
-                      null
-                    ? null
-                    : undefined,
-
-              plannedEnd:
-                plannedEnd
-                  ? new Date(
-                      plannedEnd
-                    )
-                  : plannedEnd === null
-                    ? null
-                    : undefined,
-            },
-
-            include: this.include,
-          });
-        }
+      await this.projectRepo.update(
+        projectId,
+        {
+          title: input.title,
+          description: input.description,
+          departmentId: input.departmentId,
+          priority: input.priority,
+          staffingMode: input.staffingMode,
+          status: input.status,
+          plannedStart: plannedStart
+            ? new Date(plannedStart)
+            : plannedStart === null
+              ? null
+              : undefined,
+          plannedEnd: plannedEnd
+            ? new Date(plannedEnd)
+            : plannedEnd === null
+              ? null
+              : undefined,
+        },
+        clearsTeam
       );
 
     await this.auditService.log({
@@ -575,34 +371,11 @@ export class ProjectService {
        * also belong to that department.
        */
       const validMembers =
-        await prisma.membership.findMany({
-          where: {
-            id: {
-              in: uniqueMembershipIds,
-            },
-
-            organizationId,
-
-            role: "staff",
-            status: "active",
-
-            ...(project.departmentId
-              ? {
-                  departmentMemberships:
-                    {
-                      some: {
-                        departmentId:
-                          project.departmentId,
-                      },
-                    },
-                }
-              : {}),
-          },
-
-          select: {
-            id: true,
-          },
-        });
+        await this.membershipRepo.findActiveStaffIds(
+          uniqueMembershipIds,
+          organizationId,
+          project.departmentId
+        );
 
       if (
         validMembers.length !==
@@ -614,34 +387,7 @@ export class ProjectService {
       }
     }
 
-    await prisma.$transaction(
-      async (tx) => {
-        await tx.projectMember.deleteMany({
-          where: {
-            projectId,
-          },
-        });
-
-        if (
-          uniqueMembershipIds.length >
-          0
-        ) {
-          await tx.projectMember.createMany({
-            data:
-              uniqueMembershipIds.map(
-                (membershipId) => ({
-                  projectId,
-                  membershipId,
-                })
-              ),
-          });
-        }
-      },
-      {
-        isolationLevel:
-          "Serializable",
-      }
-    );
+    await this.projectRepo.replaceTeam(projectId, uniqueMembershipIds);
 
     await this.auditService.log({
       organizationId,
@@ -694,19 +440,12 @@ export class ProjectService {
       return;
     }
 
-    const department =
-      await prisma.department.findFirst({
-        where: {
-          id: departmentId,
-          organizationId,
-        },
+    const owned = await this.departmentRepo.countOwned(
+      [departmentId],
+      organizationId
+    );
 
-        select: {
-          id: true,
-        },
-      });
-
-    if (!department) {
+    if (owned === 0) {
       throw new Error(
         "Department not found"
       );

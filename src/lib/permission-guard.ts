@@ -38,27 +38,12 @@ import { NextResponse } from "next/server";
 import { AccessService } from "@/services/access.service";
 import { SubscriptionService } from "@/services/subscription.service";
 import { PERMISSION_FEATURE } from "@/lib/permissions";
-import { TASK_LIST_READERS } from "@/lib/permissions";
 import { FeatureNotAvailableError } from "@/lib/subscription-tiers";
 
 const accessService = new AccessService();
 const subscriptionService = new SubscriptionService();
 
 type Membership = NonNullable<Awaited<ReturnType<AccessService["getMembership"]>>>;
-
-/** Compatibility vocabulary for feature routes that predate `requirePermission`. */
-export const PERMISSIONS = {
-  TASKS_READ: "tasks:read",
-  TASKS_CREATE: "tasks:create",
-  TASKS_UPDATE: "tasks:update",
-} as const;
-
-export function hasPermission(membership: Membership, permission: string) {
-  const held = accessService.permissionsFor(membership);
-  return permission === PERMISSIONS.TASKS_READ
-    ? TASK_LIST_READERS.some((candidate) => held.has(candidate))
-    : held.has(permission);
-}
 
 /**
  * Either a membership to carry on with, or the response to return.

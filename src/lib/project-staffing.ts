@@ -11,8 +11,10 @@
  * An empty Set is meaningful and different: the team exists but has no
  * members, so no candidate qualifies and allocation returns nothing rather
  * than falling back to the whole organization.
+ *
+ * Reading the team is `ProjectRepository.findTeamRestriction`. This file is
+ * the rule, not the query — nothing under `src/lib` touches the database.
  */
-import { prisma } from "@/lib/prisma";
 
 export const PROJECT_TEAM_STAFFING = "project_team";
 
@@ -20,55 +22,7 @@ export const PROJECT_TEAM_STAFFING = "project_team";
 export const OUTSIDE_PROJECT_TEAM_MESSAGE =
   "Staff member is not on the Project Team for this project";
 
-type TeamRestriction = Set<string> | null;
-
-/**
- * Resolves the allowed membership ids for a single project.
- * Returns null when the project does not restrict staffing.
- */
-export async function getProjectTeamRestriction(
-  projectId: string | null | undefined,
-  organizationId: string
-): Promise<TeamRestriction> {
-  if (!projectId) return null;
-
-  const restrictions = await getProjectTeamRestrictions([projectId], organizationId);
-  return restrictions.get(projectId) ?? null;
-}
-
-/**
- * Batch form for schedulers that evaluate many project tasks at once.
- * Only projects that restrict staffing appear in the returned map.
- */
-export async function getProjectTeamRestrictions(
-  projectIds: readonly (string | null | undefined)[],
-  organizationId: string
-): Promise<Map<string, Set<string>>> {
-  const ids = [...new Set(projectIds.filter((id): id is string => Boolean(id)))];
-  const restrictions = new Map<string, Set<string>>();
-  if (ids.length === 0) return restrictions;
-
-  const projects = await prisma.project.findMany({
-    where: {
-      id: { in: ids },
-      organizationId,
-      staffingMode: PROJECT_TEAM_STAFFING,
-    },
-    select: {
-      id: true,
-      projectMembers: { select: { membershipId: true } },
-    },
-  });
-
-  for (const project of projects) {
-    restrictions.set(
-      project.id,
-      new Set(project.projectMembers.map((member) => member.membershipId))
-    );
-  }
-
-  return restrictions;
-}
+export type TeamRestriction = Set<string> | null;
 
 /** True when the candidate may be considered under the given restriction. */
 export function isAllowedByProjectTeam(

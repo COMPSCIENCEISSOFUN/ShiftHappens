@@ -35,7 +35,7 @@ import {
 import { occupiesSlot, wasWorked } from "@/lib/assignment-status";
 import { canBeRostered } from "@/lib/role-config";
 import { assignmentRefusalFor } from "@/lib/task-status";
-import { prisma } from "@/lib/prisma";
+import { ProjectRepository } from "@/repositories/project.repository";
 
 export class TaskService {
   private taskRepo = new TaskRepository();
@@ -50,6 +50,7 @@ export class TaskService {
   private subscriptionService = new SubscriptionService();
   private compositionService = new CompositionService();
   private deptRepo = new DepartmentRepository();
+  private projectRepo = new ProjectRepository();
 
 
   /**
@@ -181,16 +182,7 @@ export class TaskService {
   }
 
   private async projectForWorkItem(projectId: string, organizationId: string) {
-    const project = await prisma.project.findFirst({
-      where: { id: projectId, organizationId },
-      select: {
-        departmentId: true,
-        priority: true,
-        status: true,
-        plannedStart: true,
-        plannedEnd: true,
-      },
-    });
+    const project = await this.projectRepo.findForWorkItem(projectId, organizationId);
     if (!project) throw new Error("Project not found");
     if (project.status === "completed" || project.status === "cancelled") {
       throw new Error("Cannot add work items to a completed or cancelled project");
@@ -788,12 +780,6 @@ export class TaskService {
     const closed = assignmentRefusalFor(task.status);
     if (closed) throw new Error(closed);
 
-    await this.eligibilityService.assertEligibleForAssignment(
-      taskId,
-      organizationId,
-      uniqueIds
-    );
-
     for (const membId of uniqueIds) {
       const membership = await this.membershipRepo.findById(membId);
       // A membership from another tenant must never be assignable to this
@@ -876,6 +862,28 @@ export class TaskService {
         }
       }
     }
+
+    /*
+     * Last, not first.
+     *
+     * This gate answers one question — "may this person be assigned at all?"
+     * — and answers it with a single sentence that names no reason. Every
+     * check above it names one: the wrong tenant, a deactivated membership,
+     * an admin, a clashing shift, a roster the composition rules put out of
+     * reach. Those sentences are the API contract: the routes match on them
+     * to answer 400 or 404 instead of 500, and the assign screen shows them
+     * to the manager verbatim.
+     *
+     * Run first, it reached every one of those cases before the specific
+     * check did and replaced the sentence with its own, so a deactivated
+     * member and a member from another organisation became the same 500.
+     * Running last, it only speaks when nothing more precise applies.
+     */
+    await this.eligibilityService.assertEligibleForAssignment(
+      taskId,
+      organizationId,
+      uniqueIds
+    );
 
     const settings = await this.settingsRepo.getOrCreate(organizationId);
     const autoAccept =

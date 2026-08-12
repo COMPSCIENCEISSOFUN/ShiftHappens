@@ -1,14 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { checkOrgSuspended, getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
 import { departmentScopeFor, isDepartmentInScope } from "@/lib/department-scope";
-import { hasPermission, PERMISSIONS } from "@/lib/permission-guard";
+import { requireAnyPermission, requirePermission } from "@/lib/permission-guard";
+import { TASK_LIST_READERS } from "@/lib/permissions";
 import { createProjectSchema } from "@/lib/validations";
 import { SubscriptionLimitError } from "@/lib/subscription-tiers";
-import { MembershipRepository } from "@/repositories/membership.repository";
 import { ProjectService } from "@/services/project.service";
 import { DepartmentService } from "@/services/department.service";
 
-const memberships = new MembershipRepository();
 const projects = new ProjectService();
 const departments = new DepartmentService();
 
@@ -17,8 +16,9 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     const user = await getAuthenticatedUser();
     if (!user) return unauthorizedResponse();
     const { orgId } = await params;
-    const membership = await memberships.findByUserAndOrg(user.id, orgId);
-    if (!membership || !hasPermission(membership, PERMISSIONS.TASKS_READ)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    const gate = await requireAnyPermission(user.id, orgId, TASK_LIST_READERS);
+    if (!gate.ok) return gate.response;
+    const membership = gate.membership;
     return NextResponse.json(await projects.list(orgId, departmentScopeFor(membership), { membershipId: membership.id, userId: user.id, role: membership.role }));
   } catch (error) {
     console.error("Failed to list projects", error);
@@ -33,8 +33,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const { orgId } = await params;
     const suspended = await checkOrgSuspended(orgId);
     if (suspended) return suspended;
-    const membership = await memberships.findByUserAndOrg(user.id, orgId);
-    if (!membership || !hasPermission(membership, PERMISSIONS.TASKS_CREATE)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    const gate = await requirePermission(user.id, orgId, "tasks:create");
+    if (!gate.ok) return gate.response;
+    const membership = gate.membership;
     const parsed = createProjectSchema.safeParse(await request.json());
     if (!parsed.success) return NextResponse.json({ error: "Validation failed", details: parsed.error.flatten() }, { status: 400 });
     let departmentIds = parsed.data.departmentIds ?? (parsed.data.departmentId ? [parsed.data.departmentId] : []);

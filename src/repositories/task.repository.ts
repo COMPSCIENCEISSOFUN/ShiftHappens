@@ -266,11 +266,16 @@ export class TaskRepository {
       // later — sometimes days later — so a shift cancelled in between is still
       // named in the rows the client sends back, and writing an assignment onto
       // it would contradict the cancellation.
+      //
+      // `projectId` because a work item on a Project Team project may only be
+      // staffed from that team, and confirm is the one write path that never
+      // passes through `assignStaff` — so it has to ask the question itself.
       select: {
         id: true,
         requiredHeadcount: true,
         compositionRules: true,
         departmentId: true,
+        projectId: true,
         status: true,
         title: true,
         scheduledStart: true,

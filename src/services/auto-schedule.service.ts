@@ -22,7 +22,8 @@ import { MembershipRepository } from "@/repositories/membership.repository";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 import { NotificationService, NOTIFICATION_TYPES } from "@/services/notification.service";
 import { DEFAULT_TIMEZONE, SERVER_LOCALE } from "@/lib/timezone";
-import { getProjectTeamRestriction, isAllowedByProjectTeam } from "@/lib/project-staffing";
+import { isAllowedByProjectTeam, type TeamRestriction } from "@/lib/project-staffing";
+import { ProjectRepository } from "@/repositories/project.repository";
 import {
   EligibilityService,
   type ProvisionalAssignments,
@@ -100,6 +101,14 @@ interface TaskInfo {
    * people already on it are part of what a proposal is measured against.
    */
   assignedMembershipIds: string[];
+  /**
+   * The project this shift belongs to, if any.
+   *
+   * Carried on the context rather than re-read per task: `eligibleFor` needs
+   * it to narrow candidates to a Project Team, and the row it comes from is
+   * already loaded here.
+   */
+  projectId: string | null;
 }
 
 export interface DraftAssignment {
@@ -177,6 +186,7 @@ export class AutoScheduleService {
   private eligibilityService = new EligibilityService();
   private compositionService = new CompositionService();
   private overrideRepo = new EligibilityOverrideRepository();
+  private projectRepo = new ProjectRepository();
   private auditService = new AuditLogService();
   private notificationService = new NotificationService();
 
@@ -237,6 +247,7 @@ export class AutoScheduleService {
         scheduledEnd: end,
         requiredCertifications: task.requiredCertifications ?? [],
         compositionRules: parseCompositionRules(task.compositionRules),
+        projectId: task.projectId ?? null,
         // From the rows already loaded — same filter `countActiveByTaskId`
         // uses, so this list and `currentAssignments` cannot disagree.
         assignedMembershipIds: task.assignments
@@ -517,7 +528,16 @@ export class AutoScheduleService {
      * a run reads a snapshot: nothing is written until `confirmSchedule`, and
      * the draft's own decisions travel separately in `provisional`.
      */
-    hoursCache: CommittedAssignmentsCache
+    hoursCache: CommittedAssignmentsCache,
+    /**
+     * The task's Project Team, or null when it places no restriction.
+     *
+     * Passed in for the same reason `hoursCache` is. Discovering it here cost
+     * a task re-read on every call — in a method whose own contract is that a
+     * generated week does not reload per task — and the caller is already
+     * holding the row it would have read.
+     */
+    projectTeam: TeamRestriction
   ): Promise<Set<string>> {
     const [verdicts, existing] = await Promise.all([
       this.eligibilityService.checkEligibilityForTask(
@@ -528,8 +548,6 @@ export class AutoScheduleService {
       ),
       this.assignmentRepo.findByTaskId(taskId),
     ]);
-    const task = await this.taskRepo.findByIdWithoutRelations(taskId);
-    const projectTeam = await getProjectTeamRestriction(task?.projectId, organizationId);
     const settled = new Set(existing.map((a) => a.membershipId));
     return new Set(
       verdicts
@@ -689,6 +707,14 @@ export class AutoScheduleService {
       context
     );
 
+    // One batched read for the whole run, like the hours memo above: a week
+    // of shifts usually belongs to a handful of projects, and most to none.
+    const projectTeams = await this.projectRepo.findTeamRestrictions(
+      context.tasks.map((task) => task.projectId),
+      organizationId
+    );
+
+
     for (const task of context.tasks) {
       const slotsNeeded = task.requiredHeadcount - task.currentAssignments;
       if (slotsNeeded <= 0) continue;
@@ -700,7 +726,8 @@ export class AutoScheduleService {
         task.id,
         organizationId,
         provisional,
-        hoursCache
+        hoursCache,
+        task.projectId ? (projectTeams.get(task.projectId) ?? null) : null
       );
 
       /*
@@ -836,6 +863,14 @@ export class AutoScheduleService {
       context
     );
 
+    // One batched read for the whole run, like the hours memo above: a week
+    // of shifts usually belongs to a handful of projects, and most to none.
+    const projectTeams = await this.projectRepo.findTeamRestrictions(
+      context.tasks.map((task) => task.projectId),
+      organizationId
+    );
+
+
     for (const task of context.tasks) {
       const proposed = byTask.get(task.id);
       if (!proposed || proposed.length === 0) continue;
@@ -845,7 +880,8 @@ export class AutoScheduleService {
         task.id,
         organizationId,
         provisional,
-        hoursCache
+        hoursCache,
+        task.projectId ? (projectTeams.get(task.projectId) ?? null) : null
       );
       /*
        * The eligible set is computed ONCE per task, before any of that task's
@@ -1405,6 +1441,26 @@ Use the exact task numbers (1, 2, 3...) and staff letters (A, B, C...) from abov
      * matches drafting, and `tests/services/eligibility-query-count.test.ts`
      * keeps holding.
      */
+    /*
+     * Project Team staffing, re-checked here for the same reason the three
+     * above are.
+     *
+     * The draft is built from team members only, so in the ordinary case this
+     * removes nobody. It is not therefore redundant: this is the one write
+     * path that never passes through `assignStaff`, so the gate that refuses
+     * an outsider on the manual path never runs here — and the draft the
+     * client posts back can name anyone. Every other way onto a project work
+     * item asks this question; confirm did not, which made it the way round.
+     *
+     * One batched read for the whole draft, keyed by project, rather than a
+     * lookup per task: a week of work items usually belongs to a handful of
+     * projects, and most belong to none at all.
+     */
+    const projectTeams = await this.projectRepo.findTeamRestrictions(
+      inScopeTasks.map((task) => task.projectId),
+      organizationId
+    );
+
     const hoursCache: CommittedAssignmentsCache = new Map();
     const provisional: ProvisionalAssignments = new Map();
     const eligibleByTask = new Map<string, Set<string>>();
@@ -1417,8 +1473,12 @@ Use the exact task numbers (1, 2, 3...) and staff letters (A, B, C...) from abov
         provisional,
         hoursCache
       );
+      const projectId = taskById.get(taskId)?.projectId;
+      const team = projectId ? (projectTeams.get(projectId) ?? null) : null;
       const ok = new Set(
-        verdicts.filter((v) => v.eligible).map((v) => v.membershipId)
+        verdicts
+          .filter((v) => v.eligible && isAllowedByProjectTeam(team, v.membershipId))
+          .map((v) => v.membershipId)
       );
       eligibleByTask.set(taskId, ok);
       return ok;

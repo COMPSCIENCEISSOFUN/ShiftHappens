@@ -428,6 +428,20 @@ describe("evaluating a task", () => {
     });
 
     const other = await addStaff("bar-junior");
+    /*
+     * Both work the bar as well as the kitchen.
+     *
+     * The assignment gate evaluates department scope, so a kitchen-only
+     * member is not a candidate for a bar shift at all and the refusal would
+     * come from the wrong rule. What this test is about is narrower: seniority
+     * EARNED in the kitchen must not travel with them to the bar.
+     */
+    await prisma.departmentMembership.createMany({
+      data: [veteran, other].map((membershipId) => ({
+        membershipId,
+        departmentId: bar.id,
+      })),
+    });
     await taskService.assignStaff(barTask.id, tenant.orgId, [other], tenant.admin.userId);
 
     await expect(

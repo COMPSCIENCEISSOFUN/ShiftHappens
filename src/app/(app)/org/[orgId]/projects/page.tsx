@@ -31,6 +31,8 @@ import {
   Users,
 } from "lucide-react";
 
+import { toast } from "sonner";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -146,7 +148,6 @@ export default function ProjectsPage() {
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -181,7 +182,6 @@ export default function ProjectsPage() {
   async function createProject(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
-    setSuccess(null);
 
     const values = new FormData(event.currentTarget);
     const departmentIds = Array.from(
@@ -215,7 +215,7 @@ export default function ProjectsPage() {
     }
 
     setShowCreate(false);
-    setSuccess(
+    toast.success(
       result.staffingMode === "project_team"
         ? "Project created. Open the project to build its Project Team."
         : "Project created."
@@ -280,9 +280,6 @@ export default function ProjectsPage() {
 
       {error && (
         <AlertBanner className="mb-4" variant="error" message={error} />
-      )}
-      {success && (
-        <AlertBanner className="mb-4" variant="success" message={success} />
       )}
 
       {/*

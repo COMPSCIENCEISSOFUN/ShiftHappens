@@ -39,10 +39,10 @@ import {
 } from "@/lib/business-day";
 import { occupiesSlot, occupyingStatusFilter } from "@/lib/assignment-status";
 import {
-  getProjectTeamRestriction,
   isAllowedByProjectTeam,
   OUTSIDE_PROJECT_TEAM_MESSAGE,
 } from "@/lib/project-staffing";
+import { ProjectRepository } from "@/repositories/project.repository";
 
 interface EligibilityCheck {
   eligible: boolean;
@@ -137,6 +137,7 @@ export class EligibilityService {
   private taskRepo = new TaskRepository();
   private membershipRepo = new MembershipRepository();
   private workRuleRepo = new WorkRuleRepository();
+  private projectRepo = new ProjectRepository();
   private auditService = new AuditLogService();
 
   /**
@@ -420,7 +421,10 @@ export class EligibilityService {
     const task = await this.taskRepo.findByIdWithoutRelations(taskId);
     if (!task || task.organizationId !== organizationId) throw new Error("Task not found");
 
-    const projectTeam = await getProjectTeamRestriction(task.projectId, organizationId);
+    const projectTeam = await this.projectRepo.findTeamRestriction(
+      task.projectId,
+      organizationId
+    );
     for (const membershipId of membershipIds) {
       if (!isAllowedByProjectTeam(projectTeam, membershipId)) {
         throw new Error(OUTSIDE_PROJECT_TEAM_MESSAGE);

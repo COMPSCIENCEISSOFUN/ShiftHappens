@@ -67,6 +67,24 @@ export class DepartmentRepository {
     });
   }
 
+  /**
+   * As `countOwned`, but archived departments do not count.
+   *
+   * Separate rather than a flag on `countOwned` because its existing callers
+   * are proving ownership of departments they already hold a reference to,
+   * where an archived one is still theirs. This one is used when a caller is
+   * CHOOSING departments — and an archived department is not on offer.
+   */
+  async countActiveOwned(
+    departmentIds: string[],
+    organizationId: string
+  ): Promise<number> {
+    if (departmentIds.length === 0) return 0;
+    return prisma.department.count({
+      where: { id: { in: departmentIds }, organizationId, archivedAt: null },
+    });
+  }
+
   async findByOrganizationId(
     organizationId: string,
     includeArchived = false,

@@ -28,7 +28,7 @@ import { ReportingService } from "@/services/reporting.service";
 import { EligibilityOverrideRepository } from "@/repositories/eligibility-override.repository";
 import { prisma } from "@/lib/prisma";
 import { cleanDatabase } from "../helpers/cleanup";
-import { createTenant, type Tenant } from "../helpers/fixtures";
+import { createTenant, declareOpenWeek, type Tenant } from "../helpers/fixtures";
 
 const tasks = new TaskService();
 const eligibility = new EligibilityService();
@@ -79,6 +79,7 @@ beforeEach(async () => {
   await cleanDatabase();
   tenant = await createTenant("consent");
   staffMembership = tenant.staff.membershipId;
+  await declareOpenWeek(tenant.staff.membershipId, tenant.manager.membershipId);
   await autoAccept();
 });
 

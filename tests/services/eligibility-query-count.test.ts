@@ -27,6 +27,7 @@ import { OrganizationRepository } from "@/repositories/organization.repository";
 import { UserRepository } from "@/repositories/user.repository";
 import { prisma } from "@/lib/prisma";
 import { cleanDatabase } from "../helpers/cleanup";
+import { declareOpenWeek } from "../helpers/fixtures";
 import { todaySgtAt } from "../helpers/time";
 
 const eligibilityService = new EligibilityService();
@@ -86,6 +87,8 @@ beforeEach(async () => {
     });
     staffMembershipIds.push(membership.id);
   }
+
+  await declareOpenWeek(...staffMembershipIds);
 
   // A daily and a weekly cap alongside the company break rule, so all three
   // hour windows are exercised for every member.

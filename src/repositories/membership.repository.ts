@@ -377,6 +377,35 @@ export class MembershipRepository {
     });
   }
 
+  /**
+   * Of these ids, which are active staff in this organisation.
+   *
+   * `departmentId` narrows further to members of that department. The caller
+   * compares the returned count against the list it sent: fewer means at
+   * least one id was inactive, not staff, from another tenant, or outside the
+   * department — one query instead of four round trips per candidate.
+   */
+  async findActiveStaffIds(
+    ids: string[],
+    organizationId: string,
+    departmentId?: string | null
+  ): Promise<string[]> {
+    if (ids.length === 0) return [];
+    const rows = await prisma.membership.findMany({
+      where: {
+        id: { in: ids },
+        organizationId,
+        role: "staff",
+        status: "active",
+        ...(departmentId
+          ? { departmentMemberships: { some: { departmentId } } }
+          : {}),
+      },
+      select: { id: true },
+    });
+    return rows.map((row) => row.id);
+  }
+
   async findById(id: string) {
     return prisma.membership.findUnique({
       where: { id },
