@@ -45,6 +45,7 @@ import {
   type SubscriptionTier,
 } from "@/lib/subscription-tiers";
 import { apiErrorMessage } from "@/lib/api-error";
+import { Logo, LogoMark } from "@/components/brand/logo";
 
 // ─── Video Source Configuration ───────────────────────────────────────────
 // Replace null with your video details when ready.
@@ -206,19 +207,20 @@ function Navbar() {
       }`}
     >
       <div className="mx-auto max-w-6xl px-6 flex items-center justify-between h-16">
-        {/* Logo */}
-        <div className="flex items-center gap-2.5">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 to-indigo-600 text-sm font-extrabold text-white shadow-sm">
-            S
-          </div>
-          <span
-            className={`text-lg font-bold tracking-tight transition-colors hidden sm:inline ${
-              scrolled ? "text-slate-900" : "text-white"
-            }`}
-          >
-            ShiftHappens
-          </span>
-        </div>
+        {/*
+          The one place the name is hidden on a phone: the nav beside it needs
+          the room, and the mark alone still says whose site this is.
+
+          `nameClassName` rather than a tone, because this header sits over the
+          hero until it scrolls and then over white — so its colour is a
+          function of scroll position, which is a thing only this header knows.
+        */}
+        <Logo
+          className="shrink-0"
+          nameClassName={`hidden text-lg transition-colors sm:inline ${
+            scrolled ? "text-slate-900" : "text-white"
+          }`}
+        />
 
         {/* Desktop nav */}
         <div className="hidden md:flex items-center gap-8">
@@ -1118,7 +1120,7 @@ function Testimonials({ reviews }: { reviews: LandingReview[] }) {
  * one; members who are already signed in have `Send feedback` in the app, which
  * arrives with an account attached and is worth more than an anonymous form.
  */
-const CONTACT_EMAIL = "hello@shifthappens.app";
+const CONTACT_EMAIL = "shifthappens@gmail.com";
 
 export interface LandingFaqEntry {
   id: string;
@@ -1450,9 +1452,7 @@ function Footer() {
       <div className="mx-auto max-w-6xl px-6">
         <div className="flex flex-col md:flex-row items-center justify-between gap-6">
           <div className="flex items-center gap-2.5">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 to-indigo-600 text-sm font-extrabold text-white">
-              S
-            </div>
+            <LogoMark />
             <div>
               <span className="text-lg font-bold text-white tracking-tight">
                 ShiftHappens

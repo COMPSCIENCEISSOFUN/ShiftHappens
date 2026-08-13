@@ -25,6 +25,7 @@ import { signOut } from "next-auth/react";
 import { useTheme } from "next-themes";
 import { getSystemRoleLabel, canBeRostered } from "@/lib/role-config";
 import { usePlan } from "@/components/layout/plan-provider";
+import { LogoMark } from "@/components/brand/logo";
 
 // ============================================================
 // SVG icon components
@@ -405,11 +406,28 @@ function CloseIcon() {
   );
 }
 
-/** The initial tile. Identical in both branches, so it lives in one place. */
+/**
+ * The tile at the top of the rail. Identical in both branches, so it lives in
+ * one place.
+ *
+ * ORGANISATION first, product second. Inside an organisation this is that
+ * organisation's initial, because the question the rail answers there is
+ * "which company am I in" — five people share this screen and two of them are
+ * in more than one. Outside one — the picker, onboarding — there is no
+ * organisation to name and it falls back to the ShiftHappens mark.
+ */
 function OrgMark({ name }: { name?: string }) {
+  if (!name) return <LogoMark tone="on-brand" />;
+
   return (
-    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-white/20 text-sm font-extrabold backdrop-blur-sm">
-      {(name || "S")[0].toUpperCase()}
+    /*
+      32px, matching `LOGO_SIZE`. This tile and the brand mark are the same
+      slot — the initial when you are inside an organisation, the mark when you
+      are not — and it was 36 while the mark was 32, so the top of the rail
+      changed size depending on where you had navigated to.
+    */
+    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-white/20 text-sm font-extrabold backdrop-blur-sm">
+      {name[0].toUpperCase()}
     </div>
   );
 }
@@ -1106,7 +1124,17 @@ export function AppSidebar({
                   </span>
                   <span className="app-sidebar-label flex-1">{item.label}</span>
                   {item.badge !== undefined && item.badge > 0 && (
-                    <span className="app-sidebar-badge flex min-w-[18px] items-center justify-center rounded-[9px] bg-red-500/90 px-[5px] text-xs font-bold text-white" style={{ height: 18 }}>
+                    /*
+                      The height is a CLASS, not an inline style.
+
+                      It was `style={{ height: 18 }}`, and an inline style beats
+                      a stylesheet rule whatever its specificity — so the
+                      collapsed rail's `height: 8px` could never apply. The
+                      badge kept its full height and lost only its width, which
+                      is why a rail showed a tall thin red sliver beside the
+                      icon instead of the dot the CSS has always described.
+                    */
+                    <span className="app-sidebar-badge flex h-[18px] min-w-[18px] items-center justify-center rounded-[9px] bg-red-500/90 px-[5px] text-xs font-bold text-white">
                       {item.badge > 99 ? "99+" : item.badge}
                     </span>
                   )}

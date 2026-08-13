@@ -124,11 +124,11 @@ export default function WriteReviewPage() {
   const remaining = REVIEW_MAX_LENGTH - body.length;
 
   return (
-    // Narrow, and left-aligned like every other page — see the note on the
-    // feedback page, which is this screen's twin and now matches it.
-    // `max-w-5xl`, matching Send feedback — the two pages are the same shape
-    // and sat at different widths, which reads as one of them being unfinished.
-    <div className="w-full max-w-5xl">
+    // `w-full`, matching Send feedback next door and every other page in the
+    // shell. The two are the same shape and must not sit at different widths —
+    // that reads as one of them being unfinished. The measure lives on the
+    // form below, for the reason written out over there.
+    <div className="w-full">
       <div className="mb-4">
         <h1 className="text-xl font-bold tracking-tight sm:text-2xl">
           {existing ? "Your review" : "Write a review"}
@@ -141,15 +141,20 @@ export default function WriteReviewPage() {
 
       {error && (
         <AlertBanner
-          className="mb-4"
+          className="mb-4 max-w-3xl"
           variant="error"
           message={error}
           onDismiss={() => setError(null)}
         />
       )}
 
+      {/*
+        The status panel shares the form's measure. It is a sentence about the
+        box below it, and a card running to the screen edge above a form that
+        stops short reads as two unrelated things.
+      */}
       {status && (
-        <div className="mb-4 rounded-xl border border-border bg-card p-4 text-sm shadow-sm">
+        <div className="mb-4 max-w-3xl rounded-xl border border-border bg-card p-4 text-sm shadow-sm">
           <p className="font-medium">{REVIEW_STATUS_LABEL[status]}</p>
           <p className="mt-0.5 text-muted-foreground">
             {REVIEW_STATUS_NOTE[status]}
@@ -162,7 +167,7 @@ export default function WriteReviewPage() {
         </div>
       )}
 
-      <form onSubmit={save} className="space-y-6">
+      <form onSubmit={save} className="max-w-3xl space-y-6">
         <div className="space-y-2">
           <Label htmlFor="review-rating">How is it going?</Label>
           {/*

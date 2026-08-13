@@ -424,13 +424,35 @@
    */
   .app-sidebar-collapsed .app-sidebar-badge {
     position: absolute;
-    top: 4px;
-    right: 10px;
+    top: 7px;
+    right: 11px;
+    /*
+      All four sides pinned. `min-width` alone left the element free to be as
+      wide as its content, and `width` was never set — so the number inside was
+      the only thing holding the shape, and hiding it with `font-size: 0` made
+      the box collapse to its minimum on one axis and keep its full height on
+      the other.
+    */
+    width: 8px;
     min-width: 8px;
     height: 8px;
     padding: 0;
+    /* A circle regardless of the 9px radius the expanded pill carries. */
+    border-radius: 9999px;
+    /*
+      Separated from whatever it sits on. The rail is a gradient and the icon
+      beneath it is pale, so an unringed dot reads as part of the icon rather
+      than as something added to it.
+    */
+    box-shadow: 0 0 0 2px rgba(67, 56, 202, 0.9);
     font-size: 0;
     line-height: 0;
+    /*
+      The count is still in the DOM and still read aloud; `font-size: 0` hides
+      it from the eye and not from a screen reader. A rail that dropped the
+      number from the accessibility tree would be telling a keyboard user less
+      than the same menu tells a mouse user.
+    */
   }
 
   .app-sidebar-collapsed .app-sidebar-link {

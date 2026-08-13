@@ -21,7 +21,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { InviteImportService } from "@/services/invite-import.service";
 import { SubscriptionService } from "@/services/subscription.service";
-import { DepartmentRepository } from "@/repositories/department.repository";
+import { DepartmentService } from "@/services/department.service";
 import { requirePermission } from "@/lib/permission-guard";
 import {
   getAuthenticatedUser,
@@ -33,7 +33,7 @@ export const runtime = "nodejs";
 
 const importService = new InviteImportService();
 const subscriptionService = new SubscriptionService();
-const departmentRepo = new DepartmentRepository();
+const departmentService = new DepartmentService();
 
 /*
  * Bounded on every axis a caller controls. This endpoint forwards its input to
@@ -86,10 +86,11 @@ export async function POST(
       );
     }
 
-    // Active only — an archived department is not somewhere a new member can
-    // be placed, so matching against one would resolve the row and then fail
-    // at assignment for a reason the preview never showed.
-    const departments = await departmentRepo.findActiveNames(orgId);
+    // Active only, and the reason lives with the query now — see
+    // `DepartmentService.getActiveNames`. This route used to hold the
+    // repository directly, which made it the one endpoint in the application
+    // reaching Entity without passing through Control.
+    const departments = await departmentService.getActiveNames(orgId);
     const result = await importService.resolve(parsed.data.rows, departments);
 
     return NextResponse.json(result);

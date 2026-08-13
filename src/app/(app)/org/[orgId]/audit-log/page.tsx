@@ -12,6 +12,7 @@ import { ChevronLeft, ChevronRight, ScrollText } from "lucide-react";
 import { AUDIT_ENTITY_LABELS, AUDIT_ENTITY_TYPES } from "@/lib/audit-entities";
 import { DATE_RANGE_MESSAGE, parseDateRange } from "@/lib/date-range";
 import type { AuditAction } from "@/lib/audit-actions";
+import { summariseAudit } from "@/lib/audit-details";
 import { Panel } from "@/components/ui/panel";
 import { SECONDARY_BUTTON } from "@/components/ui/button-styles";
 import { PageLoading } from "@/components/ui/page-loading";
@@ -379,7 +380,17 @@ export default function AuditLogPage() {
   }
 
   return (
-    <div className="max-w-5xl">
+    /*
+      `w-full`, like every other page in the shell.
+
+      This was `max-w-5xl`, which capped the content well short of the right
+      edge and left a gutter no sibling page has — so walking from Notifications
+      to Audit Log shrank the page for no stated reason. A width cap is worth
+      having for a column of prose (the feedback and review forms keep one) and
+      is exactly wrong for a table: the room goes to "What happened", which is
+      the column that holds a sentence.
+    */
+    <div className="w-full">
       {/*
         The house header shape. This page kept `text-2xl font-bold` with no
         responsive step, so on a phone it rendered a size larger than every
@@ -502,13 +513,29 @@ export default function AuditLogPage() {
 
       {/* Log entries */}
       {loading ? (
-        <PageLoading />
+        // The same floor while it loads, or the jump the minimum was added to
+        // stop happens on every filter change anyway — just half a beat
+        // earlier, between the old results disappearing and the new arriving.
+        <PageLoading className="min-h-[26rem] justify-center" />
       ) : (
+        /*
+          A floor under the results area, so the card keeps its shape.
+
+          Not decoration. This panel is directly under five filters, and its
+          height was whatever the result count made it — twenty rows tall, then
+          two rows tall the moment somebody picked an action, then tall again
+          when they cleared it. The pager and everything below jumped a screen
+          each time, which makes changing a filter feel like a page load and
+          loses the reader's place.
+
+          A minimum, not a fixed height: a full page of twenty still grows past
+          it, so nothing is ever cut off or scrolled inside a box.
+        */
         <Panel
           title="Entries"
           icon={ScrollText}
           count={total}
-          bodyClassName="divide-y divide-border"
+          bodyClassName="min-h-[26rem]"
         >
           {entries.length === 0 ? (
             <EmptyState
@@ -521,31 +548,85 @@ export default function AuditLogPage() {
               }
             />
           ) : (
-            entries.map((entry) => (
-              <div
-                key={entry.id}
-                className="flex flex-col gap-1.5 px-4 py-3 sm:flex-row sm:items-center sm:gap-4"
-              >
-                <span
-                  className={`w-fit shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${actionColor(entry.action)}`}
-                >
-                  {ACTION_LABELS[entry.action as AuditAction] || entry.action}
-                </span>
-                <div className="flex-1 text-sm">
-                  <span className="font-medium">
-                    {entry.user?.name || entry.user?.email || "System"}
-                  </span>
-                  {entry.details && (
-                    <span className="ml-2 text-muted-foreground">
-                      {formatDetails(entry)}
-                    </span>
-                  )}
-                </div>
-                <span className="shrink-0 text-xs text-muted-foreground">
-                  {new Date(entry.createdAt).toLocaleString()}
-                </span>
-              </div>
-            ))
+            /*
+              A table, and the reason is the "What happened" column.
+
+              The rows used to be a badge, a name and a time laid out with
+              flexbox, so nothing lined up: the actor started at a different
+              horizontal position on every row depending on how wide the badge
+              was, and the eye had to re-find it each time. An audit log is read
+              by scanning ONE column — usually who, sometimes when — and a list
+              of differently-shaped rows is the one layout that makes scanning
+              impossible.
+
+              `overflow-x-auto` rather than a separate stacked layout for
+              phones. Two markups for one table is two places for a column to
+              be added to only one of them, and this is a screen an admin opens
+              at a desk.
+            */
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/30">
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      Action
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      By
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      What happened
+                    </th>
+                    <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      When
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {entries.map((entry) => {
+                    const what = summariseAudit(entry.action, entry.details);
+                    return (
+                      <tr
+                        key={entry.id}
+                        className="border-b border-border transition-colors last:border-b-0 hover:bg-muted/20"
+                      >
+                        <td className="px-4 py-3 align-top">
+                          <span
+                            className={`inline-block w-fit whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-medium ${actionColor(entry.action)}`}
+                          >
+                            {ACTION_LABELS[entry.action as AuditAction] || entry.action}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 align-top font-medium">
+                          {/*
+                            "System" covers two different things — a cron run
+                            and a webhook — and neither has a user row. Named
+                            rather than left blank, because an empty actor cell
+                            reads as missing data on the one screen where
+                            missing data is the thing you are looking for.
+                          */}
+                          {entry.user?.name || entry.user?.email || "System"}
+                        </td>
+                        <td className="px-4 py-3 align-top text-muted-foreground">
+                          {/*
+                            A dash, not an id. `entityId` is a cuid; printing
+                            it would look like an answer. Null here means the
+                            action recorded nothing beyond itself, which for
+                            something like "Member activated" is the whole
+                            truth.
+                          */}
+                          {what ?? <span aria-hidden="true">—</span>}
+                          {what === null && <span className="sr-only">No further detail</span>}
+                        </td>
+                        <td className="px-4 py-3 align-top text-right text-xs tabular-nums text-muted-foreground">
+                          {new Date(entry.createdAt).toLocaleString()}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           )}
         </Panel>
       )}
@@ -578,21 +659,4 @@ export default function AuditLogPage() {
       )}
     </div>
   );
-}
-
-function formatDetails(entry: AuditEntry): string {
-  if (!entry.details) return "";
-  const d = entry.details;
-
-  if (entry.action === "task.created" && d.title) return `"${d.title}"`;
-  if (entry.action === "task.assigned" && d.membershipIds)
-    return `${(d.membershipIds as string[]).length} staff member(s)`;
-  if (entry.action === "assignment.rejected" && d.reason)
-    return `${String(d.reason).replace(/_/g, " ")}${d.notes ? ` — ${d.notes}` : ""}`;
-  if (entry.action === "task.updated") {
-    const keys = Object.keys(d);
-    return `updated ${keys.join(", ")}`;
-  }
-
-  return "";
 }

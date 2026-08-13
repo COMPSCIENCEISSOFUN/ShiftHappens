@@ -72,19 +72,19 @@ export default function FeedbackPage() {
 
   return (
     /*
-      Bounded and NOT centred. Every other page in the application starts its
-      content at the left edge — centring this one would move the title away
-      from where the eye has learned to find it, which is the same "reads as a
-      different product" the dashboards were rebuilt for.
+      `w-full`, and not centred.
 
-      `max-w-5xl` rather than the `max-w-2xl` it began as. The original was
-      arguing against stretching a textarea across a 1600px monitor, which is
-      still right — but 672px overshot it, leaving two thirds of a wide screen
-      empty and the category grid squeezed into two cramped columns. This is
-      wide enough that the page does not read as unfinished and narrow enough
-      that a line of typing is still a line rather than a horizon.
+      This has been narrowed twice — `max-w-2xl`, then `max-w-5xl` — each time
+      arguing that a textarea should not stretch across a wide monitor. That is
+      sound in isolation and loses to the argument that matters more here: no
+      other page in the shell caps its width, so any cap leaves a gutter only
+      these two pages have, and a page stopping short of the edge reads as
+      unfinished rather than as considered.
+
+      The measure is defended below instead, on the field that actually needs
+      it, rather than by shrinking the whole page around one textarea.
     */
-    <div className="w-full max-w-5xl">
+    <div className="w-full">
       {/*
         The house header: `h2`, bold, a 13px muted line under it, `mb-4` to the
         content. Availability, Notifications, Work Rules, Leave and My
@@ -103,14 +103,27 @@ export default function FeedbackPage() {
 
       {error && (
         <AlertBanner
-          className="mb-4"
+          className="mb-4 max-w-3xl"
           variant="error"
           message={error}
           onDismiss={() => setError(null)}
         />
       )}
 
-      <form onSubmit={send} className="space-y-6">
+      {/*
+        `max-w-3xl` here, on the form, and not on the textarea.
+
+        Capping the box alone was worse than capping nothing: the label row and
+        the footer are its siblings and stayed full width, so the character
+        count and the Send button sat against the right edge of the screen
+        while the box they belong to stopped two thirds of the way across. A
+        field and its own counter pulling apart reads as a broken layout, which
+        is exactly what it was.
+
+        One measure for the whole form keeps them together, and the page around
+        it still runs the full width like every other page in the shell.
+      */}
+      <form onSubmit={send} className="max-w-3xl space-y-6">
         <div className="space-y-2">
           <Label htmlFor="feedback-area">What is this about?</Label>
           {/*
@@ -119,9 +132,15 @@ export default function FeedbackPage() {
             options — few enough to show all of them and let the choice be one
             tap instead of three.
           */}
+          {/*
+            Two across, then three once there is room. Six options in two
+            columns on a full-width page gives each one a button the width of a
+            paragraph, which reads as a list of headings rather than a set of
+            choices.
+          */}
           <div
             id="feedback-area"
-            className="grid grid-cols-1 gap-2 sm:grid-cols-2"
+            className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3"
           >
             {FEEDBACK_AREAS.map((candidate) => {
               const selected = area === candidate;

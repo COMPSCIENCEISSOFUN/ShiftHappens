@@ -96,6 +96,33 @@ export class DepartmentService {
   }
 
   /**
+   * Active departments, id and name only — enough to match a name against.
+   *
+   * Its one caller is the invite-import preview, which resolves a spreadsheet
+   * column of department names against real departments. That route was
+   * reaching into `DepartmentRepository` itself, which made it the only
+   * endpoint in the application talking to Entity without a service in
+   * between; the query is unchanged and only the route it lives behind moved.
+   *
+   * ARCHIVED ARE EXCLUDED. An archived department is not somewhere a new
+   * member can be placed, so matching against one resolves the row in the
+   * preview and then fails at assignment for a reason the preview never
+   * showed.
+   *
+   * `departmentIds` follows the house convention: null or undefined is
+   * unrestricted, and an EMPTY array is scoped to nothing rather than to
+   * everything. The importer passes nothing today — an admin gate guards the
+   * screen — and the parameter is here so a scoped caller can be added without
+   * this becoming the place that forgot.
+   */
+  async getActiveNames(
+    organizationId: string,
+    departmentIds?: string[] | null
+  ) {
+    return this.deptRepo.findActiveNames(organizationId, departmentIds);
+  }
+
+  /**
    * Loads a department and asserts it belongs to the calling organisation.
    *
    * `DepartmentRepository.findById` is a bare `findUnique` on the primary key,
