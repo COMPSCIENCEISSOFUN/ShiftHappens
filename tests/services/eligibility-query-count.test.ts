@@ -63,8 +63,21 @@ beforeEach(async () => {
   const org = await orgRepo.create({ name: "Acme", slug: "acme" }, admin.id);
   orgId = org.id;
 
+  /*
+   * `allocationMode` stated, not inherited.
+   *
+   * The column default became "auto" on 2026-08-13, which makes every
+   * `taskService.create` below run the allocation engine — so a shift this file
+   * creates arrives with staff already on it, and the `assignStaff` calls that
+   * follow meet "already has a record on this task" instead of the query
+   * counting they are here to measure.
+   */
   await prisma.companySettings.create({
-    data: { organizationId: orgId, workingDayHours: 8 },
+    data: {
+      organizationId: orgId,
+      allocationMode: "suggested",
+      workingDayHours: 8,
+    },
   });
 
   const dept = await prisma.department.create({
