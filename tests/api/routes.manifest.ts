@@ -152,6 +152,11 @@ export const ROUTES: RouteSpec[] = [
   org("departments/[deptId]", "GET", ADMIN, { extraParams: ["deptId"] }),
   org("departments/[deptId]", "PATCH", ADMIN, { suspension: true, extraParams: ["deptId"] }),
   org("departments/[deptId]", "DELETE", ADMIN, { suspension: true, extraParams: ["deptId"] }),
+  /*
+   * MANAGER, matching the department LIST rather than the admin-only detail
+   * route it sits under: who works in a department is a rostering question.
+   */
+  org("departments/[deptId]/members", "GET", MANAGER, { extraParams: ["deptId"] }),
 
   // ── Roles ───────────────────────────────────────────────────────────
   org("roles", "GET", MANAGER),
@@ -295,7 +300,6 @@ export const ROUTES: RouteSpec[] = [
   // ── Reporting & insight ─────────────────────────────────────────────
   org("dashboard", "GET", MEMBER),
   org("dashboard/ai-recommendations", "GET", MANAGER),
-  org("dashboard/feedback-themes", "GET", MANAGER),
   org("hour-alerts", "GET", MANAGER),
   org("hour-alerts", "POST", MANAGER, { suspension: true }),
   org("reports", "GET", MANAGER),

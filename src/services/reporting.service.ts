@@ -16,7 +16,7 @@
 import { ReportingRepository } from "@/repositories/reporting.repository";
 import { SettingsRepository } from "@/repositories/settings.repository";
 import { EligibilityOverrideRepository } from "@/repositories/eligibility-override.repository";
-import { REASON_PHRASE, type DeclineReason } from "@/lib/decline-reasons";
+import { REASON_PHRASE, reasonLabel, type DeclineReason } from "@/lib/decline-reasons";
 import { occupiesSlot } from "@/lib/assignment-status";
 import { DEFAULT_TIMEZONE, SERVER_LOCALE, dayOfWeekInTimeZone, endOfDayInTimeZone, localDateInTimeZone, shiftWindowLabel, startOfDayInTimeZone } from "@/lib/timezone";
 
@@ -127,16 +127,41 @@ export interface TaskSummary {
   cancelled: number;
 }
 
-/** Org-wide certification health — PRD 3.15 */
+/**
+ * Org-wide certification health — PRD 3.15
+ *
+ * ## Two different meanings of "verified", and why both are here
+ *
+ * `verified` is a STATUS count: every row whose status is verified. Its two
+ * subsets, `expiringSoon` and `expired`, are drawn from it — so the three
+ * overlap and must never be shown side by side as though they were a
+ * breakdown. The dashboard did exactly that: eleven verified, one expired, and
+ * "in good standing" written under the eleven, three of which were not.
+ *
+ * `inGoodStanding` is the PARTITION: verified, not lapsing, not lapsed. It is
+ * the figure `certificationDisplayState` computes per certificate on the
+ * certifications page, which is why that page said eight where the dashboard
+ * said eleven about the same organisation on the same afternoon.
+ *
+ * Computed here rather than subtracted by each caller, because a rule that
+ * lives in two places has two states that can disagree — which is how this was
+ * found in the first place.
+ */
 export interface CertificationSummary {
   total: number;
+  /** Status count. INCLUDES the expiring and expired subsets below. */
   verified: number;
   pending: number;
   rejected: number;
-  /** Verified certs expiring within 30 days. */
+  /** Verified certs expiring within 30 days. A subset of `verified`. */
   expiringSoon: number;
-  /** Verified certs whose expiry has already passed. */
+  /** Verified certs whose expiry has already passed. A subset of `verified`. */
   expired: number;
+  /**
+   * Verified, in date, and not lapsing. `inGoodStanding + expiringSoon +
+   * expired === verified`, so these three partition and can be shown together.
+   */
+  inGoodStanding: number;
 }
 
 /** Staffing coverage across the next 7 days — PRD 3.15 */
@@ -208,6 +233,23 @@ export interface DepartmentWorkloadItem {
 }
 
 /** Staff rejection data grouped for trend analysis */
+/**
+ * Declines grouped by REASON, with nobody named.
+ *
+ * `RejectionTrendItem` below groups the same data by PERSON — "Alex declined
+ * three times, twice saying already working". That is a named list of
+ * individuals and their reasons on a manager's home screen, and it answers the
+ * wrong question: "Alex declined three times" tells you to have a word with
+ * Alex, where "seven declines for insufficient notice" tells you to change the
+ * notice period. Same query, same cost, the actionable half.
+ */
+export interface DeclineReasonItem {
+  /** One of DECLINE_REASONS, or "unspecified" for rows predating them. */
+  reason: string;
+  label: string;
+  count: number;
+}
+
 export interface RejectionTrendItem {
   staffName: string;
   membershipId: string;
@@ -972,6 +1014,47 @@ export class ReportingService {
    * Sorted by rejection count descending (most rejections first).
    * The AI recommendations service can use this for pattern analysis.
    */
+  /**
+   * The last seven days of declines, counted by reason.
+   *
+   * Aggregated in the service rather than in the component: a screen that
+   * received the per-person rows and summed them would be one refactor away
+   * from rendering the names it was given.
+   */
+  async getDeclineReasons(
+    organizationId: string,
+    departmentIds?: string[]
+  ): Promise<DeclineReasonItem[]> {
+    const sevenDaysAgo = new Date(
+      startOfDayInTimeZone(new Date()).getTime() - 7 * DAY_MS
+    );
+
+    const rejections = await this.reportingRepo.getRejectionData(
+      organizationId,
+      sevenDaysAgo,
+      departmentIds
+    );
+
+    const counts = new Map<string, number>();
+    for (const rejection of rejections) {
+      // A row written before the reasons were structured has none. Counted as
+      // its own bucket rather than dropped, or the total on the card would
+      // disagree with the number of declines.
+      const reason = rejection.rejectionReason || "unspecified";
+      counts.set(reason, (counts.get(reason) ?? 0) + 1);
+    }
+
+    return [...counts.entries()]
+      .map(([reason, count]) => ({
+        reason,
+        label: reasonLabel(reason),
+        count,
+      }))
+      // Commonest first, then by reason so equal counts do not reorder
+      // between requests.
+      .sort((a, b) => b.count - a.count || a.reason.localeCompare(b.reason));
+  }
+
   async getRejectionTrends(
     organizationId: string,
     departmentIds?: string[]
@@ -1447,6 +1530,12 @@ export class ReportingService {
     return {
       ...counts,
       total: counts.verified + counts.pending + counts.rejected,
+      /*
+       * The two subsets are disjoint — one is `expiryDate >= now`, the other
+       * `< now` — so subtracting both from the status count is exact rather
+       * than approximate.
+       */
+      inGoodStanding: counts.verified - counts.expiringSoon - counts.expired,
     };
   }
 

@@ -710,6 +710,17 @@ describe("ReportingService", () => {
       expect(summary.total).toBe(5);
       expect(summary.expiringSoon).toBe(1); // only "First Aid"
       expect(summary.expired).toBe(1); // only "Forklift"
+
+      /*
+       * `verified` is a status count and the two subsets come from inside it,
+       * so only "Food Safety" is actually in good standing. The dashboard
+       * showed the status count under the words "in good standing" and
+       * disagreed with the certifications page by exactly this margin.
+       */
+      expect(summary.inGoodStanding).toBe(1);
+      expect(
+        summary.inGoodStanding + summary.expiringSoon + summary.expired
+      ).toBe(summary.verified);
     });
   });
 

@@ -3,10 +3,11 @@
  *
  * Three surfaces reported an AI failure as an ordinary, uneventful result:
  *
- *  - the feedback panel printed "Nothing recurring in what people wrote — the
- *    comments did not group into a shared subject", which is an affirmative
- *    claim that the text WAS read and analysed, while both providers had
- *    failed. Nobody investigates a panel that reads as merely uneventful;
+ *  - the feedback-themes panel printed "Nothing recurring in what people
+ *    wrote", an affirmative claim that the text WAS read, while both providers
+ *    had failed. That panel has since been removed for an unrelated reason —
+ *    it was being handed the decline reason and read the enum back as a theme —
+ *    so only its lesson survives here;
  *  - the priority call returned `{ call: null }` for five different situations,
  *    so the badge vanished identically whether the engine had no strong opinion
  *    or had stopped answering a fortnight ago;
@@ -49,71 +50,6 @@ beforeEach(async () => {
 afterEach(() => {
   vi.unstubAllGlobals();
   process.env = { ...ORIGINAL_ENV };
-});
-
-describe("feedback themes", () => {
-  /**
-   * Enough completed, rated shifts with comments to pass the minimum the panel
-   * needs before it looks for a pattern at all.
-   */
-  async function seedComments(count: number) {
-    for (let i = 0; i < count; i++) {
-      const task = await prisma.task.create({
-        data: {
-          organizationId: tenant.orgId,
-          departmentId: tenant.departmentId,
-          createdById: tenant.admin.userId,
-          title: `Shift ${i}`,
-          status: "completed",
-          scheduledStart: new Date(Date.now() - (i + 2) * 86_400_000),
-          scheduledEnd: new Date(Date.now() - (i + 2) * 86_400_000 + 3_600_000),
-        },
-      });
-      await prisma.taskAssignment.create({
-        data: {
-          taskId: task.id,
-          membershipId: tenant.staff.membershipId,
-          assignedById: tenant.admin.userId,
-          status: "completed",
-          satisfactionRating: 2,
-          satisfactionComment: `The evening shifts are consistently short-staffed ${i}`,
-          ratedAt: new Date(Date.now() - (i + 1) * 86_400_000),
-        },
-      });
-    }
-  }
-
-  it("says the comments were not read when no provider answered", async () => {
-    await seedComments(8);
-    providersRefusing();
-
-    const result = await dashboard.getFeedbackThemes(tenant.orgId);
-
-    expect(result.themes).toHaveLength(0);
-    expect(result.unavailable).toBe(true);
-  });
-
-  /*
-   * The other empty state, and the reason the two must be distinguishable: too
-   * few comments to look for a pattern in is a real finding, and the panel
-   * should go on saying so.
-   */
-  it("does not claim unavailable when there was simply too little to read", async () => {
-    await seedComments(1);
-
-    const result = await dashboard.getFeedbackThemes(tenant.orgId);
-
-    expect(result.themes).toHaveLength(0);
-    expect(result.unavailable).toBeFalsy();
-  });
-
-  it("still reports how many comments it had", async () => {
-    await seedComments(8);
-    providersRefusing();
-
-    const result = await dashboard.getFeedbackThemes(tenant.orgId);
-    expect(result.basedOn).toBeGreaterThanOrEqual(5);
-  });
 });
 
 describe("the priority call", () => {

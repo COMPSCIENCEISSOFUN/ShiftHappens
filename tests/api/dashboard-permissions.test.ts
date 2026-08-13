@@ -46,7 +46,7 @@ const ORG_SECTIONS = [
   "tomorrowsSchedule",
   "completionChart",
   "staffUtilization",
-  "rejectionTrends",
+  "declineReasons",
   "taskSummary",
   "coverageSummary",
 ] as const;
