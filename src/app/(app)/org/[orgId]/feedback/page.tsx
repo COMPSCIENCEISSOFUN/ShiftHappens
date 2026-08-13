@@ -72,13 +72,19 @@ export default function FeedbackPage() {
 
   return (
     /*
-      `max-w-2xl` and NOT centred. One column of prose and a textarea should
-      not stretch to a 1600px monitor, but every other page in the application
-      starts its content at the left edge — centring this one moves the title
-      away from where the eye has learned to find it, which is the same "reads
-      as a different product" the dashboards were rebuilt for.
+      Bounded and NOT centred. Every other page in the application starts its
+      content at the left edge — centring this one would move the title away
+      from where the eye has learned to find it, which is the same "reads as a
+      different product" the dashboards were rebuilt for.
+
+      `max-w-5xl` rather than the `max-w-2xl` it began as. The original was
+      arguing against stretching a textarea across a 1600px monitor, which is
+      still right — but 672px overshot it, leaving two thirds of a wide screen
+      empty and the category grid squeezed into two cramped columns. This is
+      wide enough that the page does not read as unfinished and narrow enough
+      that a line of typing is still a line rather than a horizon.
     */
-    <div className="w-full max-w-2xl">
+    <div className="w-full max-w-5xl">
       {/*
         The house header: `h2`, bold, a 13px muted line under it, `mb-4` to the
         content. Availability, Notifications, Work Rules, Leave and My

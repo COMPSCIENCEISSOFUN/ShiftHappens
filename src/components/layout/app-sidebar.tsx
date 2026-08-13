@@ -177,6 +177,37 @@ function AutoScheduleIcon() {
   );
 }
 
+/**
+ * Chevrons pointing the way the press will move the edge.
+ *
+ * Points left while expanded ("this will narrow") and right while collapsed
+ * ("this will widen"), rather than depicting the current state — a control
+ * whose icon shows where you already are leaves the reader to work out which
+ * direction pressing it goes.
+ */
+function CollapseIcon({ collapsed }: { collapsed: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={iconClass}
+      aria-hidden="true"
+    >
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <line x1="9" y1="3" x2="9" y2="21" />
+      {collapsed ? (
+        <polyline points="13 9 16 12 13 15" />
+      ) : (
+        <polyline points="16 9 13 12 16 15" />
+      )}
+    </svg>
+  );
+}
+
 function AvailabilityIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={iconClass}>
@@ -430,6 +461,38 @@ export function AppSidebar({
   const [mobileOpen, setMobileOpen] = useState(false);
   const [switcherOpen, setSwitcherOpen] = useState(false);
 
+  /*
+   * Whether the sidebar is an icon rail.
+   *
+   * Starts expanded on every render, including the server's, and the stored
+   * preference is applied in the effect below. Reading `localStorage` during
+   * the first render would produce different markup on the server and the
+   * client and React would discard the whole tree — so a reader who prefers the
+   * rail sees it appear a frame late, which is the cost of it being correct.
+   */
+  const [collapsed, setCollapsed] = useState(false);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronising with an external system: reads the stored sidebar preference, which is unavailable during render
+    setCollapsed(localStorage.getItem("sidebar-collapsed") === "1");
+  }, []);
+
+  function toggleCollapsed() {
+    setCollapsed((current) => {
+      const next = !current;
+      /*
+       * Persisted, because this is a preference rather than a mode. Somebody
+       * who wants the rail wants it on the next page too, and a menu that
+       * re-opened itself on every navigation would be worse than one that never
+       * collapsed.
+       */
+      localStorage.setItem("sidebar-collapsed", next ? "1" : "0");
+      // A collapsed rail has nowhere to put the organisation list.
+      if (next) setSwitcherOpen(false);
+      return next;
+    });
+  }
+
   async function fetchUnreadCount() {
     if (!orgId) return;
     try {
@@ -558,6 +621,20 @@ export function AppSidebar({
 
   const sections: NavSection[] = [];
 
+  /*
+   * The caller's OWN pages, in a group of their own.
+   *
+   * These five used to sit at the bottom of Overview, which made that section
+   * two menus wearing one heading: four pages about the organisation's work,
+   * then five about yours. A manager felt it most — they see every Overview
+   * entry, so the list ran to nine and the boundary between "the rota" and "my
+   * rota" was a naming convention rather than anything on screen.
+   *
+   * Built here rather than inside the `canBeRostered` branch so the section can
+   * be pushed in a fixed position below, whether or not it has anything in it.
+   */
+  const personalItems: NavItem[] = [];
+
   // --- Overview section ---
   const overviewItems: NavItem[] = [
     /*
@@ -608,7 +685,7 @@ export function AppSidebar({
      * cannot drift from what the engine will consider.
      */
     if (canBeRostered(role)) {
-      overviewItems.push({ href: `/org/${orgId}/my-tasks`, label: "My Tasks", icon: MyTasksIcon });
+      personalItems.push({ href: `/org/${orgId}/my-tasks`, label: "My Tasks", icon: MyTasksIcon });
       /*
        * The same shifts as a week rather than a list — for the people who have
        * no other calendar.
@@ -648,19 +725,28 @@ export function AppSidebar({
        * feed of their shifts would be empty by construction — which is the
        * fourth time that predicate would have been the thing forgotten.
        */
-      overviewItems.push({ href: `/org/${orgId}/my-schedule`, label: "My Schedule", icon: MyScheduleIcon });
+      personalItems.push({ href: `/org/${orgId}/my-schedule`, label: "My Schedule", icon: MyScheduleIcon });
       // The record of finished shifts, which My Tasks deliberately keeps short:
       // that page answers "am I on tonight", this one answers "what have I
       // worked". Same `canBeRostered` gate as the rest of this group.
-      overviewItems.push({ href: `/org/${orgId}/my-history`, label: "My History", icon: MyHistoryIcon });
-      overviewItems.push({ href: `/org/${orgId}/availability`, label: "My Availability", icon: AvailabilityIcon });
+      personalItems.push({ href: `/org/${orgId}/my-history`, label: "My History", icon: MyHistoryIcon });
+      personalItems.push({ href: `/org/${orgId}/availability`, label: "My Availability", icon: AvailabilityIcon });
       // The org-wide Certifications page is a review queue for other people's;
       // it has no way to submit one of your own.
-      overviewItems.push({ href: `/org/${orgId}/my-certifications`, label: "My Certifications", icon: MyCertificationsIcon });
+      personalItems.push({ href: `/org/${orgId}/my-certifications`, label: "My Certifications", icon: MyCertificationsIcon });
     }
   }
 
   sections.push({ title: "Overview", items: overviewItems });
+
+  /*
+   * Empty for an admin, who holds no shifts — the eligibility engine,
+   * `assignStaff` and `findSchedulableStaff` all exclude them — so the heading
+   * is omitted rather than left standing over nothing.
+   */
+  if (personalItems.length > 0) {
+    sections.push({ title: "Personal", items: personalItems });
+  }
 
   // --- Organization section ---
   if (orgId) {
@@ -842,7 +928,11 @@ export function AppSidebar({
         />
       )}
 
-      <aside className={`app-sidebar ${mobileOpen ? "app-sidebar-mobile-open" : ""}`}>
+      <aside
+        className={`app-sidebar ${mobileOpen ? "app-sidebar-mobile-open" : ""} ${
+          collapsed ? "app-sidebar-collapsed" : ""
+        }`}
+      >
         {/* Mobile close button */}
         <button
           onClick={() => setMobileOpen(false)}
@@ -881,7 +971,13 @@ export function AppSidebar({
         many organisations you happen to belong to. Only the caret and the hover
         appear — which is the honest difference between them.
       */}
-      <div className="relative z-[1] mb-9 -mx-2">
+      {/*
+        `mb-5` rather than `mb-9`: the nav below now scrolls in its own box, so
+        36px of dead space under the header was pushing links out of view on a
+        laptop for no reason. `shrink-0` keeps the header itself from being
+        compressed by a long menu.
+      */}
+      <div className="relative z-[1] mb-5 -mx-2 shrink-0">
         {canSwitchOrg ? (
           <button
             type="button"
@@ -889,10 +985,14 @@ export function AppSidebar({
             aria-expanded={switcherOpen}
             aria-label={`Switch organisation. Currently ${orgName}`}
             title="Switch organisation"
-            className="flex w-full items-center gap-2.5 rounded-xl px-2 py-2 text-left transition-colors hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/60"
+            className={`flex w-full items-center gap-2.5 rounded-xl px-2 py-2 text-left transition-colors hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/60 ${
+              collapsed ? "justify-center" : ""
+            }`}
           >
             <OrgMark name={orgName} />
-            <OrgIdentity orgName={orgName} tierName={orgId ? tierName : null} />
+            <span className="app-sidebar-label contents">
+              <OrgIdentity orgName={orgName} tierName={orgId ? tierName : null} />
+            </span>
             {/*
               From the house icon set, not drawn here.
 
@@ -903,18 +1003,25 @@ export function AppSidebar({
             */}
             <ChevronDown
               aria-hidden="true"
-              className={`h-4 w-4 shrink-0 text-white/60 transition-transform ${
+              className={`app-sidebar-label h-4 w-4 shrink-0 text-white/60 transition-transform ${
                 switcherOpen ? "rotate-180" : ""
               }`}
             />
           </button>
         ) : (
-          <div className="flex w-full items-center gap-2.5 px-2 py-2">
+          <div
+            className={`flex w-full items-center gap-2.5 px-2 py-2 ${
+              collapsed ? "justify-center" : ""
+            }`}
+            title={collapsed ? orgName : undefined}
+          >
             <OrgMark name={orgName} />
-            <OrgIdentity
-              orgName={orgName || "ShiftHappens"}
-              tierName={orgId ? tierName : null}
-            />
+            <span className="app-sidebar-label contents">
+              <OrgIdentity
+                orgName={orgName || "ShiftHappens"}
+                tierName={orgId ? tierName : null}
+              />
+            </span>
           </div>
         )}
 
@@ -965,11 +1072,11 @@ export function AppSidebar({
       </div>
 
       {/* Navigation */}
-      <nav className="relative z-[1] flex-1">
+      <nav className="app-sidebar-nav relative z-[1]">
         {sections.map((section, sectionIdx) => (
           <div key={section.title}>
             <div
-              className={`mb-1.5 px-3 text-xs font-bold uppercase tracking-[0.08em] text-white/35 ${
+              className={`app-sidebar-section-title mb-1.5 px-3 text-xs font-bold uppercase tracking-[0.08em] text-white/35 ${
                 sectionIdx === 0 ? "mt-0" : "mt-5"
               }`}
             >
@@ -987,13 +1094,19 @@ export function AppSidebar({
                   key={item.href}
                   href={item.href}
                   className={`app-sidebar-link ${isActive ? "app-sidebar-link-active" : ""}`}
+                  /*
+                    The label as a tooltip, so a rail is still readable. Only
+                    when collapsed — a native tooltip repeating text that is
+                    already on screen is noise.
+                  */
+                  title={collapsed ? item.label : undefined}
                 >
                   <span className={isActive ? "opacity-100" : "opacity-70"}>
                     <Icon />
                   </span>
-                  <span className="flex-1">{item.label}</span>
+                  <span className="app-sidebar-label flex-1">{item.label}</span>
                   {item.badge !== undefined && item.badge > 0 && (
-                    <span className="flex min-w-[18px] items-center justify-center rounded-[9px] bg-red-500/90 px-[5px] text-xs font-bold text-white" style={{ height: 18 }}>
+                    <span className="app-sidebar-badge flex min-w-[18px] items-center justify-center rounded-[9px] bg-red-500/90 px-[5px] text-xs font-bold text-white" style={{ height: 18 }}>
                       {item.badge > 99 ? "99+" : item.badge}
                     </span>
                   )}
@@ -1005,7 +1118,12 @@ export function AppSidebar({
       </nav>
 
       {/* Bottom section */}
-      <div className="relative z-[1] mt-auto border-t border-white/10 pt-3">
+      {/*
+        Pinned. `shrink-0` so a long menu cannot squeeze the theme toggle, the
+        collapse control, Sign out and the user card — the four things that
+        should never move.
+      */}
+      <div className="relative z-[1] mt-auto shrink-0 border-t border-white/10 pt-3">
         {/* Theme toggle */}
         {mounted && (
           <button
@@ -1016,27 +1134,62 @@ export function AppSidebar({
             <span className="opacity-60">
               <ThemeIcon isDark={resolvedTheme === "dark"} />
             </span>
-            <span>{resolvedTheme === "dark" ? "Light mode" : "Dark mode"}</span>
+            <span className="app-sidebar-label">
+              {resolvedTheme === "dark" ? "Light mode" : "Dark mode"}
+            </span>
           </button>
         )}
+
+        {/*
+          Collapse, next to the other two preferences rather than at the top.
+
+          It belongs with theme: both are about how the furniture looks, neither
+          is navigation, and putting it up by the organisation switcher would
+          make the first thing in the menu a control about the menu.
+
+          Hidden below 768px, where the sidebar is an overlay drawer and a
+          narrow-vs-wide choice would be a third state with no meaning.
+        */}
+        <button
+          onClick={toggleCollapsed}
+          className="app-sidebar-action-btn hidden md:flex"
+          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          aria-expanded={!collapsed}
+        >
+          <span className="opacity-60">
+            <CollapseIcon collapsed={collapsed} />
+          </span>
+          <span className="app-sidebar-label">Collapse</span>
+        </button>
 
         {/* Sign out */}
         <button
           onClick={() => signOut({ callbackUrl: "/login" })}
           className="app-sidebar-action-btn"
+          title={collapsed ? "Sign out" : undefined}
         >
           <span className="opacity-60">
             <SignOutIcon />
           </span>
-          <span>Sign out</span>
+          <span className="app-sidebar-label">Sign out</span>
         </button>
 
-        {/* User card */}
-        <div className="mt-3 flex items-center gap-2.5 rounded-xl bg-white/10 p-3">
+        {/*
+          User card. The initials tile survives the collapse — it is the one
+          thing on screen that says WHOSE account this is, and an icon rail with
+          no identity on it could belong to anybody.
+        */}
+        <div
+          className={`mt-3 flex items-center gap-2.5 rounded-xl bg-white/10 ${
+            collapsed ? "justify-center p-2" : "p-3"
+          }`}
+          title={collapsed ? user.name || user.email : undefined}
+        >
           <div className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-full bg-white/20 text-sm font-bold">
             {initials}
           </div>
-          <div className="min-w-0">
+          <div className="app-sidebar-label min-w-0">
             <div className="truncate text-sm font-semibold">
               {user.name || "User"}
             </div>

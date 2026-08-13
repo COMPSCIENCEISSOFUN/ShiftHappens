@@ -48,6 +48,7 @@ import {
   LogOut,
   Menu,
   Moon,
+  PanelLeft,
   ShieldCheck,
   Sun,
   X,
@@ -94,6 +95,27 @@ export function PlatformSidebar({ user }: PlatformSidebarProps) {
   const [mounted, setMounted] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
+  /*
+   * The same rail as the org sidebar, and the same storage key on purpose: a
+   * platform admin who narrowed one and found the other still wide would be
+   * looking at two versions of one piece of furniture. Read in an effect
+   * because `localStorage` is unavailable during the server render.
+   */
+  const [collapsed, setCollapsed] = useState(false);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronising with an external system: reads the stored sidebar preference, which is unavailable during render
+    setCollapsed(localStorage.getItem("sidebar-collapsed") === "1");
+  }, []);
+
+  function toggleCollapsed() {
+    setCollapsed((current) => {
+      const next = !current;
+      localStorage.setItem("sidebar-collapsed", next ? "1" : "0");
+      return next;
+    });
+  }
+
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronising with an external system, which is what effects are for: marks the client as mounted so theme-dependent markup matches the server render
     setMounted(true);
@@ -136,7 +158,7 @@ export function PlatformSidebar({ user }: PlatformSidebarProps) {
       <aside
         className={`app-sidebar app-sidebar-platform ${
           mobileOpen ? "app-sidebar-mobile-open" : ""
-        }`}
+        } ${collapsed ? "app-sidebar-collapsed" : ""}`}
       >
         <button
           onClick={() => setMobileOpen(false)}
@@ -149,11 +171,16 @@ export function PlatformSidebar({ user }: PlatformSidebarProps) {
         <div className="app-sidebar-dots" aria-hidden="true" />
 
         {/* Brand */}
-        <div className="relative z-[1] mb-9 flex items-center gap-2.5">
+        <div
+          className={`relative z-[1] mb-5 flex shrink-0 items-center gap-2.5 ${
+            collapsed ? "justify-center" : ""
+          }`}
+          title={collapsed ? "Platform Admin" : undefined}
+        >
           <div className="flex h-9 w-9 items-center justify-center rounded-[10px] bg-white/20 backdrop-blur-sm">
             <ShieldCheck className="h-[18px] w-[18px]" aria-hidden="true" />
           </div>
-          <div className="flex flex-col gap-0.5">
+          <div className="app-sidebar-label flex flex-col gap-0.5">
             <span className="text-base font-bold tracking-tight">
               Platform Admin
             </span>
@@ -164,8 +191,8 @@ export function PlatformSidebar({ user }: PlatformSidebarProps) {
         </div>
 
         {/* Navigation */}
-        <nav className="relative z-[1] flex-1">
-          <div className="mb-1.5 px-3 text-xs font-bold uppercase tracking-[0.08em] text-white/35">
+        <nav className="app-sidebar-nav relative z-[1]">
+          <div className="app-sidebar-section-title mb-1.5 px-3 text-xs font-bold uppercase tracking-[0.08em] text-white/35">
             Manage
           </div>
           {links.map((link) => {
@@ -181,6 +208,7 @@ export function PlatformSidebar({ user }: PlatformSidebarProps) {
                 href={link.href}
                 aria-current={isActive ? "page" : undefined}
                 className={`app-sidebar-link ${isActive ? "app-sidebar-link-active" : ""}`}
+                title={collapsed ? link.label : undefined}
               >
                 {/* Decorative: the label beside it is the accessible name. */}
                 <Icon
@@ -189,14 +217,14 @@ export function PlatformSidebar({ user }: PlatformSidebarProps) {
                   }`}
                   aria-hidden="true"
                 />
-                <span className="flex-1">{link.label}</span>
+                <span className="app-sidebar-label flex-1">{link.label}</span>
               </Link>
             );
           })}
         </nav>
 
         {/* Footer */}
-        <div className="relative z-[1] mt-auto border-t border-white/10 pt-3">
+        <div className="relative z-[1] mt-auto shrink-0 border-t border-white/10 pt-3">
           {mounted && (
             <button
               onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
@@ -212,23 +240,42 @@ export function PlatformSidebar({ user }: PlatformSidebarProps) {
               ) : (
                 <Moon className="h-4 w-4 shrink-0 opacity-60" aria-hidden="true" />
               )}
-              <span>{resolvedTheme === "dark" ? "Light mode" : "Dark mode"}</span>
+              <span className="app-sidebar-label">
+                {resolvedTheme === "dark" ? "Light mode" : "Dark mode"}
+              </span>
             </button>
           )}
+
+          {/* Same control, same place, as the organisation sidebar. */}
+          <button
+            onClick={toggleCollapsed}
+            className="app-sidebar-action-btn hidden md:flex"
+            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            aria-expanded={!collapsed}
+          >
+            <PanelLeft className="h-4 w-4 shrink-0 opacity-60" aria-hidden="true" />
+            <span className="app-sidebar-label">Collapse</span>
+          </button>
 
           <button
             onClick={() => signOut({ callbackUrl: "/login" })}
             className="app-sidebar-action-btn"
           >
             <LogOut className="h-4 w-4 shrink-0 opacity-60" aria-hidden="true" />
-            <span>Sign out</span>
+            <span className="app-sidebar-label">Sign out</span>
           </button>
 
-          <div className="mt-3 flex items-center gap-2.5 rounded-xl bg-white/10 p-3">
+          <div
+            className={`mt-3 flex items-center gap-2.5 rounded-xl bg-white/10 ${
+              collapsed ? "justify-center p-2" : "p-3"
+            }`}
+            title={collapsed ? user.name || user.email : undefined}
+          >
             <div className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-full bg-white/20 text-sm font-bold">
               {initials}
             </div>
-            <div className="min-w-0">
+            <div className="app-sidebar-label min-w-0">
               <div className="truncate text-sm font-semibold">
                 {user.name || "Platform admin"}
               </div>

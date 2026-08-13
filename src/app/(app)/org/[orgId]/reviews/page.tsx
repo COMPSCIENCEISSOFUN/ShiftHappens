@@ -126,7 +126,9 @@ export default function WriteReviewPage() {
   return (
     // Narrow, and left-aligned like every other page — see the note on the
     // feedback page, which is this screen's twin and now matches it.
-    <div className="w-full max-w-2xl">
+    // `max-w-5xl`, matching Send feedback — the two pages are the same shape
+    // and sat at different widths, which reads as one of them being unfinished.
+    <div className="w-full max-w-5xl">
       <div className="mb-4">
         <h1 className="text-xl font-bold tracking-tight sm:text-2xl">
           {existing ? "Your review" : "Write a review"}

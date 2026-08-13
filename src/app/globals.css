@@ -244,9 +244,55 @@
   position: sticky;
   top: 0;
   height: 100vh;
+  /*
+   * The SIDEBAR does not scroll; its nav does.
+   *
+   * This was `overflow-y: auto` on the whole column, so once the menu grew past
+   * the viewport the user card, Sign out and the theme toggle scrolled away
+   * with the links — you had to scroll a menu to reach the way out of it, and
+   * on a laptop the card at the bottom was permanently half cut off. Which is
+   * an odd failure, because those three are the items whose whole point is
+   * being in a fixed, learnable place.
+   *
+   * `overflow: hidden` here plus `overflow-y: auto` on the nav pins the header
+   * and the footer and lets only the middle move.
+   */
+  overflow: hidden;
+  z-index: 30;
+}
+
+/*
+ * The scrolling middle. `min-height: 0` is load-bearing: a flex child defaults
+ * to `min-height: auto`, which refuses to shrink below its content, so without
+ * it the nav simply pushes the footer off the bottom and nothing scrolls at
+ * all — the exact bug this replaced, reproduced one element in.
+ */
+.app-sidebar-nav {
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  z-index: 30;
+  /* Faint, because a bright scrollbar on a saturated indigo panel reads as a
+     seam down the middle of the furniture. */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
+}
+
+.app-sidebar-nav::-webkit-scrollbar {
+  width: 6px;
+}
+
+.app-sidebar-nav::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.22);
+  border-radius: 3px;
+}
+
+.app-sidebar-nav::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.app-sidebar-nav::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 /*
@@ -312,6 +358,84 @@
 .app-sidebar-action-btn:hover {
   background: rgba(255, 255, 255, 0.1);
   color: rgba(255, 255, 255, 0.8);
+}
+
+/* ---- Sidebar collapsed (icon rail) --------------------------------------
+ *
+ * Desktop only, and deliberately so: below 768px the sidebar is already an
+ * overlay drawer that is either open or gone, so a narrow-vs-wide choice there
+ * would be a third state nobody asked for. The media query is what keeps the
+ * collapsed class inert on a phone rather than producing a 76px rail floating
+ * over the page.
+ *
+ * Every rule below is about hiding TEXT and re-centring what remains. Nothing
+ * is removed from the DOM — the icons, the badges and the links are all still
+ * there and still reachable, which is why a screen reader and the keyboard are
+ * unaffected by the toggle.
+ */
+@media (min-width: 768px) {
+  .app-sidebar-collapsed {
+    width: 76px;
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  /* Icon centred in the rail; the gap would otherwise offset it. */
+  .app-sidebar-collapsed .app-sidebar-link,
+  .app-sidebar-collapsed .app-sidebar-action-btn {
+    justify-content: center;
+    gap: 0;
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  .app-sidebar-collapsed .app-sidebar-label {
+    display: none;
+  }
+
+  /*
+   * The section heading becomes a rule.
+   *
+   * Dropping it entirely would run Overview into Personal into Organization as
+   * one undifferentiated column of icons, which is exactly the grouping the
+   * headings exist to show. A line keeps the boundary at a width that cannot
+   * hold the word.
+   */
+  .app-sidebar-collapsed .app-sidebar-section-title {
+    height: 1px;
+    padding: 0;
+    margin: 14px 8px 10px;
+    overflow: hidden;
+    text-indent: -9999px;
+    background: rgba(255, 255, 255, 0.14);
+    border-radius: 1px;
+  }
+
+  .app-sidebar-collapsed .app-sidebar-section-title:first-child,
+  .app-sidebar-collapsed nav > div:first-child .app-sidebar-section-title {
+    margin-top: 0;
+  }
+
+  /*
+   * A count still has to be visible — an unread badge that only appears when
+   * the menu is expanded is a notification you are told about once you have
+   * already gone looking. Reduced to a dot on the icon's corner, since there is
+   * no room for the number.
+   */
+  .app-sidebar-collapsed .app-sidebar-badge {
+    position: absolute;
+    top: 4px;
+    right: 10px;
+    min-width: 8px;
+    height: 8px;
+    padding: 0;
+    font-size: 0;
+    line-height: 0;
+  }
+
+  .app-sidebar-collapsed .app-sidebar-link {
+    position: relative;
+  }
 }
 
 /* ---- Chart palette ------------------------------------------------------

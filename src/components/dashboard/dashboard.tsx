@@ -326,15 +326,39 @@ export function Dashboard({
   }
 
   /**
-   * Whether both halves have something in them.
+   * Whether the split is worth making for this reader.
    *
    * Asked of the registry rather than assumed: a reader who cannot see any
    * trend card would otherwise get a Trends tab that opens onto nothing, which
    * is worse than no tab — it looks like the page failed to load.
+   *
+   * ## Why the trend half must contain something about the ORGANISATION
+   *
+   * A count alone was not enough. `my-stats` carries `permission: null` and
+   * `rosterable: true`, so every staff member qualifies for it — which made the
+   * check pass for them and produced a Trends tab holding exactly one card,
+   * about themselves. That is not a second view of the dashboard, it is one
+   * personal card behind a label that promises analytics, and it made a staff
+   * member's home page look like a manager's without being one.
+   *
+   * The tabs exist to separate "what needs doing now" from "how the
+   * organisation is doing". A reader with no org-level trend card has no second
+   * subject to separate, so there is nothing to split.
    */
-  const tabsWorthShowing = (
-    Object.values(TAB_BANDS) as readonly (readonly DashboardBand[])[]
-  ).every((bands) => bands.some((name) => cardsInBand(reader, name).length > 0));
+  const trendCards = cardsInBand(reader, "trend");
+  const hasOrgTrends = trendCards.some((card) => card.subject === "org");
+  const tabsWorthShowing =
+    hasOrgTrends &&
+    TAB_BANDS.today.some((name) => cardsInBand(reader, name).length > 0);
+
+  /*
+   * With no tabs, the trend band is rendered inline rather than dropped —
+   * otherwise hiding the tab would take `my-stats` away from the very people it
+   * was written for.
+   */
+  const visibleBands: readonly DashboardBand[] = tabsWorthShowing
+    ? TAB_BANDS[activeTab]
+    : [...TAB_BANDS.today, ...TAB_BANDS.trends];
 
   function band(name: DashboardBand) {
     /*
@@ -473,7 +497,7 @@ export function Dashboard({
         allocation history — is one of them. Stacked, every morning check paid
         for it. Unmounted, it is not requested until somebody opens Trends.
       */}
-      {TAB_BANDS[activeTab].map((name) => band(name))}
+      {visibleBands.map((name) => band(name))}
     </div>
   );
 }

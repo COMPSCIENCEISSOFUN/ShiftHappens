@@ -30,7 +30,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Building2, CheckCircle2, ListTodo, PieChart, Users } from "lucide-react";
+import {
+  AlertTriangle,
+  Building2,
+  CheckCircle2,
+  ListTodo,
+  MessageSquare,
+  PieChart,
+  Star,
+  Users,
+} from "lucide-react";
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { PageLoading } from "@/components/ui/page-loading";
 import { Panel } from "@/components/ui/panel";
@@ -45,6 +54,23 @@ interface PlatformStats {
   totalUsers: number;
   totalTasks: number;
   tierCounts: Record<string, number>;
+  /** Monthly recurring revenue, annual plans divided by twelve. */
+  mrr: number;
+  arr: number;
+  paidOrganizations: number;
+  /** Paid tenants as a percentage of all tenants. */
+  conversionRate: number;
+  completedTasks: number;
+  completionRate: number;
+  newOrganizations: number;
+  newUsers: number;
+  /** Percent change against the previous 30 days; null when there was none. */
+  organizationGrowth: number | null;
+  userGrowth: number | null;
+  averageRating: number | null;
+  reviewCount: number;
+  openFeedback: number;
+  pastDueOrganizations: number;
 }
 
 const TIER_LABELS: Record<string, string> = {
@@ -68,6 +94,50 @@ function tierLabel(tier: string): string {
   return TIER_LABELS[tier] ?? tier;
 }
 
+/**
+ * Fills in anything the response did not carry.
+ *
+ * The page reads about twenty numbers off this object and formats several of
+ * them — `stats.mrr.toLocaleString()`, `stats.averageRating.toFixed(1)`. One
+ * absent field therefore does not degrade the dashboard, it throws during
+ * render and the whole page goes blank, which is how a missing statistic
+ * becomes a total outage of the screen that would have told you about it.
+ *
+ * Cheap insurance against a partial payload, an older deployment answering a
+ * newer bundle during a rollout, or a field being renamed on the server.
+ *
+ * `averageRating` keeps `null` rather than defaulting to zero: no reviews yet
+ * and an average of nought out of five are different facts, and the tile says
+ * "—" for the first.
+ */
+function normalise(data: Partial<PlatformStats> | null): PlatformStats {
+  const count = (value: number | undefined) =>
+    typeof value === "number" && Number.isFinite(value) ? value : 0;
+
+  return {
+    totalOrganizations: count(data?.totalOrganizations),
+    activeOrganizations: count(data?.activeOrganizations),
+    totalUsers: count(data?.totalUsers),
+    totalTasks: count(data?.totalTasks),
+    tierCounts: data?.tierCounts ?? {},
+    mrr: count(data?.mrr),
+    arr: count(data?.arr),
+    paidOrganizations: count(data?.paidOrganizations),
+    conversionRate: count(data?.conversionRate),
+    completedTasks: count(data?.completedTasks),
+    completionRate: count(data?.completionRate),
+    newOrganizations: count(data?.newOrganizations),
+    newUsers: count(data?.newUsers),
+    organizationGrowth: data?.organizationGrowth ?? null,
+    userGrowth: data?.userGrowth ?? null,
+    averageRating:
+      typeof data?.averageRating === "number" ? data.averageRating : null,
+    reviewCount: count(data?.reviewCount),
+    openFeedback: count(data?.openFeedback),
+    pastDueOrganizations: count(data?.pastDueOrganizations),
+  };
+}
+
 export default function PlatformAdminDashboard() {
   const [stats, setStats] = useState<PlatformStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -86,7 +156,7 @@ export default function PlatformAdminDashboard() {
         return;
       }
 
-      setStats({ ...data, tierCounts: data.tierCounts ?? {} });
+      setStats(normalise(data));
       setError(null);
     } catch {
       setError("Could not reach the server. Check your connection and try again.");
@@ -168,6 +238,66 @@ export default function PlatformAdminDashboard() {
         />
       </div>
 
+      {/*
+        ── Revenue and growth ──
+
+        Above the tier donut, because the donut says how customers are
+        DISTRIBUTED and this says what that distribution is worth. A platform
+        dashboard whose first answer is "five organisations" and never says
+        whether any of them pay is a headcount, not an overview.
+      */}
+      <div className="mb-4 grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">
+        <StatTile
+          label="MRR"
+          value={`$${stats.mrr.toLocaleString()}`}
+          detail={`$${stats.arr.toLocaleString()} annualised`}
+          accentColour={STAT_ACCENT.green}
+          valueColour={stats.mrr > 0 ? "text-green-600 dark:text-green-400" : ""}
+        />
+        <StatTile
+          label="Paying tenants"
+          value={stats.paidOrganizations}
+          detail={`${stats.conversionRate}% of all organisations`}
+          accentColour={STAT_ACCENT.indigo}
+        />
+        <StatTile
+          label="New orgs · 30d"
+          value={stats.newOrganizations}
+          detail={growthDetail(stats.organizationGrowth, "vs previous 30 days")}
+          accentColour={STAT_ACCENT.blue}
+        />
+        <StatTile
+          label="New users · 30d"
+          value={stats.newUsers}
+          detail={growthDetail(stats.userGrowth, "vs previous 30 days")}
+          accentColour={STAT_ACCENT.amber}
+        />
+      </div>
+
+      {/*
+        Payment failures, and only when there are any.
+
+        A dashboard that reports revenue without reporting the part of it that
+        has stopped arriving is reporting a wish. Hidden at zero rather than
+        shown as a green tick, because a permanent "0 problems" row trains the
+        eye to skip the place a real problem would appear.
+      */}
+      {stats.pastDueOrganizations > 0 && (
+        <div className="mb-4">
+          <AlertBanner
+            variant="warning"
+            message={
+              <span className="flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
+                {stats.pastDueOrganizations} organisation
+                {stats.pastDueOrganizations === 1 ? "" : "s"} with a failing
+                payment — their subscription is past due or unpaid.
+              </span>
+            }
+          />
+        </div>
+      )}
+
       {/* ── Subscription distribution ── */}
       <Panel title="Subscription distribution" icon={PieChart}>
         <div className="p-4">
@@ -216,9 +346,49 @@ export default function PlatformAdminDashboard() {
           label="Suspended tenants"
           value={suspended}
         />
+        {/*
+          The three that say whether the product is WORKING, as opposed to how
+          much of it exists. Completion rate is the closest thing here to a
+          usage signal: tenants who create shifts and never complete them are
+          not running their rota on this.
+        */}
+        <SummaryRow
+          icon={CheckCircle2}
+          label="Task completion rate"
+          value={`${stats.completionRate}%`}
+        />
+        <SummaryRow
+          icon={Star}
+          label="Average review"
+          value={
+            stats.averageRating === null
+              ? "—"
+              : `${stats.averageRating.toFixed(1)} / 5 · ${stats.reviewCount} review${
+                  stats.reviewCount === 1 ? "" : "s"
+                }`
+          }
+        />
+        <SummaryRow
+          icon={MessageSquare}
+          label="Open feedback"
+          value={stats.openFeedback}
+        />
       </div>
     </div>
   );
+}
+
+/**
+ * The subtitle under a growth figure.
+ *
+ * Returns the bare caption when there is no prior period to compare against —
+ * a first month has no percentage, and "+100%" from a base of zero is a
+ * division nobody meant. Growing from nothing is not growth of any rate.
+ */
+function growthDetail(change: number | null, caption: string): string {
+  if (change === null) return caption;
+  const sign = change > 0 ? "+" : "";
+  return `${sign}${change}% ${caption}`;
 }
 
 function SummaryRow({

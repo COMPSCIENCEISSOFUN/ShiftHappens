@@ -248,3 +248,52 @@ describe("whose data a card is about", () => {
     }
   });
 });
+
+/**
+ * Who the Today / Trends split is actually for.
+ *
+ * The dashboard shows the two tabs only when the trend band holds something
+ * about the ORGANISATION. A count alone was not enough: `my-stats` carries no
+ * permission and `rosterable: true`, so every staff member qualifies for it —
+ * which made a naive "both halves are non-empty" check pass for them and
+ * produced a Trends tab holding exactly one card, about themselves.
+ *
+ * These assert the registry facts that decision rests on, so a card whose
+ * subject or permission changes fails here rather than quietly restoring a tab
+ * to people it was never meant for.
+ */
+describe("whether a reader has organisational trends", () => {
+  const orgTrends = (r: DashboardReader) =>
+    cardsInBand(r, "trend").filter((card) => card.subject === "org");
+
+  it("gives staff no org-level trend card", async () => {
+    expect(orgTrends(staff)).toHaveLength(0);
+  });
+
+  it("still gives staff their own stats", async () => {
+    // The tab goes away; the card must not. It is rendered inline instead.
+    const own = cardsInBand(staff, "trend").filter((c) => c.subject === "self");
+    expect(own.map((c) => c.id)).toContain("my-stats");
+  });
+
+  it("gives a manager org-level trends, which is what the tab is for", async () => {
+    expect(orgTrends(manager).length).toBeGreaterThan(0);
+  });
+
+  it("gives an admin org-level trends too", async () => {
+    expect(orgTrends(admin).length).toBeGreaterThan(0);
+  });
+
+  it("keeps every org trend card behind a permission", async () => {
+    /*
+     * The property that makes the check above meaningful. If an org-subject
+     * trend card were ever added with `permission: null`, every staff member
+     * would qualify for it and the tabs would silently come back.
+     */
+    const unguarded = DASHBOARD_CARDS.filter(
+      (card) =>
+        card.band === "trend" && card.subject === "org" && card.permission === null
+    );
+    expect(unguarded).toEqual([]);
+  });
+});

@@ -136,7 +136,80 @@ export class PlatformService {
   }
 
   /** Gets platform-wide statistics */
+  /**
+   * Platform totals, plus the figures derived from them.
+   *
+   * The derivations live here rather than in the page for the reason the
+   * billing page gives about `needsAttention`: what counts as revenue, and what
+   * counts as a paying customer, are business judgements. Deciding them in a
+   * component puts them beyond the reach of a test and out of sight of the next
+   * person who adds a tier.
+   */
   async getStats() {
-    return this.platformRepo.getStats();
+    const stats = await this.platformRepo.getStats();
+
+    /*
+     * MRR — monthly RECURRING revenue, so an annual plan contributes a twelfth
+     * of its price rather than the whole thing.
+     *
+     * Reporting an annual customer's full £590 as this month's revenue is the
+     * classic way a SaaS dashboard flatters itself: the number leaps when
+     * somebody renews and collapses the month after, and it describes cash
+     * received rather than the run rate the figure is supposed to mean.
+     *
+     * A null interval is treated as monthly. Every paid organisation should
+     * carry one — the webhook writes it — but a tier applied by hand does not,
+     * and the monthly price is the conservative reading of an unknown.
+     */
+    let mrr = 0;
+    for (const row of stats.billingBreakdown) {
+      if (!SUBSCRIPTION_TIERS.includes(row.tier as SubscriptionTier)) continue;
+      const config = getTierConfig(row.tier as SubscriptionTier);
+      const monthly =
+        row.interval === "year"
+          ? (config.yearlyPrice ?? 0) / 12
+          : (config.monthlyPrice ?? 0);
+      mrr += monthly * row.count;
+    }
+
+    // Any tier priced above zero. Derived from the config rather than from a
+    // hardcoded list, so a fourth plan is counted the day it is added.
+    const paidOrganizations = SUBSCRIPTION_TIERS.filter(
+      (tier) => (getTierConfig(tier).monthlyPrice ?? 0) > 0
+    ).reduce((total, tier) => total + (stats.tierCounts[tier] ?? 0), 0);
+
+    /** Percentage change, or null when there is no prior figure to divide by. */
+    const changeAgainst = (current: number, previous: number): number | null =>
+      previous === 0 ? null : Math.round(((current - previous) / previous) * 100);
+
+    return {
+      ...stats,
+      mrr: Math.round(mrr),
+      // Stated as well as implied. `mrr * 12` is the run rate, not the sum of
+      // what will actually be invoiced, and naming it ARR says which is meant.
+      arr: Math.round(mrr * 12),
+      paidOrganizations,
+      conversionRate:
+        stats.totalOrganizations === 0
+          ? 0
+          : Math.round((paidOrganizations / stats.totalOrganizations) * 100),
+      completionRate:
+        stats.totalTasks === 0
+          ? 0
+          : Math.round((stats.completedTasks / stats.totalTasks) * 100),
+      organizationGrowth: changeAgainst(
+        stats.newOrganizations,
+        stats.previousNewOrganizations
+      ),
+      userGrowth: changeAgainst(stats.newUsers, stats.previousNewUsers),
+      averageUsersPerOrganization:
+        stats.totalOrganizations === 0
+          ? 0
+          : stats.totalUsers / stats.totalOrganizations,
+      averageTasksPerOrganization:
+        stats.totalOrganizations === 0
+          ? 0
+          : stats.totalTasks / stats.totalOrganizations,
+    };
   }
 }
