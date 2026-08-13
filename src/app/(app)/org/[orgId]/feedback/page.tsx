@@ -15,7 +15,7 @@
 
 import { useState } from "react";
 import { useParams } from "next/navigation";
-import { MessageSquarePlus, Send } from "lucide-react";
+import { Loader2, Send } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -70,32 +70,40 @@ export default function FeedbackPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-2xl">
-      <div className="flex items-start gap-3">
-        <div className="hidden h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary sm:flex">
-          <MessageSquarePlus className="h-5 w-5" />
-        </div>
-        <div className="min-w-0">
-          <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">
-            Send feedback
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Tell us what is working, what is not, and what you wish this did.
-            It goes straight to the people building it.
-          </p>
-        </div>
+    /*
+      `max-w-2xl` and NOT centred. One column of prose and a textarea should
+      not stretch to a 1600px monitor, but every other page in the application
+      starts its content at the left edge — centring this one moves the title
+      away from where the eye has learned to find it, which is the same "reads
+      as a different product" the dashboards were rebuilt for.
+    */
+    <div className="w-full max-w-2xl">
+      {/*
+        The house header: `h2`, bold, a 13px muted line under it, `mb-4` to the
+        content. Availability, Notifications, Work Rules, Leave and My
+        Certifications all do this; this page arrived with an `h1`, semibold,
+        a 14px line and a decorative icon tile no other page has.
+      */}
+      <div className="mb-4">
+        <h2 className="text-xl font-bold tracking-tight sm:text-2xl">
+          Send feedback
+        </h2>
+        <p className="mt-0.5 text-[13px] text-muted-foreground">
+          Tell us what is working, what is not, and what you wish this did. It
+          goes straight to the people building it.
+        </p>
       </div>
 
       {error && (
         <AlertBanner
-          className="mt-6"
+          className="mb-4"
           variant="error"
           message={error}
           onDismiss={() => setError(null)}
         />
       )}
 
-      <form onSubmit={send} className="mt-6 space-y-6">
+      <form onSubmit={send} className="space-y-6">
         <div className="space-y-2">
           <Label htmlFor="feedback-area">What is this about?</Label>
           {/*
@@ -147,7 +155,7 @@ export default function FeedbackPage() {
             rows={7}
             maxLength={FEEDBACK_MAX_LENGTH}
             placeholder="The more specific the better — what were you trying to do?"
-            className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm shadow-sm outline-none ring-offset-background placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm shadow-sm outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
           />
         </div>
 
@@ -159,8 +167,17 @@ export default function FeedbackPage() {
           <p className="text-xs text-muted-foreground">
             We read everything. We cannot reply to each one.
           </p>
+          {/*
+            Spinner while it is in flight, matching the review form next door.
+            A static icon over the word "Sending…" says the press registered
+            and nothing about whether anything is still happening.
+          */}
           <Button type="submit" disabled={!canSend} className="w-full sm:w-auto">
-            <Send className="mr-2 h-4 w-4" />
+            {sending ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Send className="mr-2 h-4 w-4" />
+            )}
             {sending ? "Sending…" : "Send feedback"}
           </Button>
         </div>
