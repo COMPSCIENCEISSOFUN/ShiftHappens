@@ -80,7 +80,7 @@ const TEAM: TeamMember[] = [
   },
   {
     name: "Darryn Wan Jing Kai",
-    role: "Lead Developer (Full-Stack), Documentation",
+    role: "Lead Full-Stack Developer, Documentation",
     contribution: "Lead Frontend and Backend development; Oversees code quality, architecture, and integration; Implements core features and ensures system scalability; Supports documentation.",
     photo: "/team/darryn.jpg",
     github: "https://github.com/COMPSCIENCEISSOFUN",
@@ -88,8 +88,8 @@ const TEAM: TeamMember[] = [
   },
   {
     name: "Delvinjit Singh",
-    role: "QA Tester, Documentation",
-    contribution: "TODO — one line on what they built, around 10-15 words.",
+    role: "Lead QA Tester, Documentation",
+    contribution: "Led quality assurance by designing and executing functional, integration, regression, and end-to-end tests, while supporting defect tracking and project documentation.",
     photo: "/team/delvin.jpg",
     github: "",
     linkedin: "",
@@ -97,7 +97,7 @@ const TEAM: TeamMember[] = [
   {
     name: "Saumya Rengarajan",
     role: "QA Tester, Documentation",
-    contribution: "TODO — one line on what they built, around 10-15 words.",
+    contribution: "Supported system testing and quality assurance, including test execution, documentation updates, user guidance, and validation of system workflows.",
     photo: "/team/saumya.jpg",
     github: "",
     linkedin: "",
