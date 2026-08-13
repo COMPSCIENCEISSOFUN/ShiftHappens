@@ -124,7 +124,9 @@ export default function WriteReviewPage() {
   const remaining = REVIEW_MAX_LENGTH - body.length;
 
   return (
-    <div className="mx-auto w-full max-w-2xl">
+    // Narrow, and left-aligned like every other page — see the note on the
+    // feedback page, which is this screen's twin and now matches it.
+    <div className="w-full max-w-2xl">
       <div className="mb-4">
         <h1 className="text-xl font-bold tracking-tight sm:text-2xl">
           {existing ? "Your review" : "Write a review"}

@@ -127,7 +127,7 @@ export async function GET(
         tomorrowsScheduleResult,
         completionChartResult,
         staffUtilizationResult,
-        rejectionTrendsResult,
+        declineReasonsResult,
         taskSummaryResult,
         coverageSummaryResult,
       ] = await Promise.allSettled([
@@ -136,7 +136,7 @@ export async function GET(
         reportingService.getTomorrowsSchedule(orgId, departmentIds),
         reportingService.getCompletionChart(orgId, departmentIds),
         reportingService.getStaffUtilization(orgId, departmentIds),
-        reportingService.getRejectionTrends(orgId, departmentIds),
+        reportingService.getDeclineReasons(orgId, departmentIds),
         reportingService.getTaskSummary(orgId, departmentIds),
         reportingService.getCoverageSummary(orgId, departmentIds),
       ]);
@@ -146,7 +146,15 @@ export async function GET(
       response.tomorrowsSchedule = extractResult(tomorrowsScheduleResult, "TomorrowsSchedule");
       response.completionChart = extractResult(completionChartResult, "CompletionChart");
       response.staffUtilization = extractResult(staffUtilizationResult, "StaffUtilization");
-      response.rejectionTrends = extractResult(rejectionTrendsResult, "RejectionTrends");
+      /*
+       * Declines by REASON, not by person.
+       *
+       * `getRejectionTrends` groups the same rows by member and was returned
+       * here for months with nothing rendering it — a named list of who
+       * declined what, computed on every dashboard load and shown to nobody.
+       * The aggregate is the half a manager can act on.
+       */
+      response.declineReasons = extractResult(declineReasonsResult, "DeclineReasons");
       response.taskSummary = extractResult(taskSummaryResult, "TaskSummary");
       response.coverageSummary = extractResult(coverageSummaryResult, "CoverageSummary");
     }

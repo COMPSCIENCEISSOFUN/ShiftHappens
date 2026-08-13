@@ -26,36 +26,33 @@
  * ## Why it re-reads the membership the layout just read
  *
  * Not to re-authorise — the layout has already refused if there is no
- * membership. This page needs the membership as DATA: which of the three
- * dashboards to render is a question about the caller's permissions and
- * department scope, and Next gives a page no way to receive a value its layout
- * computed. One query, and it is the query the decision needs.
+ * membership. This page needs the membership as DATA: what the caller may see
+ * is a question about their permissions and their department scope, and Next
+ * gives a page no way to receive a value its layout computed. One query, and it
+ * is the query the answer needs.
  *
- * ## Why it switches on permissions and not on the role string
+ * ## Why it no longer picks a dashboard
  *
- * `switch (role)` here and `if (role === …)` in the API route were the same
- * decision made twice, and both ignored the permission catalogue. The route
- * gates each section on the permission that owns it; this picks the component
- * that renders those sections, from the same permissions, so the two cannot
- * come to disagree about what the caller is getting.
+ * It used to `switch` between an admin, a manager and a staff component. That
+ * is only correct while the population of callers is those three, and custom
+ * roles make it combinatorial — a member granted `certifications:review`
+ * without `reports:view` was routed to the personal dashboard while the API
+ * cheerfully returned the certification section, which nothing then rendered.
  *
- *   - no `reports:view` → the personal dashboard. Nothing else would have
- *     anything in it, because the route sends no org sections without it.
- *   - `reports:view`, unrestricted → the admin dashboard, the only one that
- *     renders the two org-wide sections.
- *   - `reports:view`, scoped → the manager dashboard, scoped to their own
- *     departments.
+ * This page's whole job is now to state the reader — what they hold, what they
+ * are scoped to, whether they can hold a shift — and hand it down.
+ * `src/lib/dashboard-cards.ts` decides what that reader sees, and the same
+ * three facts gate the endpoint, so screen and payload cannot come to disagree.
  *
- * BCE compliant: only imports from Control layer (services).
+ * BCE compliant: only imports from Control layer (services) and shared lib.
  */
 import { notFound, redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { OrganizationService } from "@/services/organization.service";
 import { AccessService } from "@/services/access.service";
 import { departmentScopeFor } from "@/lib/department-scope";
-import AdminDashboard from "@/components/dashboard/admin-dashboard";
-import ManagerDashboard from "@/components/dashboard/manager-dashboard";
-import StaffDashboard from "@/components/dashboard/staff-dashboard";
+import { canBeRostered } from "@/lib/role-config";
+import { Dashboard } from "@/components/dashboard/dashboard";
 
 const orgService = new OrganizationService();
 const accessService = new AccessService();
@@ -86,26 +83,31 @@ export default async function OrgDashboardPage({
   const org = await orgService.getOrganization(orgId);
   if (!org) notFound();
 
-  const firstName = session.user.name?.split(" ")[0] || "";
-  const props = { orgId, orgName: org.name, userName: firstName };
-
-  const permissions = accessService.permissionsFor(membership);
-  if (!permissions.has("reports:view")) return <StaffDashboard {...props} />;
-
-  /*
-   * `departmentScopeFor(...) === null` and `role === "company_admin"` are the
-   * same test today, and swapping one for the other survives every test in
-   * `dashboard-switch` — an equivalent mutant, not a gap. `departmentScopeFor`
-   * returns null for exactly one role, which `tests/lib/department-scope`
-   * pins, so nothing can distinguish them without changing that helper.
-   *
-   * Kept as the scope call anyway, for the reason the route uses it: page and
-   * endpoint then read scope through one definition, and a second unrestricted
-   * case would reach both at once rather than one of them.
-   */
-  return departmentScopeFor(membership) === null ? (
-    <AdminDashboard {...props} />
-  ) : (
-    <ManagerDashboard {...props} />
+  return (
+    <Dashboard
+      orgId={orgId}
+      orgName={org.name}
+      userName={session.user.name?.split(" ")[0] || ""}
+      /*
+       * An array, not the Set the registry works in. This crosses into a client
+       * component and a Set does not survive serialisation — it would arrive as
+       * `{}`, every `.has()` would answer false, and the reader would silently
+       * qualify for nothing. Sorted so the prop is stable between renders.
+       */
+      permissions={[...accessService.permissionsFor(membership)].sort()}
+      /*
+       * `null` is unrestricted. An EMPTY array is a real answer and not a
+       * missing one — a manager assigned to no departments is scoped to
+       * nothing, and the cards that need a team correctly withhold themselves.
+       */
+      departmentScope={departmentScopeFor(membership)}
+      /*
+       * Not a permission. Whether the engine would ever consider this person
+       * for a shift is a structural fact, stated once in `role-config` so the
+       * endpoint and the screen cannot disagree about who has self-service data
+       * to show.
+       */
+      rosterable={canBeRostered(membership.role)}
+    />
   );
 }

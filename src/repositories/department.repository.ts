@@ -121,6 +121,39 @@ export class DepartmentRepository {
    * not rendering a list: the counts are summarised for the AI dashboard and
    * sorting them by name would be work nobody reads.
    */
+  /**
+   * Everyone assigned to a department, active or not.
+   *
+   * Deliberately unfiltered by status, because the card that opens this drawer
+   * counts `_count.departmentMemberships`, which is also unfiltered. Hiding
+   * deactivated members here would put "8 members" above a list of six — and
+   * the reader would have no way to tell which number was wrong. The status
+   * travels with each row instead, so the list can say so.
+   *
+   * Ordered by name with `id` breaking the tie: two people can share a name.
+   */
+  async findMembers(departmentId: string) {
+    return prisma.departmentMembership.findMany({
+      where: { departmentId },
+      select: {
+        membership: {
+          select: {
+            id: true,
+            role: true,
+            status: true,
+            employmentType: true,
+            customRole: { select: { id: true, name: true } },
+            user: { select: { id: true, name: true, email: true, image: true } },
+          },
+        },
+      },
+      orderBy: [
+        { membership: { user: { name: "asc" } } },
+        { membershipId: "asc" },
+      ],
+    });
+  }
+
   async findActiveWithCounts(organizationId: string) {
     return prisma.department.findMany({
       where: { organizationId, archivedAt: null },

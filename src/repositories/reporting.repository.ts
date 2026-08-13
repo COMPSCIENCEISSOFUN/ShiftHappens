@@ -17,6 +17,10 @@
  */
 import { prisma } from "@/lib/prisma";
 import { occupyingStatusFilter } from "@/lib/assignment-status";
+import {
+  closedTaskStatusFilter,
+  committedTaskStatusFilter,
+} from "@/lib/task-status";
 
 /**
  * A membership filter for a caller who may be limited to some departments.
@@ -218,22 +222,6 @@ export interface StaffAssignmentStatRecord {
   scheduledStart: Date | null;
   createdAt: Date;
   taskId: string;
-}
-
-/**
- * One thing a staff member wrote, with just enough around it to be read.
- *
- * No name — see `getFeedbackText`.
- */
-export interface FeedbackSnippet {
-  kind: "rating" | "decline" | "withdrawal";
-  /** Verbatim, trimmed. Never rewritten. */
-  text: string;
-  /** The structured value beside the text: "rated 2/5", or a decline reason. */
-  label: string | null;
-  departmentName: string | null;
-  taskTitle: string;
-  at: Date;
 }
 
 // ============================================================
@@ -459,6 +447,11 @@ export class ReportingRepository {
             // until it is resolved, so the roster has to show them.
             status: { in: occupyingStatusFilter() },
             task: {
+              // And not one that has been called off — otherwise the roster
+              // shows somebody as on shift today for a shift that is not
+              // happening, which is the same defect the member sees on their
+              // own dashboard.
+              status: { notIn: committedTaskStatusFilter() },
               scheduledStart: { lt: todayEnd },
               scheduledEnd: { gt: todayStart },
             },
@@ -969,6 +962,17 @@ export class ReportingRepository {
         membershipId,
         status: { in: occupyingStatusFilter() },
         task: {
+          /*
+           * Not a shift that was called off. This is the member's own week and
+           * their next shift, so without it they were sent "that shift is
+           * cancelled" and then opened the app to find it still listed.
+           *
+           * Their HISTORY is a different question and deliberately keeps them:
+           * `shift-outcome` reads "Cancelled" off the task's status, and a
+           * shift that was called off after you were rostered is part of your
+           * record. This query feeds only the dashboard.
+           */
+          status: { notIn: committedTaskStatusFilter() },
           scheduledStart: { lt: endDate },
           scheduledEnd: { gt: startDate },
         },
@@ -1226,7 +1230,7 @@ export class ReportingRepository {
     const tasks = await prisma.task.findMany({
       where: {
         organizationId,
-        status: { notIn: ["completed", "cancelled"] },
+        status: { notIn: closedTaskStatusFilter() },
         scheduledStart: { gte: from, lte: to },
         ...(departmentIds != null
           ? { departmentId: { in: departmentIds } }
@@ -1449,7 +1453,7 @@ export class ReportingRepository {
     const tasks = await prisma.task.findMany({
       where: {
         organizationId,
-        status: { notIn: ["completed", "cancelled"] },
+        status: { notIn: closedTaskStatusFilter() },
         scheduledStart: { gte: from, lte: to },
         ...(departmentIds != null ? { departmentId: { in: departmentIds } } : {}),
       },
@@ -1535,7 +1539,7 @@ export class ReportingRepository {
         status: { in: occupyingStatusFilter() },
         task: {
           organizationId,
-          status: { notIn: ["completed", "cancelled"] },
+          status: { notIn: closedTaskStatusFilter() },
           ...(departmentIds != null ? { departmentId: { in: departmentIds } } : {}),
         },
       },
@@ -1835,137 +1839,5 @@ export class ReportingRepository {
     for (const id of membershipIds) counts[id] = 0;
     for (const g of groups) counts[g.membershipId] = g._count._all;
     return counts;
-  }
-
-  /**
-   * Free text staff wrote, from all three places they can write it.
-   *
-   * Everything else on this repository counts, averages or groups. This is the
-   * one read whose value is in the words themselves: `GROUP BY rejectionReason`
-   * can report that eight declines said `schedule_conflict`, and nothing in SQL
-   * can notice that six of the notes beside them mention the same closing shift.
-   *
-   * Deliberately excludes staff names. Themes are about the work, not about
-   * people, and a name in the prompt is an invitation to hand back an
-   * accusation about someone who cannot see it or answer it. Department, shift
-   * title and the structured value beside the text are enough context to make a
-   * theme actionable.
-   *
-   * Three queries rather than one OR, because each kind is windowed on its own
-   * timestamp. Rows written before those columns existed carry NULL and fall
-   * back to `updatedAt`, which is imprecise — it moves with every later
-   * transition — but only decides which window an old comment lands in, never
-   * what it says.
-   */
-  async getFeedbackText(
-    organizationId: string,
-    since: Date,
-    departmentIds?: string[] | null,
-    perKindLimit = 40
-  ): Promise<FeedbackSnippet[]> {
-    const scope = {
-      organizationId,
-      ...(departmentIds != null ? { departmentId: { in: departmentIds } } : {}),
-    };
-    const taskSelect = {
-      select: {
-        title: true,
-        department: { select: { name: true } },
-      },
-    } as const;
-
-    /** `<field> >= since`, or `updatedAt >= since` for rows predating it. */
-    const windowed = (field: "ratedAt" | "rejectedAt" | "withdrawalRequestedAt") => ({
-      OR: [
-        { [field]: { gte: since } },
-        { [field]: null, updatedAt: { gte: since } },
-      ],
-    });
-
-    const [rated, declined, withdrawn] = await Promise.all([
-      prisma.taskAssignment.findMany({
-        where: {
-          satisfactionComment: { not: null },
-          task: scope,
-          ...windowed("ratedAt"),
-        },
-        select: {
-          satisfactionComment: true,
-          satisfactionRating: true,
-          ratedAt: true,
-          updatedAt: true,
-          task: taskSelect,
-        },
-        orderBy: { updatedAt: "desc" },
-        take: perKindLimit,
-      }),
-      prisma.taskAssignment.findMany({
-        where: {
-          rejectionNotes: { not: null },
-          task: scope,
-          ...windowed("rejectedAt"),
-        },
-        select: {
-          rejectionNotes: true,
-          rejectionReason: true,
-          rejectedAt: true,
-          updatedAt: true,
-          task: taskSelect,
-        },
-        orderBy: { updatedAt: "desc" },
-        take: perKindLimit,
-      }),
-      prisma.taskAssignment.findMany({
-        where: {
-          withdrawalNotes: { not: null },
-          task: scope,
-          ...windowed("withdrawalRequestedAt"),
-        },
-        select: {
-          withdrawalNotes: true,
-          withdrawalReason: true,
-          withdrawalRequestedAt: true,
-          updatedAt: true,
-          task: taskSelect,
-        },
-        orderBy: { updatedAt: "desc" },
-        take: perKindLimit,
-      }),
-    ]);
-
-    const snippets: FeedbackSnippet[] = [
-      ...rated.map((r) => ({
-        kind: "rating" as const,
-        text: r.satisfactionComment ?? "",
-        label: r.satisfactionRating != null ? `rated ${r.satisfactionRating}/5` : null,
-        departmentName: r.task.department?.name ?? null,
-        taskTitle: r.task.title,
-        at: r.ratedAt ?? r.updatedAt,
-      })),
-      ...declined.map((r) => ({
-        kind: "decline" as const,
-        text: r.rejectionNotes ?? "",
-        label: r.rejectionReason,
-        departmentName: r.task.department?.name ?? null,
-        taskTitle: r.task.title,
-        at: r.rejectedAt ?? r.updatedAt,
-      })),
-      ...withdrawn.map((r) => ({
-        kind: "withdrawal" as const,
-        text: r.withdrawalNotes ?? "",
-        label: r.withdrawalReason,
-        departmentName: r.task.department?.name ?? null,
-        taskTitle: r.task.title,
-        at: r.withdrawalRequestedAt ?? r.updatedAt,
-      })),
-    ];
-
-    // A column that is present but blank is not feedback. `not: null` above
-    // cannot express this, and an empty string sent to the model is a numbered
-    // line with nothing on it that it may still try to find a theme in.
-    return snippets
-      .map((s) => ({ ...s, text: s.text.trim() }))
-      .filter((s) => s.text.length > 0)
-      .sort((a, b) => b.at.getTime() - a.at.getTime());
   }
 }

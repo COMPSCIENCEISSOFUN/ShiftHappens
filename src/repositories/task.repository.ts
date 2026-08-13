@@ -337,6 +337,11 @@ export class TaskRepository {
    * shift they had just been told was off. See `RELEASES_COMMITMENT`.
    *
    * Excludes optional taskId to allow checking conflicts for updates.
+   *
+   * A CANCELLED task is not a conflict. Cancelling leaves the assignment rows
+   * standing on purpose — a member's history reads "Cancelled" off the task's
+   * status — so filtering on the assignment alone left people blocked by a
+   * shift they had just been told was off. See `RELEASES_COMMITMENT`.
    */
   async findConflictingTasks(
     membershipId: string,

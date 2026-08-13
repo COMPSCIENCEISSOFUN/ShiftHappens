@@ -2133,19 +2133,17 @@ export default function TasksPage() {
                         </button>
                       )}
 
-                      {/* AI Suggest */}
-                      {canSuggest && task.status === "open" && assigningTaskId === task.id && (
-                        <button
-                          type="button"
-                          onClick={() => fetchSuggestions(task.id)}
-                          disabled={loadingSuggestions || loadingEligibility}
-                          className="flex h-8 items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:border-indigo-400 hover:bg-indigo-50 hover:text-indigo-600 dark:hover:border-indigo-500 dark:hover:bg-indigo-950 dark:hover:text-indigo-400"
-                        >
-                          <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
-                          AI Suggest
-                        </button>
-                      )}
+                      {/*
+                        There is no AI Suggest button here.
 
+                        There was, and it only appeared once the assign panel
+                        was already open — which is where the panel's OWN
+                        suggest button lives. Two controls, one action, and the
+                        panel's is the better of the two: it sits beside the
+                        list it reorders, reports loading, and toggles to Hide.
+                        This one could do none of those and was a second place
+                        for the same behaviour to drift.
+                      */}
                       {/* Auto-assign */}
                       {canAutoAllocate &&
                         allocationMode === "auto" &&
@@ -2264,42 +2262,41 @@ export default function TasksPage() {
                                 placeholder="Task details..."
                               />
                             </div>
-                            <div className="space-y-1">
-                              <Label className="text-xs font-semibold text-muted-foreground">Department</Label>
-                              <select name="editDepartment" className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" defaultValue={task.department?.id || ""}>
-                                <option value="">No department</option>
-                                {departments.map((dept) => (
-                                  <option key={dept.id} value={dept.id}>{dept.name}</option>
-                                ))}
-                              </select>
-                            </div>
-                            <div className="space-y-1">
-                              <Label className="text-xs font-semibold text-muted-foreground">Priority</Label>
-                              <select name="editPriority" className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" defaultValue={task.priority}>
-                                <option value="low">Low</option>
-                                <option value="medium">Medium</option>
-                                <option value="high">High</option>
-                                <option value="urgent">Urgent</option>
-                              </select>
-                            </div>
-                            <div className="space-y-1">
-                              <Label className="text-xs font-semibold text-muted-foreground">Required headcount</Label>
-                              <Input name="editHeadcount" type="number" min={1} max={50} defaultValue={task.requiredHeadcount} />
-                            </div>
-                            <div className="space-y-1">
-                              <CertificationPicker
-                                options={certTypes}
-                                selected={editCerts}
-                                onToggle={(name) => setEditCerts(toggleCert(editCerts, name))}
-                                orgId={orgId}
-                                canManageList={can("certifications:review")}
-                              />
-                            </div>
-                            <div className="space-y-1.5">
-                              <CompositionRulesEditor
-                                rules={editComposition}
-                                onChange={setEditComposition}
-                              />
+                            {/*
+                              The same three groupings as New Task above, for
+                              the same reasons — see the comments there.
+
+                              This form was left behind when that one was fixed:
+                              identical two-column grid, identical short field
+                              beside a five-row chip cloud, identical Start and
+                              End landing diagonally opposite with the
+                              composition editor between them. Fixing a layout
+                              in one place does not fix it in the other, which
+                              is the lesson this codebase keeps relearning.
+                            */}
+                            <div className="grid gap-3 sm:col-span-2 sm:grid-cols-3">
+                              <div className="space-y-1">
+                                <Label className="text-xs font-semibold text-muted-foreground">Department</Label>
+                                <select name="editDepartment" className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" defaultValue={task.department?.id || ""}>
+                                  <option value="">No department</option>
+                                  {departments.map((dept) => (
+                                    <option key={dept.id} value={dept.id}>{dept.name}</option>
+                                  ))}
+                                </select>
+                              </div>
+                              <div className="space-y-1">
+                                <Label className="text-xs font-semibold text-muted-foreground">Priority</Label>
+                                <select name="editPriority" className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" defaultValue={task.priority}>
+                                  <option value="low">Low</option>
+                                  <option value="medium">Medium</option>
+                                  <option value="high">High</option>
+                                  <option value="urgent">Urgent</option>
+                                </select>
+                              </div>
+                              <div className="space-y-1">
+                                <Label className="text-xs font-semibold text-muted-foreground">Required headcount</Label>
+                                <Input name="editHeadcount" type="number" min={1} max={50} defaultValue={task.requiredHeadcount} />
+                              </div>
                             </div>
                             <div className="space-y-1">
                               <Label className="text-xs font-semibold text-muted-foreground">Start time</Label>
@@ -2329,6 +2326,21 @@ export default function TasksPage() {
                                 end={editSchedule.end}
                                 operatingHoursStart={opStart}
                                 operatingHoursEnd={opEnd}
+                              />
+                            </div>
+                            <div className="space-y-1 sm:col-span-2">
+                              <CertificationPicker
+                                options={certTypes}
+                                selected={editCerts}
+                                onToggle={(name) => setEditCerts(toggleCert(editCerts, name))}
+                                orgId={orgId}
+                                canManageList={can("certifications:review")}
+                              />
+                            </div>
+                            <div className="space-y-1.5 sm:col-span-2">
+                              <CompositionRulesEditor
+                                rules={editComposition}
+                                onChange={setEditComposition}
                               />
                             </div>
                           </div>
@@ -2687,6 +2699,23 @@ export default function TasksPage() {
                                 </span>
                               )}
                             </p>
+                            {/*
+                              Two gates, and both can only deny.
+
+                              `allocation:use_suggestions` says whether this
+                              PERSON may ask the engine. `allocationMode` says
+                              how this ORGANISATION allocates, and `manual`
+                              means "a manager picks" — so offering the model
+                              there contradicts a setting an admin deliberately
+                              chose. Auto-assign beside it has always respected
+                              the same setting; this button did not, which left
+                              one control obeying the mode and one ignoring it.
+
+                              Hidden rather than disabled, matching the export
+                              button and Import Members: a greyed control is
+                              still an offer, and the answer here is no.
+                            */}
+                            {canSuggest && allocationMode !== "manual" && (
                             <Button
                               size="sm"
                               variant="outline"
@@ -2701,6 +2730,7 @@ export default function TasksPage() {
                                   ? "Hide"
                                   : "AI Suggest"}
                             </Button>
+                            )}
                           </div>
 
                           {/*

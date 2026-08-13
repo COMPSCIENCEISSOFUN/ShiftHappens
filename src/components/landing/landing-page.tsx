@@ -1033,7 +1033,7 @@ function Testimonials({ reviews }: { reviews: LandingReview[] }) {
                 What teams say
               </h2>
               <p className="mt-4 text-slate-500">
-                From people running rosters on Smart&nbsp;Task&nbsp;Allocation
+                From people running rosters on ShiftHappens
                 every week.
               </p>
             </div>
