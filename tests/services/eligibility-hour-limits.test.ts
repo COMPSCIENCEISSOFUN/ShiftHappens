@@ -207,3 +207,65 @@ describe("EligibilityService — committed hours count toward caps", () => {
     expect(staff.checks.workRules.eligible).toBe(false);
   });
 });
+
+/*
+ * The half of cancelling that the conflict fix did not reach.
+ *
+ * Cancelling a shift tells everyone rostered that they are no longer
+ * scheduled, and leaves their assignment rows accepted on purpose — a member's
+ * history reads "Cancelled" off the task's status. The conflict queries were
+ * taught to ignore those shifts; the HOUR queries were not, so the same
+ * member walked away from a cancelled shift still carrying its hours and could
+ * be refused the next one for a cap they had not actually reached.
+ *
+ * Worse than the clash it sits beside, because the clash at least named the
+ * shift it was blocking on. "Exceeds preferred hours" names nothing.
+ */
+describe("a cancelled shift owes no hours", () => {
+  it("stops counting toward the weekly cap once the shift is called off", async () => {
+    await weeklyRule(20);
+    const calledOff = await scheduledAssignment(8, 18, "accepted", 0); // Mon 10h
+    await scheduledAssignment(8, 18, "accepted", 1); // Tue 10h → 20h committed
+    const task = await newTask(9, 12, 2); // Wed +3h = 23 > 20
+
+    // Refused while both shifts stand. Without this the test would pass against
+    // an engine that had stopped counting committed hours altogether.
+    expect(
+      staffResult(await eligibilityService.checkEligibilityForTask(task.id, orgId))
+        .checks.workRules.eligible
+    ).toBe(false);
+
+    await prisma.task.update({
+      where: { id: calledOff.id },
+      data: { status: "cancelled" },
+    });
+
+    // 10h committed + 3h new = 13h, inside the cap.
+    expect(
+      staffResult(await eligibilityService.checkEligibilityForTask(task.id, orgId))
+        .checks.workRules.eligible
+    ).toBe(true);
+  });
+
+  /*
+   * The distinction that keeps this from being "ignore terminal statuses".
+   * A completed shift was worked, and those hours are spent whatever the board
+   * says about it afterwards.
+   */
+  it("still counts a shift that was completed", async () => {
+    await weeklyRule(20);
+    const worked = await scheduledAssignment(8, 18, "accepted", 0); // Mon 10h
+    await scheduledAssignment(8, 18, "accepted", 1); // Tue 10h
+    const task = await newTask(9, 12, 2);
+
+    await prisma.task.update({
+      where: { id: worked.id },
+      data: { status: "completed" },
+    });
+
+    expect(
+      staffResult(await eligibilityService.checkEligibilityForTask(task.id, orgId))
+        .checks.workRules.eligible
+    ).toBe(false);
+  });
+});

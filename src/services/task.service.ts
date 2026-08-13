@@ -34,7 +34,10 @@ import {
 } from "@/lib/composition-rules";
 import { occupiesSlot, wasWorked } from "@/lib/assignment-status";
 import { canBeRostered } from "@/lib/role-config";
-import { assignmentRefusalFor } from "@/lib/task-status";
+import {
+  assignmentRefusalFor,
+  closedTaskStatusFilter,
+} from "@/lib/task-status";
 import { ProjectRepository } from "@/repositories/project.repository";
 
 export class TaskService {
@@ -371,7 +374,7 @@ export class TaskService {
      * be charged twice, and a future status would otherwise have to remember to
      * be added here.
      */
-    const RELEASED = ["completed", "cancelled"];
+    const RELEASED = closedTaskStatusFilter();
     const wasCounted = !RELEASED.includes(task.status);
     const willBeCounted =
       input.status === undefined ? wasCounted : !RELEASED.includes(input.status);

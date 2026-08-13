@@ -258,6 +258,59 @@ describe("TaskRepository", () => {
       expect(conflicts).toHaveLength(0);
     });
 
+    /*
+     * The defect this closes. Cancelling a shift notifies everyone rostered
+     * that they are no longer scheduled and deliberately LEAVES their
+     * assignment rows accepted — a member's history reads "Cancelled" off the
+     * task's status, and rewriting the assignment would take that away. This
+     * query only ever looked at the assignment, so the member stayed blocked at
+     * that hour by a shift that was not happening.
+     */
+    it("does not count a cancelled shift as a conflict", async () => {
+      const membership = await prisma.membership.findFirst({ where: { organizationId: orgId } });
+
+      const task = await taskRepo.create({
+        title: "Called off",
+        organizationId: orgId,
+        createdById: userId,
+        scheduledStart: new Date("2026-06-01T08:00:00Z"),
+        scheduledEnd: new Date("2026-06-01T12:00:00Z"),
+      });
+
+      await prisma.taskAssignment.create({
+        data: {
+          taskId: task.id,
+          membershipId: membership!.id,
+          // Still accepted, exactly as cancelling leaves it.
+          status: "accepted",
+          assignedById: userId,
+        },
+      });
+
+      // Blocking while the shift stands is the other half of the rule: without
+      // this line the test would pass against a query that finds nothing at all.
+      expect(
+        await taskRepo.findConflictingTasks(
+          membership!.id,
+          new Date("2026-06-01T10:00:00Z"),
+          new Date("2026-06-01T14:00:00Z")
+        )
+      ).toHaveLength(1);
+
+      await prisma.task.update({
+        where: { id: task.id },
+        data: { status: "cancelled" },
+      });
+
+      expect(
+        await taskRepo.findConflictingTasks(
+          membership!.id,
+          new Date("2026-06-01T10:00:00Z"),
+          new Date("2026-06-01T14:00:00Z")
+        )
+      ).toHaveLength(0);
+    });
+
     it("ignores rejected and completed assignments", async () => {
       const membership = await prisma.membership.findFirst({ where: { organizationId: orgId } });
 
@@ -285,6 +338,119 @@ describe("TaskRepository", () => {
       );
 
       expect(conflicts).toHaveLength(0);
+    });
+  });
+
+  /*
+   * The OTHER conflict query, and the reason it needs its own tests.
+   *
+   * `findConflictingTasks` answers "may I put this person here" on the assign
+   * path. This one answers "what are they already on" for the eligibility
+   * engine, which is what the assign panel prints beside a greyed-out name. Two
+   * queries, one question, and they have drifted before: this one counted a
+   * pending withdrawal and the other did not, so the panel and the write path
+   * could disagree about the same member at the same moment.
+   *
+   * `excludeTaskId` is not optional here — the engine is always staffing some
+   * shift, and that shift must not report itself as its own clash.
+   */
+  describe("findConflictingTaskTitles", () => {
+    async function bookedMember() {
+      const membership = await prisma.membership.findFirst({
+        where: { organizationId: orgId },
+      });
+
+      const booked = await taskRepo.create({
+        title: "Morning shift",
+        organizationId: orgId,
+        createdById: userId,
+        scheduledStart: new Date("2026-06-01T08:00:00Z"),
+        scheduledEnd: new Date("2026-06-01T12:00:00Z"),
+      });
+      await prisma.taskAssignment.create({
+        data: {
+          taskId: booked.id,
+          membershipId: membership!.id,
+          status: "accepted",
+          assignedById: userId,
+        },
+      });
+
+      // The shift the engine is staffing, which overlaps the one above.
+      const staffing = await taskRepo.create({
+        title: "Lunch service",
+        organizationId: orgId,
+        createdById: userId,
+        scheduledStart: new Date("2026-06-01T10:00:00Z"),
+        scheduledEnd: new Date("2026-06-01T14:00:00Z"),
+      });
+
+      return { membershipId: membership!.id, booked, staffing };
+    }
+
+    const clashes = (membershipId: string, staffingId: string) =>
+      taskRepo.findConflictingTaskTitles(
+        membershipId,
+        new Date("2026-06-01T10:00:00Z"),
+        new Date("2026-06-01T14:00:00Z"),
+        staffingId
+      );
+
+    it("names the shift a member is already on", async () => {
+      const { membershipId, staffing } = await bookedMember();
+
+      expect(await clashes(membershipId, staffing.id)).toEqual([
+        { title: "Morning shift" },
+      ]);
+    });
+
+    /*
+     * The fix, from the side a manager sees it. Cancelling notifies everyone
+     * rostered that they are no longer scheduled and deliberately leaves their
+     * assignment rows accepted — so a query reading the assignment alone went
+     * on reporting the clash, and the panel greyed out a member who had just
+     * been told they were free.
+     */
+    it("stops naming it once the shift is cancelled", async () => {
+      const { membershipId, booked, staffing } = await bookedMember();
+
+      await prisma.task.update({
+        where: { id: booked.id },
+        data: { status: "cancelled" },
+      });
+
+      expect(await clashes(membershipId, staffing.id)).toEqual([]);
+    });
+
+    /*
+     * The two queries must answer alike, which is the property that broke last
+     * time and the one a future condition added to only one of them would break
+     * again. Asserted in both directions, so a query that always says "no
+     * clash" cannot pass it.
+     */
+    it("agrees with findConflictingTasks, before and after cancelling", async () => {
+      const { membershipId, booked, staffing } = await bookedMember();
+
+      const both = async () => ({
+        titles: (await clashes(membershipId, staffing.id)).length,
+        tasks: (
+          await taskRepo.findConflictingTasks(
+            membershipId,
+            new Date("2026-06-01T10:00:00Z"),
+            new Date("2026-06-01T14:00:00Z"),
+            staffing.id
+          )
+        ).length,
+      });
+
+      expect(await both()).toEqual({ titles: 1, tasks: 1 });
+
+      await prisma.task.update({
+        where: { id: booked.id },
+        data: { status: "cancelled" },
+      });
+
+      expect(await both()).toEqual({ titles: 0, tasks: 0 });
     });
   });
 });

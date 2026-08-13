@@ -13,6 +13,7 @@
  */
 import { prisma } from "@/lib/prisma";
 import { occupyingStatusFilter } from "@/lib/assignment-status";
+import { committedTaskStatusFilter } from "@/lib/task-status";
 
 export class TaskRepository {
   /** Creates a new task within an organization */
@@ -329,6 +330,11 @@ export class TaskRepository {
    * check while the member was still expected to turn up.
    *
    * Excludes optional taskId to allow checking conflicts for updates.
+   *
+   * A CANCELLED task is not a conflict. Cancelling leaves the assignment rows
+   * standing on purpose — a member's history reads "Cancelled" off the task's
+   * status — so filtering on the assignment alone left people blocked by a
+   * shift they had just been told was off. See `RELEASES_COMMITMENT`.
    */
   async findConflictingTasks(
     membershipId: string,
@@ -338,6 +344,7 @@ export class TaskRepository {
   ) {
     return prisma.task.findMany({
       where: {
+        status: { notIn: committedTaskStatusFilter() },
         assignments: {
           some: {
             membershipId,
@@ -381,10 +388,11 @@ export class TaskRepository {
    * Titles of the tasks a member is already committed to that overlap a time
    * window — what the eligibility engine reports back as the clash.
    *
-   * Same rule as `findConflictingTasks` — both now share `occupiesSlot`. They
-   * disagreed before: this one counted a pending withdrawal and that one did
-   * not, so the eligibility engine and the conflict finder could give different
-   * answers about the same member at the same moment.
+   * Same rule as `findConflictingTasks` — both share `occupiesSlot` AND the
+   * cancelled-task exclusion. They disagreed before: this one counted a pending
+   * withdrawal and that one did not, so the eligibility engine and the conflict
+   * finder could give different answers about the same member at the same
+   * moment. A new condition on one belongs on the other.
    */
   async findConflictingTaskTitles(
     membershipId: string,
@@ -394,6 +402,7 @@ export class TaskRepository {
   ) {
     return prisma.task.findMany({
       where: {
+        status: { notIn: committedTaskStatusFilter() },
         assignments: {
           some: {
             membershipId,
