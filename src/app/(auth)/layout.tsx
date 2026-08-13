@@ -10,6 +10,7 @@
  */
 import Link from "next/link";
 import { AuthHeroPanel } from "@/components/auth/auth-hero-panel";
+import { Logo } from "@/components/brand/logo";
 
 /*
  * No session guard here, deliberately.
@@ -38,27 +39,13 @@ export default function AuthLayout({
       <div className="flex flex-1 flex-col items-center bg-background px-4 py-8 sm:px-6 sm:py-12 lg:justify-center">
         {/* Mobile: branded top strip (visible only when hero is hidden) */}
         <div className="mb-6 flex w-full max-w-md items-center justify-center rounded-xl bg-gradient-to-r from-indigo-600 to-violet-500 px-4 py-3 lg:hidden">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/20 text-sm font-extrabold text-white">
-              S
-            </div>
-            <span className="text-sm font-bold text-white">
-              ShiftHappens
-            </span>
-          </div>
+          {/* On the gradient, so the mark gets its tile behind it. */}
+          <Logo tone="light" nameClassName="text-sm" />
         </div>
 
         {/* Desktop: logo (hidden on mobile since branded strip replaces it) */}
-        <Link
-          href="/"
-          className="mb-8 hidden items-center gap-2.5 lg:flex"
-        >
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 to-indigo-600 text-sm font-extrabold text-white">
-            S
-          </div>
-          <span className="text-lg font-bold text-foreground">
-            ShiftHappens
-          </span>
+        <Link href="/" className="mb-8 hidden lg:block">
+          <Logo />
         </Link>
 
         <div className="w-full max-w-md">{children}</div>
