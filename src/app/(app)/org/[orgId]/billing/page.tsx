@@ -33,7 +33,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import {
   ArrowUpRight,
   CalendarClock,
@@ -163,22 +163,55 @@ export default function BillingPage() {
   }, [mayManage, load]);
 
   /*
-   * Stripe returns here with `?checkout=`, and this page is now the one that
-   * reads it — the handler moved with the button that starts checkout. Those
-   * two must travel together: a return URL pointing at a page without this
-   * effect means somebody pays and nothing on screen acknowledges it.
+   * Stripe returns here with `?checkout=`, from every source — this is now the
+   * only page any successful checkout lands on, so this is the only handler
+   * that has to exist. Onboarding used to return to `/dashboard`, where nothing
+   * read the parameter and the redirect into the org dropped it anyway; people
+   * paid for Pro and watched their new workspace say Free.
    *
-   * The parameter is cleared afterwards so a refresh does not re-announce a
-   * payment made an hour ago.
+   * A success also carries `session_id`, which goes back to the server to be
+   * exchanged for the tier. That is what makes the upgrade visible when the
+   * webhook has not arrived — always the case on localhost, where Stripe cannot
+   * reach this application at all. The webhook remains the source of truth;
+   * whichever gets there first wins and the other does nothing.
+   *
+   * The parameters are cleared immediately so a refresh does not re-announce a
+   * payment made an hour ago, and `load()` runs in `finally` because the
+   * webhook may well have applied the tier already even if this call fails.
    */
+  const router = useRouter();
   useEffect(() => {
-    const status = new URLSearchParams(window.location.search).get("checkout");
-    if (status === "success" || status === "canceled") {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronising with an external system: reads the ?checkout= result Stripe put in the URL, then clears it
-      setCheckoutBanner(status);
-      window.history.replaceState({}, "", window.location.pathname);
-    }
-  }, []);
+    const params = new URLSearchParams(window.location.search);
+    const status = params.get("checkout");
+    if (status !== "success" && status !== "canceled") return;
+
+    const sessionId = params.get("session_id");
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronising with an external system: reads the ?checkout= result Stripe put in the URL, then clears it
+    setCheckoutBanner(status);
+    window.history.replaceState({}, "", window.location.pathname);
+
+    if (status !== "success" || !sessionId) return;
+
+    void (async () => {
+      try {
+        await fetch(`/api/organizations/${orgId}/checkout/reconcile`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sessionId }),
+        });
+      } catch {
+        // Swallowed on purpose. The banner already says the payment succeeded,
+        // because it did — Stripe would not have redirected here otherwise. An
+        // error here means the tier may lag, not that money was lost, and the
+        // reload below is what tells the truth either way.
+      } finally {
+        await load();
+        // The sidebar renders the plan badge on the server, so it keeps saying
+        // "Free" until the server components re-render.
+        router.refresh();
+      }
+    })();
+  }, [orgId, load, router]);
 
   async function startCheckout(plan: "pro" | "enterprise") {
     setWorking(true);
@@ -338,28 +371,39 @@ export default function BillingPage() {
         </p>
       </div>
 
-      {error && <AlertBanner message={error} variant="error" />}
-      {notice && <AlertBanner message={notice} variant="success" />}
+      {/*
+        `mb-4` on each of these. AlertBanner carries no margin of its own, so a
+        banner is flush against whatever follows it unless the caller says
+        otherwise — here, the stat tiles.
+      */}
+      {error && <AlertBanner message={error} variant="error" className="mb-4" />}
+      {notice && (
+        <AlertBanner message={notice} variant="success" className="mb-4" />
+      )}
 
       {/*
         The post-checkout result, which arrives as a URL parameter because
         Stripe redirects rather than calling back into the page.
 
-        "Momentarily" is doing real work in that first message: the tier is
-        granted by the WEBHOOK, not by this redirect, so the plan genuinely may
-        not have changed yet when the reader lands here. Claiming it had would
-        send somebody to look for a feature that is thirty seconds away.
+        The message no longer tells anyone to refresh. It used to, because the
+        tier was granted by the WEBHOOK alone and might genuinely not have
+        arrived yet — so the banner hedged, and put the work on the reader. The
+        effect above now reconciles the session and reloads on its own, so the
+        page updates itself and the instruction would be asking for something
+        that has already happened.
       */}
       {checkoutBanner === "success" && (
         <AlertBanner
-          message="Payment received — your plan will update momentarily. Refresh if it hasn't updated."
+          message="Payment received — updating your plan…"
           variant="success"
+          className="mb-4"
         />
       )}
       {checkoutBanner === "canceled" && (
         <AlertBanner
           message="Checkout canceled — no charge was made."
           variant="warning"
+          className="mb-4"
         />
       )}
 
@@ -728,10 +772,29 @@ export default function BillingPage() {
                 <p className="text-sm font-medium">Invoices and payment</p>
                 <p className="mt-0.5 text-xs text-muted-foreground">
                   Receipts and card details are managed by Stripe.
-                  {!data.hasStripeSubscription &&
-                    tier !== "free" &&
-                    " Your access is active, but its billing details are not linked to Stripe yet."}
                 </p>
+                {/*
+                  A paid tier with no Stripe subscription behind it.
+
+                  This happens when a plan was applied directly — by a platform
+                  admin, or by seed data — rather than bought. The Cancel button
+                  below is hidden in that case, because there is genuinely
+                  nothing for it to cancel, and until now that produced a screen
+                  saying you are on Pro with no way to stop being on Pro and no
+                  word about why. An absent control reads as a bug; an absent
+                  control with a reason reads as an answer.
+
+                  It used to be a trailing clause on the sentence above, which
+                  said the details "are not linked to Stripe yet" — true, but it
+                  neither explained the missing button nor said what to do.
+                */}
+                {!data.hasStripeSubscription && tier !== "free" && (
+                  <p className="mt-1.5 text-xs text-muted-foreground">
+                    This plan was set manually and is not billed through Stripe,
+                    so there are no invoices to show and nothing to cancel here.
+                    Ask your platform administrator to change or end it.
+                  </p>
+                )}
               </div>
               <div className="flex shrink-0 flex-wrap gap-2">
                 {data.hasStripeCustomer && (

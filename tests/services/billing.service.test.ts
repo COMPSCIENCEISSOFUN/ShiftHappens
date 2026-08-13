@@ -130,7 +130,7 @@ describe("BillingService.createCheckoutSession", () => {
     expect(sessionArgs.customer).toBe("cus_EXISTING");
   });
 
-  it("builds settings return URLs pointing back at the settings page", async () => {
+  it("sends every successful checkout to the billing page, whatever started it", async () => {
     await billingService.createCheckoutSession({
       organizationId: orgId,
       userId,
@@ -142,15 +142,22 @@ describe("BillingService.createCheckoutSession", () => {
 
     const args = mockStripe.checkout.sessions.create.mock.calls[0][0];
     expect(args.mode).toBe("subscription");
+    /*
+     * Success always lands on billing, carrying the session id. That page is
+     * the only one that reads `?checkout=`, and it exchanges the id for the
+     * tier — which is what makes the upgrade appear when the webhook has not
+     * arrived. Cancelling still returns you where you started, because nothing
+     * has changed and there is nothing to confirm.
+     */
     expect(args.success_url).toBe(
-      `http://localhost:3000/org/${orgId}/settings?checkout=success`
+      `http://localhost:3000/org/${orgId}/billing?checkout=success&session_id={CHECKOUT_SESSION_ID}`
     );
     expect(args.cancel_url).toBe(
       `http://localhost:3000/org/${orgId}/settings?checkout=canceled`
     );
   });
 
-  it("builds onboarding return URLs pointing at the dashboard", async () => {
+  it("sends an onboarding purchase to billing too, not to the dashboard", async () => {
     await billingService.createCheckoutSession({
       organizationId: orgId,
       userId,
@@ -161,8 +168,16 @@ describe("BillingService.createCheckoutSession", () => {
     });
 
     const args = mockStripe.checkout.sessions.create.mock.calls[0][0];
+    /*
+     * It used to point at the dashboard. Nothing there read `?checkout=`, and
+     * the redirect into the org dropped the parameter anyway — so somebody
+     * paid for Pro and watched their new workspace say Free.
+     */
     expect(args.success_url).toBe(
-      "http://localhost:3000/dashboard?checkout=success"
+      `http://localhost:3000/org/${orgId}/billing?checkout=success&session_id={CHECKOUT_SESSION_ID}`
+    );
+    expect(args.cancel_url).toBe(
+      "http://localhost:3000/dashboard?checkout=canceled"
     );
   });
 

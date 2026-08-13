@@ -12,15 +12,16 @@
  */
 "use client";
 
-import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { Lock, Mail, Search, Sparkles } from "lucide-react";
+import { Lock, Mail, Search, Sparkles, Trash2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PageLoading } from "@/components/ui/page-loading";
 import { EmptyState } from "@/components/ui/empty-state";
 import { AlertBanner } from "@/components/ui/alert-banner";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { BulkInviteDialog } from "@/components/members/bulk-invite-dialog";
 import { toast } from "sonner";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { StatTile } from "@/components/ui/stat-tile";
@@ -189,6 +190,23 @@ export default function MembersPage() {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [inviteRole, setInviteRole] = useState("staff");
   const [inviting, setInviting] = useState(false);
+  /** The invitation awaiting a revoke confirmation, if any. */
+  const [revoking, setRevoking] = useState<Invitation | null>(null);
+  const [revokeWorking, setRevokeWorking] = useState(false);
+  const [showBulkInvite, setShowBulkInvite] = useState(false);
+  /** Who is being deactivated, while the confirmation is open. */
+  const [deactivating, setDeactivating] = useState<{
+    userId: string;
+    name: string;
+  } | null>(null);
+  /**
+   * Their upcoming shifts — `null` while still loading, so the dialog can say
+   * "checking" instead of briefly claiming there are none.
+   */
+  const [deactivateShifts, setDeactivateShifts] = useState<
+    { taskId: string; taskTitle: string; scheduledStart: string | null }[] | null
+  >(null);
+  const [deactivateWorking, setDeactivateWorking] = useState(false);
   // Search & filter state
   const [search, setSearch] = useState("");
   const [filterRole, setFilterRole] = useState("");
@@ -383,13 +401,90 @@ export default function MembersPage() {
     }
   }
 
+  /**
+   * Withdraws a pending invitation.
+   *
+   * The list is refetched rather than filtered locally: a revoke that raced
+   * with the person accepting answers 409, and the row must then come back
+   * showing them as a member instead of disappearing on the strength of a
+   * request that was refused.
+   */
+  async function onRevokeInvitation(invitation: Invitation) {
+    setError(null);
+    setRevokeWorking(true);
+    try {
+      const res = await fetch(
+        `/api/organizations/${orgId}/invitations/${invitation.id}`,
+        { method: "DELETE" }
+      );
+      const result = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(apiErrorMessage(result, "Failed to revoke the invitation"));
+        return;
+      }
+      toast.success(`Invitation to ${invitation.email} revoked`);
+    } catch {
+      setError("Could not reach the server. Check your connection and try again.");
+    } finally {
+      setRevokeWorking(false);
+      setRevoking(null);
+      fetchInvitations();
+    }
+  }
+
+  /**
+   * Deactivating asks first and says what it will cost; reactivating does not.
+   *
+   * The asymmetry is the point. Deactivation takes the person off every future
+   * shift they hold — that is what stops the roster showing coverage from
+   * somebody who can no longer work — and an admin should see those four
+   * shifts before deciding, not learn about them from the notifications
+   * afterwards. Reactivating puts nobody back on anything, so there is nothing
+   * to warn about and a confirmation would just be a click.
+   */
   async function onToggleStatus(userId: string) {
     setError(null);
+
+    const member = members.find((m) => m.user.id === userId);
+    if (member?.status !== "active") {
+      await applyToggleStatus(userId);
+      return;
+    }
+
+    setDeactivating({ userId, name: member.user.name || member.user.email });
+    setDeactivateShifts(null);
+    try {
+      const res = await fetch(
+        `/api/organizations/${orgId}/members/${userId}/upcoming-commitments`
+      );
+      const body = await res.json().catch(() => ({}));
+      // A failed lookup must not block the deactivation — the dialog falls
+      // back to its generic wording rather than refusing to open.
+      setDeactivateShifts(res.ok ? (body.commitments ?? []) : []);
+    } catch {
+      setDeactivateShifts([]);
+    }
+  }
+
+  async function applyToggleStatus(userId: string) {
+    setError(null);
+    setDeactivateWorking(true);
     try {
       const res = await fetch(`/api/organizations/${orgId}/members/${userId}/toggle-status`, { method: "POST" });
       if (!res.ok) { setError(await failureFrom(res, "Failed to update status")); return; }
+      const body = await res.json().catch(() => ({}));
+      const released = Number(body?.releasedShifts ?? 0);
+      if (released > 0) {
+        toast.success(
+          `Deactivated — released from ${released} upcoming shift${released === 1 ? "" : "s"}`
+        );
+      }
       fetchMembers();
     } catch { setError("Could not reach the server. Check your connection and try again."); }
+    finally {
+      setDeactivateWorking(false);
+      setDeactivating(null);
+    }
   }
 
   async function onUpdateRole(userId: string, newRole: string, departmentIds?: string[]) {
@@ -534,12 +629,31 @@ export default function MembersPage() {
                 discoverable, on the plans page in Settings, which is where a
                 decision about it is actually made.
               */}
+              {/*
+                Bulk invite, and deliberately NOT the member mass import that
+                used to sit beside it.
+
+                `batchImportMembers` creates the membership directly: it mints a
+                random password, hashes it, discards the plaintext and sends
+                nothing. The imported person is an active member of an
+                organisation they have never heard of, holding a password that
+                exists only as a hash nobody has ever seen — they cannot log in,
+                and nothing tells them to try. Two buttons taking the same
+                spreadsheet, one of which quietly produces unusable accounts, is
+                a trap rather than a choice.
+
+                The page and its API are left in place: the immediate-rostering
+                case it serves is real, and it becomes worth offering again once
+                it emails people a way in. Until then it is simply not offered.
+              */}
               {plan.has("mass_import") && (
-                <Link href={`/org/${orgId}/members/import`}>
-                  <button className="rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-indigo-400 hover:text-foreground">
-                    Import Members
-                  </button>
-                </Link>
+                <button
+                  onClick={() => setShowBulkInvite(true)}
+                  disabled={plan.atLimit("members")}
+                  className="rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-indigo-400 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Invite from File
+                </button>
               )}
               {/*
                 At the member cap, inviting is refused by `enforceResourceLimit`
@@ -735,6 +849,11 @@ export default function MembersPage() {
                     <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Role</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Invited by</th>
                     <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Expires</th>
+                    {canInvite && (
+                      <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                        <span className="sr-only">Actions</span>
+                      </th>
+                    )}
                   </tr>
                 </thead>
                 <tbody>
@@ -751,6 +870,18 @@ export default function MembersPage() {
                       <td className="px-4 py-3"><StatusBadge value={invitation.role} palette="role" /></td>
                       <td className="px-4 py-3 text-sm text-muted-foreground">{invitation.invitedBy.name || invitation.invitedBy.email}</td>
                       <td className="px-4 py-3 text-right text-sm text-muted-foreground">{new Date(invitation.expires).toLocaleDateString()}</td>
+                      {canInvite && (
+                        <td className="px-4 py-3 text-right">
+                          <button
+                            type="button"
+                            onClick={() => setRevoking(invitation)}
+                            aria-label={`Revoke the invitation to ${invitation.email}`}
+                            className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-destructive"
+                          >
+                            <Trash2 className="h-4 w-4" aria-hidden="true" />
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
@@ -767,6 +898,16 @@ export default function MembersPage() {
                       <span className="text-xs text-muted-foreground">expires {new Date(invitation.expires).toLocaleDateString()}</span>
                     </div>
                   </div>
+                  {canInvite && (
+                    <button
+                      type="button"
+                      onClick={() => setRevoking(invitation)}
+                      aria-label={`Revoke the invitation to ${invitation.email}`}
+                      className="ml-2 shrink-0 rounded-md p-2 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                    >
+                      <Trash2 className="h-4 w-4" aria-hidden="true" />
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
@@ -1086,6 +1227,77 @@ export default function MembersPage() {
           />
         );
       })()}
+
+      {/*
+        Revoking a pending invitation. The description names the address
+        because the whole reason to revoke is usually that the address was
+        wrong, and confirming a deletion without seeing which one is how you
+        delete the other one.
+      */}
+      <ConfirmDialog
+        open={revoking !== null}
+        title="Revoke this invitation?"
+        description={
+          revoking
+            ? `The invitation to ${revoking.email} will be withdrawn. Their link stops working immediately, and you can invite that address again afterwards.`
+            : ""
+        }
+        confirmLabel="Revoke invitation"
+        variant="destructive"
+        loading={revokeWorking}
+        onConfirm={() => {
+          if (revoking) void onRevokeInvitation(revoking);
+        }}
+        onCancel={() => setRevoking(null)}
+      />
+
+      {/*
+        Deactivation, with the cost of it stated.
+
+        The shift titles are listed rather than counted. "4 upcoming shifts"
+        does not tell you that one of them is tomorrow's opening shift, and the
+        admin deciding is the only person who can weigh that.
+      */}
+      <ConfirmDialog
+        open={deactivating !== null}
+        title={`Deactivate ${deactivating?.name ?? "this member"}?`}
+        description={
+          deactivateShifts === null
+            ? "Checking which shifts they are on…"
+            : deactivateShifts.length === 0
+              ? "They will lose access immediately. They hold no upcoming shifts, so nothing on the roster changes."
+              : `They will lose access immediately and be released from ${deactivateShifts.length} upcoming shift${
+                  deactivateShifts.length === 1 ? "" : "s"
+                }, which will then show as short: ${deactivateShifts
+                  .slice(0, 5)
+                  .map((s) => `"${s.taskTitle}"`)
+                  .join(", ")}${
+                  deactivateShifts.length > 5
+                    ? ` and ${deactivateShifts.length - 5} more`
+                    : ""
+                }. You can reactivate them later, but they will not be put back on these shifts.`
+        }
+        confirmLabel="Deactivate"
+        variant="destructive"
+        loading={deactivateWorking || deactivateShifts === null}
+        onConfirm={() => {
+          if (deactivating) void applyToggleStatus(deactivating.userId);
+        }}
+        onCancel={() => setDeactivating(null)}
+      />
+
+      {showBulkInvite && (
+        <BulkInviteDialog
+          orgId={orgId}
+          onClose={() => setShowBulkInvite(false)}
+          /*
+            The pending list is refetched but the dialog stays open, because it
+            is showing the per-address results and closing it would throw away
+            the only record of which rows were refused and why.
+          */
+          onSent={fetchInvitations}
+        />
+      )}
     </div>
   );
 }

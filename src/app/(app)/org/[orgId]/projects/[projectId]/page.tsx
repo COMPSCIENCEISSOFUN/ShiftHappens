@@ -13,13 +13,14 @@
 import { useCallback, useEffect, useState } from "react";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 
 import {
   ChevronDown,
   ChevronLeft,
   ChevronUp,
   ClipboardList,
+  Trash2,
   Users,
 } from "lucide-react";
 
@@ -29,6 +30,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AlertBanner } from "@/components/ui/alert-banner";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { apiErrorMessage } from "@/lib/api-error";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageLoading } from "@/components/ui/page-loading";
@@ -176,6 +178,10 @@ export default function ProjectDetailPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [showEdit, setShowEdit] = useState(false);
+  /** Whether the delete confirmation is open, and whether it is running. */
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const router = useRouter();
   const [showTeam, setShowTeam] = useState(false);
   const [showAddWork, setShowAddWork] = useState(false);
   const [aiWorkRequest, setAiWorkRequest] = useState("");
@@ -280,6 +286,49 @@ export default function ProjectDetailPage() {
       return false;
     } finally {
       setSaving(false);
+    }
+  }
+
+  /**
+   * Deletes the project and returns to the list.
+   *
+   * Navigates away rather than reloading, because on success this page is
+   * showing something that no longer exists — a reload would answer 404 and
+   * replace the confirmation with an error, which reads as a failure.
+   *
+   * The work items are NOT deleted; `Task.project` is `onDelete: SetNull`, so
+   * they carry on as ordinary tasks with their schedules and assignments
+   * intact. The toast says how many, because that is the part somebody might
+   * otherwise go looking for.
+   */
+  async function deleteProject() {
+    setError(null);
+    setDeleting(true);
+    try {
+      const response = await fetch(
+        `/api/organizations/${orgId}/projects/${projectId}`,
+        { method: "DELETE" }
+      );
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setError(apiErrorMessage(body, "Could not delete project"));
+        setConfirmingDelete(false);
+        return;
+      }
+
+      const unlinked = Number(body?.unlinkedTasks ?? 0);
+      toast.success(
+        unlinked > 0
+          ? `Project deleted — ${unlinked} work item${unlinked === 1 ? "" : "s"} kept as ${unlinked === 1 ? "a task" : "tasks"}`
+          : "Project deleted"
+      );
+      router.push(`/org/${orgId}/projects`);
+      router.refresh();
+    } catch {
+      setError("Could not reach the server. Check your connection and try again.");
+      setConfirmingDelete(false);
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -600,7 +649,10 @@ export default function ProjectDetailPage() {
   const isClosed = CLOSED_PROJECT_STATUSES.has(project.status);
 
   return (
-    <div className="max-w-6xl pb-10">
+    // `w-full`, matching Tasks and Members. The `max-w-6xl` this replaces left
+    // a band of empty page down the right on any wide screen, and the two stat
+    // rows and the work-item table are the parts that wanted the room.
+    <div className="w-full pb-10">
       {/* ── Breadcrumb ─────────────────────────────── */}
       <Link
         href={`/org/${orgId}/projects`}
@@ -638,9 +690,26 @@ export default function ProjectDetailPage() {
           </div>
         </div>
 
-        <Button variant="outline" size="sm" onClick={() => setShowEdit((open) => !open)}>
-          {showEdit ? "Cancel" : "Edit project"}
-        </Button>
+        <div className="flex shrink-0 items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => setShowEdit((open) => !open)}>
+            {showEdit ? "Cancel" : "Edit project"}
+          </Button>
+          {/*
+            Quieter than Edit, and only red on hover. Deleting a project is the
+            rarer act of the two and should not be the thing the eye lands on,
+            but it is also not hidden behind a menu — an admin who wants it
+            should not have to hunt.
+          */}
+          <button
+            type="button"
+            onClick={() => setConfirmingDelete(true)}
+            aria-label="Delete project"
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:border-destructive/50 hover:bg-destructive/10 hover:text-destructive"
+          >
+            <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+            Delete
+          </button>
+        </div>
       </div>
 
       {project.description && !showEdit && (
@@ -1270,6 +1339,33 @@ export default function ProjectDetailPage() {
           </ul>
         )}
       </section>
+
+      {/*
+        The description says what survives, because the word "delete" next to a
+        page listing four staffed shifts reads as though it takes them with it.
+        It does not — the shifts keep their times, their people and their
+        history, and only stop being grouped.
+      */}
+      <ConfirmDialog
+        open={confirmingDelete}
+        title={`Delete "${project.title}"?`}
+        description={
+          project.tasks.length === 0
+            ? "The project will be removed. It has no work items, so nothing else changes."
+            : `The project will be removed. Its ${project.tasks.length} work item${
+                project.tasks.length === 1 ? "" : "s"
+              } will be kept as ordinary tasks — schedules and assignments are not affected, they simply stop belonging to a project.${
+                project.projectMembers.length > 0
+                  ? " The Project Team is dissolved."
+                  : ""
+              }`
+        }
+        confirmLabel="Delete project"
+        variant="destructive"
+        loading={deleting}
+        onConfirm={deleteProject}
+        onCancel={() => setConfirmingDelete(false)}
+      />
     </div>
   );
 }

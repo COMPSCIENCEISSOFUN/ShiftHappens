@@ -104,6 +104,15 @@ export const ROUTES: RouteSpec[] = [
   org("subscription", "GET", MEMBER),
   org("checkout", "POST", ADMIN),
   /*
+   * Applies the tier for a checkout the browser has just returned from, when
+   * the webhook has not arrived — always the case on localhost. `billing:manage`,
+   * the same as starting the checkout: whoever could begin the purchase can
+   * finish it. Passing a session id asserts nothing, since the service reads
+   * the session back from Stripe and refuses one that is unpaid or another
+   * organisation's.
+   */
+  org("checkout/reconcile", "POST", ADMIN),
+  /*
    * `billing:manage` rather than a role list. Usage is separately readable by
    * any member through `subscription` above — what this gates is the money.
    */
@@ -115,6 +124,22 @@ export const ROUTES: RouteSpec[] = [
   org("invitations", "GET", ADMIN),
   org("invitations", "POST", ADMIN, { suspension: true }),
   /*
+   * Revoking, and the two halves of a bulk invite.
+   *
+   * All three carry `members:invite`, the same permission as sending one:
+   * anybody who could issue an invitation can withdraw it or send forty, and
+   * nobody else needs to. `import` reads nothing and writes nothing — it
+   * resolves a spreadsheet into a preview — but it is gated identically
+   * because it forwards its input to a model, and an ungated endpoint that
+   * spends AI credits is its own problem.
+   */
+  org("invitations/[invitationId]", "DELETE", ADMIN, {
+    suspension: true,
+    extraParams: ["invitationId"],
+  }),
+  org("invitations/import", "POST", ADMIN, { suspension: true }),
+  org("invitations/bulk", "POST", ADMIN, { suspension: true }),
+  /*
    * MANAGER, not MEMBER. These four reference lists required only membership,
    * so any staff member who typed the URL got the org's whole task board,
    * member directory (names, emails, roles), department list and custom-role
@@ -125,6 +150,17 @@ export const ROUTES: RouteSpec[] = [
   org("members", "GET", MANAGER),
   org("members/[userId]", "PATCH", ADMIN, { suspension: true, extraParams: ["userId"] }),
   org("members/[userId]/toggle-status", "POST", ADMIN, { suspension: true, extraParams: ["userId"] }),
+  /*
+   * The shifts a member is still expected to work, read by the deactivation
+   * confirmation so an admin sees what they are about to leave short.
+   *
+   * Gated on `members:deactivate` rather than on reading members: this answers
+   * "what does deactivating this person cost", and it is only ever asked by
+   * somebody about to do it.
+   */
+  org("members/[userId]/upcoming-commitments", "GET", ADMIN, {
+    extraParams: ["userId"],
+  }),
   // MANAGER where its siblings are ADMIN, deliberately. Seniority is a
   // rostering judgement rather than an administrative one, and a manager
   // blocked by a composition rule they cannot resolve will delete the rule.
@@ -188,6 +224,15 @@ export const ROUTES: RouteSpec[] = [
   org("projects", "POST", MANAGER, { suspension: true }),
   org("projects/[projectId]", "GET", MANAGER, { extraParams: ["projectId"] }),
   org("projects/[projectId]", "PATCH", MANAGER, { suspension: true, extraParams: ["projectId"] }),
+  /*
+   * `tasks:delete`, not the `tasks:update` PATCH carries. Renaming a project
+   * and dissolving one are different acts, and somebody trusted to keep a
+   * project's details current is not automatically trusted to remove it.
+   */
+  org("projects/[projectId]", "DELETE", MANAGER, {
+    suspension: true,
+    extraParams: ["projectId"],
+  }),
   org("projects/[projectId]/team", "GET", MANAGER, { extraParams: ["projectId"] }),
   org("projects/[projectId]/team", "PUT", MANAGER, { suspension: true, extraParams: ["projectId"] }),
 

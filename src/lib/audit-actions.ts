@@ -30,6 +30,13 @@ export const ACTIONS = {
   // Projects
   PROJECT_CREATED: "project.created",
   PROJECT_UPDATED: "project.updated",
+  /*
+   * The project row is gone, so this entry is the only remaining evidence it
+   * existed. Its details carry the name and the work-item count for that
+   * reason — "project.deleted" with an id nothing resolves any more answers
+   * nothing about what was lost.
+   */
+  PROJECT_DELETED: "project.deleted",
   // Assignments
   ASSIGNMENT_ACCEPTED: "assignment.accepted",
   ASSIGNMENT_REJECTED: "assignment.rejected",
@@ -93,6 +100,16 @@ export const ACTIONS = {
   // Members
   MEMBER_INVITED: "member.invited",
   MEMBER_JOINED: "member.joined",
+  /*
+   * A pending invitation withdrawn before anybody accepted it.
+   *
+   * Separate from `MEMBER_INVITED` rather than folded into it: the row is
+   * deleted, so without its own entry the only trace an invitation ever existed
+   * would be the "invited" line, and the log would read as though somebody were
+   * still expected to arrive. Most often the address was simply wrong, and
+   * "we invited jhon@ and then took it back" is the honest version of that.
+   */
+  MEMBER_INVITE_REVOKED: "member.invite_revoked",
   /*
    * The member's SYSTEM role — staff, manager, company_admin.
    *

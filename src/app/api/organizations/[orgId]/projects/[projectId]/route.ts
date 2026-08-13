@@ -44,3 +44,30 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     return NextResponse.json({ error: error instanceof Error ? error.message : "Could not update project" }, { status: 400 });
   }
 }
+
+/**
+ * DELETE — remove a project. Its work items survive as ordinary tasks.
+ *
+ * Gated on `tasks:delete` rather than the `tasks:update` that PATCH uses:
+ * renaming a project and dissolving one are different acts, and somebody
+ * trusted to keep a project's details current is not automatically trusted to
+ * remove it. The department scope check is the same one PATCH applies, so a
+ * manager cannot delete a project outside their departments.
+ */
+export async function DELETE(_request: NextRequest, { params }: { params: Promise<{ orgId: string; projectId: string }> }) {
+  try {
+    const user = await getAuthenticatedUser();
+    if (!user) return unauthorizedResponse();
+    const { orgId, projectId } = await params;
+    const suspended = await checkOrgSuspended(orgId);
+    if (suspended) return suspended;
+    const gate = await requirePermission(user.id, orgId, "tasks:delete");
+    if (!gate.ok) return gate.response;
+    const current = await projects.get(projectId, orgId);
+    if (!current || !isDepartmentInScope(current.departmentId, departmentScopeFor(gate.membership))) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    return NextResponse.json(await projects.remove(projectId, orgId, user.id));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Could not delete project";
+    return NextResponse.json({ error: message }, { status: message === "Project not found" ? 404 : 400 });
+  }
+}

@@ -29,6 +29,7 @@ import {
 } from "@/lib/recurrence";
 import { PageLoading } from "@/components/ui/page-loading";
 import { AlertBanner } from "@/components/ui/alert-banner";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { apiErrorMessage } from "@/lib/api-error";
 import { AiResultBanner } from "@/components/tasks/ai-result-banner";
 import { toast } from "sonner";
@@ -381,6 +382,28 @@ export default function TasksPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  /*
+   * One piece of state for every confirmation on this page, rather than a
+   * boolean per action.
+   *
+   * Both destructive actions here used `window.confirm`, which blocks the whole
+   * tab, cannot be styled or translated, and in some browsers carries a
+   * "prevent this page from creating more dialogs" checkbox that silently
+   * disables every later confirmation — turning a guard into nothing without
+   * telling anybody. Nine other pages already use `ConfirmDialog`; these two
+   * were the last holdouts.
+   *
+   * Holding the action as a callback keeps the shape of the original code: the
+   * caller still reads as "ask, then do", and a third confirmation costs one
+   * more `setConfirm` rather than another slice of state and another dialog.
+   */
+  const [confirm, setConfirm] = useState<{
+    title: string;
+    description: string;
+    confirmLabel: string;
+    run: () => Promise<void>;
+  } | null>(null);
+  const [confirmRunning, setConfirmRunning] = useState(false);
   /** Which assignment's clock form is open, if any. */
   const [correctingId, setCorrectingId] = useState<string | null>(null);
   /*
@@ -961,22 +984,95 @@ export default function TasksPage() {
        */
       setCreateCerts([]);
       setCreateComposition([]);
+      /*
+        The message has to agree with what the screen then does. Saying only
+        "Task created" while an assign panel scrolls itself into view leaves the
+        reader working out for themselves what the thing that just appeared is.
+      */
       toast.success(
         repeatFreq
           ? "Recurring task created — upcoming occurrences generated"
-          : "Task created successfully"
+          : canAssign && allocationMode !== "auto"
+            ? "Task created — now choose who works it"
+            : "Task created successfully"
       );
       form.reset();
       setRepeatFreq("");
       setRepeatInterval(1);
       setRepeatDays([]);
       setRepeatUntil("");
-      fetchTasks();
+      await fetchTasks();
+      await openAssignAfterCreate(result.id, Boolean(repeatFreq));
     } catch {
       setError("Something went wrong");
     } finally {
       setCreating(false);
     }
+  }
+
+  /**
+   * Opens the assign panel on the shift that was just created, suggestions
+   * already loading.
+   *
+   * ## Why creating first is not a compromise
+   *
+   * Ranking a candidate needs the shift: `buildCandidatePool` and
+   * `checkEligibilityForTask` both begin by loading the task row, because
+   * availability, conflicts, hour caps and certificates are all judged against
+   * its department and its time window. So "suggest while I am still typing"
+   * would mean reshaping the entry point of the eligibility engine — the most
+   * safety-critical code here — for a convenience win.
+   *
+   * Creating and then picking, in one place, gets the same four steps down to
+   * two without touching any of that. The shift has to exist before anybody can
+   * be assigned to it regardless; this only stops the page throwing you back to
+   * a list to find the thing you just made.
+   *
+   * Abandoning at this point leaves an unstaffed shift, which is correct: you
+   * pressed Create, and it shows as short, which is what the shortfall
+   * notifications are for.
+   */
+  async function openAssignAfterCreate(taskId: string, recurring: boolean) {
+    /*
+     * Three cases where there is nothing useful to open.
+     *
+     * A recurring rule generates many occurrences and this id is the first of
+     * them, so opening one arbitrarily would imply the choice applied to all.
+     * In auto mode the engine has already staffed it. And without the
+     * permission there is nothing to press.
+     */
+    if (!taskId || recurring || !canAssign || allocationMode === "auto") return;
+
+    /*
+     * A status filter can hide the shift that was just created — it is open,
+     * and the reader may have been looking at Completed. Cleared rather than
+     * set to "open", because "All" is the one value guaranteed to contain it
+     * whatever the engine did with it on the way in.
+     */
+    setFilterStatus("");
+
+    setAssigningTaskId(taskId);
+    setSelectedMembers([]);
+    setOverrideReasons({});
+    setAssignError(null);
+    setShowSuggestions(false);
+    resetAssignData();
+
+    await loadAssignData(taskId);
+    if (allocationMode === "suggested") {
+      fetchSuggestions(taskId, true);
+    }
+
+    /*
+     * The list is above the fold only when it is short. Deferred a frame so the
+     * row exists — `fetchTasks` has resolved, but React has not necessarily
+     * painted the panel that this scrolls to.
+     */
+    requestAnimationFrame(() => {
+      document
+        .getElementById(`task-${taskId}`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
   }
 
   /**
@@ -1095,8 +1191,18 @@ export default function TasksPage() {
     }
   }
 
-  async function onDeleteTask(taskId: string) {
-    if (!confirm("Are you sure you want to delete this task?")) return;
+  function onDeleteTask(taskId: string) {
+    setConfirm({
+      title: "Delete this shift?",
+      description:
+        "The shift and every assignment on it will be removed. Anyone rostered " +
+        "on it loses it from their schedule. This cannot be undone.",
+      confirmLabel: "Delete shift",
+      run: () => deleteTask(taskId),
+    });
+  }
+
+  async function deleteTask(taskId: string) {
     setError(null);
 
     try {
@@ -1235,8 +1341,18 @@ export default function TasksPage() {
     }
   }
 
-  async function onCancelAssignment(assignmentId: string) {
-    if (!confirm("Are you sure you want to unassign this staff member?")) return;
+  function onCancelAssignment(assignmentId: string) {
+    setConfirm({
+      title: "Unassign this person?",
+      description:
+        "They will be taken off this shift and told about it. The shift stays, " +
+        "and will show as short until somebody else is assigned.",
+      confirmLabel: "Unassign",
+      run: () => cancelAssignment(assignmentId),
+    });
+  }
+
+  async function cancelAssignment(assignmentId: string) {
     setError(null);
 
     try {
@@ -3131,6 +3247,32 @@ export default function TasksPage() {
           })}
         </div>
       )}
+
+      {/*
+        Both destructive actions on this page share it. `run` is held on the
+        state object, so the dialog does not need to know which action it is
+        confirming — and it closes before the request finishes, because the
+        outcome is reported by the page's own error banner and toast, not here.
+      */}
+      <ConfirmDialog
+        open={confirm !== null}
+        title={confirm?.title ?? ""}
+        description={confirm?.description ?? ""}
+        confirmLabel={confirm?.confirmLabel}
+        variant="destructive"
+        loading={confirmRunning}
+        onConfirm={async () => {
+          if (!confirm) return;
+          setConfirmRunning(true);
+          try {
+            await confirm.run();
+          } finally {
+            setConfirmRunning(false);
+            setConfirm(null);
+          }
+        }}
+        onCancel={() => setConfirm(null)}
+      />
     </div>
   );
 }

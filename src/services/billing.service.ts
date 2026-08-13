@@ -8,10 +8,16 @@
  *      secret (rejects forged calls).
  *   3. handleEvent — applies verified subscription events to the org's tier.
  *
- * Tier changes are ONLY ever driven by verified Stripe events, never by the
- * client — the client can start a checkout, but the upgrade is not granted
- * until Stripe confirms payment via webhook. This prevents a user from
- * self-upgrading by calling an endpoint.
+ * Tier changes are ONLY ever driven by what Stripe says, never by the client —
+ * the client can start a checkout, but the upgrade is not granted until Stripe
+ * confirms payment. This prevents a user from self-upgrading by calling an
+ * endpoint.
+ *
+ * Two paths carry that confirmation: `handleEvent`, from the webhook, and
+ * `reconcileCheckout`, from the redirect back. The second exists because the
+ * first is delivered out of band and can silently not arrive — see the note on
+ * that method. Both end at the same handler, so neither can drift from the
+ * other, and whichever runs second is a no-op.
  */
 import Stripe from "stripe";
 import {
@@ -61,12 +67,13 @@ function periodEndOf(sub: Stripe.Subscription): Date | null {
  * Where checkout was started from, which decides where Stripe sends the person
  * back to.
  *
+ * Since success always returns to the billing page, this now only decides where
+ * CANCELLING lands you.
+ *
  * `"settings"` is kept although nothing starts checkout there any more: the
  * upgrade card moved to the billing page, and a URL Stripe was given BEFORE
  * that move can still be walked by somebody who left the tab open. Removing the
- * branch would land those people on a page with no `?checkout=` handler — they
- * would pay and see nothing acknowledge it, which is the failure mode worth
- * paying one dead branch to avoid.
+ * branch would send those people to `/org/{id}/undefined`.
  */
 export type CheckoutSource = "onboarding" | "settings" | "billing";
 
@@ -167,22 +174,113 @@ export class BillingService {
   /** Build success/cancel URLs based on where checkout was launched. */
   private returnUrls(source: CheckoutSource, origin: string, orgId: string) {
     /*
-     * Both land on a page that reads `?checkout=`. That pairing is the thing to
-     * keep true: a return URL pointing at a page without the handler means
-     * somebody pays and nothing on screen acknowledges it.
+     * Success always lands on the billing page, whatever launched the checkout.
+     *
+     * It used to land back on the source page, and the rule that made that safe
+     * was "every return URL must point at a page that reads `?checkout=`". Only
+     * the billing page ever had that handler. Onboarding therefore sent buyers
+     * to `/dashboard?checkout=success`, where nothing read it and nothing
+     * acknowledged the payment — and because the dashboard route redirects into
+     * the org, the parameter did not even survive the trip. Somebody paid for
+     * Pro and watched their new workspace say Free.
+     *
+     * Pointing every success at the one page that handles it removes the rule
+     * rather than restating it, and it is the page a person actually wants
+     * after paying: it says what they now have.
+     *
+     * `{CHECKOUT_SESSION_ID}` is substituted by Stripe, not by us. The billing
+     * page hands it back to `reconcileCheckout`, which is what makes the upgrade
+     * appear even when the webhook is slow, misconfigured, or — on localhost —
+     * cannot reach the application at all.
      */
-    if (source === "billing" || source === "settings") {
-      const base = `${origin}/org/${orgId}/${source}`;
-      return {
-        successUrl: `${base}?checkout=success`,
-        cancelUrl: `${base}?checkout=canceled`,
-      };
+    const successUrl =
+      `${origin}/org/${orgId}/billing` +
+      `?checkout=success&session_id={CHECKOUT_SESSION_ID}`;
+
+    /*
+     * Cancelling returns you where you started, because nothing has changed and
+     * there is nothing to confirm. Onboarding is the one source whose starting
+     * point is not an org page.
+     */
+    const cancelBase =
+      source === "onboarding"
+        ? `${origin}/dashboard`
+        : `${origin}/org/${orgId}/${source}`;
+
+    return { successUrl, cancelUrl: `${cancelBase}?checkout=canceled` };
+  }
+
+  /**
+   * Grant the tier for a checkout the browser has just returned from.
+   *
+   * ## Why this exists when the webhook already does it
+   *
+   * The webhook is the source of truth and stays that way. But it is delivered
+   * out of band, to a public URL, and every one of those conditions has failed
+   * on this project: it cannot reach `localhost` at all during development, and
+   * in production it is one misconfigured endpoint secret away from silence.
+   * The failure is invisible and expensive — the charge succeeds, the tier does
+   * not move, and the person who just paid is looking at the plan they were
+   * trying to leave.
+   *
+   * So this is a SECOND path to the same write, taken on the redirect back.
+   * Whichever arrives first wins and the other becomes a no-op.
+   *
+   * ## This does not let a client grant itself a tier
+   *
+   * The class contract is that tier changes come only from Stripe, never from
+   * the caller, and that still holds. The client supplies an id; everything
+   * decided from there is read back FROM Stripe. A session that was not paid
+   * grants nothing, and a session belonging to another organisation grants
+   * nothing — the id is a lookup key, not an assertion to be trusted.
+   *
+   * @returns the tier now in force, or null if the session granted nothing.
+   */
+  async reconcileCheckout(
+    sessionId: string,
+    organizationId: string
+  ): Promise<string | null> {
+    const session = await getStripe().checkout.sessions.retrieve(sessionId);
+
+    /*
+     * The session must belong to the organisation being claimed for.
+     *
+     * Without this, an admin of their own free org could paste somebody else's
+     * session id and be upgraded on a stranger's payment. Checked against the
+     * same fields `onCheckoutCompleted` resolves the org from, so the two
+     * cannot disagree about whose session this is.
+     */
+    const owner =
+      session.metadata?.organizationId ?? session.client_reference_id ?? null;
+    if (owner !== organizationId) return null;
+
+    // `paid` is the only status that bought anything. `unpaid` covers a
+    // checkout that was opened and abandoned, which is the common case for a
+    // success URL being walked a second time from history.
+    if (session.payment_status !== "paid") return null;
+
+    /*
+     * Already applied — almost always by the webhook, occasionally by an
+     * earlier visit to this same URL. Returning the tier without rewriting it
+     * keeps the audit log honest: an upgrade happened once, and the log should
+     * say so once, however many times the page is refreshed.
+     */
+    const current = await this.billingRepo.getByOrgId(organizationId);
+    const subscriptionId = toId(session.subscription);
+    if (
+      current?.stripeSubscriptionId &&
+      current.stripeSubscriptionId === subscriptionId
+    ) {
+      return current.subscriptionTier;
     }
-    // onboarding — org already exists on the free tier; land on the dashboard.
-    return {
-      successUrl: `${origin}/dashboard?checkout=success`,
-      cancelUrl: `${origin}/dashboard?checkout=canceled`,
-    };
+
+    // Deliberately the webhook's own handler rather than a copy of it. Two
+    // routes to the same outcome are worth having; two implementations of it
+    // are not.
+    await this.onCheckoutCompleted(session);
+
+    const updated = await this.billingRepo.getByOrgId(organizationId);
+    return updated?.subscriptionTier ?? null;
   }
 
   /**

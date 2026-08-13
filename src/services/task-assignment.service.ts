@@ -691,7 +691,12 @@ export class TaskAssignmentService {
           scheduledStart: assignment.task.scheduledStart,
         },
         assignment.membership.user?.name || "A staff member",
-        actorUserId
+        actorUserId,
+        // An approved decline or withdrawal, not leave. `findCover` opened
+        // every notification with "their leave was approved" because leave was
+        // its only caller when it was written — so a manager answering a
+        // withdrawal was told about a leave request that did not exist.
+        "withdrawn"
       );
     } catch (error) {
       console.error("[Cover Search Error]", error);

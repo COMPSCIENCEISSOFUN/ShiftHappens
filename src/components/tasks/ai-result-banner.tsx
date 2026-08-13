@@ -72,7 +72,9 @@ export function AiResultBanner({
         : `Assigned ${assigned} of ${required} — ${required - assigned} still open.`;
 
   return (
-    <div className="mt-4 flex items-start gap-3 rounded-xl border border-indigo-200 bg-indigo-50/70 p-4 dark:border-indigo-900 dark:bg-indigo-950/40">
+    // `my-4`, not `mt-4`: this had space above and none below, so it sat flush
+    // against whatever followed it — on the tasks page, the status filter pills.
+    <div className="my-4 flex items-start gap-3 rounded-xl border border-indigo-200 bg-indigo-50/70 p-4 dark:border-indigo-900 dark:bg-indigo-950/40">
       <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-indigo-600/10 dark:bg-indigo-400/10">
         <Sparkles
           className="size-4 text-indigo-600 dark:text-indigo-400"

@@ -856,4 +856,134 @@ describe("UserManagementService", () => {
       expect(logs).toHaveLength(2);
     });
   });
+
+  /**
+   * Revoking a pending invitation.
+   *
+   * The ordinary case is a typo, and until this existed a mistyped address sat
+   * in the pending list for a week — blocking a re-invite to the CORRECTED
+   * address, because `findPendingByEmail` refuses duplicates per address and
+   * the wrong one was still outstanding.
+   */
+  describe("revokeInvitation", () => {
+    async function pendingInvite(
+      email = "wrong@example.com",
+      role: "staff" | "manager" = "staff"
+    ) {
+      return userMgmtService.inviteUser({ email, role }, orgId, adminUserId);
+    }
+
+    it("removes the invitation", async () => {
+      const invitation = await pendingInvite();
+
+      await userMgmtService.revokeInvitation(
+        invitation.id,
+        orgId,
+        adminUserId
+      );
+
+      const remaining = await userMgmtService.getOrgInvitations(orgId);
+      expect(remaining).toHaveLength(0);
+    });
+
+    it("frees the address to be invited again", async () => {
+      // The point of the feature. Inviting the same address twice is refused
+      // while one is outstanding, so without a revoke a typo is unrecoverable
+      // until it expires.
+      const invitation = await pendingInvite();
+      await userMgmtService.revokeInvitation(invitation.id, orgId, adminUserId);
+
+      await expect(pendingInvite()).resolves.toMatchObject({
+        email: "wrong@example.com",
+      });
+    });
+
+    it("records it, so the log does not still expect somebody to arrive", async () => {
+      const invitation = await pendingInvite();
+      await userMgmtService.revokeInvitation(invitation.id, orgId, adminUserId);
+
+      const logs = await prisma.auditLog.findMany({
+        where: { organizationId: orgId, action: "member.invite_revoked" },
+      });
+
+      expect(logs).toHaveLength(1);
+      expect(logs[0].details).toMatchObject({ email: "wrong@example.com" });
+    });
+
+    it("refuses an id belonging to another organisation", async () => {
+      // The id comes off a URL. Scoped in the repository query, so the wrong
+      // tenant gets "not found" rather than a successful delete.
+      const outsider = await userRepo.create({
+        name: "Other Admin",
+        email: "other@example.com",
+        hashedPassword: "hash",
+      });
+      const otherOrg = await orgRepo.create(
+        { name: "Other Co", slug: "other-co" },
+        outsider.id
+      );
+      const invitation = await pendingInvite();
+
+      await expect(
+        userMgmtService.revokeInvitation(
+          invitation.id,
+          otherOrg.id,
+          outsider.id
+        )
+      ).rejects.toThrow("Invitation not found");
+
+      expect(await userMgmtService.getOrgInvitations(orgId)).toHaveLength(1);
+    });
+
+    it("refuses one that has already been accepted", async () => {
+      // Deleting the token after acceptance would remove the record of how
+      // somebody got in without removing their access — an undo with none of
+      // the effect. Taking access away is deactivation, a different act.
+      const invitation = await pendingInvite();
+      await prisma.invitationToken.update({
+        where: { id: invitation.id },
+        data: { acceptedAt: new Date() },
+      });
+
+      await expect(
+        userMgmtService.revokeInvitation(invitation.id, orgId, adminUserId)
+      ).rejects.toThrow("already been accepted");
+    });
+
+    it("refuses to revoke above the actor's own role", async () => {
+      /*
+       * The mirror of `inviteUser`'s ceiling: without it, somebody who could
+       * not ISSUE an invitation at a given rank could still cancel one — the
+       * same authority boundary approached from the other side.
+       *
+       * Staff revoking a manager invitation, because `inviteUserSchema` admits
+       * only staff and manager. There is no such thing as a pending
+       * company_admin invitation to test with, which is itself the reason the
+       * ceiling only ever bites at this one step.
+       */
+      const staff = await userRepo.create({
+        name: "Staff",
+        email: "staff@example.com",
+        hashedPassword: "hash",
+      });
+      await prisma.membership.create({
+        data: {
+          userId: staff.id,
+          organizationId: orgId,
+          role: "staff",
+          status: "active",
+        },
+      });
+      const invitation = await pendingInvite(
+        "incoming-manager@example.com",
+        "manager"
+      );
+
+      await expect(
+        userMgmtService.revokeInvitation(invitation.id, orgId, staff.id)
+      ).rejects.toThrow("above your own role");
+
+      expect(await userMgmtService.getOrgInvitations(orgId)).toHaveLength(1);
+    });
+  });
 });

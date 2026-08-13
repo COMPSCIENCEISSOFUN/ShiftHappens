@@ -236,6 +236,31 @@ export class ProjectRepository {
    * interleaves: two managers saving different teams at once would otherwise
    * merge into a team neither of them chose.
    */
+  /**
+   * Removes a project.
+   *
+   * The work items SURVIVE. `Task.project` is declared `onDelete: SetNull`, so
+   * every linked task keeps its schedule, its assignments and its history and
+   * simply stops belonging to a project — which is the only defensible
+   * behaviour when a "work item" is a real shift somebody is rostered on.
+   * Deleting them with the project would cancel people's work because an admin
+   * tidied up a folder.
+   *
+   * The project's own department scopes and team memberships DO cascade, since
+   * neither means anything without the project.
+   *
+   * Scoped on organizationId as well as id: the id arrives from a URL, and
+   * `deleteMany` with both columns removes nothing when the tenant is wrong,
+   * where `delete` on the id alone would remove another organisation's project.
+   * The count tells the caller which happened.
+   */
+  async remove(projectId: string, organizationId: string): Promise<number> {
+    const { count } = await prisma.project.deleteMany({
+      where: { id: projectId, organizationId },
+    });
+    return count;
+  }
+
   async replaceTeam(projectId: string, membershipIds: string[]) {
     await prisma.$transaction(
       async (tx) => {

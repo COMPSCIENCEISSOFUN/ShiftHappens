@@ -99,6 +99,63 @@ export class ProjectService {
     return this.projectRepo.findById(projectId, organizationId);
   }
 
+  /**
+   * Deletes a project, leaving its work items behind as ordinary tasks.
+   *
+   * ## Why the tasks are not deleted with it
+   *
+   * A "work item" here is a real shift: it has a time, it has people assigned
+   * to it, and some of them have already worked it. Cascading the delete would
+   * cancel somebody's roster and erase completed hours because an admin tidied
+   * up a grouping. `Task.project` is `onDelete: SetNull` for exactly that
+   * reason, so they survive, keep their assignments, and stop belonging to a
+   * project.
+   *
+   * That also makes this recoverable in the way that matters: the grouping is
+   * gone and can be rebuilt, but no work was destroyed.
+   *
+   * The count is read BEFORE the delete because it is the one fact the audit
+   * entry cannot get afterwards — the rows have stopped pointing at anything by
+   * then, and "deleted a project" without saying it took four work items with
+   * it out of a project is not the same statement.
+   */
+  async remove(
+    projectId: string,
+    organizationId: string,
+    userId: string
+  ) {
+    const existing = await this.get(projectId, organizationId);
+    if (!existing) {
+      throw new Error("Project not found");
+    }
+
+    const unlinkedTasks = existing.tasks.length;
+
+    const removed = await this.projectRepo.remove(projectId, organizationId);
+    // `deleteMany` scoped on the tenant removes nothing when the id belongs
+    // elsewhere. `get` already refused that case, so reaching here means it
+    // vanished between the two reads — reported as not found rather than as
+    // a success that deleted nothing.
+    if (removed === 0) {
+      throw new Error("Project not found");
+    }
+
+    await this.auditService.log({
+      organizationId,
+      userId,
+      action: ACTIONS.PROJECT_DELETED,
+      entityType: "project",
+      entityId: projectId,
+      details: {
+        title: existing.title,
+        departmentId: existing.departmentId,
+        unlinkedTasks,
+      },
+    });
+
+    return { unlinkedTasks };
+  }
+
   async update(
     projectId: string,
     organizationId: string,

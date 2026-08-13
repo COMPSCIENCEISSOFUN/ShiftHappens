@@ -184,7 +184,7 @@ export default function OnboardingPage() {
   const [error, setError] = useState<string | null>(null);
 
   // Plan selection (paid plans go through Stripe checkout after org creation)
-  const [plan, setPlan] = useState<"free" | "pro">("free");
+  const [plan, setPlan] = useState<"free" | "pro" | "enterprise">("free");
   const [interval, setInterval] = useState<"month" | "year">("month");
 
   // Fetch templates on mount
@@ -287,13 +287,17 @@ export default function OnboardingPage() {
 
       // Paid plan: hand off to Stripe Checkout. The org is created on the free
       // tier and only upgraded once Stripe confirms payment (via webhook).
-      if (plan === "pro") {
+      if (plan !== "free") {
         const checkoutRes = await fetch(
           `/api/organizations/${result.id}/checkout`,
           {
+            // `plan` is stated rather than left out. The schema defaults a
+            // missing plan to "pro" for the benefit of older callers, so
+            // omitting it here would have quietly charged Enterprise buyers the
+            // Pro price and given them the Pro tier.
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ interval, source: "onboarding" }),
+            body: JSON.stringify({ interval, source: "onboarding", plan }),
           }
         );
         const checkout = await checkoutRes.json();
@@ -610,17 +614,23 @@ export default function OnboardingPage() {
 
                 <Separator />
 
-                {/* ─── Plan selection ─────────────────────────────── */}
-                <div className="space-y-3">
+                {/*
+                  ─── Plan selection ───────────────────────────────
+
+                  `pb-2` because this is the last block in the card body and
+                  the interval toggle below it only renders for a paid plan —
+                  so on Free the cards ended flush against the footer rule.
+                */}
+                <div className="space-y-3 pb-2">
                   <div>
                     <p className="text-base font-medium">Choose a plan</p>
                     <p className="text-sm text-muted-foreground">
-                      Start free, or unlock more with Pro. You can change this
-                      anytime in Settings.
+                      Start free, or unlock more with Pro or Enterprise. You can
+                      change this anytime in Settings.
                     </p>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                     {/* Free */}
                     <button
                       type="button"
@@ -666,10 +676,37 @@ export default function OnboardingPage() {
                         {TIER_CONFIG.pro.tagline}
                       </p>
                     </button>
+
+                    {/* Enterprise */}
+                    <button
+                      type="button"
+                      onClick={() => setPlan("enterprise")}
+                      className={`rounded-lg border p-4 text-left transition-all ${
+                        plan === "enterprise"
+                          ? "border-primary bg-primary/5 ring-1 ring-primary"
+                          : "border-border hover:border-primary/50"
+                      }`}
+                    >
+                      <p className="text-sm font-medium">
+                        {TIER_CONFIG.enterprise.displayName}
+                      </p>
+                      <p className="text-lg font-bold">
+                        $
+                        {interval === "year"
+                          ? TIER_CONFIG.enterprise.yearlyPrice
+                          : TIER_CONFIG.enterprise.monthlyPrice}
+                        <span className="text-xs font-normal text-muted-foreground">
+                          /{interval === "year" ? "yr" : "mo"}
+                        </span>
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {TIER_CONFIG.enterprise.tagline}
+                      </p>
+                    </button>
                   </div>
 
-                  {/* Billing interval toggle (Pro only) */}
-                  {plan === "pro" && (
+                  {/* Billing interval toggle (paid plans only) */}
+                  {plan !== "free" && (
                     <div className="flex items-center gap-2 text-sm">
                       <span className="text-muted-foreground">Billing:</span>
                       <div className="inline-flex rounded-md border p-0.5">
@@ -715,7 +752,7 @@ export default function OnboardingPage() {
                 <Button type="submit" disabled={creating}>
                   {creating ? (
                     "Creating..."
-                  ) : plan === "pro" ? (
+                  ) : plan !== "free" ? (
                     <>
                       <CreditCard className="h-4 w-4 mr-1.5" />
                       Continue to payment

@@ -81,6 +81,122 @@ export class UserManagementService {
   }
 
   /**
+   * Sends many invitations, reporting on each one.
+   *
+   * ## Why this loops `inviteUser` instead of writing rows itself
+   *
+   * Every guard that matters lives in that method: the seat limit, the role
+   * ceiling, the already-a-member check, the duplicate-invitation check, the
+   * audit entry and the email. A bulk path that wrote invitation rows directly
+   * would be a second door into the same state with none of them — which is
+   * exactly the shape of bug this codebase has met before, where a limit
+   * counted a STATE and the guard sat on one path into it.
+   *
+   * The cost is that it is sequential. That is deliberate too: the seat limit
+   * is checked against a count that moves as the loop runs, and forty parallel
+   * invitations would each be measured against the same unchanged number and
+   * sail past the cap together.
+   *
+   * ## Why one failure does not stop the rest
+   *
+   * A forty-row file with one bad address should send thirty-nine invitations
+   * and tell you about the one. Aborting would make the outcome depend on
+   * spreadsheet ordering, and re-uploading after a fix would then collide with
+   * everything already sent.
+   */
+  async bulkInvite(
+    rows: InviteUserInput[],
+    organizationId: string,
+    invitedById: string
+  ): Promise<{
+    sent: string[];
+    failed: { email: string; reason: string }[];
+  }> {
+    const sent: string[] = [];
+    const failed: { email: string; reason: string }[] = [];
+
+    for (const row of rows) {
+      try {
+        await this.inviteUser(row, organizationId, invitedById);
+        sent.push(row.email);
+      } catch (error) {
+        failed.push({
+          email: row.email,
+          reason:
+            error instanceof Error ? error.message : "Could not send invitation",
+        });
+      }
+    }
+
+    return { sent, failed };
+  }
+
+  /**
+   * Withdraws a pending invitation.
+   *
+   * The ordinary case is a typo — an invitation sent to the wrong address,
+   * which until now sat in the pending list until it expired a week later,
+   * blocking a re-invite to the corrected address because
+   * `findPendingByEmail` refuses duplicates.
+   *
+   * ## Why an accepted invitation cannot be revoked
+   *
+   * Because there would be nothing to revoke. Acceptance already created the
+   * membership, and deleting the token afterwards removes the record of how
+   * that person got in without removing their access — the appearance of an
+   * undo with none of the effect. Taking away access is `deactivateMember`,
+   * which is a different act with different consequences, and the caller should
+   * have to say which one they mean.
+   *
+   * ## Why the role ceiling applies here too
+   *
+   * `inviteUser` refuses to CREATE an invitation above the actor's own rank.
+   * Without the same rule on the way out, a manager could not invite an admin
+   * but could delete the invitation an admin had sent to one — cancelling a
+   * decision they were not allowed to make, which is the same authority
+   * boundary approached from the other side.
+   */
+  async revokeInvitation(
+    invitationId: string,
+    organizationId: string,
+    revokedById: string
+  ) {
+    const actor = await this.requireActor(organizationId, revokedById);
+
+    const invitation = await this.invitationRepo.findByIdInOrg(
+      invitationId,
+      organizationId
+    );
+    if (!invitation) throw new Error("Invitation not found");
+
+    if (invitation.acceptedAt) {
+      throw new Error("This invitation has already been accepted");
+    }
+
+    if (roleRank(invitation.role) > roleRank(actor.role)) {
+      throw new Error("You cannot revoke an invitation above your own role");
+    }
+
+    await this.invitationRepo.delete(invitationId);
+
+    /*
+     * Awaited, unlike most audit writes in this file. The row this describes is
+     * gone, so if the log entry is lost the invitation leaves no trace at all —
+     * there is no record left to reconstruct it from.
+     */
+    await this.auditService.log({
+      organizationId,
+      userId: revokedById,
+      action: ACTIONS.MEMBER_INVITE_REVOKED,
+      entityType: "invitation",
+      entityId: invitation.id,
+      details: { email: invitation.email, role: invitation.role },
+    });
+
+    return invitation;
+  }
+
+  /**
    * Refuses department ids that are not this organisation's.
    *
    * `MembershipRepository.assignDepartments` writes whatever it is handed —
@@ -172,8 +288,22 @@ export class UserManagementService {
       details: { email: input.email, role: input.role },
     });
 
-    // Send invitation email (fire-and-forget — never blocks or fails the invite)
-    this.sendInvitationEmailAsync(
+    /*
+     * Awaited, despite the method name and despite sending being best-effort.
+     *
+     * It was fire-and-forget, which works on a long-lived dev server and does
+     * not work anywhere this actually ships: a serverless function is frozen
+     * the moment its response is returned, so a promise nobody is waiting on is
+     * killed mid-flight. The invitation row existed, the audit log said
+     * "invited", and no email was ever sent — with no error anywhere, because
+     * the code that would have logged one never ran.
+     *
+     * Awaiting costs the admin roughly a second on a request that already
+     * writes three rows. `sendInvitationEmailAsync` swallows its own failures,
+     * so a dead mail provider still cannot fail an invitation that has already
+     * been created.
+     */
+    await this.sendInvitationEmailAsync(
       input.email,
       token,
       organizationId,
@@ -623,6 +753,29 @@ export class UserManagementService {
    * Toggles a member's status between active and inactive.
    * Deactivation prevents access to the organization.
    */
+  /**
+   * The shifts a member is still expected to work.
+   *
+   * Exists for the deactivation confirmation: the user story is "view affected
+   * task assignments WHEN a user is deactivated", and the only useful time to
+   * view them is before deciding. Answering it afterwards, from the released
+   * count, tells somebody what they have already done.
+   *
+   * Includes inactive memberships so the same call also answers "what did
+   * deactivating them cost" — which, for somebody already inactive, is an empty
+   * list, and that is the honest answer rather than an error.
+   */
+  async getUpcomingCommitments(userId: string, organizationId: string) {
+    const membership =
+      await this.membershipRepo.findByUserAndOrgIncludingInactive(
+        userId,
+        organizationId
+      );
+    if (!membership) throw new Error("Membership not found");
+
+    return this.availabilityService.upcomingCommitments(membership.id);
+  }
+
   async toggleMemberStatus(
     userId: string,
     organizationId: string,
@@ -711,16 +864,54 @@ export class UserManagementService {
 
     const updated = await this.membershipRepo.updateStatus(membership.id, newStatus);
 
+    /*
+     * Somebody who cannot log in cannot work their shifts.
+     *
+     * Deactivation used to change the membership row and nothing else, which
+     * left every future assignment in place. The member list said inactive and
+     * the rota said Tuesday 9am was staffed — and because the shift still
+     * looked full, none of the shortfall notifications fired and no manager
+     * learned about it until nobody turned up.
+     *
+     * Releasing them makes those shifts honestly short, which is what wakes up
+     * the machinery that already exists: the partly-staffed alerts, and in auto
+     * mode a ranked replacement offered the same way an approved leave request
+     * has always worked.
+     *
+     * Deliberately only on the way OUT. Reactivating does not put anyone back
+     * on a shift — those assignments were cancelled, other people may hold them
+     * now, and silently reclaiming them would overwrite a roster somebody has
+     * since fixed by hand.
+     *
+     * `performedById` guards it because `findCover` records a replacement
+     * against the person who caused it, and there is no honest answer to that
+     * for a system-initiated toggle. It is optional on this method only for
+     * callers that predate the audit trail; every route supplies it.
+     */
+    let releasedShifts = 0;
+    if (newStatus === "inactive" && performedById) {
+      const { AvailabilityService } = await import(
+        "@/services/availability.service"
+      );
+      releasedShifts = await new AvailabilityService().releaseForDeactivation(
+        membership.id,
+        performedById
+      );
+    }
+
     await this.auditService.log({
       organizationId,
       userId: performedById,
       action: newStatus === "active" ? ACTIONS.MEMBER_ACTIVATED : ACTIONS.MEMBER_DEACTIVATED,
       entityType: "member",
       entityId: userId,
-      details: { previousStatus: membership.status, newStatus },
+      // `releasedShifts` is on the entry because "we deactivated Alex" and "we
+      // deactivated Alex and took them off four shifts" are different events to
+      // anyone reading this back, and the assignments themselves are gone.
+      details: { previousStatus: membership.status, newStatus, releasedShifts },
     });
 
-    return updated;
+    return { ...updated, releasedShifts };
   }
 
   /**

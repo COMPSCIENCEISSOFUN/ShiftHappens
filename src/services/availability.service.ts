@@ -96,6 +96,41 @@ interface Commitment {
  */
 export const WINDOW_LENGTH_ERROR = "Start and end time cannot be the same";
 
+/**
+ * Why somebody came off a shift.
+ *
+ * `findCover` writes four notifications and every one of them opened with
+ * "their leave was approved" — which was already untrue for two of its three
+ * callers, since an approved decline and an approved withdrawal go through the
+ * same path. A manager reading "Alice's leave was approved" about somebody who
+ * had asked to be taken off one shift, or who had just been deactivated, is
+ * being told something that did not happen.
+ */
+export type ReleaseCause = "leave_approved" | "withdrawn" | "deactivated";
+
+/**
+ * The opening sentence of every cover notification.
+ *
+ * One function rather than a phrase threaded through four call sites, because
+ * the grammar changes with the cause — "their leave was approved and they have
+ * come off" against "was deactivated and has come off" — and a caller passing a
+ * fragment would have to know which shape the sentence wanted.
+ */
+function cameOff(
+  name: string,
+  cause: ReleaseCause,
+  taskTitle: string
+): string {
+  switch (cause) {
+    case "deactivated":
+      return `${name} was deactivated and has come off "${taskTitle}".`;
+    case "withdrawn":
+      return `${name} has been released from "${taskTitle}".`;
+    default:
+      return `${name}'s leave was approved and they have come off "${taskTitle}".`;
+  }
+}
+
 export class AvailabilityService {
   private availRepo = new AvailabilityRepository();
   private taskRepo = new TaskRepository();
@@ -1445,6 +1480,73 @@ export class AvailabilityService {
   }
 
   /**
+   * Takes a deactivated member off every future shift and looks for cover.
+   *
+   * ## Why this is not `releaseCommitments`
+   *
+   * That helper releases what a write made INELIGIBLE, by diffing eligibility
+   * before and after. It is the right shape for leave, where the person is
+   * still a member and eligibility is what changed. It is the wrong shape here
+   * twice over:
+   *
+   *   - A deactivated membership resolves to nothing in `findByUserAndOrg`, so
+   *     the person drops out of the candidate pool entirely rather than
+   *     appearing in it marked ineligible. `ineligibleUpcomingTaskIds` treats an
+   *     absent member as "no finding" — deliberately, so a department filter
+   *     does not alert on every save — and the diff would therefore be empty.
+   *     Every future shift would silently keep its phantom coverage.
+   *   - Deactivation is not conditional. Somebody who cannot log in cannot work
+   *     any of their shifts, so there is nothing to test each one against.
+   *
+   * ## Why the roster must not simply keep them
+   *
+   * Because a shift that still shows a name reads as covered. The member list
+   * says inactive, the rota says Tuesday 9am is staffed, and the two disagree
+   * until somebody does not turn up. Releasing makes the shift honestly short,
+   * which is what makes every existing shortfall notification fire.
+   *
+   * Failures are logged and swallowed: the deactivation itself has already
+   * succeeded and must not be rolled back because a notification could not be
+   * sent. The count is returned so the caller can say what happened.
+   */
+  async releaseForDeactivation(
+    membershipId: string,
+    reviewerUserId: string
+  ): Promise<number> {
+    try {
+      const commitments = await this.upcomingCommitments(membershipId);
+      if (commitments.length === 0) return 0;
+
+      const absentName = await this.memberName(membershipId);
+      const { TaskService } = await import("@/services/task.service");
+      const taskService = new TaskService();
+
+      for (const commitment of commitments) {
+        await taskService.cancelAssignment(
+          commitment.assignmentId,
+          commitment.organizationId,
+          reviewerUserId,
+          // Same reason the leave path suppresses it: the generic smart-swap
+          // message does not know why this happened, and `findCover` below
+          // says it properly and honours the org's allocation mode.
+          { suppressSuggestion: true }
+        );
+        await this.findCover(
+          commitment,
+          absentName,
+          reviewerUserId,
+          "deactivated"
+        );
+      }
+
+      return commitments.length;
+    } catch (error) {
+      console.error("[Deactivation Release Error]", error);
+      return 0;
+    }
+  }
+
+  /**
    * Decides what happens to a shift somebody has just been released from.
    *
    * Reads the organisation's existing `allocationMode` rather than introducing
@@ -1480,8 +1582,14 @@ export class AvailabilityService {
   async findCover(
     commitment: Commitment,
     absentName: string,
-    reviewerUserId: string
+    reviewerUserId: string,
+    /**
+     * Defaults to leave, which is what every existing caller meant when this
+     * parameter did not exist. New callers say what actually happened.
+     */
+    cause: ReleaseCause = "leave_approved"
   ) {
+    const opening = cameOff(absentName, cause, commitment.taskTitle);
     const watchers = await taskWatcherUserIds(
       commitment.organizationId,
       commitment.departmentId
@@ -1510,7 +1618,7 @@ export class AvailabilityService {
       await tell(
         NOTIFICATION_TYPES.BACKFILL_NEEDED,
         "Urgent — shift needs cover",
-        `${absentName}'s leave was approved and they have come off "${commitment.taskTitle}", which starts soon. Too close to fill automatically — please arrange cover directly.`
+        `${opening} It starts soon — too close to fill automatically, so please arrange cover directly.`
       );
       return;
     }
@@ -1537,7 +1645,7 @@ export class AvailabilityService {
       await tell(
         NOTIFICATION_TYPES.BACKFILL_NEEDED,
         "Shift needs cover",
-        `${absentName}'s leave was approved and they have come off "${commitment.taskTitle}".`
+        opening
       );
       return;
     }
@@ -1554,7 +1662,7 @@ export class AvailabilityService {
       await tell(
         NOTIFICATION_TYPES.BACKFILL_NEEDED,
         "Shift needs cover — nobody available",
-        `${absentName}'s leave was approved and they have come off "${commitment.taskTitle}". No eligible replacement was found.`
+        `${opening} No eligible replacement was found.`
       );
       return;
     }
@@ -1568,7 +1676,7 @@ export class AvailabilityService {
       await tell(
         NOTIFICATION_TYPES.BACKFILL_NEEDED,
         "Shift needs cover — replacements suggested",
-        `${absentName}'s leave was approved and they have come off "${commitment.taskTitle}". Best fit: ${names}.`
+        `${opening} Best fit: ${names}.`
       );
       return;
     }
@@ -1609,7 +1717,7 @@ export class AvailabilityService {
     await tell(
       NOTIFICATION_TYPES.BACKFILL_OFFERED,
       "Cover offered — not yet confirmed",
-      `${absentName} has come off "${commitment.taskTitle}". ${pickName} has been offered it and has not answered yet.`
+      `${opening} ${pickName} has been offered it and has not answered yet.`
     );
   }
 
@@ -1649,9 +1757,17 @@ export class AvailabilityService {
     return ineligible;
   }
 
-  private async upcomingCommitments(
-    membershipId: string
-  ): Promise<Commitment[]> {
+  /**
+   * Every future shift this member is still expected to work.
+   *
+   * Public because it is also the answer to "what am I about to break" — the
+   * deactivation confirmation shows this list before anything happens, and an
+   * admin should be able to see the four shifts they are about to leave short
+   * rather than discover them from a notification afterwards.
+   *
+   * A pure read with no side effects, so exposing it costs nothing.
+   */
+  async upcomingCommitments(membershipId: string): Promise<Commitment[]> {
     const rows = await this.assignmentRepo.findUpcomingCommitments(
       membershipId,
       new Date()

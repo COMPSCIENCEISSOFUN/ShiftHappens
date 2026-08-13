@@ -46,6 +46,7 @@ interface AuditEntry {
 const ACTION_LABELS: Record<AuditAction, string> = {
   "project.created": "Project created",
   "project.updated": "Project updated",
+  "project.deleted": "Project deleted",
   "task.created": "Task created",
   "task.updated": "Task updated",
   "task.deleted": "Task deleted",
@@ -73,6 +74,7 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   "assignment.clock_corrected": "Clock time corrected",
   "assignment.eligibility_overridden": "Eligibility overridden",
   "member.invited": "Member invited",
+  "member.invite_revoked": "Invitation revoked",
   "member.role_changed": "Role changed",
   "member.activated": "Member activated",
   "member.deactivated": "Member deactivated",

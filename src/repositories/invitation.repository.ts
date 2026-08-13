@@ -87,6 +87,22 @@ export class InvitationRepository {
     });
   }
 
+  /**
+   * One invitation, scoped to the organisation it belongs to.
+   *
+   * `findFirst` with both columns rather than `findUnique` on the id alone:
+   * the id comes off a URL, and a lookup that ignores the tenant would let an
+   * admin of one organisation read — and then revoke — an invitation belonging
+   * to another. Scoping in the query means the wrong tenant gets `null` and the
+   * caller's "not found" branch does the rest, instead of every caller having
+   * to remember to compare the organisation itself.
+   */
+  async findByIdInOrg(id: string, organizationId: string) {
+    return prisma.invitationToken.findFirst({
+      where: { id, organizationId },
+    });
+  }
+
   /** Marks an invitation as accepted by setting the acceptedAt timestamp */
   async markAccepted(id: string) {
     return prisma.invitationToken.update({

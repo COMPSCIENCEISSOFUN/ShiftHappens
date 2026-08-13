@@ -251,7 +251,7 @@ export default function ProjectsPage() {
     projects.length === 0 ? 0 : Math.round(portfolio.progress / projects.length);
 
   return (
-    <div className="max-w-7xl pb-10">
+    <div className="w-full pb-10">
       {/*
         The same header every other page uses.
 
