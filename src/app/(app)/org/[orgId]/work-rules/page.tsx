@@ -415,9 +415,9 @@ export default function WorkRulesPage() {
       {/* ── Header ── */}
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-xl font-bold tracking-tight sm:text-2xl">
+          <h1 className="text-xl font-bold tracking-tight sm:text-2xl">
             Work Rules
-          </h2>
+          </h1>
           {/*
             Says where the OTHER hours limit lives.
 
@@ -428,11 +428,11 @@ export default function WorkRulesPage() {
             these there is the cheap half of the fix; merging the two is a
             change to the eligibility engine and was deliberately not made.
           */}
-          <p className="mt-0.5 text-[13px] text-muted-foreground">
+          <p className="mt-0.5 text-sm text-muted-foreground">
             Rest between shifts, and ceilings on total hours. Anyone who would
             breach a rule is marked ineligible when you assign work.
           </p>
-          <p className="mt-1 text-[12px] text-muted-foreground">
+          <p className="mt-1 text-xs text-muted-foreground">
             These are checked <em>in addition to</em> the organisation-wide daily
             limit in Settings &rarr; Working day. Rules can be narrowed to one
             department or role; the setting always applies to everybody.
@@ -601,7 +601,7 @@ export default function WorkRulesPage() {
                 <Label className="text-xs">Applies to</Label>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="space-y-1.5">
-                    <span className="text-[11px] text-muted-foreground">
+                    <span className="text-xs text-muted-foreground">
                       Department
                     </span>
                     <select
@@ -620,7 +620,7 @@ export default function WorkRulesPage() {
                   </div>
                   {assignableRoles.length > 0 && (
                     <div className="space-y-1.5">
-                      <span className="text-[11px] text-muted-foreground">
+                      <span className="text-xs text-muted-foreground">
                         Custom role
                       </span>
                       <select
@@ -639,7 +639,7 @@ export default function WorkRulesPage() {
                     </div>
                   )}
                 </div>
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-xs text-muted-foreground">
                   {!formDeptId && !formRoleId
                     ? "This rule applies to all staff"
                     : formDeptId && formRoleId
@@ -700,7 +700,7 @@ export default function WorkRulesPage() {
                   >
                     <div className="flex min-w-0 items-start gap-3">
                       <span
-                        className={`mt-0.5 shrink-0 rounded px-2 py-0.5 text-[11px] font-medium ${
+                        className={`mt-0.5 shrink-0 rounded px-2 py-0.5 text-xs font-medium ${
                           TYPE_COLORS[rule.type] ||
                           "bg-muted text-muted-foreground"
                         }`}
@@ -708,15 +708,15 @@ export default function WorkRulesPage() {
                         {TYPE_LABELS[rule.type] || rule.type}
                       </span>
                       <div className="min-w-0">
-                        <p className="flex flex-wrap items-center gap-2 text-[14px] font-semibold">
+                        <p className="flex flex-wrap items-center gap-2 text-sm font-semibold">
                           {rule.name}
                           {!rule.isActive && (
-                            <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                            <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
                               Paused
                             </span>
                           )}
                         </p>
-                        <p className="mt-0.5 text-[12px] text-muted-foreground">
+                        <p className="mt-0.5 text-xs text-muted-foreground">
                           {rule.type === "break_interval"
                             ? `Shifts ≥ ${rule.hoursThreshold}h → ${rule.breakHours}h rest either side`
                             : `Max ${rule.maxHours}h per ${

@@ -58,6 +58,7 @@ import {
 import { reasonLabel } from "@/lib/decline-reasons";
 import { ShiftRating } from "@/components/tasks/shift-rating";
 import { cn } from "@/lib/utils";
+import { apiErrorMessage } from "@/lib/api-error";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -190,19 +191,19 @@ function HistoryEntry({
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             {/* Truncates rather than wrapping the badge onto its own line. */}
-            <h4 className="truncate text-[14px] font-semibold">{row.task.title}</h4>
+            <h4 className="truncate text-sm font-semibold">{row.task.title}</h4>
             <StatusBadge
               value={row.outcome}
               palette="shiftOutcome"
               label={OUTCOME_LABEL[row.outcome]}
             />
           </div>
-          <p className="mt-1 flex items-center gap-1.5 text-[13px] text-foreground">
+          <p className="mt-1 flex items-center gap-1.5 text-sm text-foreground">
             <CalendarClock className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
             {shiftWhen(row.task.scheduledStart, row.task.scheduledEnd)}
           </p>
           {row.task.department && (
-            <p className="mt-0.5 flex items-center gap-1.5 text-[12px] text-muted-foreground">
+            <p className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
               <span
                 aria-hidden="true"
                 className="h-2 w-2 shrink-0 rounded-full"
@@ -214,13 +215,13 @@ function HistoryEntry({
         </div>
 
         {row.hoursWorked !== null && (
-          <p className="shrink-0 text-[15px] font-semibold tabular-nums">
+          <p className="shrink-0 text-base font-semibold tabular-nums">
             {row.hoursWorked.toFixed(1)}h
           </p>
         )}
       </div>
 
-      {note && <p className="mt-2 text-[12px] text-muted-foreground">{note}</p>}
+      {note && <p className="mt-2 text-xs text-muted-foreground">{note}</p>}
 
       {/*
         Shown on the member's own row, not left to an audit screen their plan
@@ -228,14 +229,14 @@ function HistoryEntry({
         seeing that on the record is what lets them disagree.
       */}
       {row.clockCorrectedAt && (
-        <p className="mt-1 flex items-center gap-1.5 text-[12px] text-muted-foreground">
+        <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
           <PencilLine className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
           Times corrected by a manager
           {row.clockCorrectionReason ? ` — ${row.clockCorrectionReason}` : ""}
         </p>
       )}
       {reason && (
-        <p className="mt-1 text-[12px] text-muted-foreground">
+        <p className="mt-1 text-xs text-muted-foreground">
           Your reason: {reason}
         </p>
       )}
@@ -261,7 +262,7 @@ function HistoryEntry({
         />
       ) : (
         row.satisfactionRating !== null && (
-          <p className="mt-1 flex items-center gap-1 text-[12px] text-muted-foreground">
+          <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
             <Star className="h-3.5 w-3.5 text-amber-500" aria-hidden="true" />
             You rated this {row.satisfactionRating}/5
             {row.satisfactionComment ? ` — ${row.satisfactionComment}` : ""}
@@ -333,7 +334,7 @@ export default function MyHistoryPage() {
         const res = await fetch(`/api/organizations/${orgId}/my-history?${query}`);
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
-          throw new Error(body.error || "Could not load your history");
+          throw new Error(apiErrorMessage(body, "Could not load your history"));
         }
         const payload = await res.json();
         if (cancelled) return;
@@ -364,7 +365,7 @@ export default function MyHistoryPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-bold tracking-tight sm:text-2xl">My History</h2>
+        <h1 className="text-xl font-bold tracking-tight sm:text-2xl">My History</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Every shift you have finished with — worked, turned down, or called off.
         </p>
@@ -388,7 +389,7 @@ export default function MyHistoryPage() {
             }}
             aria-pressed={range === option.key}
             className={cn(
-              "rounded-lg border px-3 py-1.5 text-[13px] font-medium transition-colors",
+              "rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors",
               range === option.key
                 ? "border-primary bg-primary text-primary-foreground"
                 : "border-input bg-background text-foreground hover:bg-accent"
@@ -610,7 +611,7 @@ export default function MyHistoryPage() {
             <ChevronLeft className="h-4 w-4" aria-hidden="true" />
             Previous
           </button>
-          <p className="text-[13px] text-muted-foreground">
+          <p className="text-sm text-muted-foreground">
             Page {data.page} of {data.totalPages}
           </p>
           <button

@@ -67,13 +67,13 @@ export function StatTile({
         className="absolute right-0 top-0 h-10 w-10 rounded-bl-[40px]"
         style={{ background: accentColour }}
       />
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
         {label}
       </p>
       <p className={cn("mt-1 text-xl font-bold tracking-tight sm:text-2xl", valueColour)}>
         {value}
       </p>
-      <p className="mt-0.5 text-[11px] text-muted-foreground">{detail}</p>
+      <p className="mt-0.5 text-xs text-muted-foreground">{detail}</p>
     </div>
   );
 }

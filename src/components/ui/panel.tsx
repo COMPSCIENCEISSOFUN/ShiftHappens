@@ -86,14 +86,14 @@ export function Panel({
         />
         <h3
           className={cn(
-            "text-[13px] font-semibold",
+            "text-sm font-semibold",
             warning && "text-amber-800 dark:text-amber-300"
           )}
         >
           {title}
         </h3>
         {count !== undefined && (
-          <span className="rounded-full bg-muted px-1.5 text-[11px] font-medium text-muted-foreground">
+          <span className="rounded-full bg-muted px-1.5 text-xs font-medium text-muted-foreground">
             {count}
           </span>
         )}

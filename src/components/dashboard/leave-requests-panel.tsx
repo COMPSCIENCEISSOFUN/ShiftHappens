@@ -141,7 +141,7 @@ export function LeaveRequestsPanel({
                   )}
                 </span>
                 <div className="min-w-0">
-                  <p className="text-[13px] font-medium">
+                  <p className="text-sm font-medium">
                     {/*
                       Always "asked off". A contracted member may ask for a day
                       OFF and never to work one on — asking to work a day you
@@ -159,7 +159,7 @@ export function LeaveRequestsPanel({
                     know that is reading this row.
                   */}
                   {request.lapsed && (
-                    <p className="text-[12px] font-medium text-amber-700 dark:text-amber-500">
+                    <p className="text-xs font-medium text-amber-700 dark:text-amber-500">
                       Lapsed — the date passed without an answer
                     </p>
                   )}
@@ -168,7 +168,7 @@ export function LeaveRequestsPanel({
                     rather than truncated behind a click: a manager approving
                     without it is guessing.
                   */}
-                  <p className="text-[12px] text-muted-foreground">
+                  <p className="text-xs text-muted-foreground">
                     {request.reason || "No reason given"}
                   </p>
                 </div>
@@ -190,7 +190,7 @@ export function LeaveRequestsPanel({
                     onClick={() => decide(request.id, "dismissed")}
                     disabled={busy}
                     aria-label={`Dismiss lapsed leave request for ${name}`}
-                    className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-muted disabled:opacity-50"
+                    className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted disabled:opacity-50"
                   >
                     <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
                     Dismiss
@@ -203,7 +203,7 @@ export function LeaveRequestsPanel({
                   onClick={() => decide(request.id, "approved")}
                   disabled={busy}
                   aria-label={`Approve leave for ${name}`}
-                  className="flex items-center gap-1.5 rounded-lg border border-emerald-200 px-2.5 py-1.5 text-[12px] font-medium text-emerald-700 transition-colors hover:bg-emerald-50 disabled:opacity-50 dark:border-emerald-900 dark:text-emerald-400 dark:hover:bg-emerald-950"
+                  className="flex items-center gap-1.5 rounded-lg border border-emerald-200 px-2.5 py-1.5 text-xs font-medium text-emerald-700 transition-colors hover:bg-emerald-50 disabled:opacity-50 dark:border-emerald-900 dark:text-emerald-400 dark:hover:bg-emerald-950"
                 >
                   <Check className="h-3.5 w-3.5" aria-hidden="true" />
                   Approve
@@ -213,7 +213,7 @@ export function LeaveRequestsPanel({
                   onClick={() => decide(request.id, "rejected")}
                   disabled={busy}
                   aria-label={`Decline leave for ${name}`}
-                  className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600 disabled:opacity-50 dark:hover:border-red-900 dark:hover:bg-red-950 dark:hover:text-red-400"
+                  className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600 disabled:opacity-50 dark:hover:border-red-900 dark:hover:bg-red-950 dark:hover:text-red-400"
                 >
                   <X className="h-3.5 w-3.5" aria-hidden="true" />
                   Decline

@@ -75,8 +75,8 @@ export default async function SelectOrganizationPage() {
           <div className="flex h-9 w-9 items-center justify-center rounded-[10px] bg-gradient-to-br from-indigo-600 to-violet-600 text-sm font-extrabold text-white shadow-sm">
             S
           </div>
-          <span className="text-[15px] font-bold tracking-tight">
-            Smart Task
+          <span className="text-base font-bold tracking-tight">
+            ShiftHappens
           </span>
         </div>
 
@@ -122,16 +122,16 @@ export default async function SelectOrganizationPage() {
                   </div>
 
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-[14px] font-semibold">
+                    <p className="truncate text-sm font-semibold">
                       {org.name}
                     </p>
                     <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                      <span className="text-[11px] text-muted-foreground">
+                      <span className="text-xs text-muted-foreground">
                         {ROLE_LABELS[role] ?? role ?? "Member"}
                       </span>
                       <span
                         aria-hidden="true"
-                        className="text-[11px] text-muted-foreground/50"
+                        className="text-xs text-muted-foreground/50"
                       >
                         &middot;
                       </span>
@@ -142,7 +142,7 @@ export default async function SelectOrganizationPage() {
                         answer to "why can I do that over there and not here".
                       */}
                       <span
-                        className={`rounded-full px-2 py-px text-[10px] font-semibold ${
+                        className={`rounded-full px-2 py-px text-xs font-semibold ${
                           tier === "free"
                             ? "bg-muted text-muted-foreground"
                             : "bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300"
@@ -151,7 +151,7 @@ export default async function SelectOrganizationPage() {
                         {TIER_CONFIG[tier].displayName}
                       </span>
                       {suspended && (
-                        <span className="rounded-full bg-amber-100 px-2 py-px text-[10px] font-semibold text-amber-700 dark:bg-amber-950 dark:text-amber-300">
+                        <span className="rounded-full bg-amber-100 px-2 py-px text-xs font-semibold text-amber-700 dark:bg-amber-950 dark:text-amber-300">
                           Suspended
                         </span>
                       )}
@@ -170,7 +170,7 @@ export default async function SelectOrganizationPage() {
           })}
         </ul>
 
-        <p className="mt-6 text-center text-[11px] text-muted-foreground">
+        <p className="mt-6 text-center text-xs text-muted-foreground">
           You can switch organisations at any time from the sidebar.
         </p>
       </div>

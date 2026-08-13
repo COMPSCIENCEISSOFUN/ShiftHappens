@@ -400,11 +400,11 @@ function OrgIdentity({
 }) {
   return (
     <div className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
-      <span className="w-full truncate text-[15px] font-bold tracking-tight">
+      <span className="w-full truncate text-base font-bold tracking-tight">
         {orgName}
       </span>
       {tierName && (
-        <span className="rounded-full bg-white/15 px-2 py-px text-[10px] font-semibold text-white/80">
+        <span className="rounded-full bg-white/15 px-2 py-px text-xs font-semibold text-white/80">
           {tierName}
         </span>
       )}
@@ -912,7 +912,7 @@ export function AppSidebar({
           <div className="flex w-full items-center gap-2.5 px-2 py-2">
             <OrgMark name={orgName} />
             <OrgIdentity
-              orgName={orgName || "Smart Task"}
+              orgName={orgName || "ShiftHappens"}
               tierName={orgId ? tierName : null}
             />
           </div>
@@ -938,10 +938,10 @@ export function AppSidebar({
               candidate.id === orgId ? (
                 <li
                   key={candidate.id}
-                  className="flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-[13px] font-semibold text-white"
+                  className="flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-white"
                 >
                   <span className="truncate">{candidate.name}</span>
-                  <span className="shrink-0 text-[10px] font-normal text-white/50">
+                  <span className="shrink-0 text-xs font-normal text-white/50">
                     current
                   </span>
                 </li>
@@ -953,7 +953,7 @@ export function AppSidebar({
                       setSwitcherOpen(false);
                       setMobileOpen(false);
                     }}
-                    className="block truncate rounded-lg px-3 py-2 text-[13px] text-white/75 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/60"
+                    className="block truncate rounded-lg px-3 py-2 text-sm text-white/75 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/60"
                   >
                     {candidate.name}
                   </Link>
@@ -969,7 +969,7 @@ export function AppSidebar({
         {sections.map((section, sectionIdx) => (
           <div key={section.title}>
             <div
-              className={`mb-1.5 px-3 text-[10px] font-bold uppercase tracking-[0.08em] text-white/35 ${
+              className={`mb-1.5 px-3 text-xs font-bold uppercase tracking-[0.08em] text-white/35 ${
                 sectionIdx === 0 ? "mt-0" : "mt-5"
               }`}
             >
@@ -993,7 +993,7 @@ export function AppSidebar({
                   </span>
                   <span className="flex-1">{item.label}</span>
                   {item.badge !== undefined && item.badge > 0 && (
-                    <span className="flex min-w-[18px] items-center justify-center rounded-[9px] bg-red-500/90 px-[5px] text-[10px] font-bold text-white" style={{ height: 18 }}>
+                    <span className="flex min-w-[18px] items-center justify-center rounded-[9px] bg-red-500/90 px-[5px] text-xs font-bold text-white" style={{ height: 18 }}>
                       {item.badge > 99 ? "99+" : item.badge}
                     </span>
                   )}
@@ -1033,11 +1033,11 @@ export function AppSidebar({
 
         {/* User card */}
         <div className="mt-3 flex items-center gap-2.5 rounded-xl bg-white/10 p-3">
-          <div className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-full bg-white/20 text-[13px] font-bold">
+          <div className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-full bg-white/20 text-sm font-bold">
             {initials}
           </div>
           <div className="min-w-0">
-            <div className="truncate text-[13px] font-semibold">
+            <div className="truncate text-sm font-semibold">
               {user.name || "User"}
             </div>
             <div className="truncate text-xs text-white/50">

@@ -59,12 +59,12 @@ export function RecognisedList({
   return (
     <Panel title="Recognised certificates" icon={Award} count={types.length}>
       <div className="space-y-3 p-4">
-        <p className="text-[12px] text-muted-foreground">
+        <p className="text-xs text-muted-foreground">
           The names a shift may require. Members can still record certificates
           that are not on this list.
         </p>
         {types.length === 0 ? (
-          <p className="text-[12px] text-muted-foreground">
+          <p className="text-xs text-muted-foreground">
             Nothing here yet. Until something is added, a shift cannot require a
             certificate at all.
           </p>
@@ -73,7 +73,7 @@ export function RecognisedList({
             {types.map((type) => (
               <span
                 key={type.id}
-                className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-[11px] font-medium text-muted-foreground"
+                className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground"
               >
                 {type.name}
                 {canManage && (
@@ -99,7 +99,7 @@ export function RecognisedList({
               onChange={(e) => setDraft(e.target.value)}
               placeholder="e.g. Food Safety Level 2"
               aria-label="Certificate name"
-              className="h-8 text-[12px]"
+              className="h-8 text-xs"
             />
             <button
               type="submit"

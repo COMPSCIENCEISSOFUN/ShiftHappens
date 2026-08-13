@@ -71,7 +71,7 @@ export function CertificationPicker({
           {label}
         </Label>
         {chosen.size > 0 && (
-          <span className="text-[11px] text-muted-foreground">
+          <span className="text-xs text-muted-foreground">
             {chosen.size} selected
           </span>
         )}
@@ -83,7 +83,7 @@ export function CertificationPicker({
           explanation reads as a broken control. It says where the list is
           filled in — and only offers the link to somebody who could act on it.
         */
-        <p className="rounded-lg border border-border p-3 text-[12px] text-muted-foreground">
+        <p className="rounded-lg border border-border p-3 text-xs text-muted-foreground">
           This organisation has no recognised certificates yet.{" "}
           {canManageList ? (
             <Link
@@ -107,7 +107,7 @@ export function CertificationPicker({
                 type="button"
                 onClick={() => onToggle(option.name)}
                 aria-pressed={on}
-                className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition-colors ${
                   on
                     ? "bg-indigo-600 text-white"
                     : "bg-muted text-muted-foreground hover:bg-muted/70"
@@ -126,7 +126,7 @@ export function CertificationPicker({
               onClick={() => onToggle(name)}
               aria-pressed
               title="Not on the organisation's list. Removing it here is permanent."
-              className="inline-flex items-center gap-1.5 rounded-full bg-amber-500 px-2.5 py-1 text-[11px] font-medium text-white"
+              className="inline-flex items-center gap-1.5 rounded-full bg-amber-500 px-2.5 py-1 text-xs font-medium text-white"
             >
               <Lock className="h-3 w-3 shrink-0" aria-hidden="true" />
               {name}
@@ -136,7 +136,7 @@ export function CertificationPicker({
       )}
 
       {extras.length > 0 && (
-        <p className="text-[11px] text-amber-600 dark:text-amber-400">
+        <p className="text-xs text-amber-600 dark:text-amber-400">
           {extras.length === 1
             ? `"${extras[0]}" is not on the organisation's list.`
             : `${extras.length} of these are not on the organisation's list.`}{" "}

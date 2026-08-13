@@ -105,15 +105,15 @@ export function CalendarSubscribePanel({ orgId }: { orgId: string }) {
           <CalendarSync className="h-4 w-4" aria-hidden="true" />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="text-[13px] font-medium">Subscribe in your calendar</p>
-          <p className="mt-0.5 text-[12px] text-muted-foreground">
+          <p className="text-sm font-medium">Subscribe in your calendar</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
             Add this link to Google Calendar, Apple Calendar or Outlook and your
             shifts appear there, updating on their own. Shifts you have not
             answered yet show as tentative.
           </p>
 
           {error && (
-            <p className="mt-2 text-[12px] text-red-600 dark:text-red-400">
+            <p className="mt-2 text-xs text-red-600 dark:text-red-400">
               {error}
             </p>
           )}
@@ -124,7 +124,7 @@ export function CalendarSubscribePanel({ orgId }: { orgId: string }) {
               value={url}
               aria-label="Your calendar subscribe link"
               onFocus={(e) => e.currentTarget.select()}
-              className="h-9 min-w-0 flex-1 rounded-lg border border-border bg-background px-2.5 font-mono text-[12px] text-muted-foreground"
+              className="h-9 min-w-0 flex-1 rounded-lg border border-border bg-background px-2.5 font-mono text-xs text-muted-foreground"
             />
             <div className="flex shrink-0 gap-2">
               <button
@@ -158,7 +158,7 @@ export function CalendarSubscribePanel({ orgId }: { orgId: string }) {
             reader needs to know before they paste it into a group chat, and
             "New link" is the only way to take it back.
           */}
-          <p className="mt-2 text-[12px] text-muted-foreground">
+          <p className="mt-2 text-xs text-muted-foreground">
             Anyone with this link can see your shifts. Choose{" "}
             <span className="font-medium">New link</span> to stop the old one
             working.
@@ -173,7 +173,7 @@ export function CalendarSubscribePanel({ orgId }: { orgId: string }) {
             other end is real — and `[]` rather than a locale, so the date reads
             in the reader's own format.
           */}
-          <p className="mt-1 text-[12px] text-muted-foreground">
+          <p className="mt-1 text-xs text-muted-foreground">
             {lastPolledAt
               ? `Last fetched ${new Date(lastPolledAt).toLocaleString([], {
                   day: "numeric",

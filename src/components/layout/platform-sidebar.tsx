@@ -154,10 +154,10 @@ export function PlatformSidebar({ user }: PlatformSidebarProps) {
             <ShieldCheck className="h-[18px] w-[18px]" aria-hidden="true" />
           </div>
           <div className="flex flex-col gap-0.5">
-            <span className="text-[15px] font-bold tracking-tight">
+            <span className="text-base font-bold tracking-tight">
               Platform Admin
             </span>
-            <span className="w-fit rounded-full bg-white/15 px-2 py-px text-[10px] font-semibold text-white/80">
+            <span className="w-fit rounded-full bg-white/15 px-2 py-px text-xs font-semibold text-white/80">
               All tenants
             </span>
           </div>
@@ -165,7 +165,7 @@ export function PlatformSidebar({ user }: PlatformSidebarProps) {
 
         {/* Navigation */}
         <nav className="relative z-[1] flex-1">
-          <div className="mb-1.5 px-3 text-[10px] font-bold uppercase tracking-[0.08em] text-white/35">
+          <div className="mb-1.5 px-3 text-xs font-bold uppercase tracking-[0.08em] text-white/35">
             Manage
           </div>
           {links.map((link) => {
@@ -225,11 +225,11 @@ export function PlatformSidebar({ user }: PlatformSidebarProps) {
           </button>
 
           <div className="mt-3 flex items-center gap-2.5 rounded-xl bg-white/10 p-3">
-            <div className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-full bg-white/20 text-[13px] font-bold">
+            <div className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-full bg-white/20 text-sm font-bold">
               {initials}
             </div>
             <div className="min-w-0">
-              <div className="truncate text-[13px] font-semibold">
+              <div className="truncate text-sm font-semibold">
                 {user.name || "Platform admin"}
               </div>
               <div className="truncate text-xs text-white/50">{user.email}</div>

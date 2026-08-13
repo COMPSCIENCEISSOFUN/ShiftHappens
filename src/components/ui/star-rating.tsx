@@ -71,7 +71,7 @@ export function StarRatingDisplay({
         {value} out of 5 — {RATING_LABEL[value]}
       </span>
       {showLabel && (
-        <span className="text-[11px] font-medium text-muted-foreground" aria-hidden="true">
+        <span className="text-xs font-medium text-muted-foreground" aria-hidden="true">
           {RATING_LABEL[value]}
         </span>
       )}

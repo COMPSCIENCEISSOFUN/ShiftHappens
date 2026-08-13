@@ -130,7 +130,7 @@ export function CancelPlanDialog({
             </h2>
             <p
               id="cancel-plan-desc"
-              className="mt-1 text-[13px] leading-relaxed text-muted-foreground"
+              className="mt-1 text-sm leading-relaxed text-muted-foreground"
             >
               {accessUntil
                 ? `You keep ${current.displayName} until ${accessUntil} — you have already paid for that time. After it, this organisation moves to Free.`
@@ -140,11 +140,11 @@ export function CancelPlanDialog({
         </div>
 
         <div className="max-h-[45vh] overflow-y-auto p-5">
-          <p className="text-[13px] font-medium">What Free does not include</p>
+          <p className="text-sm font-medium">What Free does not include</p>
 
           <div className="mt-3 space-y-1.5">
             {losingFeatures.map((feature) => (
-              <div key={feature} className="flex items-center gap-2 text-[13px]">
+              <div key={feature} className="flex items-center gap-2 text-sm">
                 <X className="size-3.5 shrink-0 text-red-500" aria-hidden="true" />
                 <span className="text-muted-foreground">
                   {FEATURE_LABEL[feature] ?? feature.replace(/_/g, " ")}
@@ -155,14 +155,14 @@ export function CancelPlanDialog({
 
           {losingLimits.length > 0 && (
             <>
-              <p className="mt-4 text-[13px] font-medium">
+              <p className="mt-4 text-sm font-medium">
                 Limits that come down
               </p>
               <div className="mt-3 space-y-1.5">
                 {losingLimits.map((resource) => (
                   <div
                     key={resource}
-                    className="flex items-center justify-between gap-3 text-[13px]"
+                    className="flex items-center justify-between gap-3 text-sm"
                   >
                     <span className="text-muted-foreground">
                       {RESOURCE_LABEL[resource] ?? resource.replace(/_/g, " ")}
@@ -198,11 +198,11 @@ export function CancelPlanDialog({
                   aria-hidden="true"
                 />
                 <div className="min-w-0">
-                  <p className="text-[13px] font-semibold">
+                  <p className="text-sm font-semibold">
                     Too much? Move to Pro instead — ${TIER_CONFIG.pro.monthlyPrice}
                     /mo
                   </p>
-                  <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
+                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
                     Keeps everything except priority support, and the unused part
                     of what you have paid becomes credit against it. You save $
                     {(current.monthlyPrice ?? 0) -
@@ -213,7 +213,7 @@ export function CancelPlanDialog({
                     {TIER_CONFIG.pro.gatedFeatures.slice(0, 3).map((feature) => (
                       <div
                         key={feature}
-                        className="flex items-center gap-1.5 text-[12px]"
+                        className="flex items-center gap-1.5 text-xs"
                       >
                         <Check
                           className="size-3 shrink-0 text-indigo-600 dark:text-indigo-400"

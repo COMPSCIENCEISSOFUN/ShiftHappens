@@ -56,6 +56,7 @@ import {
 } from "@/components/ui/button-styles";
 import { CancelPlanDialog } from "@/components/billing/cancel-plan-dialog";
 import { usePermissions } from "@/components/layout/permission-provider";
+import { apiErrorMessage } from "@/lib/api-error";
 import {
   PRICING_FEATURES,
   SUBSCRIPTION_TIERS,
@@ -195,7 +196,7 @@ export default function BillingPage() {
         window.location.href = body.url;
         return;
       }
-      setError(body.error || "Could not start checkout");
+      setError(apiErrorMessage(body, "Could not start checkout"));
     } catch {
       setError("Could not start checkout");
     } finally {
@@ -221,7 +222,7 @@ export default function BillingPage() {
       });
       const body = await res.json().catch(() => null);
       if (!res.ok) {
-        setError(body?.error || "Could not change plan");
+        setError(apiErrorMessage(body, "Could not change plan"));
         return;
       }
       setShowCancel(false);
@@ -245,7 +246,7 @@ export default function BillingPage() {
       });
       const body = await res.json().catch(() => null);
       if (!res.ok) {
-        setError(body?.error || "Could not cancel the plan");
+        setError(apiErrorMessage(body, "Could not cancel the plan"));
         return;
       }
       setShowCancel(false);
@@ -269,7 +270,7 @@ export default function BillingPage() {
       });
       const body = await res.json().catch(() => null);
       if (!res.ok) {
-        setError(body?.error || "Could not resume the plan");
+        setError(apiErrorMessage(body, "Could not resume the plan"));
         return;
       }
       setNotice("Your plan will continue as normal. Nothing has been lost.");
@@ -289,7 +290,7 @@ export default function BillingPage() {
       });
       const body = await res.json();
       if (!res.ok || typeof body?.url !== "string") {
-        setError(body?.error || "Could not open the billing portal");
+        setError(apiErrorMessage(body, "Could not open the billing portal"));
         return;
       }
       // A full navigation, not a new tab: the portal returns the reader here
@@ -330,8 +331,8 @@ export default function BillingPage() {
   return (
     <div className="w-full pb-10">
       <div className="mb-4">
-        <h2 className="text-xl font-bold tracking-tight sm:text-2xl">Billing</h2>
-        <p className="mt-0.5 text-[13px] text-muted-foreground">
+        <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Billing</h1>
+        <p className="mt-0.5 text-sm text-muted-foreground">
           Your plan, and what it includes. Invoices and payment details are held
           by Stripe.
         </p>
@@ -373,10 +374,10 @@ export default function BillingPage() {
             aria-hidden="true"
           />
           <div className="min-w-0">
-            <p className="text-[13px] font-medium text-amber-900 dark:text-amber-200">
+            <p className="text-sm font-medium text-amber-900 dark:text-amber-200">
               There is a problem with your payments
             </p>
-            <p className="mt-0.5 text-[12px] text-amber-800 dark:text-amber-300">
+            <p className="mt-0.5 text-xs text-amber-800 dark:text-amber-300">
               {STATUS_MEANING[data.status] ?? `Stripe reports: ${data.status}.`}
             </p>
           </div>
@@ -398,11 +399,11 @@ export default function BillingPage() {
               aria-hidden="true"
             />
             <div className="min-w-0">
-              <p className="text-[13px] font-medium text-amber-900 dark:text-amber-200">
+              <p className="text-sm font-medium text-amber-900 dark:text-amber-200">
                 Your {config.displayName} plan ends
                 {periodDate ? ` on ${periodDate}` : " at the end of this period"}
               </p>
-              <p className="mt-0.5 text-[12px] text-amber-800 dark:text-amber-300">
+              <p className="mt-0.5 text-xs text-amber-800 dark:text-amber-300">
                 Nothing changes until then — every feature stays available.
               </p>
             </div>
@@ -462,8 +463,8 @@ export default function BillingPage() {
           <section className="mt-6">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
               <div>
-                <h3 className="text-[15px] font-semibold">Plans</h3>
-                <p className="mt-0.5 text-[12px] text-muted-foreground">
+                <h3 className="text-base font-semibold">Plans</h3>
+                <p className="mt-0.5 text-xs text-muted-foreground">
                   Change or cancel at any time. Prices are per organisation.
                 </p>
               </div>
@@ -483,7 +484,7 @@ export default function BillingPage() {
                   >
                     {option === "month" ? "Monthly" : "Annual"}
                     {option === "year" && (
-                      <span className="ml-1 text-[10px] opacity-80">
+                      <span className="ml-1 text-xs opacity-80">
                         2 months free
                       </span>
                     )}
@@ -514,34 +515,34 @@ export default function BillingPage() {
                     }`}
                   >
                     {isCurrent && (
-                      <span className="absolute -top-2 left-4 rounded-full bg-indigo-600 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
+                      <span className="absolute -top-2 left-4 rounded-full bg-indigo-600 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-white">
                         Current plan
                       </span>
                     )}
                     {!isCurrent && name === "pro" && (
-                      <span className="absolute -top-2 left-4 inline-flex items-center gap-1 rounded-full bg-foreground px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-background">
+                      <span className="absolute -top-2 left-4 inline-flex items-center gap-1 rounded-full bg-foreground px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-background">
                         <Sparkles className="size-2.5" aria-hidden="true" />
                         Most popular
                       </span>
                     )}
 
-                    <p className="mt-1 text-[13px] font-semibold">
+                    <p className="mt-1 text-sm font-semibold">
                       {plan.displayName}
                     </p>
-                    <p className="mt-0.5 text-[12px] text-muted-foreground">
+                    <p className="mt-0.5 text-xs text-muted-foreground">
                       {plan.tagline}
                     </p>
 
                     <div className="mt-3 flex items-baseline gap-1">
                       <span className="text-2xl font-bold">${price ?? 0}</span>
                       {(price ?? 0) > 0 && (
-                        <span className="text-[12px] text-muted-foreground">
+                        <span className="text-xs text-muted-foreground">
                           /{interval === "year" ? "yr" : "mo"}
                         </span>
                       )}
                     </div>
                     {interval === "year" && saving > 0 && (
-                      <p className="mt-0.5 text-[11px] font-medium text-indigo-600 dark:text-indigo-400">
+                      <p className="mt-0.5 text-xs font-medium text-indigo-600 dark:text-indigo-400">
                         Save ${saving} a year
                       </p>
                     )}
@@ -552,7 +553,7 @@ export default function BillingPage() {
                       ).map((resource) => (
                         <div
                           key={resource}
-                          className="flex items-center justify-between text-[12px]"
+                          className="flex items-center justify-between text-xs"
                         >
                           <span className="text-muted-foreground">
                             {RESOURCE_LABEL[resource] ?? resource}
@@ -573,7 +574,7 @@ export default function BillingPage() {
                           return (
                             <div
                               key={feature.name}
-                              className="flex items-center gap-1.5 text-[12px]"
+                              className="flex items-center gap-1.5 text-xs"
                             >
                               {included ? (
                                 <Check
@@ -671,7 +672,7 @@ export default function BillingPage() {
 
           {/* ── Usage ───────────────────────────────────────────────────── */}
           <div className="mt-6 rounded-xl border border-border bg-card p-4">
-            <p className="text-[13px] font-medium">What you are using</p>
+            <p className="text-sm font-medium">What you are using</p>
             <div className="mt-3 space-y-2">
               {Object.entries(data.usage.resources).map(([name, use]) => {
                 const unlimited = use.limit === null;
@@ -682,7 +683,7 @@ export default function BillingPage() {
 
                 return (
                   <div key={name} className="flex items-center gap-3">
-                    <span className="w-28 shrink-0 text-[12px] text-muted-foreground">
+                    <span className="w-28 shrink-0 text-xs text-muted-foreground">
                       {RESOURCE_LABEL[name] ?? name.replace(/_/g, " ")}
                     </span>
                     <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
@@ -705,7 +706,7 @@ export default function BillingPage() {
                       looked like a different thing on every page.
                     */}
                     <span
-                      className={`w-36 shrink-0 text-right text-[12px] tabular-nums ${
+                      className={`w-36 shrink-0 text-right text-xs tabular-nums ${
                         full
                           ? "font-medium text-amber-600 dark:text-amber-400"
                           : "text-muted-foreground"
@@ -724,8 +725,8 @@ export default function BillingPage() {
           <div className="mt-4 rounded-xl border border-border bg-card p-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0">
-                <p className="text-[13px] font-medium">Invoices and payment</p>
-                <p className="mt-0.5 text-[12px] text-muted-foreground">
+                <p className="text-sm font-medium">Invoices and payment</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
                   Receipts and card details are managed by Stripe.
                   {!data.hasStripeSubscription &&
                     tier !== "free" &&

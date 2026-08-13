@@ -18,6 +18,7 @@ import {
 } from "@/components/tasks/use-assign-data";
 import { annotateSelection } from "@/lib/composition-rules";
 import { remainingFromOccupied } from "@/lib/assignment-status";
+import { apiErrorMessage } from "@/lib/api-error";
 
 interface CalendarAssignModalProps {
   taskId: string;
@@ -146,7 +147,7 @@ export function CalendarAssignModal({
 
       if (!res.ok) {
         const data = await res.json();
-        setError(data.error || "Assignment failed");
+        setError(apiErrorMessage(data, "Assignment failed"));
         return;
       }
 

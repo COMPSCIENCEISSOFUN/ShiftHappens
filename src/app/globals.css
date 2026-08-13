@@ -5,6 +5,45 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
+  /*
+   * The type scale — six steps, and Tailwind's own names rather than new ones.
+   *
+   * ## What this replaces
+   *
+   * Nineteen distinct sizes. 623 arbitrary pixel values across eleven
+   * (`text-xs` ×228, `[13px]` ×149, `[12px]` ×122, `[10px]` ×91, and a tail
+   * down to `[9px]`), plus 760 uses of Tailwind's eight. So `text-xs` and
+   * `text-xs` were the same size written two ways, and a reader could not learn
+   * the hierarchy because there wasn't one — nothing had a fixed meaning.
+   *
+   * ## Why retune the existing names instead of adding `text-body` etc.
+   *
+   * A new named scale beside Tailwind's would have been a SEVENTH system, and
+   * the 760 existing uses would have sat on the old one indefinitely. Moving
+   * the three small steps means every `text-xs` and `text-sm` already in the
+   * markup lands on the new scale without being touched.
+   *
+   * The shifts are one pixel each and all downward — xs 12→11, sm 14→13,
+   * base 16→15 — which matches the density this product already reads at. 13px
+   * is the anchor because it was already the most-used body size.
+   *
+   *   xs    11px  badges, counters, timestamps
+   *   sm    13px  body — the default for anything you read
+   *   base  15px  card titles, emphasised body
+   *   lg    18px  subsection headings
+   *   xl    20px  page titles
+   *   2xl   24px  the largest thing on a page
+   *
+   * Sub-11px is gone deliberately: 97 uses sat at 9–10px, which is below
+   * comfortable reading for anything, including a badge.
+   */
+  --text-xs: 0.6875rem;   /* 11px */
+  --text-xs--line-height: 1rem;
+  --text-sm: 0.8125rem;   /* 13px */
+  --text-sm--line-height: 1.25rem;
+  --text-base: 0.9375rem; /* 15px */
+  --text-base--line-height: 1.5rem;
+
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   /*
@@ -69,7 +108,21 @@
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
+  /*
+   * Indigo, matching the `indigo-600` these tokens sit beside everywhere.
+   *
+   * These were shadcn's stock neutrals — `oklch(0.205 0 0)`, zero chroma, a
+   * near-black — while the application's actual brand lived in 516 hardcoded
+   * `indigo-*` classes. So "primary" meant two different colours depending on
+   * which system a line of markup reached for, and the token half always lost:
+   * `text-primary` on the projects header and the `bg-primary` progress bars
+   * rendered black, inches from indigo buttons.
+   *
+   * Nothing in the markup changes. The ~100 existing uses of `bg-primary`,
+   * `text-primary` and `border-primary` simply start agreeing with the rest of
+   * the page.
+   */
+  --primary: oklch(0.511 0.262 276.966);
   --primary-foreground: oklch(0.985 0 0);
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
@@ -80,7 +133,13 @@
   --destructive: oklch(0.577 0.245 27.325);
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  /*
+   * `indigo-500`. Was a mid grey, so shadcn's default focus ring and the
+   * hand-written `focus-visible:ring-indigo-500/10` rings on the redesigned
+   * pages were two visibly different focus states in one product — which
+   * defeats the point of a focus ring, since it is meant to be learnable.
+   */
+  --ring: oklch(0.585 0.233 277.117);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
@@ -104,8 +163,17 @@
   --card-foreground: oklch(0.985 0 0);
   --popover: oklch(0.205 0 0);
   --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
+  /*
+   * `indigo-500` rather than the 600 used in light mode: the same colour that
+   * reads as solid on white goes muddy against `oklch(0.145 0 0)`, so the dark
+   * theme steps one shade up to hold the same apparent weight.
+   *
+   * The foreground flips to near-white with it. It was near-BLACK here, which
+   * was correct only while `--primary` was a near-white neutral — left alone it
+   * would have put black text on an indigo button.
+   */
+  --primary: oklch(0.585 0.233 277.117);
+  --primary-foreground: oklch(0.985 0 0);
   --secondary: oklch(0.269 0 0);
   --secondary-foreground: oklch(0.985 0 0);
   --muted: oklch(0.269 0 0);
@@ -115,7 +183,9 @@
   --destructive: oklch(0.704 0.191 22.216);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
+  /* `indigo-400` — one step lighter again, so the ring stays visible against
+     the dark card it is usually drawn on. */
+  --ring: oklch(0.678 0.182 276.935);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);

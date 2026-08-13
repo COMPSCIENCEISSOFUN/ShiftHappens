@@ -28,6 +28,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { PageLoading } from "@/components/ui/page-loading";
+import { apiErrorMessage } from "@/lib/api-error";
 import {
   REVIEW_MAX_LENGTH,
   REVIEW_MAX_RATING,
@@ -79,6 +80,7 @@ export default function WriteReviewPage() {
   }, [orgId]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronising with an external system: loads this page's rows on mount
     void load();
   }, [load]);
 
@@ -100,7 +102,7 @@ export default function WriteReviewPage() {
       });
       const result = await response.json().catch(() => null);
       if (!response.ok) {
-        setError(result?.error || "Could not save that. Try again in a moment.");
+        setError(apiErrorMessage(result, "Could not save that. Try again in a moment."));
         return;
       }
       toast.success(
@@ -124,10 +126,10 @@ export default function WriteReviewPage() {
   return (
     <div className="mx-auto w-full max-w-2xl">
       <div className="mb-4">
-        <h2 className="text-xl font-bold tracking-tight sm:text-2xl">
+        <h1 className="text-xl font-bold tracking-tight sm:text-2xl">
           {existing ? "Your review" : "Write a review"}
-        </h2>
-        <p className="mt-0.5 text-[13px] text-muted-foreground">
+        </h1>
+        <p className="mt-0.5 text-sm text-muted-foreground">
           If we publish it, your name and organisation appear with it on our
           landing page
         </p>
@@ -149,7 +151,7 @@ export default function WriteReviewPage() {
             {REVIEW_STATUS_NOTE[status]}
           </p>
           {status === "approved" && (
-            <p className="mt-2 text-[13px] text-muted-foreground">
+            <p className="mt-2 text-sm text-muted-foreground">
               Changing it takes it off the site until we have looked again.
             </p>
           )}

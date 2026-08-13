@@ -309,8 +309,8 @@ function TaskDetailDrawer({
               aria-hidden="true"
             />
             <div className="min-w-0">
-              <p className="text-[15px] font-semibold leading-snug">{task.title}</p>
-              <p className="truncate text-[12px] text-muted-foreground">
+              <p className="text-base font-semibold leading-snug">{task.title}</p>
+              <p className="truncate text-xs text-muted-foreground">
                 {task.department?.name || "No department"}
               </p>
             </div>
@@ -343,7 +343,7 @@ function TaskDetailDrawer({
         */}
         <div className="flex flex-1 flex-col gap-4 px-5 py-4">
           <Field label="Schedule">
-            <p className="text-[13px] font-medium">
+            <p className="text-sm font-medium">
               {task.scheduledStart &&
                 new Date(task.scheduledStart).toLocaleString([], {
                   weekday: "short",
@@ -391,7 +391,7 @@ function TaskDetailDrawer({
                 />
               </div>
               <span
-                className={`shrink-0 text-[13px] font-semibold ${
+                className={`shrink-0 text-sm font-semibold ${
                   active.length >= task.requiredHeadcount
                     ? "text-emerald-600 dark:text-emerald-400"
                     : "text-amber-600 dark:text-amber-400"
@@ -401,7 +401,7 @@ function TaskDetailDrawer({
               </span>
             </div>
             {short > 0 && (
-              <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">
+              <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
                 Needs {short} more
               </p>
             )}
@@ -489,7 +489,7 @@ function PersonChip({
       }`}
     >
       <span
-        className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-[8px] font-bold text-white ${avatarColour(name)}`}
+        className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-xs font-bold text-white ${avatarColour(name)}`}
       >
         {initials(name)}
       </span>
@@ -511,7 +511,7 @@ function Field({
 }) {
   return (
     <div>
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
         {label}
       </p>
       <div className="mt-1">{children}</div>
@@ -990,7 +990,7 @@ export default function CalendarPage() {
             >
               ← Week
             </button>
-            <h2 className="text-xl font-bold tracking-tight sm:text-2xl">{formatFullDate(selectedDate)}</h2>
+            <h1 className="text-xl font-bold tracking-tight sm:text-2xl">{formatFullDate(selectedDate)}</h1>
           </div>
           <div className="flex items-center gap-1.5">
             <button onClick={prevDay} className="rounded-lg border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-indigo-400 hover:text-foreground">
@@ -1038,7 +1038,7 @@ export default function CalendarPage() {
               {/* Hour labels */}
               <div className="border-r border-border">
                 {HOURS.map((row) => (
-                  <div key={row.index} className="flex items-start border-b border-border px-2 pt-1 text-[11px] text-muted-foreground" style={{ height: `${100 / gridHours}%` }}>
+                  <div key={row.index} className="flex items-start border-b border-border px-2 pt-1 text-xs text-muted-foreground" style={{ height: `${100 / gridHours}%` }}>
                     {formatHourLabel(row.clockHour)}
                   </div>
                 ))}
@@ -1054,7 +1054,7 @@ export default function CalendarPage() {
                       backgroundColor: coverageVisible && coverage.length > 0 ? getCoverageTint(count, isDark) : undefined,
                     }}>
                       {coverageVisible && coverage.length > 0 && (
-                        <span className="absolute bottom-0.5 right-1 select-none text-[9px] text-muted-foreground/50">{count}</span>
+                        <span className="absolute bottom-0.5 right-1 select-none text-xs text-muted-foreground/50">{count}</span>
                       )}
                     </div>
                   );
@@ -1123,10 +1123,10 @@ export default function CalendarPage() {
                         setSelectedTask(selectedTask?.id === task.id ? null : task);
                       }}
                     >
-                      <div className="truncate text-[13px] font-semibold" style={{ color }}>
+                      <div className="truncate text-sm font-semibold" style={{ color }}>
                         {pos.continuesBefore && "↑ "}{task.title}{pos.continuesAfter && " ↓"}
                       </div>
-                      <div className="mt-0.5 text-[11px] text-muted-foreground">
+                      <div className="mt-0.5 text-xs text-muted-foreground">
                         {new Date(task.scheduledStart!).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} — {new Date(task.scheduledEnd!).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
                       </div>
                       {/* Staff avatars */}
@@ -1134,7 +1134,7 @@ export default function CalendarPage() {
                         {active.slice(0, 4).map((a, idx) => (
                           <div
                             key={a.id}
-                            className={`flex h-[22px] w-[22px] items-center justify-center rounded-full text-[9px] font-bold text-white ring-1.5 ring-white dark:ring-gray-800 ${avatarColour(a.membership.user.name)}`}
+                            className={`flex h-[22px] w-[22px] items-center justify-center rounded-full text-xs font-bold text-white ring-1.5 ring-white dark:ring-gray-800 ${avatarColour(a.membership.user.name)}`}
                             style={idx > 0 ? { marginLeft: "-4px" } : {}}
                             title={a.membership.user.name || "Unnamed"}
                           >
@@ -1142,9 +1142,9 @@ export default function CalendarPage() {
                           </div>
                         ))}
                         {active.length > 4 && (
-                          <span className="ml-0.5 text-[10px] font-medium text-muted-foreground">+{active.length - 4}</span>
+                          <span className="ml-0.5 text-xs font-medium text-muted-foreground">+{active.length - 4}</span>
                         )}
-                        <span className={`ml-1 text-[10px] font-semibold ${isUnderstaffed ? "text-amber-600 dark:text-amber-400" : "text-green-600 dark:text-green-400"}`}>
+                        <span className={`ml-1 text-xs font-semibold ${isUnderstaffed ? "text-amber-600 dark:text-amber-400" : "text-green-600 dark:text-green-400"}`}>
                           {active.length}/{task.requiredHeadcount}
                         </span>
                       </div>
@@ -1159,8 +1159,8 @@ export default function CalendarPage() {
           <div className="w-full overflow-hidden rounded-xl border border-border bg-card lg:w-[280px] lg:rounded-l-none lg:border-l-0" style={{ maxHeight: `${gridHours * 48 + 2}px` }}>
             {/* Sidebar header */}
             <div className="sticky top-0 z-[2] flex items-center justify-between border-b border-border bg-card px-4 py-3">
-              <h3 className="text-[13px] font-semibold">Staff — {DAYS[dow]}</h3>
-              <span className="text-[11px] text-muted-foreground">{dayStaff.filter((s) => s.isAvailable).length} available</span>
+              <h3 className="text-sm font-semibold">Staff — {DAYS[dow]}</h3>
+              <span className="text-xs text-muted-foreground">{dayStaff.filter((s) => s.isAvailable).length} available</span>
             </div>
 
             {/* Staff list */}
@@ -1170,12 +1170,12 @@ export default function CalendarPage() {
               ) : (
                 dayStaff.map((staff) => (
                   <div key={staff.membershipId} className={`flex gap-2.5 rounded-lg p-2.5 transition-colors hover:bg-muted/60 ${!staff.isAvailable ? "opacity-50" : ""}`}>
-                    <div className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-[11px] font-bold text-white ${staff.isAvailable ? avatarColour(staff.name) : "bg-gray-400 dark:bg-gray-600"}`}>
+                    <div className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-xs font-bold text-white ${staff.isAvailable ? avatarColour(staff.name) : "bg-gray-400 dark:bg-gray-600"}`}>
                       {initials(staff.name)}
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-1.5">
-                        <p className="text-[13px] font-medium">{staff.name}</p>
+                        <p className="text-sm font-medium">{staff.name}</p>
                         {/*
                           Amber, not red, and deliberately not greyed out like
                           an unavailable member: this person IS still rosterable
@@ -1184,7 +1184,7 @@ export default function CalendarPage() {
                           engine will do.
                         */}
                         {staff.pendingLeave && (
-                          <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                          <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
                             {/*
                               One direction only. A contracted member may ask
                               for a day OFF and never to work one on, and only a
@@ -1197,7 +1197,7 @@ export default function CalendarPage() {
                       </div>
                       {staff.isAvailable ? (
                         <>
-                          <p className="text-[11px] text-muted-foreground">{staff.availableHours}</p>
+                          <p className="text-xs text-muted-foreground">{staff.availableHours}</p>
                           {/* Availability bar */}
                           <div className="mt-1 h-1 overflow-hidden rounded-full bg-muted">
                             <div
@@ -1212,17 +1212,17 @@ export default function CalendarPage() {
                           {staff.assignedTasks.length > 0 ? (
                             <div className="mt-1 flex flex-wrap gap-1">
                               {staff.assignedTasks.map((at, i) => (
-                                <span key={i} className="inline-block rounded px-1.5 py-0.5 text-[10px] font-medium" style={{ backgroundColor: `${at.color}15`, color: at.color }}>
+                                <span key={i} className="inline-block rounded px-1.5 py-0.5 text-xs font-medium" style={{ backgroundColor: `${at.color}15`, color: at.color }}>
                                   {at.title.length > 16 ? at.title.slice(0, 16) + "…" : at.title}
                                 </span>
                               ))}
                             </div>
                           ) : (
-                            <p className="mt-0.5 text-[10px] text-blue-600 dark:text-blue-400">Available — unassigned</p>
+                            <p className="mt-0.5 text-xs text-blue-600 dark:text-blue-400">Available — unassigned</p>
                           )}
                         </>
                       ) : (
-                        <p className="text-[11px] text-red-500 dark:text-red-400">Off today</p>
+                        <p className="text-xs text-red-500 dark:text-red-400">Off today</p>
                       )}
                     </div>
                   </div>
@@ -1233,14 +1233,14 @@ export default function CalendarPage() {
             {/* Understaffed alerts */}
             {dayUnderstaffed.length > 0 && (
               <div className="border-t border-border px-3 py-2.5">
-                <h4 className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400">⚠ Needs Staff</h4>
+                <h4 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400">⚠ Needs Staff</h4>
                 {dayUnderstaffed.map((t) => {
                   const activeCount = activeAssignments(t).length;
                   return (
                     <div key={t.id} className="flex items-center justify-between border-b border-border py-1.5 last:border-b-0">
                       <div>
                         <p className="text-xs font-medium">{t.title}</p>
-                        <p className="text-[11px] text-amber-600 dark:text-amber-400">needs {remainingFromOccupied(t.requiredHeadcount, activeCount)} more</p>
+                        <p className="text-xs text-amber-600 dark:text-amber-400">needs {remainingFromOccupied(t.requiredHeadcount, activeCount)} more</p>
                       </div>
                       {canAssign && (
                       <button
@@ -1248,7 +1248,7 @@ export default function CalendarPage() {
                           id: t.id, title: t.title,
                           requiredHeadcount: t.requiredHeadcount, currentCount: activeCount,
                         })}
-                        className="text-[11px] font-medium text-indigo-600 dark:text-indigo-400 hover:underline"
+                        className="text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:underline"
                       >
                         Assign →
                       </button>
@@ -1303,20 +1303,20 @@ export default function CalendarPage() {
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-xl font-bold tracking-tight sm:text-2xl">Calendar</h2>
-          <p className="mt-0.5 text-[13px] text-muted-foreground">Weekly schedule and staffing coverage overview</p>
+          <p className="mt-0.5 text-sm text-muted-foreground">Weekly schedule and staffing coverage overview</p>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
           {/* View toggle pill */}
           <div className="flex overflow-hidden rounded-[10px] border border-border">
             <button
               onClick={() => setViewMode("week")}
-              className={`px-3.5 py-1.5 text-[13px] font-medium transition-colors ${viewMode === "week" ? "bg-indigo-600 text-white" : "bg-card text-muted-foreground hover:text-foreground"}`}
+              className={`px-3.5 py-1.5 text-sm font-medium transition-colors ${viewMode === "week" ? "bg-indigo-600 text-white" : "bg-card text-muted-foreground hover:text-foreground"}`}
             >
               Week
             </button>
             <button
               onClick={() => { setViewMode("day"); setSelectedDate(new Date()); }}
-              className="border-l border-border px-3.5 py-1.5 text-[13px] font-medium transition-colors bg-card text-muted-foreground hover:text-foreground"
+              className="border-l border-border px-3.5 py-1.5 text-sm font-medium transition-colors bg-card text-muted-foreground hover:text-foreground"
             >
               Day
             </button>
@@ -1357,7 +1357,7 @@ export default function CalendarPage() {
         <span className="text-sm font-semibold">{formatDate(weekDates[0])} — {formatDate(weekDates[6])}, {weekDates[0].getFullYear()}</span>
         <div className="flex flex-wrap items-center gap-2">
           {unscheduledCount > 0 && (
-            <span className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/50 px-2.5 py-1 text-[11px] font-medium text-amber-700 dark:text-amber-300">
+            <span className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/50 px-2.5 py-1 text-xs font-medium text-amber-700 dark:text-amber-300">
               {unscheduledCount} unscheduled
             </span>
           )}
@@ -1420,7 +1420,7 @@ export default function CalendarPage() {
               >
                 <div className={`text-xs font-semibold ${isDateToday ? "text-indigo-600 dark:text-indigo-400" : "text-muted-foreground"}`}>{DAYS[date.getDay()]}</div>
                 <div className={`text-lg font-bold ${isDateToday ? "text-indigo-600 dark:text-indigo-400" : ""}`}>{date.getDate()}</div>
-                <div className="text-[10px] text-muted-foreground">{dayTasksForHeader.length} {dayTasksForHeader.length === 1 ? "task" : "tasks"}</div>
+                <div className="text-xs text-muted-foreground">{dayTasksForHeader.length} {dayTasksForHeader.length === 1 ? "task" : "tasks"}</div>
                 {/* Department colour dots */}
                 {dayDepts.length > 0 && (
                   <div className="mt-1 flex justify-center gap-[3px]">
@@ -1439,7 +1439,7 @@ export default function CalendarPage() {
           {/* Hour labels */}
           <div className="border-r border-border">
             {HOURS.map((row) => (
-              <div key={row.index} className="flex items-start border-b border-border px-2 pt-1 text-[11px] text-muted-foreground" style={{ height: `${100 / gridHours}%` }}>
+              <div key={row.index} className="flex items-start border-b border-border px-2 pt-1 text-xs text-muted-foreground" style={{ height: `${100 / gridHours}%` }}>
                 {formatHourLabel(row.clockHour)}
               </div>
             ))}
@@ -1462,7 +1462,7 @@ export default function CalendarPage() {
                       backgroundColor: coverageVisible && coverage.length > 0 ? getCoverageTint(count, isDark) : undefined,
                     }}>
                       {coverageVisible && coverage.length > 0 && (
-                        <span className="absolute bottom-0.5 right-1 select-none text-[9px] text-muted-foreground/50">{count}</span>
+                        <span className="absolute bottom-0.5 right-1 select-none text-xs text-muted-foreground/50">{count}</span>
                       )}
                     </div>
                   );
@@ -1564,7 +1564,7 @@ export default function CalendarPage() {
               <span className="inline-block h-2.5 w-3.5 rounded" style={{ backgroundColor: getCoverageTint(0, isDark), border: "1px solid rgba(239,68,68,.15)" }} /> None
             </div>
             <span className="mx-1 h-4 border-l border-border" />
-            <div className="rounded border-[1.5px] border-dashed border-amber-500 px-2 py-0.5 text-[11px] text-muted-foreground">Understaffed</div>
+            <div className="rounded border-[1.5px] border-dashed border-amber-500 px-2 py-0.5 text-xs text-muted-foreground">Understaffed</div>
           </>
         )}
       </div>

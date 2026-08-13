@@ -21,6 +21,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { StatTile, STAT_ACCENT } from "@/components/ui/stat-tile";
 import type { NeedsAttentionItem } from "@/components/dashboard/needs-attention";
 import {
   LeaveRequestsPanel,
@@ -122,24 +123,25 @@ function getStatusPillInfo(items: NeedsAttentionItem[] | null): {
   const count = items?.length ?? 0;
   if (count === 0) {
     return {
-      label: "All clear -- nothing needs attention",
-      bg: "bg-emerald-50",
-      text: "text-emerald-700",
+      // An em dash, not two hyphens. It rendered literally as "--" on screen.
+      label: "All clear — nothing needs attention",
+      bg: "bg-emerald-50 dark:bg-emerald-950/50",
+      text: "text-emerald-700 dark:text-emerald-300",
       dot: "bg-emerald-500",
     };
   }
   if (count <= 2) {
     return {
       label: `${count} item${count > 1 ? "s" : ""} need${count === 1 ? "s" : ""} your attention`,
-      bg: "bg-amber-50",
-      text: "text-amber-700",
+      bg: "bg-amber-50 dark:bg-amber-950/50",
+      text: "text-amber-700 dark:text-amber-300",
       dot: "bg-amber-500",
     };
   }
   return {
     label: `${count} items need your attention`,
-    bg: "bg-red-50",
-    text: "text-red-700",
+    bg: "bg-red-50 dark:bg-red-950/50",
+    text: "text-red-700 dark:text-red-300",
     dot: "bg-red-500",
   };
 }
@@ -349,21 +351,28 @@ export default function ManagerDashboard({
               const isDanger = item.severity === "danger";
               const isWarning = item.severity === "warning";
 
+              /*
+                Each tint carries its dark counterpart. Without them these
+                panels stayed pale on a dark page — a `bg-red-50` block glowing
+                against `oklch(0.145 0 0)`, which is the one thing a dark theme
+                must not do. The admin dashboard's equivalent pills already had
+                theirs; this file simply never got the same pass.
+              */
               const iconBg = isDanger
-                ? "bg-red-50"
+                ? "bg-red-50 dark:bg-red-950/50"
                 : isWarning
-                  ? "bg-amber-50"
-                  : "bg-indigo-50";
+                  ? "bg-amber-50 dark:bg-amber-950/50"
+                  : "bg-indigo-50 dark:bg-indigo-950/50";
               const iconText = isDanger
-                ? "text-red-600"
+                ? "text-red-600 dark:text-red-400"
                 : isWarning
-                  ? "text-amber-600"
-                  : "text-indigo-600";
+                  ? "text-amber-600 dark:text-amber-400"
+                  : "text-indigo-600 dark:text-indigo-400";
               const btnBg = isDanger
-                ? "bg-red-50 text-red-700 hover:bg-red-100"
+                ? "bg-red-50 text-red-700 hover:bg-red-100 dark:bg-red-950/50 dark:text-red-300 dark:hover:bg-red-950"
                 : isWarning
-                  ? "bg-amber-50 text-amber-700 hover:bg-amber-100"
-                  : "bg-indigo-50 text-indigo-700 hover:bg-indigo-100";
+                  ? "bg-amber-50 text-amber-700 hover:bg-amber-100 dark:bg-amber-950/50 dark:text-amber-300 dark:hover:bg-amber-950"
+                  : "bg-indigo-50 text-indigo-700 hover:bg-indigo-100 dark:bg-indigo-950/50 dark:text-indigo-300 dark:hover:bg-indigo-950";
 
               return (
                 <Card
@@ -402,65 +411,34 @@ export default function ManagerDashboard({
         </div>
       )}
 
-      {/* ---- Stat tiles (3 columns) ---- */}
+      {/*
+        Stat tiles — the shared component, not a fifth private copy.
+
+        These were `Card` + `p-[20px_22px]`, which is its own padding, its own
+        label treatment and its own number size. Counting the admin dashboard's
+        blocks and the Tasks page's corner-tinted boxes, the same idea had five
+        implementations across the product. The "N / M" figures keep their
+        shape by living in the value string, which is what `StatTile` accepts.
+      */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        {/* Open tasks */}
-        <Card className="rounded-xl border shadow-none">
-          <CardContent className="p-[20px_22px]">
-            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-              Open tasks
-            </p>
-            <p className="mt-2 text-2xl font-bold tabular-nums">
-              {openTasks}
-              <span className="text-base font-normal text-muted-foreground">
-                {" "}
-                / {totalTasks}
-              </span>
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {pipeline?.pending ?? 0} pending, {pipeline?.accepted ?? 0}{" "}
-              accepted
-            </p>
-          </CardContent>
-        </Card>
-
-        {/* Staff available */}
-        <Card className="rounded-xl border shadow-none">
-          <CardContent className="p-[20px_22px]">
-            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-              Staff available
-            </p>
-            <p className="mt-2 text-2xl font-bold tabular-nums">
-              {availableCount}
-              <span className="text-base font-normal text-muted-foreground">
-                {" "}
-                / {totalStaff}
-              </span>
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {teamRoster.filter((m) => m.status === "on_shift").length} on
-              shift right now
-            </p>
-          </CardContent>
-        </Card>
-
-        {/* Team hours */}
-        <Card className="rounded-xl border shadow-none">
-          <CardContent className="p-[20px_22px]">
-            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-              Team hours (7d)
-            </p>
-            <p className="mt-2 text-2xl font-bold tabular-nums">
-              {totalHours}
-              <span className="text-base font-normal text-muted-foreground">
-                h
-              </span>
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              avg {avgHoursPerPerson}h / person
-            </p>
-          </CardContent>
-        </Card>
+        <StatTile
+          label="Open tasks"
+          value={`${openTasks} / ${totalTasks}`}
+          detail={`${pipeline?.pending ?? 0} pending, ${pipeline?.accepted ?? 0} accepted`}
+          accentColour={STAT_ACCENT.indigo}
+        />
+        <StatTile
+          label="Staff available"
+          value={`${availableCount} / ${totalStaff}`}
+          detail={`${teamRoster.filter((m) => m.status === "on_shift").length} on shift right now`}
+          accentColour={STAT_ACCENT.green}
+        />
+        <StatTile
+          label="Team hours (7d)"
+          value={`${totalHours}h`}
+          detail={`avg ${avgHoursPerPerson}h / person`}
+          accentColour={STAT_ACCENT.blue}
+        />
       </div>
 
       {/* ---- Two-column grid ---- */}
@@ -511,8 +489,8 @@ export default function ManagerDashboard({
                     <span
                       className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${
                         task.isUnderstaffed
-                          ? "bg-red-50 text-red-700"
-                          : "bg-emerald-50 text-emerald-700"
+                          ? "bg-red-50 text-red-700 dark:bg-red-950/50 dark:text-red-300"
+                          : "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300"
                       }`}
                     >
                       {task.assignedCount}/{task.requiredHeadcount}

@@ -63,6 +63,7 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { SECONDARY_BUTTON } from "@/components/ui/button-styles";
 import { usePermissions } from "@/components/layout/permission-provider";
 import { EmptyState } from "@/components/ui/empty-state";
+import { apiErrorMessage } from "@/lib/api-error";
 import { Bell, Building2, Clock, CreditCard, Settings, Wrench } from "lucide-react";
 
 /* ------------------------------------------------------------------ */
@@ -444,7 +445,7 @@ export default function SettingsPage() {
       if (!res.ok) {
         setOrgMessage({
           type: "error",
-          text: result.error || "Failed to update organization",
+          text: apiErrorMessage(result, "Failed to update organization"),
         });
         return;
       }
@@ -484,7 +485,7 @@ export default function SettingsPage() {
       if (!res.ok) {
         setMsg({
           type: "error",
-          text: result.error || "Failed to update settings",
+          text: apiErrorMessage(result, "Failed to update settings"),
         });
         return;
       }
@@ -992,11 +993,11 @@ export default function SettingsPage() {
                 <div className="space-y-2">
                   <div className="flex items-baseline justify-between">
                     <Label>Ranking Priorities</Label>
-                    <span className="text-[12px] text-muted-foreground">
+                    <span className="text-xs text-muted-foreground">
                       Total {weightTotal}%
                     </span>
                   </div>
-                  <p className="text-[13px] text-muted-foreground">
+                  <p className="text-sm text-muted-foreground">
                     Applied exactly by the built-in ranker, and given to the AI
                     as guidance. Moving one adjusts the others so the four always
                     total 100%, and each number is that priority&rsquo;s real
@@ -1009,11 +1010,11 @@ export default function SettingsPage() {
                         <div className="flex items-baseline justify-between">
                           <Label
                             htmlFor={`weight-${key}`}
-                            className="text-[13px] font-medium"
+                            className="text-sm font-medium"
                           >
                             {WEIGHT_LABELS[key]}
                           </Label>
-                          <span className="text-[12px] tabular-nums text-muted-foreground">
+                          <span className="text-xs tabular-nums text-muted-foreground">
                             {weightShares[key]}%
                           </span>
                         </div>
@@ -1045,7 +1046,7 @@ export default function SettingsPage() {
                           aria-label={WEIGHT_LABELS[key]}
                           className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-muted accent-indigo-600"
                         />
-                        <p className="text-[12px] text-muted-foreground">
+                        <p className="text-xs text-muted-foreground">
                           {WEIGHT_DESCRIPTIONS[key]}
                         </p>
                       </div>
@@ -1059,7 +1060,7 @@ export default function SettingsPage() {
                     whose consequence was never visible.
                   */}
                   {weightWarning && (
-                    <p className="text-[12px] text-amber-600 dark:text-amber-400">
+                    <p className="text-xs text-amber-600 dark:text-amber-400">
                       {weightWarning}
                     </p>
                   )}
@@ -1090,7 +1091,7 @@ export default function SettingsPage() {
                 */}
                 <div className="space-y-1.5">
                   <Label>Task acceptance</Label>
-                  <p className="text-[12px] leading-relaxed text-muted-foreground">
+                  <p className="text-xs leading-relaxed text-muted-foreground">
                     Staff are rostered automatically — nobody is asked to accept
                     a shift first. Anyone booked over their stated availability
                     is still asked to confirm, and leaving a shift already
@@ -1113,7 +1114,7 @@ export default function SettingsPage() {
                 */}
                 <div className="space-y-2">
                   <Label>Seniority thresholds</Label>
-                  <p className="text-[11px] text-muted-foreground">
+                  <p className="text-xs text-muted-foreground">
                     Completed shifts in a department before a member counts as
                     experienced, then senior. A manager can pin an individual&apos;s
                     level on the Members page when the count is wrong — a new hire
@@ -1160,7 +1161,7 @@ export default function SettingsPage() {
                     levels.
                   */}
                   {Number(seniorThreshold) <= Number(experiencedThreshold) && (
-                    <p className="text-[11px] text-red-600 dark:text-red-400">
+                    <p className="text-xs text-red-600 dark:text-red-400">
                       Senior must be higher than experienced, or the senior level
                       can never be reached.
                     </p>
@@ -1188,7 +1189,7 @@ export default function SettingsPage() {
                 */}
                 <div className="space-y-2">
                   <Label>Standard working day</Label>
-                  <p className="text-[11px] text-muted-foreground">
+                  <p className="text-xs text-muted-foreground">
                     How long one person may work in a day. Used for the
                     eligibility hours check, hour warnings, and every capacity
                     figure in reporting — a team of six on an eight-hour day
@@ -1209,7 +1210,7 @@ export default function SettingsPage() {
                     surprises: this window follows the shift, while a daily rule
                     measures the business day.
                   */}
-                  <p className="text-[11px] text-muted-foreground">
+                  <p className="text-xs text-muted-foreground">
                     Measured over a rolling 24 hours and applied to everyone.
                     Work rules can add tighter daily or weekly limits for a
                     department or role, and both are checked.

@@ -347,10 +347,10 @@ export default function NotificationsPage() {
       {/* ── Header ── */}
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-xl font-bold tracking-tight sm:text-2xl">
+          <h1 className="text-xl font-bold tracking-tight sm:text-2xl">
             Notifications
-          </h2>
-          <p className="mt-0.5 text-[13px] text-muted-foreground">
+          </h1>
+          <p className="mt-0.5 text-sm text-muted-foreground">
             Everything that needs your attention, newest first
           </p>
         </div>
@@ -413,7 +413,7 @@ export default function NotificationsPage() {
               <button
                 key={key}
                 onClick={() => setFilter(key)}
-                className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-[13px] font-medium transition-all ${
+                className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition-all ${
                   active
                     ? "border-indigo-500 bg-indigo-50 text-indigo-700 dark:border-indigo-400 dark:bg-indigo-950 dark:text-indigo-300"
                     : "border-border bg-card text-muted-foreground hover:border-indigo-300 hover:text-indigo-600 dark:hover:border-indigo-600 dark:hover:text-indigo-400"
@@ -421,7 +421,7 @@ export default function NotificationsPage() {
               >
                 {label}
                 <span
-                  className={`inline-flex min-w-[18px] items-center justify-center rounded-full px-1 py-0 text-[11px] font-bold ${
+                  className={`inline-flex min-w-[18px] items-center justify-center rounded-full px-1 py-0 text-xs font-bold ${
                     active
                       ? "bg-indigo-600 text-white dark:bg-indigo-500"
                       : "bg-muted text-muted-foreground"
@@ -505,7 +505,7 @@ export default function NotificationsPage() {
           {groups.map((group, groupIndex) => (
             <div key={`${group.label}-${groupIndex}`}>
               <div className="mb-2 flex items-center gap-2.5">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                   {group.label}
                 </p>
                 <span className="h-px flex-1 bg-border" />
@@ -542,7 +542,7 @@ export default function NotificationsPage() {
 
                       <div className="min-w-0 flex-1">
                         <p
-                          className={`truncate text-[13px] ${
+                          className={`truncate text-sm ${
                             notification.isRead ? "font-medium" : "font-semibold"
                           }`}
                         >
@@ -551,7 +551,7 @@ export default function NotificationsPage() {
                         <p className="mt-0.5 line-clamp-2 text-[12.5px] leading-relaxed text-muted-foreground">
                           {notification.message}
                         </p>
-                        <p className="mt-1.5 flex items-center gap-2 text-[11px] text-muted-foreground/75">
+                        <p className="mt-1.5 flex items-center gap-2 text-xs text-muted-foreground/75">
                           <span className="rounded border border-border px-1.5 text-[9.5px] font-semibold uppercase tracking-wide">
                             {NOTIFICATION_LABELS[notification.type as NotificationType] ?? "Update"}
                           </span>

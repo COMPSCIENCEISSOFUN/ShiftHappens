@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { CalendarClock, Send } from "lucide-react";
 import { isFullTime } from "@/lib/role-config";
 import { PRIMARY_BUTTON, SECONDARY_BUTTON } from "@/components/ui/button-styles";
+import { apiErrorMessage } from "@/lib/api-error";
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -139,7 +140,7 @@ export function ContractedDaysEditor({
       );
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        setError(body.error || "Could not save");
+        setError(apiErrorMessage(body, "Could not save"));
         return;
       }
       setWeek(schedule);
@@ -152,7 +153,7 @@ export function ContractedDaysEditor({
   }
 
   if (loading) {
-    return <p className="text-[12px] text-muted-foreground">Loading days…</p>;
+    return <p className="text-xs text-muted-foreground">Loading days…</p>;
   }
 
   /* ── Casual: read-only, with the nudge ─────────────────────────────── */
@@ -160,12 +161,12 @@ export function ContractedDaysEditor({
     const working = (week ?? []).filter((d) => d.isAvailable);
     return (
       <div className="space-y-2">
-        <p className="text-[12px] text-muted-foreground">
+        <p className="text-xs text-muted-foreground">
           {memberName} is casual, so their availability is theirs to set. Ask
           them to review it rather than changing it here — an edit you make is
           one they can undo the same evening.
         </p>
-        <p className="text-[13px]">
+        <p className="text-sm">
           {working.length === 0
             ? "No availability set."
             : working.map((d) => DAYS[d.dayOfWeek]).join(", ")}
@@ -189,14 +190,14 @@ export function ContractedDaysEditor({
 
   return (
     <div className="space-y-2">
-      <p className="text-[12px] text-muted-foreground">
+      <p className="text-xs text-muted-foreground">
         The days {memberName} is contracted to work. A day left unticked means
         they cannot be rostered that day at all.
       </p>
 
       {rows.length === 0 ? (
         <div className="rounded-lg border border-dashed border-border p-3">
-          <p className="text-[12px] text-muted-foreground">
+          <p className="text-xs text-muted-foreground">
             No days set — {memberName} can currently be rostered at any time.
           </p>
           <button
@@ -220,7 +221,7 @@ export function ContractedDaysEditor({
                     : "border-border bg-muted/20"
                 }`}
               >
-                <label className="flex w-20 cursor-pointer items-center gap-2 text-[12px] font-medium">
+                <label className="flex w-20 cursor-pointer items-center gap-2 text-xs font-medium">
                   <input
                     type="checkbox"
                     checked={day.isAvailable}
@@ -237,16 +238,16 @@ export function ContractedDaysEditor({
                   value={day.startTime}
                   disabled={!day.isAvailable}
                   onChange={(e) => update(index, { startTime: e.target.value })}
-                  className="h-7 rounded-md border border-border bg-background px-1.5 text-[12px] disabled:opacity-40"
+                  className="h-7 rounded-md border border-border bg-background px-1.5 text-xs disabled:opacity-40"
                 />
-                <span className="text-[11px] text-muted-foreground">to</span>
+                <span className="text-xs text-muted-foreground">to</span>
                 <input
                   type="time"
                   aria-label={`${DAYS[day.dayOfWeek]} end time`}
                   value={day.endTime}
                   disabled={!day.isAvailable}
                   onChange={(e) => update(index, { endTime: e.target.value })}
-                  className="h-7 rounded-md border border-border bg-background px-1.5 text-[12px] disabled:opacity-40"
+                  className="h-7 rounded-md border border-border bg-background px-1.5 text-xs disabled:opacity-40"
                 />
               </div>
             ))}
@@ -262,7 +263,7 @@ export function ContractedDaysEditor({
               {saving ? "Saving…" : "Save working days"}
             </button>
             {saved && (
-              <span className="text-[12px] text-emerald-600 dark:text-emerald-400">
+              <span className="text-xs text-emerald-600 dark:text-emerald-400">
                 Saved
               </span>
             )}
@@ -271,7 +272,7 @@ export function ContractedDaysEditor({
       )}
 
       {error && (
-        <p className="text-[12px] text-red-600 dark:text-red-400">{error}</p>
+        <p className="text-xs text-red-600 dark:text-red-400">{error}</p>
       )}
     </div>
   );

@@ -97,8 +97,8 @@ function Legend({ slices, total }: { slices: Slice[]; total: number }) {
             className="h-2.5 w-2.5 shrink-0 rounded-full"
             style={{ background: s.colour }}
           />
-          <span className="text-[11px] text-muted-foreground">{s.label}</span>
-          <span className="text-[11px] font-semibold tabular-nums">
+          <span className="text-xs text-muted-foreground">{s.label}</span>
+          <span className="text-xs font-semibold tabular-nums">
             {s.value}
             {total > 0 && (
               <span className="ml-1 font-normal text-muted-foreground">
@@ -113,7 +113,7 @@ function Legend({ slices, total }: { slices: Slice[]; total: number }) {
 }
 
 function EmptyChart({ message }: { message: string }) {
-  return <p className="py-6 text-center text-[13px] text-muted-foreground">{message}</p>;
+  return <p className="py-6 text-center text-sm text-muted-foreground">{message}</p>;
 }
 
 /* ------------------------------------------------------------------ */
@@ -206,7 +206,7 @@ export function Donut({
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
           <span className="text-xl font-bold leading-none tracking-tight">{total}</span>
           {centreLabel && (
-            <span className="mt-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">
+            <span className="mt-0.5 text-xs uppercase tracking-wider text-muted-foreground">
               {centreLabel}
             </span>
           )}
@@ -309,10 +309,10 @@ export function BarList({
       {sorted.map((r) => (
         <div key={r.key}>
           <div className="mb-1 flex items-baseline justify-between gap-2">
-            <span className="truncate text-[12px] text-foreground" title={r.hint ?? r.label}>
+            <span className="truncate text-xs text-foreground" title={r.hint ?? r.label}>
               {r.label}
             </span>
-            <span className="shrink-0 text-[12px] font-semibold tabular-nums">
+            <span className="shrink-0 text-xs font-semibold tabular-nums">
               {r.value}
               {valueSuffix}
             </span>
@@ -362,8 +362,8 @@ export function Meter({
   return (
     <div>
       <div className="mb-1 flex items-baseline justify-between gap-2">
-        <span className="text-[12px] text-muted-foreground">{label}</span>
-        <span className="text-[15px] font-bold tabular-nums">
+        <span className="text-xs text-muted-foreground">{label}</span>
+        <span className="text-base font-bold tabular-nums">
           {percentage === null ? "—" : `${percentage}%`}
         </span>
       </div>
@@ -383,7 +383,7 @@ export function Meter({
           />
         )}
       </div>
-      <p className="mt-1 text-[11px] text-muted-foreground">{detail}</p>
+      <p className="mt-1 text-xs text-muted-foreground">{detail}</p>
     </div>
   );
 }
@@ -444,7 +444,7 @@ export function CoverageHeatmap({
             {Array.from({ length: 24 }, (_, hour) => (
               <div key={hour} className="flex-1 text-center">
                 {hour % 3 === 0 && (
-                  <span className="text-[9px] tabular-nums text-muted-foreground">{hour}</span>
+                  <span className="text-xs tabular-nums text-muted-foreground">{hour}</span>
                 )}
               </div>
             ))}
@@ -452,7 +452,7 @@ export function CoverageHeatmap({
 
           {byDay.map((hours, day) => (
             <div key={day} className="mb-0.5 flex items-center gap-0.5">
-              <span className="w-9 shrink-0 text-[10px] text-muted-foreground">
+              <span className="w-9 shrink-0 text-xs text-muted-foreground">
                 {DAY_LABELS[day]}
               </span>
               {hours.map((count, hour) => (
@@ -470,7 +470,7 @@ export function CoverageHeatmap({
 
       {/* Scale key */}
       <div className="mt-2.5 flex items-center gap-2">
-        <span className="text-[10px] text-muted-foreground">None</span>
+        <span className="text-xs text-muted-foreground">None</span>
         <div className="flex gap-0.5">
           {SEQUENTIAL.map((colour, i) => (
             <div
@@ -481,8 +481,8 @@ export function CoverageHeatmap({
             />
           ))}
         </div>
-        <span className="text-[10px] text-muted-foreground">{max} staff</span>
-        <span className="ml-auto text-[11px] text-muted-foreground">
+        <span className="text-xs text-muted-foreground">{max} staff</span>
+        <span className="ml-auto text-xs text-muted-foreground">
           Busiest: {DAY_LABELS[busiest.dayOfWeek]}{" "}
           {String(busiest.hour).padStart(2, "0")}:00
         </span>

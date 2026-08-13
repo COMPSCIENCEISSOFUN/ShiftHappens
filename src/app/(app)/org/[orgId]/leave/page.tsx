@@ -95,10 +95,10 @@ export default function LeaveRequestsPage() {
   return (
     <div className="w-full">
       <div className="mb-4">
-        <h2 className="text-xl font-bold tracking-tight sm:text-2xl">
+        <h1 className="text-xl font-bold tracking-tight sm:text-2xl">
           Leave requests
-        </h2>
-        <p className="mt-0.5 text-[13px] text-muted-foreground">
+        </h1>
+        <p className="mt-0.5 text-sm text-muted-foreground">
           Full-time staff stay on the roster until you approve. Nothing here
           changes anyone&apos;s schedule on its own.
         </p>

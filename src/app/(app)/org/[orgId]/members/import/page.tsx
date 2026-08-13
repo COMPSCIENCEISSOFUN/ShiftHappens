@@ -34,6 +34,7 @@ import {
   EMPLOYMENT_ALIASES,
 } from "@/lib/import-config";
 import { PRIMARY_BUTTON } from "@/components/ui/button-styles";
+import { apiErrorMessage } from "@/lib/api-error";
 
 // ─── Types ────────────────────────────────────────────────────
 
@@ -678,7 +679,7 @@ export default function MemberImportPage() {
       const result = await res.json();
 
       if (!res.ok) {
-        setError(result.error || "Import failed");
+        setError(apiErrorMessage(result, "Import failed"));
         setPhase("preview");
         return;
       }
@@ -770,8 +771,8 @@ export default function MemberImportPage() {
       {/* ── Header ── */}
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-xl font-bold tracking-tight sm:text-2xl">Import Members</h2>
-          <p className="mt-0.5 text-[13px] text-muted-foreground">
+          <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Import Members</h1>
+          <p className="mt-0.5 text-sm text-muted-foreground">
             Bulk import staff and managers from an Excel or CSV file
           </p>
         </div>
@@ -791,8 +792,8 @@ export default function MemberImportPage() {
       {phase === "upload" && (
         <div className="overflow-hidden rounded-xl border border-border bg-card">
           <div className="border-b border-border px-4 py-3">
-            <h3 className="text-[13px] font-semibold">Upload File</h3>
-            <p className="mt-0.5 text-[11px] text-muted-foreground">
+            <h3 className="text-sm font-semibold">Upload File</h3>
+            <p className="mt-0.5 text-xs text-muted-foreground">
               Upload an Excel (.xlsx) or CSV file with your team data
             </p>
           </div>
@@ -833,7 +834,7 @@ export default function MemberImportPage() {
                     Drag and drop your file here, or{" "}
                     <span className="text-indigo-600 dark:text-indigo-400 underline underline-offset-2">browse</span>
                   </p>
-                  <p className="mt-1.5 text-[11px] text-muted-foreground">
+                  <p className="mt-1.5 text-xs text-muted-foreground">
                     Supports .xlsx, .xls, and .csv — max 200 rows, 5 MB
                   </p>
                 </>
@@ -842,7 +843,7 @@ export default function MemberImportPage() {
                   <p className="text-sm font-medium text-muted-foreground">
                     Loading your departments and members…
                   </p>
-                  <p className="mt-1.5 text-[11px] text-muted-foreground">
+                  <p className="mt-1.5 text-xs text-muted-foreground">
                     Uploads are held until then so rows are checked against real data
                   </p>
                 </>
@@ -858,7 +859,7 @@ export default function MemberImportPage() {
                 <Download className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
                 Download Template
               </button>
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 {memberLimit !== null
                   ? `${currentMemberCount} of ${memberLimit} member slots used`
                   : `${currentMemberCount} members`}
@@ -866,7 +867,7 @@ export default function MemberImportPage() {
             </div>
 
             {/* Expected columns hint */}
-            <div className="rounded-lg bg-muted/40 p-3 text-[11px] text-muted-foreground">
+            <div className="rounded-lg bg-muted/40 p-3 text-xs text-muted-foreground">
               <p className="font-medium text-foreground text-xs mb-1">Expected columns</p>
               <p>
                 Name (required), Email (required), Role (staff or manager — defaults to staff),
@@ -894,26 +895,26 @@ export default function MemberImportPage() {
             {/* Card header */}
             <div className="flex flex-col gap-2 border-b border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <h3 className="text-[13px] font-semibold">Import Preview</h3>
-                <p className="mt-0.5 text-[11px] text-muted-foreground">{fileName} — {rows.length} rows parsed</p>
+                <h3 className="text-sm font-semibold">Import Preview</h3>
+                <p className="mt-0.5 text-xs text-muted-foreground">{fileName} — {rows.length} rows parsed</p>
               </div>
               {/* Status badges */}
               <div className="flex flex-wrap gap-1.5">
-                <span className="inline-flex items-center gap-1 rounded-md bg-green-100 px-2 py-0.5 text-[10px] font-semibold text-green-700 dark:bg-green-900/50 dark:text-green-300">
+                <span className="inline-flex items-center gap-1 rounded-md bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700 dark:bg-green-900/50 dark:text-green-300">
                   {validCount} ready
                 </span>
                 {correctedCount > 0 && (
-                  <span className="inline-flex items-center gap-1 rounded-md bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/50 dark:text-amber-300">
+                  <span className="inline-flex items-center gap-1 rounded-md bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:bg-amber-900/50 dark:text-amber-300">
                     {correctedCount} corrected
                   </span>
                 )}
                 {errorCount > 0 && (
-                  <span className="inline-flex items-center gap-1 rounded-md bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700 dark:bg-red-900/50 dark:text-red-300">
+                  <span className="inline-flex items-center gap-1 rounded-md bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700 dark:bg-red-900/50 dark:text-red-300">
                     {errorCount} errors
                   </span>
                 )}
                 {skippedCount > 0 && (
-                  <span className="inline-flex items-center gap-1 rounded-md bg-gray-100 px-2 py-0.5 text-[10px] font-semibold text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+                  <span className="inline-flex items-center gap-1 rounded-md bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-600 dark:bg-gray-800 dark:text-gray-300">
                     {skippedCount} skipped
                   </span>
                 )}
@@ -922,7 +923,7 @@ export default function MemberImportPage() {
 
             <div className="p-4 space-y-3">
               {/* Legend */}
-              <div className="flex flex-wrap gap-4 text-[11px] text-muted-foreground border-b border-border/50 pb-3">
+              <div className="flex flex-wrap gap-4 text-xs text-muted-foreground border-b border-border/50 pb-3">
                 <div className="flex items-center gap-1.5">
                   <span className="h-2.5 w-2.5 rounded-sm bg-green-200 dark:bg-green-800" />
                   Ready to import
@@ -939,7 +940,7 @@ export default function MemberImportPage() {
 
               {/* Column mapping banner */}
               {columnMappings.some((m) => m.method === "alias" || m.method === "ai") && (
-                <div className="rounded-lg bg-blue-50 dark:bg-blue-950/30 p-2.5 text-[11px] text-blue-700 dark:text-blue-300">
+                <div className="rounded-lg bg-blue-50 dark:bg-blue-950/30 p-2.5 text-xs text-blue-700 dark:text-blue-300">
                   <span className="font-semibold">Column mapping: </span>
                   {columnMappings
                     .filter((m) => m.method !== "exact")
@@ -957,13 +958,13 @@ export default function MemberImportPage() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-border bg-muted/30">
-                      <th className="px-3 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground w-10">#</th>
-                      <th className="px-3 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Name</th>
-                      <th className="px-3 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Email</th>
-                      <th className="px-3 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground w-28">Role</th>
-                      <th className="px-3 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Department</th>
-                      <th className="px-3 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground w-28">Type</th>
-                      <th className="px-3 py-2.5 text-center text-[10px] font-semibold uppercase tracking-wider text-muted-foreground w-16" />
+                      <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground w-10">#</th>
+                      <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Name</th>
+                      <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Email</th>
+                      <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground w-28">Role</th>
+                      <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Department</th>
+                      <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground w-28">Type</th>
+                      <th className="px-3 py-2.5 text-center text-xs font-semibold uppercase tracking-wider text-muted-foreground w-16" />
                     </tr>
                   </thead>
                   <tbody>
@@ -972,7 +973,7 @@ export default function MemberImportPage() {
                         key={row.rowNum}
                         className={`border-b border-border last:border-0 transition-colors ${rowBgClass(row)}`}
                       >
-                        <td className="px-3 py-2 text-[11px] text-muted-foreground">
+                        <td className="px-3 py-2 text-xs text-muted-foreground">
                           {row.rowNum}
                         </td>
 
@@ -992,13 +993,13 @@ export default function MemberImportPage() {
                                 }`}
                               />
                               {row.errors.name && (
-                                <p className="text-[10px] text-red-500 mt-0.5">
+                                <p className="text-xs text-red-500 mt-0.5">
                                   {row.errors.name}
                                 </p>
                               )}
                             </div>
                           ) : (
-                            <span className="text-[13px]">{row.name}</span>
+                            <span className="text-sm">{row.name}</span>
                           )}
                         </td>
 
@@ -1018,13 +1019,13 @@ export default function MemberImportPage() {
                                 }`}
                               />
                               {row.errors.email && (
-                                <p className="text-[10px] text-red-500 mt-0.5">
+                                <p className="text-xs text-red-500 mt-0.5">
                                   {row.errors.email}
                                 </p>
                               )}
                             </div>
                           ) : (
-                            <span className="text-[13px] text-muted-foreground">{row.email}</span>
+                            <span className="text-sm text-muted-foreground">{row.email}</span>
                           )}
                         </td>
 
@@ -1033,7 +1034,7 @@ export default function MemberImportPage() {
                           {correctionFor(row, "role") || row.status === "error" ? (
                             <div>
                               {correctionFor(row, "role") && (
-                                <span className="text-[10px] line-through text-muted-foreground mr-1">
+                                <span className="text-xs line-through text-muted-foreground mr-1">
                                   {correctionFor(row, "role")!.from}
                                 </span>
                               )}
@@ -1052,7 +1053,7 @@ export default function MemberImportPage() {
                               </select>
                             </div>
                           ) : (
-                            <span className="text-[13px]">{ROLE_DISPLAY[row.role] || row.role}</span>
+                            <span className="text-sm">{ROLE_DISPLAY[row.role] || row.role}</span>
                           )}
                         </td>
 
@@ -1063,7 +1064,7 @@ export default function MemberImportPage() {
                           row.status === "error" ? (
                             <div>
                               {correctionFor(row, "department") && (
-                                <span className="text-[10px] line-through text-muted-foreground mr-1">
+                                <span className="text-xs line-through text-muted-foreground mr-1">
                                   {correctionFor(row, "department")!.from}
                                 </span>
                               )}
@@ -1086,13 +1087,13 @@ export default function MemberImportPage() {
                                 ))}
                               </select>
                               {row.errors.department && (
-                                <p className="text-[10px] text-red-500 mt-0.5">
+                                <p className="text-xs text-red-500 mt-0.5">
                                   {row.errors.department}
                                 </p>
                               )}
                             </div>
                           ) : (
-                            <span className="text-[13px]">
+                            <span className="text-sm">
                               {row.department || (
                                 <span className="text-muted-foreground">—</span>
                               )}
@@ -1106,7 +1107,7 @@ export default function MemberImportPage() {
                           row.status === "error" ? (
                             <div>
                               {correctionFor(row, "employmentType") && (
-                                <span className="text-[10px] line-through text-muted-foreground mr-1">
+                                <span className="text-xs line-through text-muted-foreground mr-1">
                                   {correctionFor(row, "employmentType")!.from}
                                 </span>
                               )}
@@ -1129,7 +1130,7 @@ export default function MemberImportPage() {
                               </select>
                             </div>
                           ) : (
-                            <span className="text-[13px]">
+                            <span className="text-sm">
                               {EMPLOYMENT_DISPLAY[row.employmentType] ||
                               row.employmentType}
                             </span>
@@ -1140,7 +1141,7 @@ export default function MemberImportPage() {
                         <td className="px-3 py-2 text-center">
                           {row.skipped ? (
                             <button
-                              className="text-[10px] text-indigo-600 dark:text-indigo-400 underline underline-offset-2 font-medium"
+                              className="text-xs text-indigo-600 dark:text-indigo-400 underline underline-offset-2 font-medium"
                               onClick={() => toggleSkip(row.rowNum)}
                             >
                               undo
@@ -1148,22 +1149,22 @@ export default function MemberImportPage() {
                           ) : (
                             <div className="flex flex-col items-center gap-1">
                               {row.status === "valid" && (
-                                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-green-100 text-[10px] font-bold text-green-700 dark:bg-green-900/50 dark:text-green-300">
+                                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-green-100 text-xs font-bold text-green-700 dark:bg-green-900/50 dark:text-green-300">
                                   ✓
                                 </span>
                               )}
                               {row.status === "corrected" && (
-                                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-amber-100 text-[10px] font-bold text-amber-700 dark:bg-amber-900/50 dark:text-amber-300">
+                                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-amber-100 text-xs font-bold text-amber-700 dark:bg-amber-900/50 dark:text-amber-300">
                                   ✦
                                 </span>
                               )}
                               {row.status === "error" && (
                                 <>
-                                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-red-100 text-[10px] font-bold text-red-700 dark:bg-red-900/50 dark:text-red-300">
+                                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-red-100 text-xs font-bold text-red-700 dark:bg-red-900/50 dark:text-red-300">
                                     !
                                   </span>
                                   <button
-                                    className="text-[10px] text-muted-foreground underline underline-offset-2"
+                                    className="text-xs text-muted-foreground underline underline-offset-2"
                                     onClick={() => toggleSkip(row.rowNum)}
                                   >
                                     skip
@@ -1181,7 +1182,7 @@ export default function MemberImportPage() {
 
               {/* Footer actions */}
               <div className="flex flex-col gap-2 border-t border-border/50 pt-3 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-xs text-muted-foreground">
                   {memberLimit !== null
                     ? `${currentMemberCount} of ${memberLimit} member slots used — importing ${importableCount}`
                     : `${currentMemberCount} current members — importing ${importableCount}`}
@@ -1224,7 +1225,7 @@ export default function MemberImportPage() {
             <p className="text-sm font-medium text-foreground">
               Importing {importableCount} members…
             </p>
-            <p className="mt-1 text-[11px] text-muted-foreground">
+            <p className="mt-1 text-xs text-muted-foreground">
               Sending invitations and creating accounts
             </p>
           </div>
@@ -1237,7 +1238,7 @@ export default function MemberImportPage() {
       {phase === "complete" && importResults && (
         <div className="overflow-hidden rounded-xl border border-border bg-card">
           <div className="border-b border-border px-4 py-3">
-            <h3 className="text-[13px] font-semibold">Import Complete</h3>
+            <h3 className="text-sm font-semibold">Import Complete</h3>
           </div>
           <div className="p-4 space-y-4">
             {/* Result tiles */}
@@ -1266,7 +1267,7 @@ export default function MemberImportPage() {
               <div className="rounded-lg bg-red-50 dark:bg-red-950/20 p-3 space-y-1">
                 <p className="text-xs font-semibold text-red-700 dark:text-red-400">Errors</p>
                 {importResults.errors.map((err, i) => (
-                  <p key={i} className="text-[11px] text-red-600 dark:text-red-400">
+                  <p key={i} className="text-xs text-red-600 dark:text-red-400">
                     {err}
                   </p>
                 ))}

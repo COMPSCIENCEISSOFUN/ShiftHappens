@@ -16,8 +16,10 @@
  */
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
+  CircleCheck,
   CircleHelp,
   ClipboardList,
   Clock,
@@ -430,6 +432,7 @@ interface AdminDashboardProps {
 }
 
 export default function AdminDashboard({ orgId, orgName, userName }: AdminDashboardProps) {
+  const searchParams = useSearchParams();
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -455,6 +458,36 @@ export default function AdminDashboard({ orgId, orgName, userName }: AdminDashbo
    * recipient gets three notifications.
    */
   const [nudged, setNudged] = useState<Record<string, "sending" | "sent">>({});
+
+  /*
+   * Which half of the dashboard is on screen.
+   *
+   * ## Why two views rather than one long page
+   *
+   * The page answered two questions at once — "is today covered?" and "how are
+   * we doing?" — with twelve regions at identical visual weight, so the eye had
+   * nowhere to land and every visit meant reading all of it. They are different
+   * questions asked at different frequencies: coverage every morning, trends
+   * occasionally.
+   *
+   * ## Why tabs and not a second route
+   *
+   * A separate page is only found by people who already know it exists, and
+   * this one is opened by every user. A tab is visible from where they already
+   * are. It also matches the status pills on Tasks, which is the pattern this
+   * product already uses for "same data, different slice".
+   *
+   * ## Why it lives in the URL
+   *
+   * So a link to the trends view is a link to the trends view. Read once on
+   * mount rather than kept in sync both ways — a tab that rewrites history on
+   * every click turns the back button into an undo button for a segmented
+   * control, which is not what anybody presses it for.
+   */
+  const [view, setView] = useState<"today" | "trends">(
+    () => (searchParams?.get("view") === "trends" ? "trends" : "today")
+  );
+  const trendsRequested = useRef(false);
   const [leave, setLeave] = useState<PendingLeave[]>([]);
 
   async function sendNudge(key: string, url: string) {
@@ -474,13 +507,36 @@ export default function AdminDashboard({ orgId, orgName, userName }: AdminDashbo
     }
   }
 
+  /*
+   * Today's data on mount. The trend data is NOT fetched here.
+   *
+   * `fetchEngineReport` asks for thirty days of allocation history and
+   * `fetchFeedbackThemes` summarises free text — the two slowest calls this
+   * page makes, and neither says anything about whether today is covered.
+   * Every user opens this page daily to answer that one question, so paying
+   * for both on every visit was paying for a report almost nobody had scrolled
+   * to. They now run the first time somebody opens Trends.
+   */
   useEffect(() => {
     fetchDashboard();
     fetchAIRecommendations();
-    fetchFeedbackThemes();
     fetchLeave();
-    fetchEngineReport();
   }, [orgId]);
+
+  /*
+   * Trend data, once, the first time that tab is opened.
+   *
+   * `trendsRequested` rather than `engine === null`: a report that legitimately
+   * comes back empty would otherwise be re-requested on every switch back, and
+   * a failed one would retry forever. This asks once and lets the panels show
+   * their own empty state.
+   */
+  useEffect(() => {
+    if (view !== "trends" || trendsRequested.current) return;
+    trendsRequested.current = true;
+    fetchFeedbackThemes();
+    fetchEngineReport();
+  }, [view]);
 
   async function fetchDashboard() {
     try {
@@ -619,15 +675,6 @@ export default function AdminDashboard({ orgId, orgName, userName }: AdminDashbo
   return (
     <div>
       {/* ════════════════════════════════════════════════════ */}
-      {/* 0. Leave awaiting a decision                        */}
-      {/* ════════════════════════════════════════════════════ */}
-      {leave.length > 0 && (
-        <div className="mb-7">
-          <LeaveRequestsPanel requests={leave} onDecide={decideLeave} />
-        </div>
-      )}
-
-      {/* ════════════════════════════════════════════════════ */}
       {/* 1. Greeting + Status Pill + page actions            */}
       {/*                                                     */}
       {/* The export button sits with the greeting rather     */}
@@ -645,7 +692,7 @@ export default function AdminDashboard({ orgId, orgName, userName }: AdminDashbo
             Here&apos;s what needs your attention at {orgName} today.
           </p>
           <div
-            className={`mt-3 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[13px] font-medium ${
+            className={`mt-3 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-medium ${
               status.severity === "good"
                 ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-400"
                 : status.severity === "warn"
@@ -661,10 +708,71 @@ export default function AdminDashboard({ orgId, orgName, userName }: AdminDashbo
         <ExportReportButton orgId={orgId} />
       </div>
 
+      {/*
+        Today / Trends.
+
+        Deliberately the same shape as the status pills on Tasks — this product
+        already has a control that means "same subject, different slice", and
+        inventing a second one for the same job is how two pages come to feel
+        like two products.
+
+        The counter beside Today is the number of things actually waiting, so
+        the tab itself answers the question most people opened the page to ask
+        before they have read anything else on it.
+      */}
+      <div className="mb-5 flex items-center gap-2" role="tablist" aria-label="Dashboard view">
+        {([
+          { id: "today" as const, label: "Today", count: actionItems.length },
+          { id: "trends" as const, label: "Trends", count: null },
+        ]).map((tab) => (
+          <button
+            key={tab.id}
+            role="tab"
+            aria-selected={view === tab.id}
+            onClick={() => setView(tab.id)}
+            className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-sm font-medium transition-all ${
+              view === tab.id
+                ? "border-indigo-600 bg-indigo-600 text-white shadow-sm"
+                : "border-border bg-card text-muted-foreground hover:border-indigo-300 hover:text-foreground"
+            }`}
+          >
+            {tab.label}
+            {tab.count !== null && tab.count > 0 && (
+              <span
+                className={`rounded-full px-1.5 text-xs font-semibold ${
+                  view === tab.id
+                    ? "bg-white/20 text-white"
+                    : "bg-muted text-muted-foreground"
+                }`}
+              >
+                {tab.count}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {/* ════════════════════════════════════════════════════ */}
+      {/* 0. Leave awaiting a decision                        */}
+      {/*                                                     */}
+      {/* First thing under the tabs, because it is the only  */}
+      {/* item on this page where somebody else is blocked    */}
+      {/* until the reader acts.                              */}
+      {/* ════════════════════════════════════════════════════ */}
+      {view === "today" && leave.length > 0 && (
+        <div className="mb-7">
+          <LeaveRequestsPanel requests={leave} onDecide={decideLeave} />
+        </div>
+      )}
+
       {/* ════════════════════════════════════════════════════ */}
       {/* 2. Action Items + Inline AI Suggestions             */}
+      {/*                                                     */}
+      {/* The primary read. This is the section the Today tab */}
+      {/* exists to put in front of somebody, and the count   */}
+      {/* on that tab is this list's length.                  */}
       {/* ════════════════════════════════════════════════════ */}
-      {actionItems.length > 0 && (
+      {view === "today" && actionItems.length > 0 && (
         <CollapsibleSection
           title="Needs your action"
           storageKey="dashboard-needs-action"
@@ -686,13 +794,13 @@ export default function AdminDashboard({ orgId, orgName, userName }: AdminDashbo
             back, not on `unavailable` alone.
           */}
           {priorityUnavailable && priority && (
-            <p className="mb-2 text-[12px] text-muted-foreground">
+            <p className="mb-2 text-xs text-muted-foreground">
               The assistant is unavailable, so this is simply the most serious
               item on the list — picked by rule, not by the engine.
             </p>
           )}
           {priorityUnavailable && !priority && (
-            <p className="mb-2 text-[12px] text-muted-foreground">
+            <p className="mb-2 text-xs text-muted-foreground">
               The assistant couldn&apos;t suggest where to start right now. The
               list below is complete and in its usual order.
             </p>
@@ -754,7 +862,7 @@ export default function AdminDashboard({ orgId, orgName, userName }: AdminDashbo
                       the row's words are still ours.
                     */}
                     {isPicked && (
-                      <span className="ml-1.5 inline-flex items-center gap-0.5 rounded-[5px] bg-indigo-50 px-[7px] py-0.5 align-middle text-[10px] font-bold text-indigo-600 dark:bg-indigo-950 dark:text-indigo-400">
+                      <span className="ml-1.5 inline-flex items-center gap-0.5 rounded-[5px] bg-indigo-50 px-[7px] py-0.5 align-middle text-xs font-bold text-indigo-600 dark:bg-indigo-950 dark:text-indigo-400">
                         START HERE
                       </span>
                     )}
@@ -766,7 +874,7 @@ export default function AdminDashboard({ orgId, orgName, userName }: AdminDashbo
                     only repeat or contradict them, which it did.
                   */}
                   {isPicked && priority?.reason && (
-                    <p className="mt-0.5 text-[13px] text-muted-foreground">
+                    <p className="mt-0.5 text-sm text-muted-foreground">
                       {priority.reason}
                     </p>
                   )}
@@ -816,6 +924,32 @@ export default function AdminDashboard({ orgId, orgName, userName }: AdminDashbo
         </CollapsibleSection>
       )}
 
+      {/*
+        Nothing waiting — said out loud rather than left as a gap.
+
+        With the action list and the leave queue both empty, Today would
+        otherwise open on a schedule card and no explanation, which reads as a
+        page that failed to load rather than as good news. This is the answer to
+        the question the tab was opened to ask.
+      */}
+      {view === "today" && actionItems.length === 0 && leave.length === 0 && (
+        <div className="mb-7 flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50/70 px-4 py-3.5 dark:border-emerald-900 dark:bg-emerald-950/40">
+          <CircleCheck
+            className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400"
+            aria-hidden="true"
+          />
+          <div>
+            <p className="text-sm font-medium text-emerald-900 dark:text-emerald-200">
+              Nothing needs you right now
+            </p>
+            <p className="mt-0.5 text-xs text-emerald-800 dark:text-emerald-300">
+              No unfilled shifts, no approvals waiting. Tomorrow&apos;s schedule
+              is below.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* ════════════════════════════════════════════════════ */}
       {/* 2b. What staff are saying                           */}
       {/*                                                     */}
@@ -832,7 +966,9 @@ export default function AdminDashboard({ orgId, orgName, userName }: AdminDashbo
         given — without this, an empty result, a failed model call and an org
         with no feedback at all looked identical on screen.
       */}
-      {feedback && feedback.basedOn >= 5 && (
+      {/* Trends: what people said is something to KNOW, and the fetch behind
+          it is one of the two deferred until this tab is opened. */}
+      {view === "trends" && feedback && feedback.basedOn >= 5 && (
         <CollapsibleSection
           title="What staff are saying"
           storageKey="dashboard-feedback-themes"
@@ -872,10 +1008,10 @@ export default function AdminDashboard({ orgId, orgName, userName }: AdminDashbo
                       paraphrase shown inside quotation marks would put
                       sentences in someone's mouth.
                     */}
-                    <p className="text-[13px] italic leading-snug text-foreground">
+                    <p className="text-sm italic leading-snug text-foreground">
                       &ldquo;{quote.text}&rdquo;
                     </p>
-                    <p className="mt-0.5 text-[11px] text-muted-foreground">
+                    <p className="mt-0.5 text-xs text-muted-foreground">
                       {quote.context}
                     </p>
                   </div>
@@ -893,12 +1029,12 @@ export default function AdminDashboard({ orgId, orgName, userName }: AdminDashbo
           */}
           {feedback.themes.length === 0 &&
             (feedback.unavailable ? (
-              <p className="rounded-xl border border-dashed border-amber-300 px-3.5 py-3 text-[13px] text-amber-700 dark:border-amber-800 dark:text-amber-400">
+              <p className="rounded-xl border border-dashed border-amber-300 px-3.5 py-3 text-sm text-amber-700 dark:border-amber-800 dark:text-amber-400">
                 Couldn&apos;t read the comments right now — the assistant did not
                 answer. Nothing has been analysed; try again shortly.
               </p>
             ) : (
-              <p className="rounded-xl border border-dashed border-border px-3.5 py-3 text-[13px] text-muted-foreground">
+              <p className="rounded-xl border border-dashed border-border px-3.5 py-3 text-sm text-muted-foreground">
                 Nothing recurring in what people wrote — the comments did not
                 group into a shared subject.
               </p>
@@ -908,83 +1044,101 @@ export default function AdminDashboard({ orgId, orgName, userName }: AdminDashbo
 
       {/* ════════════════════════════════════════════════════ */}
       {/* 3. Key Metric Stat Tiles                            */}
+      {/*                                                     */}
+      {/* Trends. These are period figures — how much got     */}
+      {/* done, how utilisation moved — not the state of      */}
+      {/* today, which is what the tab above them answers.    */}
       {/* ════════════════════════════════════════════════════ */}
-      {data.keyMetrics && (
+      {view === "trends" && data.keyMetrics && (
         <MetricsTiles metrics={data.keyMetrics} completionChart={data.completionChart} />
       )}
 
       {/* ════════════════════════════════════════════════════ */}
-      {/* 4. Three-Column Chart Row                           */}
-      {/* ════════════════════════════════════════════════════ */}
-      <div className="mb-8 grid gap-4 md:grid-cols-3">
-        {/* Completions this week */}
-        <Card className="overflow-hidden">
-          <CardHeader className="flex flex-row items-center justify-between pb-3">
-            <CardTitle className="text-sm font-bold">
-              Completions this week
-            </CardTitle>
-            {data.completionChart && (
-              <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-600 dark:bg-emerald-950 dark:text-emerald-400">
-                {data.completionChart.reduce((s, d) => s + d.count, 0)} total
+      {/*
+        4. The chart row, split by which question it answers.
+
+        These three sat side by side as equals. Two of them look backwards —
+        what got done this week, how the departments compare — and one looks at
+        the shift somebody has to staff by tomorrow morning. Tomorrow's schedule
+        therefore goes to Today, where it is read, and the other two stay with
+        the rest of the analysis.
+      */}
+      {view === "today" && (
+        <div className="mb-8">
+          <Card className="overflow-hidden">
+            <CardHeader className="flex flex-row items-center justify-between pb-3">
+              <CardTitle className="text-sm font-bold">
+                Tomorrow&apos;s schedule
+              </CardTitle>
+              {data.tomorrowsSchedule && (
+                <span className="rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-semibold text-indigo-700 dark:bg-indigo-950 dark:text-indigo-400">
+                  {data.tomorrowsSchedule.length} task{data.tomorrowsSchedule.length !== 1 ? "s" : ""}
+                </span>
+              )}
+            </CardHeader>
+            <CardContent>
+              <TomorrowsList tasks={data.tomorrowsSchedule} orgId={orgId} />
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {view === "trends" && (
+        <div className="mb-8 grid gap-4 md:grid-cols-2">
+          {/* Completions this week */}
+          <Card className="overflow-hidden">
+            <CardHeader className="flex flex-row items-center justify-between pb-3">
+              <CardTitle className="text-sm font-bold">
+                Completions this week
+              </CardTitle>
+              {data.completionChart && (
+                <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-600 dark:bg-emerald-950 dark:text-emerald-400">
+                  {data.completionChart.reduce((s, d) => s + d.count, 0)} total
+                </span>
+              )}
+            </CardHeader>
+            <CardContent>
+              <CompletionChart days={data.completionChart} />
+            </CardContent>
+          </Card>
+
+          {/* Department workload */}
+          <Card className="overflow-hidden">
+            <CardHeader className="flex flex-row items-center justify-between pb-3">
+              <CardTitle className="text-sm font-bold">
+                Department workload
+              </CardTitle>
+              <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-semibold text-muted-foreground">
+                this week
               </span>
-            )}
-          </CardHeader>
-          <CardContent>
-            <CompletionChart days={data.completionChart} />
-          </CardContent>
-        </Card>
+            </CardHeader>
+            <CardContent>
+              <WorkloadBars departments={data.departmentWorkload} />
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
-        {/* Tomorrow's schedule */}
-        <Card className="overflow-hidden">
-          <CardHeader className="flex flex-row items-center justify-between pb-3">
-            <CardTitle className="text-sm font-bold">
-              Tomorrow&apos;s schedule
-            </CardTitle>
-            {data.tomorrowsSchedule && (
-              <span className="rounded-full bg-indigo-50 px-2.5 py-0.5 text-[11px] font-semibold text-indigo-700 dark:bg-indigo-950 dark:text-indigo-400">
-                {data.tomorrowsSchedule.length} task{data.tomorrowsSchedule.length !== 1 ? "s" : ""}
+      {/* ════════════════════════════════════════════════════ */}
+      {/* 5. Staff Utilization — a 7-day average, so Trends.  */}
+      {/* ════════════════════════════════════════════════════ */}
+      {view === "trends" && (
+        <div className="mb-8 grid gap-4 md:grid-cols-2">
+          <Card className="overflow-hidden">
+            <CardHeader className="flex flex-row items-center justify-between pb-3">
+              <CardTitle className="text-sm font-bold">
+                Staff utilization
+              </CardTitle>
+              <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-semibold text-muted-foreground">
+                7-day avg
               </span>
-            )}
-          </CardHeader>
-          <CardContent>
-            <TomorrowsList tasks={data.tomorrowsSchedule} orgId={orgId} />
-          </CardContent>
-        </Card>
-
-        {/* Department workload */}
-        <Card className="overflow-hidden">
-          <CardHeader className="flex flex-row items-center justify-between pb-3">
-            <CardTitle className="text-sm font-bold">
-              Department workload
-            </CardTitle>
-            <span className="rounded-full bg-muted px-2.5 py-0.5 text-[11px] font-semibold text-muted-foreground">
-              this week
-            </span>
-          </CardHeader>
-          <CardContent>
-            <WorkloadBars departments={data.departmentWorkload} />
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* ════════════════════════════════════════════════════ */}
-      {/* 5. Staff Utilization                                */}
-      {/* ════════════════════════════════════════════════════ */}
-      <div className="mb-8 grid gap-4 md:grid-cols-2">
-        <Card className="overflow-hidden">
-          <CardHeader className="flex flex-row items-center justify-between pb-3">
-            <CardTitle className="text-sm font-bold">
-              Staff utilization
-            </CardTitle>
-            <span className="rounded-full bg-muted px-2.5 py-0.5 text-[11px] font-semibold text-muted-foreground">
-              7-day avg
-            </span>
-          </CardHeader>
-          <CardContent>
-            <UtilizationBars staff={data.staffUtilization} />
-          </CardContent>
-        </Card>
-      </div>
+            </CardHeader>
+            <CardContent>
+              <UtilizationBars staff={data.staffUtilization} />
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* ════════════════════════════════════════════════════ */}
       {/* 6. Engine charts                                    */}
@@ -996,7 +1150,7 @@ export default function AdminDashboard({ orgId, orgName, userName }: AdminDashbo
       {/* above and belong in the same place. Which engine    */}
       {/* produced each one is on the panel itself.           */}
       {/* ════════════════════════════════════════════════════ */}
-      {engine && (
+      {view === "trends" && engine && (
         <div className="mb-8 space-y-4">
           <div className="grid gap-4 lg:grid-cols-2">
             <AllocationEnginePanel stats={engine.allocation} />
@@ -1021,7 +1175,7 @@ export default function AdminDashboard({ orgId, orgName, userName }: AdminDashbo
         </div>
       )}
 
-      {engineLoading && !engine && (
+      {view === "trends" && engineLoading && !engine && (
         <div className="mb-6 h-10 rounded-xl bg-muted/40 animate-pulse" />
       )}
     </div>
@@ -1067,10 +1221,10 @@ function MetricsTiles({
         <p className="text-xs font-semibold uppercase tracking-[0.04em] text-muted-foreground">
           Completion rate
         </p>
-        <p className="mt-1 text-[32px] font-bold leading-none text-foreground">
+        <p className="mt-1 text-3xl font-bold leading-none text-foreground">
           {completionRate.current}%
         </p>
-        <p className="mt-1.5 flex items-center gap-1.5 text-[13px] text-muted-foreground">
+        <p className="mt-1.5 flex items-center gap-1.5 text-sm text-muted-foreground">
           <span
             className={`font-semibold ${
               completionRate.trend === "up"
@@ -1111,10 +1265,10 @@ function MetricsTiles({
         <p className="text-xs font-semibold uppercase tracking-[0.04em] text-muted-foreground">
           Hours this week
         </p>
-        <p className="mt-1 text-[32px] font-bold leading-none text-foreground">
+        <p className="mt-1 text-3xl font-bold leading-none text-foreground">
           {hoursLogged.hours}h
         </p>
-        <p className="mt-1.5 text-[13px] text-muted-foreground">
+        <p className="mt-1.5 text-sm text-muted-foreground">
           of {hoursLogged.capacity}h capacity
         </p>
         <div
@@ -1128,7 +1282,7 @@ function MetricsTiles({
             }}
           />
         </div>
-        <p className="mt-1 text-right text-[11px] text-muted-foreground">
+        <p className="mt-1 text-right text-xs text-muted-foreground">
           {capacityPct}% utilization
         </p>
       </div>
@@ -1138,7 +1292,7 @@ function MetricsTiles({
         <p className="text-xs font-semibold uppercase tracking-[0.04em] text-muted-foreground">
           Assignment pipeline
         </p>
-        <p className="mt-1 text-[32px] font-bold leading-none text-foreground">
+        <p className="mt-1 text-3xl font-bold leading-none text-foreground">
           {pipeline.total}
         </p>
         {/* Stacked bar */}
@@ -1235,7 +1389,7 @@ function CompletionChart({ days }: { days: CompletionDay[] | null }) {
               key={day.date}
               className="flex flex-1 flex-col items-center gap-1"
             >
-              <span className="text-[10px] font-semibold text-muted-foreground">
+              <span className="text-xs font-semibold text-muted-foreground">
                 {day.count > 0 ? day.count : isFuture ? "–" : "0"}
               </span>
               <div
@@ -1253,7 +1407,7 @@ function CompletionChart({ days }: { days: CompletionDay[] | null }) {
                 }}
               />
               <span
-                className={`text-[10px] ${
+                className={`text-xs ${
                   isToday
                     ? "font-semibold text-indigo-600 dark:text-indigo-400"
                     : "text-muted-foreground"
@@ -1299,7 +1453,7 @@ function TomorrowsList({
               backgroundColor: task.departmentColor || "#94A3B8",
             }}
           />
-          <span className="flex-1 truncate text-[13px] font-medium text-foreground">
+          <span className="flex-1 truncate text-sm font-medium text-foreground">
             {task.title}
           </span>
           {task.timeRange && (
@@ -1309,12 +1463,12 @@ function TomorrowsList({
           )}
           {task.isUnderstaffed ? (
             <Link href={`/org/${orgId}/tasks`}>
-              <span className="rounded-md bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-600 dark:bg-red-950 dark:text-red-400">
+              <span className="rounded-md bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-600 dark:bg-red-950 dark:text-red-400">
                 needs {task.requiredHeadcount - task.assignedCount}
               </span>
             </Link>
           ) : (
-            <span className="rounded-md bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-600 dark:bg-emerald-950 dark:text-emerald-400">
+            <span className="rounded-md bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-600 dark:bg-emerald-950 dark:text-emerald-400">
               staffed
             </span>
           )}
@@ -1352,7 +1506,7 @@ function WorkloadBars({
               className="h-2.5 w-2.5 shrink-0 rounded-sm"
               style={{ backgroundColor: dept.color }}
             />
-            <span className="truncate text-[12px] md:text-[13px] font-medium text-foreground">
+            <span className="truncate text-xs md:text-sm font-medium text-foreground">
               {dept.name}
             </span>
           </div>
@@ -1398,7 +1552,7 @@ function UtilizationBars({
     <div className="space-y-1">
       {staff.slice(0, 8).map((s) => (
         <div key={s.membershipId} className="flex items-center gap-2.5 py-1">
-          <span className="w-[100px] truncate text-[13px] font-medium text-foreground">
+          <span className="w-[100px] truncate text-sm font-medium text-foreground">
             {s.name}
           </span>
           <div className="flex-1 h-1.5 overflow-hidden rounded-full bg-muted">

@@ -82,19 +82,19 @@ export function ShiftRating({
   if (!editing && value !== null) {
     return (
       <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2">
-        <span className="text-[11px] font-medium text-muted-foreground">
+        <span className="text-xs font-medium text-muted-foreground">
           You rated this
         </span>
         <StarRatingDisplay value={value} />
         {comment && (
-          <span className="text-[11px] italic text-muted-foreground">
+          <span className="text-xs italic text-muted-foreground">
             &ldquo;{comment}&rdquo;
           </span>
         )}
         <button
           type="button"
           onClick={() => setEditing(true)}
-          className="ml-auto text-[11px] font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+          className="ml-auto text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
         >
           Change
         </button>
@@ -104,7 +104,7 @@ export function ShiftRating({
 
   return (
     <div className="mt-3 rounded-lg border border-border bg-muted/30 p-3">
-      <p className="mb-2 flex items-center gap-1.5 text-[12px] font-medium">
+      <p className="mb-2 flex items-center gap-1.5 text-xs font-medium">
         <Star className="h-3.5 w-3.5 text-amber-500" aria-hidden="true" />
         How was this shift?
         <span className="font-normal text-muted-foreground">Optional</span>
@@ -116,7 +116,7 @@ export function ShiftRating({
         <div className="mt-3 space-y-2">
           <label
             htmlFor={`comment-${assignmentId}`}
-            className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground"
+            className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground"
           >
             <MessageSquare className="h-3 w-3" aria-hidden="true" />
             Anything your manager should know?
@@ -149,7 +149,7 @@ export function ShiftRating({
                   setEditing(false);
                   setError(null);
                 }}
-                className="text-[11px] font-medium text-muted-foreground hover:text-foreground"
+                className="text-xs font-medium text-muted-foreground hover:text-foreground"
               >
                 Cancel
               </button>
@@ -159,7 +159,7 @@ export function ShiftRating({
       )}
 
       {error && (
-        <p role="alert" className="mt-2 text-[11px] text-red-600 dark:text-red-400">
+        <p role="alert" className="mt-2 text-xs text-red-600 dark:text-red-400">
           {error}
         </p>
       )}

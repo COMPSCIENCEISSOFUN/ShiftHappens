@@ -37,6 +37,7 @@ import { MEMBER_LIST_READERS } from "@/lib/permissions";
 import { MemberEditDrawer } from "@/components/members/member-edit-drawer";
 import { PRIMARY_BUTTON, SECONDARY_BUTTON } from "@/components/ui/button-styles";
 import { cn } from "@/lib/utils";
+import { apiErrorMessage } from "@/lib/api-error";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -264,7 +265,7 @@ export default function MembersPage() {
       );
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        setError(body.error || "Could not send the request");
+        setError(apiErrorMessage(body, "Could not send the request"));
         return;
       }
       toast.success("Asked them to review their availability");
@@ -366,7 +367,9 @@ export default function MembersPage() {
       // which is where the shared helper came from.
       const result = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(result.error || `Failed to send invitation (${res.status})`);
+        setError(
+          apiErrorMessage(result, `Failed to send invitation (${res.status})`)
+        );
         return;
       }
       toast.success(`Invitation sent to ${formData.get("email")}`);
@@ -511,8 +514,8 @@ export default function MembersPage() {
       {/* ── Header ── */}
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-xl font-bold tracking-tight sm:text-2xl">Members</h2>
-          <p className="mt-0.5 text-[13px] text-muted-foreground">
+          <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Members</h1>
+          <p className="mt-0.5 text-sm text-muted-foreground">
             Manage your organisation&apos;s team members and invitations
           </p>
         </div>
@@ -639,7 +642,7 @@ export default function MembersPage() {
           {hasActiveFilters && (
             <button
               onClick={() => { setSearch(""); setFilterRole(""); setFilterEmpType(""); setFilterDept(""); setFilterStatus(""); }}
-              className="rounded-lg border border-border bg-card px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+              className="rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
             >
               Clear
             </button>
@@ -649,7 +652,7 @@ export default function MembersPage() {
 
       {/* ── Result count ── */}
       {hasActiveFilters && (
-        <p className="mb-2 text-[12px] text-muted-foreground">
+        <p className="mb-2 text-xs text-muted-foreground">
           Showing {filteredMembers.length} of {members.length} member{members.length !== 1 ? "s" : ""}
         </p>
       )}
@@ -658,8 +661,8 @@ export default function MembersPage() {
       {showInvite && canInvite && (
         <div className="mb-4 overflow-hidden rounded-xl border border-border bg-card">
           <div className="border-b border-border px-4 py-3">
-            <h3 className="text-[13px] font-semibold">Invite User</h3>
-            <p className="mt-0.5 text-[11px] text-muted-foreground">Send an invitation email to add a new member</p>
+            <h3 className="text-sm font-semibold">Invite User</h3>
+            <p className="mt-0.5 text-xs text-muted-foreground">Send an invitation email to add a new member</p>
           </div>
           <form onSubmit={onInviteUser} className="p-4">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -728,10 +731,10 @@ export default function MembersPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border bg-muted/30">
-                    <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Email</th>
-                    <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Role</th>
-                    <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Invited by</th>
-                    <th className="px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Expires</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Email</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Role</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Invited by</th>
+                    <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Expires</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -742,12 +745,12 @@ export default function MembersPage() {
                           <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300">
                             <Mail className="h-3.5 w-3.5" />
                           </div>
-                          <span className="text-[13px] font-medium">{invitation.email}</span>
+                          <span className="text-sm font-medium">{invitation.email}</span>
                         </div>
                       </td>
                       <td className="px-4 py-3"><StatusBadge value={invitation.role} palette="role" /></td>
-                      <td className="px-4 py-3 text-[13px] text-muted-foreground">{invitation.invitedBy.name || invitation.invitedBy.email}</td>
-                      <td className="px-4 py-3 text-right text-[13px] text-muted-foreground">{new Date(invitation.expires).toLocaleDateString()}</td>
+                      <td className="px-4 py-3 text-sm text-muted-foreground">{invitation.invitedBy.name || invitation.invitedBy.email}</td>
+                      <td className="px-4 py-3 text-right text-sm text-muted-foreground">{new Date(invitation.expires).toLocaleDateString()}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -761,7 +764,7 @@ export default function MembersPage() {
                     <p className="truncate text-sm font-medium">{invitation.email}</p>
                     <div className="mt-1 flex items-center gap-1.5">
                       <StatusBadge value={invitation.role} palette="role" />
-                      <span className="text-[10px] text-muted-foreground">expires {new Date(invitation.expires).toLocaleDateString()}</span>
+                      <span className="text-xs text-muted-foreground">expires {new Date(invitation.expires).toLocaleDateString()}</span>
                     </div>
                   </div>
                 </div>
@@ -778,12 +781,12 @@ export default function MembersPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/30">
-                <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Member</th>
-                <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Role</th>
-                <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Type</th>
-                <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Seniority</th>
-                <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Department</th>
-                <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Status</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Member</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Role</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Type</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Seniority</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Department</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Status</th>
               </tr>
             </thead>
             <tbody>
@@ -844,18 +847,18 @@ export default function MembersPage() {
                               <button
                                 onClick={() => setEditingId(member.id)}
                                 aria-label={`Edit ${member.user.name || member.user.email}`}
-                                className="truncate rounded text-left text-[13px] font-medium underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500"
+                                className="truncate rounded text-left text-sm font-medium underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500"
                               >
                                 {member.user.name || "Unnamed"}
                               </button>
                             ) : (
-                              <p className="truncate text-[13px] font-medium">{member.user.name || "Unnamed"}</p>
+                              <p className="truncate text-sm font-medium">{member.user.name || "Unnamed"}</p>
                             )}
                             {isSelf && (
-                              <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">you</span>
+                              <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">you</span>
                             )}
                           </div>
-                          <p className="truncate text-[11px] text-muted-foreground">{member.user.email}</p>
+                          <p className="truncate text-xs text-muted-foreground">{member.user.email}</p>
                         </div>
                       </div>
                     </td>
@@ -877,11 +880,11 @@ export default function MembersPage() {
                             */}
                             <span
                               aria-hidden="true"
-                              className="text-[11px] font-medium text-muted-foreground"
+                              className="text-xs font-medium text-muted-foreground"
                             >
                               +
                             </span>
-                            <span className="inline-flex items-center gap-1 rounded-full bg-purple-100 px-2 py-0.5 text-[10px] font-medium text-purple-700 dark:bg-purple-900/40 dark:text-purple-300">
+                            <span className="inline-flex items-center gap-1 rounded-full bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-700 dark:bg-purple-900/40 dark:text-purple-300">
                               <Sparkles className="h-3 w-3 shrink-0" aria-hidden="true" />
                               {member.customRole.displayLabel}
                             </span>
@@ -890,7 +893,7 @@ export default function MembersPage() {
                       </div>
                     </td>
                     <td className="px-4 py-3">
-                      <span className="text-[12px] text-muted-foreground">
+                      <span className="text-xs text-muted-foreground">
                         {/*
                           A dash meant "not applicable", and it was shown for
                           every manager — who can be rostered, and for whom the
@@ -909,10 +912,10 @@ export default function MembersPage() {
                         number with nothing behind it and nothing reading it.
                       */}
                       {member.role === "company_admin" || !seniority[member.id] ? (
-                        <span className="text-[12px] text-muted-foreground">—</span>
+                        <span className="text-xs text-muted-foreground">—</span>
                       ) : (
                         <div>
-                          <p className="text-[12px]">
+                          <p className="text-xs">
                             {SENIORITY_LABEL[seniority[member.id].level] ?? ""}
                           </p>
                           {/*
@@ -922,7 +925,7 @@ export default function MembersPage() {
                             unexplained assertion, and hiding the count behind a
                             click would make it one.
                           */}
-                          <p className="text-[10px] text-muted-foreground">
+                          <p className="text-xs text-muted-foreground">
                             {seniority[member.id].explanation}
                           </p>
                         </div>
@@ -930,7 +933,7 @@ export default function MembersPage() {
                     </td>
                     <td className="px-4 py-3">
                       {/* Every department, not just the first — see onToggleDepartment. */}
-                      <span className="text-[12px] text-muted-foreground">
+                      <span className="text-xs text-muted-foreground">
                         {memberDeptIds.length === 0
                           ? "None"
                           : member.departmentMemberships
@@ -977,7 +980,7 @@ export default function MembersPage() {
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5">
                       <p className="truncate text-sm font-medium">{member.user.name || "Unnamed"}</p>
-                      {isSelf && <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">you</span>}
+                      {isSelf && <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">you</span>}
                     </div>
                     <p className="truncate text-xs text-muted-foreground">{member.user.email}</p>
                     <div className="mt-2 flex flex-wrap items-center gap-1.5">
@@ -988,12 +991,12 @@ export default function MembersPage() {
                         left off than shown as an assumed "Casual" beside a name.
                       */}
                       {canBeRostered(member.role) && member.employmentType && (
-                        <span className="rounded-full bg-blue-100 dark:bg-blue-900/40 px-2 py-0.5 text-[10px] font-medium text-blue-700 dark:text-blue-300">
+                        <span className="rounded-full bg-blue-100 dark:bg-blue-900/40 px-2 py-0.5 text-xs font-medium text-blue-700 dark:text-blue-300">
                           {EMPLOYMENT_TYPE_LABELS[member.employmentType || DEFAULT_EMPLOYMENT_TYPE]}
                         </span>
                       )}
                       {member.customRole && (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-purple-100 dark:bg-purple-900/40 px-2 py-0.5 text-[10px] font-medium text-purple-700 dark:text-purple-300">
+                        <span className="inline-flex items-center gap-1 rounded-full bg-purple-100 dark:bg-purple-900/40 px-2 py-0.5 text-xs font-medium text-purple-700 dark:text-purple-300">
                           <Sparkles className="h-3 w-3 shrink-0 text-purple-500 dark:text-purple-400" aria-hidden="true" />
                           {member.customRole.displayLabel}
                         </span>
@@ -1003,7 +1006,7 @@ export default function MembersPage() {
                       {member.departmentMemberships.map((dm) => (
                         <span
                           key={dm.department.id}
-                          className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground"
+                          className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground"
                         >
                           {dm.department.name}
                         </span>
@@ -1024,7 +1027,7 @@ export default function MembersPage() {
                       <button
                         onClick={() => onToggleStatus(member.user.id)}
                         disabled={isSelf}
-                        className={`rounded-lg border px-2.5 py-1 text-[11px] font-medium ${member.status === "active" ? "border-red-200 dark:border-red-900 text-red-600 dark:text-red-400" : "border-green-200 dark:border-green-900 text-green-600 dark:text-green-400"} disabled:cursor-not-allowed disabled:opacity-40`}
+                        className={`rounded-lg border px-2.5 py-1 text-xs font-medium ${member.status === "active" ? "border-red-200 dark:border-red-900 text-red-600 dark:text-red-400" : "border-green-200 dark:border-green-900 text-green-600 dark:text-green-400"} disabled:cursor-not-allowed disabled:opacity-40`}
                       >
                         {member.status === "active" ? "Deactivate" : "Activate"}
                       </button>

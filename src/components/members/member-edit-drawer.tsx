@@ -172,7 +172,7 @@ export function MemberEditDrawer({
             </div>
             <div className="min-w-0">
               <p className="truncate text-sm font-semibold">{name}</p>
-              <p className="truncate text-[12px] text-muted-foreground">
+              <p className="truncate text-xs text-muted-foreground">
                 {member.user.email}
               </p>
             </div>
@@ -211,7 +211,7 @@ export function MemberEditDrawer({
           <div>
             <label
               htmlFor="drawer-role"
-              className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground"
+              className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground"
             >
               <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
               Role
@@ -228,7 +228,7 @@ export function MemberEditDrawer({
               <option value="company_admin">Admin</option>
             </select>
             {isSelf && (
-              <p className="mt-1 text-[11px] text-muted-foreground">
+              <p className="mt-1 text-xs text-muted-foreground">
                 You cannot change your own role.
               </p>
             )}
@@ -237,14 +237,14 @@ export function MemberEditDrawer({
           {/* ── Custom role ──────────────────────────────────── */}
           {member.role !== "company_admin" && (
             <div>
-              <p className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <p className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
                 Custom role
               </p>
               {member.customRole ? (
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="inline-flex items-center gap-1 rounded-full bg-purple-100 px-2 py-0.5 text-[11px] font-medium text-purple-700 dark:bg-purple-900/40 dark:text-purple-300">
+                    <span className="inline-flex items-center gap-1 rounded-full bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-700 dark:bg-purple-900/40 dark:text-purple-300">
                       <Sparkles className="h-3 w-3 shrink-0" aria-hidden="true" />
                       {member.customRole.displayLabel}
                     </span>
@@ -252,7 +252,7 @@ export function MemberEditDrawer({
                       <button
                         type="button"
                         onClick={() => onUpdateCustomRole(member.user.id, null)}
-                        className="text-[11px] font-medium text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                        className="text-xs font-medium text-muted-foreground underline underline-offset-2 hover:text-foreground"
                       >
                         Remove
                       </button>
@@ -274,7 +274,7 @@ export function MemberEditDrawer({
                     which is how a strict role is built. A manager keeps their
                     bundle underneath.
                   */}
-                  <p className="mt-1.5 text-[11px] text-muted-foreground">
+                  <p className="mt-1.5 text-xs text-muted-foreground">
                     {member.role === "manager" ? (
                       <>
                         Adds to the{" "}
@@ -291,7 +291,7 @@ export function MemberEditDrawer({
                   </p>
                 </div>
               ) : customRoles.length === 0 ? (
-                <p className="text-[12px] text-muted-foreground">
+                <p className="text-xs text-muted-foreground">
                   No custom roles defined.
                 </p>
               ) : (
@@ -335,7 +335,7 @@ export function MemberEditDrawer({
             <div>
               <label
                 htmlFor="drawer-emptype"
-                className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground"
+                className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground"
               >
                 <Briefcase className="h-3.5 w-3.5" aria-hidden="true" />
                 Employment type
@@ -371,7 +371,7 @@ export function MemberEditDrawer({
           */}
           {canSetContractedDays && member.role !== "company_admin" && (
             <div>
-              <span className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <span className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 <CalendarClock className="h-3.5 w-3.5" aria-hidden="true" />
                 Working days
               </span>
@@ -390,7 +390,7 @@ export function MemberEditDrawer({
             <div>
               <label
                 htmlFor="drawer-seniority"
-                className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground"
+                className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground"
               >
                 <TrendingUp className="h-3.5 w-3.5" aria-hidden="true" />
                 Seniority
@@ -417,7 +417,7 @@ export function MemberEditDrawer({
                 an unexplained assertion.
               */}
               {seniority && (
-                <p className="mt-1 text-[11px] text-muted-foreground">
+                <p className="mt-1 text-xs text-muted-foreground">
                   {seniority.explanation}
                 </p>
               )}
@@ -426,12 +426,12 @@ export function MemberEditDrawer({
 
           {/* ── Departments ──────────────────────────────────── */}
           <div>
-            <p className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <p className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               <Building2 className="h-3.5 w-3.5" aria-hidden="true" />
               Departments
             </p>
             {departments.length === 0 ? (
-              <p className="text-[12px] text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 No departments defined.
               </p>
             ) : (
@@ -451,7 +451,7 @@ export function MemberEditDrawer({
                   return (
                     <label
                       key={d.id}
-                      className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 text-[13px] transition-colors ${
+                      className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 text-sm transition-colors ${
                         canUpdateRole ? "cursor-pointer" : "cursor-not-allowed opacity-60"
                       } ${
                         selected
@@ -490,7 +490,7 @@ export function MemberEditDrawer({
               onClick={() => onToggleStatus(member.user.id)}
               disabled={isSelf}
               title={isSelf ? "Cannot deactivate yourself" : undefined}
-              className={`flex w-full items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-[13px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+              className={`flex w-full items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
                 member.status === "active"
                   ? "border-red-200 text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950"
                   : "border-green-200 text-green-600 hover:bg-green-50 dark:border-green-900 dark:text-green-400 dark:hover:bg-green-950"
@@ -509,7 +509,7 @@ export function MemberEditDrawer({
               )}
             </button>
             {isSelf && (
-              <p className="mt-1 text-[11px] text-muted-foreground">
+              <p className="mt-1 text-xs text-muted-foreground">
                 You cannot deactivate yourself.
               </p>
             )}

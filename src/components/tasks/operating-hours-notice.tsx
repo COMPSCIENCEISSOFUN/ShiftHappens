@@ -71,7 +71,7 @@ export function OperatingHoursNotice({
   return (
     <div
       role="status"
-      className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-2.5 text-[11px] text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
+      className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-2.5 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
     >
       <TriangleAlert className="mt-px h-3.5 w-3.5 shrink-0" aria-hidden="true" />
       <span>

@@ -9,7 +9,7 @@
 import { Resend } from "resend";
 
 const fromEmail = process.env.RESEND_FROM_EMAIL || "onboarding@resend.dev";
-const appName = "Smart Task Allocation";
+const appName = "ShiftHappens";
 
 /**
  * Lazily constructs the Resend client on first send, memoized thereafter.

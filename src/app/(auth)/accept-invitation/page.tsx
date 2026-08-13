@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { PageLoading } from "@/components/ui/page-loading";
+import { apiErrorMessage } from "@/lib/api-error";
 import {
   Card,
   CardContent,
@@ -82,7 +83,7 @@ function AcceptInvitationContent() {
       const result = await res.json();
 
       if (!res.ok) {
-        setError(result.error || "Failed to accept invitation");
+        setError(apiErrorMessage(result, "Failed to accept invitation"));
         setLoading(false);
         return;
       }

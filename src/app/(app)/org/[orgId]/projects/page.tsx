@@ -37,6 +37,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AlertBanner } from "@/components/ui/alert-banner";
+import { apiErrorMessage } from "@/lib/api-error";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageLoading } from "@/components/ui/page-loading";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -210,7 +211,7 @@ export default function ProjectsPage() {
     const result = await response.json().catch(() => null);
 
     if (!response.ok) {
-      setError(result?.error || "Could not create project");
+      setError(apiErrorMessage(result, "Could not create project"));
       return;
     }
 
@@ -251,16 +252,22 @@ export default function ProjectsPage() {
 
   return (
     <div className="max-w-7xl pb-10">
-      {/* ── Header ─────────────────────────────────────────────────────── */}
-      <div className="mb-6 flex flex-col gap-4 border-b border-border/70 pb-6 sm:flex-row sm:items-end sm:justify-between">
+      {/*
+        The same header every other page uses.
+
+        This one had its own: an uppercase eyebrow, a `text-3xl` title and a
+        wider, looser description — so arriving here from Tasks or Members felt
+        like arriving in a different product. It was the only page in
+        twenty-five doing it, which makes it the one that moves.
+      */}
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
-            Project workspace
-          </p>
-          <h1 className="mt-1 text-3xl font-bold tracking-tight">Projects</h1>
-          <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-            Keep a clear record of the outcome, owner, linked work, and progress
-            for larger initiatives.
+          <h1 className="text-xl font-bold tracking-tight sm:text-2xl">
+            Projects
+          </h1>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            Group related work under one outcome, with progress and staffing
+            tracked across every linked task
           </p>
         </div>
 
@@ -304,7 +311,7 @@ export default function ProjectsPage() {
                   You have used all {limit} project{limit === 1 ? "" : "s"} on{" "}
                   {plan.tierName}
                 </p>
-                <p className="mt-1 max-w-xl text-[13px] leading-relaxed text-muted-foreground">
+                <p className="mt-1 max-w-xl text-sm leading-relaxed text-muted-foreground">
                   Enterprise runs unlimited projects for $
                   {TIER_CONFIG.enterprise.monthlyPrice} a month, with unlimited
                   members and tasks alongside them. Delete a project to free the
@@ -481,7 +488,7 @@ export default function ProjectsPage() {
             <h2 className="mt-4 text-lg font-semibold">
               Projects are part of {TIER_CONFIG.pro.displayName}
             </h2>
-            <p className="mx-auto mt-2 max-w-md text-[13px] leading-relaxed text-muted-foreground">
+            <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-muted-foreground">
               Group related work under one outcome, track progress across every
               linked task, and see staffing gaps before they become a problem.
               Your organisation is on {plan.tierName}.
@@ -519,8 +526,8 @@ export default function ProjectsPage() {
                   className="size-4 text-indigo-600 dark:text-indigo-400"
                   aria-hidden="true"
                 />
-                <p className="text-[13px] font-medium">{point.title}</p>
-                <p className="text-[12px] leading-relaxed text-muted-foreground">
+                <p className="text-sm font-medium">{point.title}</p>
+                <p className="text-xs leading-relaxed text-muted-foreground">
                   {point.body}
                 </p>
               </div>
@@ -575,14 +582,14 @@ export default function ProjectsPage() {
                 <div className="mt-4 flex flex-wrap gap-2">
                   <StatusBadge value={project.priority} palette="priority" />
 
-                  <span className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700 dark:border-indigo-900 dark:bg-indigo-950/50 dark:text-indigo-300">
+                  <span className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700 dark:border-indigo-900 dark:bg-indigo-950/50 dark:text-indigo-300">
                     {project.staffingMode === "project_team"
                       ? "Private project"
                       : "Open participation"}
                   </span>
 
                   {project.staffingMode === "project_team" && (
-                    <span className="rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[11px] font-medium">
+                    <span className="rounded-full border border-border bg-muted/40 px-2 py-0.5 text-xs font-medium">
                       {project.projectMembers.length} participant(s)
                     </span>
                   )}

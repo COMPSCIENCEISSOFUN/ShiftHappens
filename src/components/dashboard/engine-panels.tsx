@@ -96,7 +96,7 @@ const RULE_LABELS: Record<string, string> = {
  */
 function EngineMark({ label }: { label: string }) {
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-600 dark:bg-indigo-950 dark:text-indigo-300">
+    <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-semibold text-indigo-600 dark:bg-indigo-950 dark:text-indigo-300">
       <Sparkles className="h-3 w-3" aria-hidden="true" />
       {label}
     </span>
@@ -154,12 +154,12 @@ export function AllocationEnginePanel({ stats }: { stats: AllocationEngineStats 
       action={<EngineMark label={allocationMarkLabel(stats.providerCounts)} />}
     >
       <div className="space-y-5 p-4">
-        <p className="text-[12px] text-muted-foreground">
+        <p className="text-xs text-muted-foreground">
           How the last {stats.windowDays} days of assignments were made.
         </p>
 
         <div>
-          <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             How each assignment was decided
           </h4>
           <Donut
@@ -169,7 +169,7 @@ export function AllocationEnginePanel({ stats }: { stats: AllocationEngineStats 
           />
           <ul className="mt-3 space-y-0.5">
             {ALLOCATION_SOURCES.map((source) => (
-              <li key={source} className="text-[11px] text-muted-foreground">
+              <li key={source} className="text-xs text-muted-foreground">
                 <span className="font-medium text-foreground">{sourceLabel(source)}</span>
                 {" — "}
                 {SOURCE_DESCRIPTION[source]}
@@ -179,7 +179,7 @@ export function AllocationEnginePanel({ stats }: { stats: AllocationEngineStats 
         </div>
 
         {stats.engineAssignments === 0 ? (
-          <p className="rounded-lg border border-border bg-muted/40 p-3 text-[12px] text-muted-foreground">
+          <p className="rounded-lg border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
             The engine has not placed anyone in this window, so there is nothing
             to judge it on yet. Auto-allocate a task or confirm a generated
             schedule and the figures below will fill in.
@@ -187,14 +187,14 @@ export function AllocationEnginePanel({ stats }: { stats: AllocationEngineStats 
         ) : (
           <>
             <div>
-              <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 Which strategy ranked them
               </h4>
               <StackedBar
                 slices={providerSlices}
                 emptyMessage="No strategy recorded for these assignments."
               />
-              <p className="mt-2 text-[11px] text-muted-foreground">
+              <p className="mt-2 text-xs text-muted-foreground">
                 A run on the algorithmic ranker is not a failure — it is the
                 designed fallback. What matters is that it is visible: before
                 this, a revoked API key degraded every ranking silently.
@@ -202,7 +202,7 @@ export function AllocationEnginePanel({ stats }: { stats: AllocationEngineStats 
             </div>
 
             <div>
-              <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 Did the engine&apos;s first choice hold up?
               </h4>
               <div className="grid gap-3 sm:grid-cols-2">
@@ -218,7 +218,7 @@ export function AllocationEnginePanel({ stats }: { stats: AllocationEngineStats 
                   detail={`${stats.otherPicks.retained} of ${stats.otherPicks.total} still on the shift`}
                 />
               </div>
-              <p className="mt-2 text-[11px] text-muted-foreground">
+              <p className="mt-2 text-xs text-muted-foreground">
                 Retained means not rejected and not withdrawn. Neither figure is
                 an accuracy score on its own — shifts fall through for reasons no
                 ranking could predict. The gap between them is the signal.
@@ -250,7 +250,7 @@ export function EligibilityEnginePanel({ stats }: { stats: EligibilityEngineStat
       action={<EngineMark label="Rules engine" />}
     >
       <div className="space-y-4 p-4">
-        <p className="text-[12px] text-muted-foreground">
+        <p className="text-xs text-muted-foreground">
           Every assignment is checked against hour limits, availability,
           scheduling conflicts, work rules and certifications. An override is a
           manager telling the system it was wrong.
@@ -258,31 +258,31 @@ export function EligibilityEnginePanel({ stats }: { stats: EligibilityEngineStat
 
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="rounded-lg border border-border p-3">
-            <p className="text-[11px] uppercase tracking-wider text-muted-foreground">
+            <p className="text-xs uppercase tracking-wider text-muted-foreground">
               Overrides
             </p>
             <p className="mt-0.5 text-xl font-bold tracking-tight">
               {stats.totalOverrides}
             </p>
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               in the last {stats.windowDays} days
             </p>
           </div>
           <div className="rounded-lg border border-border p-3">
-            <p className="text-[11px] uppercase tracking-wider text-muted-foreground">
+            <p className="text-xs uppercase tracking-wider text-muted-foreground">
               Override rate
             </p>
             <p className="mt-0.5 text-xl font-bold tracking-tight">
               {stats.overrideRate === null ? "—" : `${stats.overrideRate}%`}
             </p>
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               of {stats.totalAssignments} assignments
             </p>
           </div>
         </div>
 
         <div>
-          <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             Which rule was overridden
           </h4>
           {/*
@@ -302,7 +302,7 @@ export function EligibilityEnginePanel({ stats }: { stats: EligibilityEngineStat
         </div>
 
         {stats.totalOverrides === 0 && stats.totalAssignments > 0 && (
-          <p className="text-[11px] text-muted-foreground">
+          <p className="text-xs text-muted-foreground">
             Worth knowing rather than celebrating: a zero rate across a busy
             month can also mean nobody is hitting the rules at all.
           </p>
@@ -318,7 +318,7 @@ export function CoveragePanel({ cells }: { cells: CoverageCell[] }) {
   return (
     <Panel title="Weekly coverage" icon={Boxes}>
       <div className="p-4">
-        <p className="mb-3 text-[12px] text-muted-foreground">
+        <p className="mb-3 text-xs text-muted-foreground">
           Staff available by hour, from their declared weekly availability.
           Darker means more people free; the pale cells are where a shift would
           be hard to fill.

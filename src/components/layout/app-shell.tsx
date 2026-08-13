@@ -93,7 +93,21 @@ export function AppShell({
         customRoleLabel={customRoleLabel}
         permissions={permissions}
       />
-      <main className="flex-1 overflow-x-hidden px-4 pt-18 pb-6 md:p-6">
+      {/*
+        The column is capped and centred rather than filling the viewport.
+
+        Unbounded, a task card on a 1080p monitor runs about 1500px wide, which
+        does two things: descriptions pass well beyond a comfortable measure,
+        and controls drift away from what they act on — an assignee's name at
+        the left edge with its "Unassign" button pinned a hand-span away at the
+        right. Proximity is what says the two belong together, and full-bleed
+        rows destroy it.
+
+        1400px keeps the four-across stat rows and the two-column grids intact
+        at every breakpoint they were designed for; it only stops the growth
+        past the point where the layouts stopped being designed at all.
+      */}
+      <main className="mx-auto w-full max-w-[1400px] flex-1 overflow-x-hidden px-4 pt-18 pb-6 md:p-6">
         {/*
           The same array reaches the sidebar and the provider, from one
           argument. That is the point of the component: the menu and the page

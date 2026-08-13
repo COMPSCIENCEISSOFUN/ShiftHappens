@@ -29,11 +29,13 @@ import {
 } from "@/lib/recurrence";
 import { PageLoading } from "@/components/ui/page-loading";
 import { AlertBanner } from "@/components/ui/alert-banner";
+import { apiErrorMessage } from "@/lib/api-error";
 import { AiResultBanner } from "@/components/tasks/ai-result-banner";
 import { toast } from "sonner";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Clock, Lock, Plus, Sparkles, SquarePen, Trash2, Users, Zap } from "lucide-react";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { StatTile, STAT_ACCENT } from "@/components/ui/stat-tile";
 import { toDateTimeLocalValue } from "@/lib/timezone";
 import { OperatingHoursNotice } from "@/components/tasks/operating-hours-notice";
 import { reasonLabel } from "@/lib/decline-reasons";
@@ -223,7 +225,7 @@ function CoverOptions({
       <button
         type="button"
         onClick={onFind}
-        className="mt-2 rounded-md border border-orange-300 bg-white/60 px-2.5 py-1 text-[11px] font-medium text-orange-800 hover:bg-white dark:border-orange-800 dark:bg-transparent dark:text-orange-300 dark:hover:bg-orange-950"
+        className="mt-2 rounded-md border border-orange-300 bg-white/60 px-2.5 py-1 text-xs font-medium text-orange-800 hover:bg-white dark:border-orange-800 dark:bg-transparent dark:text-orange-300 dark:hover:bg-orange-950"
       >
         Who could cover?
       </button>
@@ -232,7 +234,7 @@ function CoverOptions({
 
   if (state.status === "loading") {
     return (
-      <p className="mt-2 text-[11px] text-orange-700 dark:text-orange-400">
+      <p className="mt-2 text-xs text-orange-700 dark:text-orange-400">
         Checking who is free…
       </p>
     );
@@ -243,7 +245,7 @@ function CoverOptions({
       <button
         type="button"
         onClick={onFind}
-        className="mt-2 rounded-md border border-orange-300 bg-white/60 px-2.5 py-1 text-[11px] font-medium text-orange-800 hover:bg-white dark:border-orange-800 dark:bg-transparent dark:text-orange-300 dark:hover:bg-orange-950"
+        className="mt-2 rounded-md border border-orange-300 bg-white/60 px-2.5 py-1 text-xs font-medium text-orange-800 hover:bg-white dark:border-orange-800 dark:bg-transparent dark:text-orange-300 dark:hover:bg-orange-950"
       >
         Couldn&apos;t check — try again
       </button>
@@ -252,7 +254,7 @@ function CoverOptions({
 
   if (state.options.length === 0) {
     return (
-      <p className="mt-2 text-[11px] font-semibold text-orange-900 dark:text-orange-200">
+      <p className="mt-2 text-xs font-semibold text-orange-900 dark:text-orange-200">
         Nobody else is eligible for this shift.
       </p>
     );
@@ -260,7 +262,7 @@ function CoverOptions({
 
   return (
     <div className="mt-2">
-      <p className="text-[11px] text-orange-700 dark:text-orange-400">
+      <p className="text-xs text-orange-700 dark:text-orange-400">
         Could cover: {state.options.map((o) => o.name).join(", ")}
       </p>
     </div>
@@ -818,7 +820,11 @@ export default function TasksPage() {
       });
       const created = await res.json().catch(() => null);
       if (!res.ok || !created?.id) {
-        setError(created?.error || "Could not create the task");
+        // The whole message, field errors included. This path is exactly where
+        // "Validation failed" was unreadable: an AI-created task carries times
+        // and a department the person never typed, so a refusal that does not
+        // name the field leaves them nothing to correct.
+        setError(apiErrorMessage(created, "Could not create the task"));
         return;
       }
 
@@ -851,7 +857,7 @@ export default function TasksPage() {
       );
       if (!res.ok) {
         const body = await res.json().catch(() => null);
-        setError(body?.error || "Could not undo — delete it from the list instead");
+        setError(apiErrorMessage(body, "Could not undo — delete it from the list instead"));
         return;
       }
       setAiResult(null);
@@ -936,7 +942,7 @@ export default function TasksPage() {
       const result = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        setError(result.error || "Failed to create task");
+        setError(apiErrorMessage(result, "Failed to create task"));
         return;
       }
 
@@ -980,7 +986,10 @@ export default function TasksPage() {
    */
   async function readError(res: Response, fallback: string): Promise<string> {
     const body = await res.json().catch(() => null);
-    return body?.error || `${fallback} (HTTP ${res.status})`;
+    // The status stays in the fallback for a body that said nothing at all;
+    // `apiErrorMessage` prefers the route's own words, and the named field over
+    // both.
+    return apiErrorMessage(body, `${fallback} (HTTP ${res.status})`);
   }
 
   async function onAssignStaff(taskId: string) {
@@ -1098,7 +1107,7 @@ export default function TasksPage() {
 
       if (!res.ok) {
         const result = await res.json();
-        setError(result.error || "Failed to delete task");
+        setError(apiErrorMessage(result, "Failed to delete task"));
         return;
       }
 
@@ -1122,7 +1131,7 @@ export default function TasksPage() {
 
       if (!res.ok) {
         const result = await res.json();
-        setError(result.error || "Failed to update status");
+        setError(apiErrorMessage(result, "Failed to update status"));
         return;
       }
 
@@ -1169,7 +1178,7 @@ export default function TasksPage() {
       const result = await res.json();
 
       if (!res.ok) {
-        setError(result.error || "Failed to update task");
+        setError(apiErrorMessage(result, "Failed to update task"));
         return;
       }
 
@@ -1238,7 +1247,7 @@ export default function TasksPage() {
 
       if (!res.ok) {
         const result = await res.json();
-        setError(result.error || "Failed to cancel assignment");
+        setError(apiErrorMessage(result, "Failed to cancel assignment"));
         return;
       }
 
@@ -1311,7 +1320,7 @@ export default function TasksPage() {
       );
       if (!res.ok) {
         const result = await res.json();
-        setError(result.error || "Failed to resolve withdrawal");
+        setError(apiErrorMessage(result, "Failed to resolve withdrawal"));
         return;
       }
       fetchTasks();
@@ -1344,7 +1353,7 @@ export default function TasksPage() {
       );
       if (!res.ok) {
         const result = await res.json();
-        setError(result.error || "Failed to resolve decline");
+        setError(apiErrorMessage(result, "Failed to resolve decline"));
         return;
       }
       fetchTasks();
@@ -1441,7 +1450,7 @@ export default function TasksPage() {
       {/* ──────────────────────────────────────────────── */}
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h2 className="text-xl font-bold tracking-tight sm:text-2xl">Tasks</h2>
+          <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Tasks</h1>
           <p className="mt-0.5 text-sm text-muted-foreground">
             Manage and assign shifts across your organization
           </p>
@@ -1484,41 +1493,54 @@ export default function TasksPage() {
       {/* ──────────────────────────────────────────────── */}
       {/* 2. Stat tiles                                    */}
       {/* ──────────────────────────────────────────────── */}
+      {/*
+        `StatTile`, not a fourth hand-rolled copy.
+
+        These were four bespoke tiles with their own corner tint, their own
+        uppercase label and their own number size — on the busiest page in the
+        product, beside sixteen other pages already using the shared component.
+        That is the exact duplication StatTile's own docblock was written to
+        end: "seven byte-identical copies… the first person to adjust the
+        padding silently creates two house styles." It happened here anyway,
+        because 3,000 lines is more than anyone can hold in their head.
+      */}
       <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-4">
-        {/* Total */}
-        <div className="relative overflow-hidden rounded-xl border border-border bg-card p-4">
-          <div className="absolute right-0 top-0 h-12 w-12 rounded-bl-[48px] bg-indigo-500/[0.08]" />
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Total Tasks</p>
-          <p className="mt-1 text-2xl font-bold tracking-tight">{tasks.length}</p>
-          <p className="mt-0.5 text-[12px] text-muted-foreground">
-            across {departments.length} department{departments.length !== 1 ? "s" : ""}
-          </p>
-        </div>
-        {/* Open */}
-        <div className="relative overflow-hidden rounded-xl border border-border bg-card p-4">
-          <div className="absolute right-0 top-0 h-12 w-12 rounded-bl-[48px] bg-blue-500/[0.08]" />
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Open</p>
-          <p className="mt-1 text-2xl font-bold tracking-tight text-blue-600 dark:text-blue-400">{openCount}</p>
-          <p className="mt-0.5 text-[12px] text-muted-foreground">
-            {needsStaffCount > 0
+        <StatTile
+          label="Total tasks"
+          value={tasks.length}
+          detail={`across ${departments.length} department${departments.length !== 1 ? "s" : ""}`}
+          accentColour={STAT_ACCENT.indigo}
+        />
+        <StatTile
+          label="Open"
+          value={openCount}
+          detail={
+            needsStaffCount > 0
               ? `${needsStaffCount} need${needsStaffCount !== 1 ? "" : "s"} staff`
-              : "all staffed"}
-          </p>
-        </div>
-        {/* In progress */}
-        <div className="relative overflow-hidden rounded-xl border border-border bg-card p-4">
-          <div className="absolute right-0 top-0 h-12 w-12 rounded-bl-[48px] bg-amber-500/[0.08]" />
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">In Progress</p>
-          <p className="mt-1 text-2xl font-bold tracking-tight text-amber-600 dark:text-amber-400">{inProgressCount}</p>
-          <p className="mt-0.5 text-[12px] text-muted-foreground">active now</p>
-        </div>
-        {/* Completed */}
-        <div className="relative overflow-hidden rounded-xl border border-border bg-card p-4">
-          <div className="absolute right-0 top-0 h-12 w-12 rounded-bl-[48px] bg-emerald-500/[0.08]" />
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Completed</p>
-          <p className="mt-1 text-2xl font-bold tracking-tight text-emerald-600 dark:text-emerald-400">{completedCount}</p>
-          <p className="mt-0.5 text-[12px] text-muted-foreground">this period</p>
-        </div>
+              : "all staffed"
+          }
+          accentColour={STAT_ACCENT.blue}
+          /* Amber when something is short, because an open shift nobody can
+             work is the one number on this row that asks for an action. */
+          valueColour={
+            needsStaffCount > 0
+              ? "text-amber-600 dark:text-amber-400"
+              : "text-blue-600 dark:text-blue-400"
+          }
+        />
+        <StatTile
+          label="In progress"
+          value={inProgressCount}
+          detail="active now"
+          accentColour={STAT_ACCENT.amber}
+        />
+        <StatTile
+          label="Completed"
+          value={completedCount}
+          detail="this period"
+          accentColour={STAT_ACCENT.green}
+          valueColour="text-green-600 dark:text-green-400"
+        />
       </div>
 
       {/* ──────────────────────────────────────────────── */}
@@ -1575,7 +1597,7 @@ export default function TasksPage() {
           <button
             key={f.value}
             onClick={() => setFilterStatus(f.value)}
-            className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-[13px] font-medium transition-all ${
+            className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition-all ${
               filterStatus === f.value
                 ? "border-indigo-500 bg-indigo-50 text-indigo-700 dark:border-indigo-400 dark:bg-indigo-950 dark:text-indigo-300"
                 : "border-border bg-card text-muted-foreground hover:border-indigo-300 hover:text-indigo-600 dark:hover:border-indigo-600 dark:hover:text-indigo-400"
@@ -1583,7 +1605,7 @@ export default function TasksPage() {
           >
             {f.label}
             <span
-              className={`inline-flex min-w-[18px] items-center justify-center rounded-full px-1 py-0 text-[11px] font-bold ${
+              className={`inline-flex min-w-[18px] items-center justify-center rounded-full px-1 py-0 text-xs font-bold ${
                 filterStatus === f.value
                   ? "bg-indigo-600 text-white dark:bg-indigo-500"
                   : "bg-muted text-muted-foreground"
@@ -1602,7 +1624,7 @@ export default function TasksPage() {
           max={filterTo || undefined}
           onChange={(e) => setFilterFrom(e.target.value)}
           aria-label="Shifts on or after"
-          className="h-[34px] shrink-0 rounded-full border border-border bg-card px-3 text-[13px] text-muted-foreground transition-colors hover:border-indigo-300 dark:hover:border-indigo-600"
+          className="h-[34px] shrink-0 rounded-full border border-border bg-card px-3 text-sm text-muted-foreground transition-colors hover:border-indigo-300 dark:hover:border-indigo-600"
         />
         <input
           type="date"
@@ -1610,7 +1632,7 @@ export default function TasksPage() {
           min={filterFrom || undefined}
           onChange={(e) => setFilterTo(e.target.value)}
           aria-label="Shifts on or before"
-          className="h-[34px] shrink-0 rounded-full border border-border bg-card px-3 text-[13px] text-muted-foreground transition-colors hover:border-indigo-300 dark:hover:border-indigo-600"
+          className="h-[34px] shrink-0 rounded-full border border-border bg-card px-3 text-sm text-muted-foreground transition-colors hover:border-indigo-300 dark:hover:border-indigo-600"
         />
         {(filterFrom || filterTo) && (
           <button
@@ -1619,7 +1641,7 @@ export default function TasksPage() {
               setFilterFrom("");
               setFilterTo("");
             }}
-            className="shrink-0 rounded-full px-2.5 py-1.5 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            className="shrink-0 rounded-full px-2.5 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
             Clear dates
           </button>
@@ -1628,7 +1650,7 @@ export default function TasksPage() {
         <div className="mx-1 h-6 w-px shrink-0 bg-border" />
 
         <select
-          className="shrink-0 appearance-none rounded-full border border-border bg-card py-1.5 pl-3 pr-7 text-[13px] text-muted-foreground transition-colors hover:border-indigo-300 dark:hover:border-indigo-600"
+          className="shrink-0 appearance-none rounded-full border border-border bg-card py-1.5 pl-3 pr-7 text-sm text-muted-foreground transition-colors hover:border-indigo-300 dark:hover:border-indigo-600"
           value={filterDept}
           onChange={(e) => setFilterDept(e.target.value)}
           style={{
@@ -1858,7 +1880,7 @@ export default function TasksPage() {
 
                     {repeatFreq === "weekly" && (
                       <div className="space-y-1.5">
-                        <Label className="text-[11px] text-muted-foreground">On these days (defaults to the start day)</Label>
+                        <Label className="text-xs text-muted-foreground">On these days (defaults to the start day)</Label>
                         <div className="flex flex-wrap gap-1.5">
                           {WEEKDAYS.map((d) => {
                             const on = repeatDays.includes(d.value);
@@ -1888,13 +1910,13 @@ export default function TasksPage() {
                     )}
 
                     {repeatFreq === "monthly" && (
-                      <p className="text-[11px] text-muted-foreground">
+                      <p className="text-xs text-muted-foreground">
                         Repeats on the same day of the month as the start date. Months without that day are skipped.
                       </p>
                     )}
 
                     <div className="space-y-1.5">
-                      <Label htmlFor="repeatUntil" className="text-[11px] text-muted-foreground">Until (optional)</Label>
+                      <Label htmlFor="repeatUntil" className="text-xs text-muted-foreground">Until (optional)</Label>
                       <Input
                         id="repeatUntil"
                         type="date"
@@ -1904,7 +1926,7 @@ export default function TasksPage() {
                       />
                     </div>
 
-                    <p className="text-[11px] text-muted-foreground">
+                    <p className="text-xs text-muted-foreground">
                       Occurrences are created about 2 weeks ahead and topped up over time, so a long series won&apos;t flood your task list.
                     </p>
                   </>
@@ -1992,21 +2014,21 @@ export default function TasksPage() {
                       <StatusBadge value={task.priority} palette="priority" />
                       {task.isRecurring && (
                         <span
-                          className="rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[11px] font-medium text-violet-700 dark:border-violet-800 dark:bg-violet-950 dark:text-violet-300"
+                          className="rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-xs font-medium text-violet-700 dark:border-violet-800 dark:bg-violet-950 dark:text-violet-300"
                           title={describeRecurrenceOf(task.recurringPattern) ?? undefined}
                         >
                           ↻ {describeRecurrenceOf(task.recurringPattern) ?? "repeats"}
                         </span>
                       )}
                       {task.parentTaskId && (
-                        <span className="rounded-full border border-violet-200 bg-violet-50/60 px-2 py-0.5 text-[11px] font-medium text-violet-600 dark:border-violet-800 dark:bg-violet-950/50 dark:text-violet-400">
+                        <span className="rounded-full border border-violet-200 bg-violet-50/60 px-2 py-0.5 text-xs font-medium text-violet-600 dark:border-violet-800 dark:bg-violet-950/50 dark:text-violet-400">
                           ↻ from series
                         </span>
                       )}
                     </div>
 
                     {/* ── Meta row ────────────────── */}
-                    <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-[13px] text-muted-foreground">
+                    <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-sm text-muted-foreground">
                       {/* Department */}
                       <span className="flex items-center gap-1.5">
                         <span className="inline-block h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: deptColor }} />
@@ -2029,7 +2051,7 @@ export default function TasksPage() {
                         <span className="inline-block h-1.5 w-14 overflow-hidden rounded-full bg-muted">
                           <span className={`block h-full rounded-full ${barFillClass}`} style={{ width: `${fillPct}%` }} />
                         </span>
-                        <span className={`text-[12px] font-semibold ${staffingClass}`}>
+                        <span className={`text-xs font-semibold ${staffingClass}`}>
                           {assigned}/{needed} staff
                         </span>
                       </span>
@@ -2039,7 +2061,7 @@ export default function TasksPage() {
                         task.requiredCertifications.map((cert) => (
                           <span
                             key={cert}
-                            className="rounded-full border border-purple-200 bg-purple-50 px-2 py-0.5 text-[11px] font-medium text-purple-700 dark:border-purple-800 dark:bg-purple-950 dark:text-purple-300"
+                            className="rounded-full border border-purple-200 bg-purple-50 px-2 py-0.5 text-xs font-medium text-purple-700 dark:border-purple-800 dark:bg-purple-950 dark:text-purple-300"
                           >
                             {cert}
                           </span>
@@ -2056,7 +2078,7 @@ export default function TasksPage() {
                       {parseCompositionRules(task.compositionRules).map((rule, i) => (
                         <span
                           key={`comp-${i}`}
-                          className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700 dark:border-indigo-800 dark:bg-indigo-950 dark:text-indigo-300"
+                          className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700 dark:border-indigo-800 dark:bg-indigo-950 dark:text-indigo-300"
                         >
                           {describeRule(rule)}
                         </span>
@@ -2065,7 +2087,7 @@ export default function TasksPage() {
 
                     {/* ── Description ─────────────── */}
                     {task.description && editingTaskId !== task.id && (
-                      <p className="mt-3 text-[13px] leading-relaxed text-muted-foreground">{task.description}</p>
+                      <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{task.description}</p>
                     )}
 
                     {/* ── Actions ─────────────────── */}
@@ -2100,7 +2122,7 @@ export default function TasksPage() {
                               }
                             }
                           }}
-                          className={`flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-[12px] font-medium transition-colors ${
+                          className={`flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition-colors ${
                             assigningTaskId === task.id
                               ? "border-indigo-500 bg-indigo-50 text-indigo-600 dark:border-indigo-400 dark:bg-indigo-950 dark:text-indigo-400"
                               : "border-border bg-card text-muted-foreground hover:border-indigo-400 hover:bg-indigo-50 hover:text-indigo-600 dark:hover:border-indigo-500 dark:hover:bg-indigo-950 dark:hover:text-indigo-400"
@@ -2117,7 +2139,7 @@ export default function TasksPage() {
                           type="button"
                           onClick={() => fetchSuggestions(task.id)}
                           disabled={loadingSuggestions || loadingEligibility}
-                          className="flex h-8 items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 text-[12px] font-medium text-muted-foreground transition-colors hover:border-indigo-400 hover:bg-indigo-50 hover:text-indigo-600 dark:hover:border-indigo-500 dark:hover:bg-indigo-950 dark:hover:text-indigo-400"
+                          className="flex h-8 items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:border-indigo-400 hover:bg-indigo-50 hover:text-indigo-600 dark:hover:border-indigo-500 dark:hover:bg-indigo-950 dark:hover:text-indigo-400"
                         >
                           <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
                           AI Suggest
@@ -2133,7 +2155,7 @@ export default function TasksPage() {
                             type="button"
                             onClick={() => onAutoAssign(task.id)}
                             disabled={autoAssigningId === task.id}
-                            className="flex h-8 items-center gap-1.5 rounded-lg border border-indigo-300 bg-card px-2.5 text-[12px] font-medium text-indigo-600 transition-colors hover:bg-indigo-50 disabled:opacity-50 dark:border-indigo-600 dark:text-indigo-400 dark:hover:bg-indigo-950"
+                            className="flex h-8 items-center gap-1.5 rounded-lg border border-indigo-300 bg-card px-2.5 text-xs font-medium text-indigo-600 transition-colors hover:bg-indigo-50 disabled:opacity-50 dark:border-indigo-600 dark:text-indigo-400 dark:hover:bg-indigo-950"
                           >
                             <Zap className="h-3 w-3" aria-hidden="true" />
                             {autoAssigningId === task.id ? "Assigning..." : "Auto-assign"}
@@ -2177,7 +2199,7 @@ export default function TasksPage() {
                             opening ? [...(task.requiredCertifications ?? [])] : []
                           );
                         }}
-                        className={`flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-[12px] font-medium transition-colors ${
+                        className={`flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition-colors ${
                           editingTaskId === task.id
                             ? "border-indigo-500 bg-indigo-50 text-indigo-600 dark:border-indigo-400 dark:bg-indigo-950 dark:text-indigo-400"
                             : "border-border bg-card text-muted-foreground hover:border-indigo-400 hover:bg-indigo-50 hover:text-indigo-600 dark:hover:border-indigo-500 dark:hover:bg-indigo-950 dark:hover:text-indigo-400"
@@ -2191,7 +2213,7 @@ export default function TasksPage() {
                       {/* Status dropdown — a status change is a task update. */}
                       {canUpdate && (
                       <select
-                        className="h-8 appearance-none rounded-lg border border-border bg-card py-0 pl-2.5 pr-7 text-[12px] font-medium text-muted-foreground transition-colors hover:border-indigo-300 dark:hover:border-indigo-600"
+                        className="h-8 appearance-none rounded-lg border border-border bg-card py-0 pl-2.5 pr-7 text-xs font-medium text-muted-foreground transition-colors hover:border-indigo-300 dark:hover:border-indigo-600"
                         value={task.status}
                         onChange={(e) => onUpdateStatus(task.id, e.target.value)}
                         style={{
@@ -2215,7 +2237,7 @@ export default function TasksPage() {
                       <button
                         type="button"
                         onClick={() => onDeleteTask(task.id)}
-                        className="flex h-8 items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 text-[12px] font-medium text-muted-foreground transition-colors hover:border-red-300 hover:bg-red-50 hover:text-red-600 dark:hover:border-red-700 dark:hover:bg-red-950 dark:hover:text-red-400"
+                        className="flex h-8 items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:border-red-300 hover:bg-red-50 hover:text-red-600 dark:hover:border-red-700 dark:hover:bg-red-950 dark:hover:text-red-400"
                       >
                         <Trash2 className="h-[13px] w-[13px]" aria-hidden="true" />
                         Delete
@@ -2321,25 +2343,25 @@ export default function TasksPage() {
                     {/* ── Assignments ─────────────── */}
                     {task.assignments.length > 0 && editingTaskId !== task.id && (
                       <div className="mt-3 border-t border-border/50 pt-3">
-                        <p className="mb-2 text-[12px] font-semibold text-muted-foreground">
+                        <p className="mb-2 text-xs font-semibold text-muted-foreground">
                           Assigned Staff
                         </p>
                         <div className="space-y-1">
                           {task.assignments.map((a) => (
                             <div key={a.id}>
                               <div className="flex items-center gap-2.5 rounded-lg px-1 py-1.5 text-sm transition-colors hover:bg-muted/50">
-                                <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[11px] font-bold text-white ${avatarColor(a.membership.user.id)}`}>
+                                <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white ${avatarColor(a.membership.user.id)}`}>
                                   {initials(a.membership.user.name)}
                                 </div>
                                 <span className="font-medium">{a.membership.user.name || "Unnamed"}</span>
-                                <StatusBadge value={a.status} palette="assignmentStatus" className="text-[10px]" />
+                                <StatusBadge value={a.status} palette="assignmentStatus" className="text-xs" />
                                 {a.clockInTime && (
-                                  <span className="text-[11px] text-muted-foreground">
+                                  <span className="text-xs text-muted-foreground">
                                     In: {new Date(a.clockInTime).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
                                   </span>
                                 )}
                                 {a.clockOutTime && (
-                                  <span className="text-[11px] text-muted-foreground">
+                                  <span className="text-xs text-muted-foreground">
                                     Out: {new Date(a.clockOutTime).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
                                   </span>
                                 )}
@@ -2360,7 +2382,7 @@ export default function TasksPage() {
                                 {canCorrectClock && canHoldClockTimes(a.status) && (
                                   <button
                                     type="button"
-                                    className="text-[11px] text-muted-foreground hover:text-foreground hover:underline"
+                                    className="text-xs text-muted-foreground hover:text-foreground hover:underline"
                                     onClick={() =>
                                       setCorrectingId(
                                         correctingId === a.id ? null : a.id
@@ -2383,7 +2405,7 @@ export default function TasksPage() {
                                   a.status !== "decline_requested" && (
                                   <button
                                     type="button"
-                                    className="ml-auto text-[11px] text-red-500 hover:underline"
+                                    className="ml-auto text-xs text-red-500 hover:underline"
                                     onClick={() => onCancelAssignment(a.id)}
                                   >
                                     Unassign
@@ -2426,14 +2448,14 @@ export default function TasksPage() {
                                     });
                                   }}
                                 >
-                                  <p className="text-[11px] text-muted-foreground">
+                                  <p className="text-xs text-muted-foreground">
                                     {a.membership.user.name || "This member"} will
                                     be told their times were changed, and the
                                     previous values are kept in the audit log.
                                   </p>
                                   <div className="grid gap-2 sm:grid-cols-2">
                                     <label className="space-y-1">
-                                      <span className="text-[11px] font-medium text-muted-foreground">
+                                      <span className="text-xs font-medium text-muted-foreground">
                                         Clocked in
                                       </span>
                                       <Input
@@ -2448,7 +2470,7 @@ export default function TasksPage() {
                                       />
                                     </label>
                                     <label className="space-y-1">
-                                      <span className="text-[11px] font-medium text-muted-foreground">
+                                      <span className="text-xs font-medium text-muted-foreground">
                                         Clocked out
                                       </span>
                                       <Input
@@ -2493,7 +2515,7 @@ export default function TasksPage() {
                                     {a.rejectionReason ? ` — ${reasonLabel(a.rejectionReason)}` : ""}
                                   </p>
                                   {a.rejectionNotes && (
-                                    <p className="mt-0.5 text-[11px] text-orange-700 dark:text-orange-400">
+                                    <p className="mt-0.5 text-xs text-orange-700 dark:text-orange-400">
                                       &ldquo;{a.rejectionNotes}&rdquo;
                                     </p>
                                   )}
@@ -2510,14 +2532,14 @@ export default function TasksPage() {
                                   <div className="mt-2 flex gap-2">
                                     <button
                                       type="button"
-                                      className="rounded-md bg-red-600 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-red-700"
+                                      className="rounded-md bg-red-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-red-700"
                                       onClick={() => onResolveDecline(a.id, "approve")}
                                     >
                                       Approve &amp; free the slot
                                     </button>
                                     <button
                                       type="button"
-                                      className="rounded-md border border-border px-2.5 py-1 text-[11px] font-medium hover:bg-muted"
+                                      className="rounded-md border border-border px-2.5 py-1 text-xs font-medium hover:bg-muted"
                                       onClick={() => onResolveDecline(a.id, "deny")}
                                     >
                                       Keep them rostered
@@ -2539,7 +2561,7 @@ export default function TasksPage() {
                                       the staff member's own words are shown
                                       underneath when they gave any. */}
                                   {a.withdrawalNotes && (
-                                    <p className="mt-0.5 text-[11px] text-orange-700 dark:text-orange-400">
+                                    <p className="mt-0.5 text-xs text-orange-700 dark:text-orange-400">
                                       &ldquo;{a.withdrawalNotes}&rdquo;
                                     </p>
                                   )}
@@ -2551,14 +2573,14 @@ export default function TasksPage() {
                                   <div className="mt-2 flex gap-2">
                                     <button
                                       type="button"
-                                      className="rounded-md bg-red-600 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-red-700"
+                                      className="rounded-md bg-red-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-red-700"
                                       onClick={() => onResolveWithdrawal(a.id, "approve")}
                                     >
                                       Approve &amp; unassign
                                     </button>
                                     <button
                                       type="button"
-                                      className="rounded-md border border-border px-2.5 py-1 text-[11px] font-medium hover:bg-muted"
+                                      className="rounded-md border border-border px-2.5 py-1 text-xs font-medium hover:bg-muted"
                                       onClick={() => onResolveWithdrawal(a.id, "deny")}
                                     >
                                       Deny
@@ -2657,10 +2679,10 @@ export default function TasksPage() {
                         <div className="mt-3 overflow-hidden rounded-xl border border-border bg-muted/30 dark:bg-muted/10">
                           {/* Panel header */}
                           <div className="flex items-center justify-between border-b border-border/50 px-4 py-3">
-                            <p className="text-[13px] font-semibold">
+                            <p className="text-sm font-semibold">
                               Select staff to assign
                               {assigned < needed && (
-                                <span className="ml-1.5 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-900/50 dark:text-amber-400">
+                                <span className="ml-1.5 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/50 dark:text-amber-400">
                                   need {needed - assigned} more
                                 </span>
                               )}
@@ -2668,7 +2690,7 @@ export default function TasksPage() {
                             <Button
                               size="sm"
                               variant="outline"
-                              className="h-7 gap-1 text-[11px]"
+                              className="h-7 gap-1 text-xs"
                               onClick={() => fetchSuggestions(task.id)}
                               disabled={loadingSuggestions || loadingEligibility}
                             >
@@ -2690,14 +2712,14 @@ export default function TasksPage() {
                           */}
                           {compEval && compEval.rules.length > 0 && (
                             <div className="border-b border-border/50 bg-card/40 px-4 py-2">
-                              <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                              <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
                                 Composition rules
                               </p>
                               <div className="mt-1 space-y-0.5">
                                 {compEval.rules.map((r, i) => (
                                   <p
                                     key={i}
-                                    className={`text-[11px] ${
+                                    className={`text-xs ${
                                       r.satisfied
                                         ? "text-emerald-600 dark:text-emerald-400"
                                         : r.feasible
@@ -2731,7 +2753,7 @@ export default function TasksPage() {
                                 just have to be labelled as alternates rather
                                 than presented as picks.
                               */}
-                              <p className="mb-2 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
+                              <p className="mb-2 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
                                 <Sparkles className="h-[11px] w-[11px]" aria-hidden="true" />
                                 {remainingSlots > 0
                                   ? `AI picks — top ${Math.min(remainingSlots, suggestions.length)} auto-selected`
@@ -2756,7 +2778,7 @@ export default function TasksPage() {
                                     >
                                       <div className="flex items-center gap-1.5">
                                         <span
-                                          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white ${
+                                          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white ${
                                             isAlternate
                                               ? "bg-indigo-300 dark:bg-indigo-800"
                                               : "bg-indigo-600 dark:bg-indigo-500"
@@ -2764,18 +2786,18 @@ export default function TasksPage() {
                                         >
                                           {s.rank}
                                         </span>
-                                        <span className="text-[13px] font-medium text-foreground">{name}</span>
-                                        <span className="rounded bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700 dark:bg-indigo-800 dark:text-indigo-300">
+                                        <span className="text-sm font-medium text-foreground">{name}</span>
+                                        <span className="rounded bg-indigo-100 px-1.5 py-0.5 text-xs font-semibold text-indigo-700 dark:bg-indigo-800 dark:text-indigo-300">
                                           {s.score}/100
                                         </span>
                                         {isAlternate && (
-                                          <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                                          <span className="rounded bg-muted px-1.5 py-0.5 text-xs font-medium text-muted-foreground">
                                             alternate
                                           </span>
                                         )}
                                       </div>
                                       {s.explanation && (
-                                        <p className="mt-1 pl-6.5 text-[11px] leading-relaxed text-indigo-700/80 dark:text-indigo-300/70">
+                                        <p className="mt-1 pl-6.5 text-xs leading-relaxed text-indigo-700/80 dark:text-indigo-300/70">
                                           {s.explanation}
                                         </p>
                                       )}
@@ -2784,7 +2806,7 @@ export default function TasksPage() {
                                 })}
                               </div>
                               {suggestions.length > remainingSlots + MAX_ALTERNATES && (
-                                <p className="mt-2 text-[11px] text-muted-foreground">
+                                <p className="mt-2 text-xs text-muted-foreground">
                                   {suggestions.length - remainingSlots - MAX_ALTERNATES} more
                                   ranked candidate
                                   {suggestions.length - remainingSlots - MAX_ALTERNATES !== 1
@@ -2828,15 +2850,15 @@ export default function TasksPage() {
                                               disabled={atLimit}
                                               className="mt-1 h-3.5 w-3.5 shrink-0 rounded border-border accent-indigo-600"
                                             />
-                                            <div className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[9px] font-bold text-white ${avatarColor(m.user.id)}`}>
+                                            <div className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white ${avatarColor(m.user.id)}`}>
                                               {initials(m.user.name)}
                                             </div>
                                             <div className="min-w-0 flex-1">
-                                              <span className="block truncate text-[13px] font-medium">{m.user.name || m.user.email}</span>
-                                              <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                                              <span className="block truncate text-sm font-medium">{m.user.name || m.user.email}</span>
+                                              <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                                                 {m.role}
                                                 {suggestion ? (
-                                                  <span className="rounded bg-indigo-100 px-1 py-0 text-[10px] font-semibold text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300">
+                                                  <span className="rounded bg-indigo-100 px-1 py-0 text-xs font-semibold text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300">
                                                     #{suggestion.rank} · {suggestion.score}/100
                                                   </span>
                                                 ) : (
@@ -2844,7 +2866,7 @@ export default function TasksPage() {
                                                 )}
                                               </span>
                                               {suggestion?.explanation && (
-                                                <p className="mt-0.5 text-[10px] leading-snug text-indigo-600/70 dark:text-indigo-400/60">
+                                                <p className="mt-0.5 text-xs leading-snug text-indigo-600/70 dark:text-indigo-400/60">
                                                   {suggestion.explanation}
                                                 </p>
                                               )}
@@ -2863,7 +2885,7 @@ export default function TasksPage() {
                                                 const effect = compEffects[m.id];
                                                 if (!effect) return null;
                                                 return (
-                                                  <span className="mt-0.5 block text-[10px] leading-snug">
+                                                  <span className="mt-0.5 block text-xs leading-snug">
                                                     {effect.breaks.map((d, i) => (
                                                       <span
                                                         key={`b${i}`}
@@ -2894,7 +2916,7 @@ export default function TasksPage() {
                                 {/* Ineligible members — separate section */}
                                 {ineligibleMembers.length > 0 && (
                                   <div className="mt-3">
-                                    <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">
+                                    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">
                                       Needs Override ({ineligibleMembers.length})
                                     </p>
                                     <div className="space-y-2">
@@ -2941,7 +2963,7 @@ export default function TasksPage() {
                                             className="rounded-lg border border-amber-200 bg-amber-50/50 p-2.5 dark:border-amber-900 dark:bg-amber-950/20"
                                           >
                                             {unavailable && (
-                                              <p className="mb-2 rounded-md bg-amber-100/70 px-2 py-1.5 text-[11px] leading-relaxed text-amber-900 dark:bg-amber-900/30 dark:text-amber-200">
+                                              <p className="mb-2 rounded-md bg-amber-100/70 px-2 py-1.5 text-xs leading-relaxed text-amber-900 dark:bg-amber-900/30 dark:text-amber-200">
                                                 They said they are not available.
                                                 This will be offered, not booked —
                                                 they choose whether to take it.
@@ -2959,7 +2981,7 @@ export default function TasksPage() {
                                               </p>
                                             )}
                                             <label
-                                              className={`flex cursor-pointer items-center gap-2 text-[13px] ${
+                                              className={`flex cursor-pointer items-center gap-2 text-sm ${
                                                 !canSelect || atLimit ? "opacity-50" : ""
                                               }`}
                                             >
@@ -2970,13 +2992,13 @@ export default function TasksPage() {
                                                 disabled={!canSelect || atLimit}
                                                 className="h-3.5 w-3.5 shrink-0 rounded border-border accent-indigo-600"
                                               />
-                                              <div className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[9px] font-bold text-white ${avatarColor(m.user.id)}`}>
+                                              <div className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white ${avatarColor(m.user.id)}`}>
                                                 {initials(m.user.name)}
                                               </div>
                                               <span className="font-medium">{m.user.name || m.user.email}</span>
-                                              <span className="text-[11px] text-muted-foreground">{m.role}</span>
+                                              <span className="text-xs text-muted-foreground">{m.role}</span>
                                               {suggestion && (
-                                                <span className="rounded bg-indigo-100 px-1 py-0 text-[10px] font-semibold text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300">
+                                                <span className="rounded bg-indigo-100 px-1 py-0 text-xs font-semibold text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300">
                                                   #{suggestion.rank} · {suggestion.score}/100
                                                 </span>
                                               )}
@@ -2991,17 +3013,17 @@ export default function TasksPage() {
                                                 assigned at all".
                                               */}
                                               {!canSelect && !atLimit && (
-                                                <span className="ml-auto text-[11px] font-medium text-amber-700 dark:text-amber-400">
+                                                <span className="ml-auto text-xs font-medium text-amber-700 dark:text-amber-400">
                                                   Add a reason below to select
                                                 </span>
                                               )}
                                               {atLimit && !selected && (
-                                                <span className="ml-auto text-[11px] text-muted-foreground">
+                                                <span className="ml-auto text-xs text-muted-foreground">
                                                   No seats left
                                                 </span>
                                               )}
                                             </label>
-                                            <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 pl-8 text-[11px] text-amber-700 dark:text-amber-400">
+                                            <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 pl-8 text-xs text-amber-700 dark:text-amber-400">
                                               {warnings.map((w, i) => (
                                                 <span key={i}>⚠ {w}</span>
                                               ))}
@@ -3019,7 +3041,7 @@ export default function TasksPage() {
                                                 className="h-7 text-xs"
                                               />
                                               {hasOverride && (
-                                                <p className="mt-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+                                                <p className="mt-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">
                                                   {selected
                                                     ? "✓ Override will be recorded against this assignment"
                                                     : "✓ Reason saved — you can select them now"}

@@ -31,6 +31,7 @@ import { LimitNotice } from "@/components/ui/plan-gate";
 import { DEPARTMENT_LIST_READERS } from "@/lib/permissions";
 import { PRIMARY_BUTTON, SECONDARY_BUTTON } from "@/components/ui/button-styles";
 import { cn } from "@/lib/utils";
+import { apiErrorMessage } from "@/lib/api-error";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -155,7 +156,7 @@ function ImpactDialog({
       <div className="w-full max-w-md rounded-xl border border-border bg-card shadow-xl">
         <div className="border-b border-border px-5 py-4">
           <h3 className="text-base font-semibold">Archive &ldquo;{department.name}&rdquo;?</h3>
-          <p className="mt-1 text-[13px] text-muted-foreground">
+          <p className="mt-1 text-sm text-muted-foreground">
             Archiving hides this department from active views. All data is preserved and can be restored later.
           </p>
         </div>
@@ -168,7 +169,7 @@ function ImpactDialog({
             </div>
           ) : impact ? (
             <div className="space-y-2.5">
-              <p className="text-[13px] font-medium text-foreground">This will affect:</p>
+              <p className="text-sm font-medium text-foreground">This will affect:</p>
               <div className="space-y-1.5">
                 <ImpactRow
                   label="Members assigned"
@@ -190,7 +191,7 @@ function ImpactDialog({
                 />
               </div>
               {(impact.memberCount > 0 || impact.activeTaskCount > 0) && (
-                <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-300">
+                <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-300">
                   Consider reassigning members and tasks before archiving to avoid disruption.
                 </p>
               )}
@@ -229,8 +230,8 @@ function ImpactRow({ label, count, note, warn }: { label: string; count: number;
         {count}
       </span>
       <div className="min-w-0">
-        <p className="text-[12px] font-medium text-foreground">{label}</p>
-        <p className="text-[11px] text-muted-foreground">{note}</p>
+        <p className="text-xs font-medium text-foreground">{label}</p>
+        <p className="text-xs text-muted-foreground">{note}</p>
       </div>
     </div>
   );
@@ -256,7 +257,7 @@ function DeleteDialog({
       <div className="w-full max-w-md rounded-xl border border-border bg-card shadow-xl">
         <div className="border-b border-border px-5 py-4">
           <h3 className="text-base font-semibold text-red-600 dark:text-red-400">Permanently Delete &ldquo;{department.name}&rdquo;?</h3>
-          <p className="mt-1 text-[13px] text-muted-foreground">
+          <p className="mt-1 text-sm text-muted-foreground">
             This action cannot be undone. The department and all associated memberships will be permanently removed.
           </p>
         </div>
@@ -328,13 +329,13 @@ function ArchivedGrid({
                   <div className="h-4 w-4 rounded-full opacity-50" style={{ backgroundColor: dept.color || "#94A3B8" }} />
                 </div>
                 <div className="min-w-0">
-                  <h3 className="truncate text-[15px] font-semibold text-muted-foreground">{dept.name}</h3>
+                  <h3 className="truncate text-base font-semibold text-muted-foreground">{dept.name}</h3>
                   {dept.description && (
-                    <p className="mt-0.5 truncate text-[11px] text-muted-foreground/70">{dept.description}</p>
+                    <p className="mt-0.5 truncate text-xs text-muted-foreground/70">{dept.description}</p>
                   )}
                 </div>
               </div>
-              <span className="ml-2 flex-shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+              <span className="ml-2 flex-shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
                 Archived
               </span>
             </div>
@@ -359,7 +360,7 @@ function ArchivedGrid({
               {canUpdate && (
               <button
                 onClick={() => onUnarchive(dept.id)}
-                className="flex items-center gap-1 rounded-lg border border-border bg-card px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:border-green-400 hover:text-green-600 dark:hover:border-green-700 dark:hover:text-green-400"
+                className="flex items-center gap-1 rounded-lg border border-border bg-card px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:border-green-400 hover:text-green-600 dark:hover:border-green-700 dark:hover:text-green-400"
               >
                 <RefreshCw className="h-3 w-3" aria-hidden="true" />
                 Restore
@@ -368,7 +369,7 @@ function ArchivedGrid({
               {canDelete && (
               <button
                 onClick={() => onDelete(dept)}
-                className="flex items-center gap-1 rounded-lg border border-border bg-card px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:border-red-300 hover:text-red-600 dark:hover:border-red-800 dark:hover:text-red-400"
+                className="flex items-center gap-1 rounded-lg border border-border bg-card px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:border-red-300 hover:text-red-600 dark:hover:border-red-800 dark:hover:text-red-400"
               >
                 <Trash2 className="h-3 w-3" aria-hidden="true" />
                 Delete Permanently
@@ -474,7 +475,7 @@ export default function DepartmentsPage() {
       const result = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        setError(result.error || "Failed to create department");
+        setError(apiErrorMessage(result, "Failed to create department"));
         return;
       }
 
@@ -517,7 +518,7 @@ export default function DepartmentsPage() {
       const result = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        setError(result.error || "Failed to update department");
+        setError(apiErrorMessage(result, "Failed to update department"));
         return;
       }
 
@@ -575,7 +576,7 @@ export default function DepartmentsPage() {
       const result = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        setError(result.error || "Failed to archive department");
+        setError(apiErrorMessage(result, "Failed to archive department"));
         return;
       }
 
@@ -607,7 +608,7 @@ export default function DepartmentsPage() {
       const result = await res.json();
 
       if (!res.ok) {
-        setError(result.error || "Failed to restore department");
+        setError(apiErrorMessage(result, "Failed to restore department"));
         return;
       }
 
@@ -634,7 +635,7 @@ export default function DepartmentsPage() {
       const result = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        setError(result.error || "Failed to delete department");
+        setError(apiErrorMessage(result, "Failed to delete department"));
         return;
       }
 
@@ -715,8 +716,8 @@ export default function DepartmentsPage() {
       {/* ── Header ── */}
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-xl font-bold tracking-tight sm:text-2xl">Departments</h2>
-          <p className="mt-0.5 text-[13px] text-muted-foreground">
+          <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Departments</h1>
+          <p className="mt-0.5 text-sm text-muted-foreground">
             Organise your team into departments for scheduling and management
           </p>
         </div>
@@ -749,7 +750,7 @@ export default function DepartmentsPage() {
       {showCreate && canCreate && (
         <div className="mb-4 overflow-hidden rounded-xl border border-border bg-card">
           <div className="border-b border-border px-4 py-3">
-            <h3 className="text-[13px] font-semibold">New Department</h3>
+            <h3 className="text-sm font-semibold">New Department</h3>
           </div>
           <form onSubmit={onCreateDepartment} className="p-4">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -765,7 +766,7 @@ export default function DepartmentsPage() {
                 <Label htmlFor="create-color" className="text-xs">Colour</Label>
                 <div className="flex items-center gap-2">
                   <Input id="create-color" name="color" type="color" defaultValue="#3B82F6" className="h-9 w-12 cursor-pointer rounded-lg border border-border p-0.5" />
-                  <span className="text-[11px] text-muted-foreground">Used in calendar</span>
+                  <span className="text-xs text-muted-foreground">Used in calendar</span>
                 </div>
               </div>
             </div>
@@ -788,7 +789,7 @@ export default function DepartmentsPage() {
                 key={key}
                 onClick={() => setFilter(key)}
                 aria-pressed={active}
-                className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-[13px] font-medium transition-all ${
+                className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition-all ${
                   active
                     ? "border-indigo-500 bg-indigo-50 text-indigo-700 dark:border-indigo-400 dark:bg-indigo-950 dark:text-indigo-300"
                     : "border-border bg-card text-muted-foreground hover:border-indigo-300 hover:text-indigo-600 dark:hover:border-indigo-600 dark:hover:text-indigo-400"
@@ -796,7 +797,7 @@ export default function DepartmentsPage() {
               >
                 {label}
                 <span
-                  className={`inline-flex min-w-[18px] items-center justify-center rounded-full px-1 py-0 text-[11px] font-bold ${
+                  className={`inline-flex min-w-[18px] items-center justify-center rounded-full px-1 py-0 text-xs font-bold ${
                     active
                       ? "bg-indigo-600 text-white dark:bg-indigo-500"
                       : "bg-muted text-muted-foreground"
@@ -877,7 +878,7 @@ export default function DepartmentsPage() {
                       <Label className="text-xs">Colour</Label>
                       <div className="flex items-center gap-2">
                         <Input name="color" type="color" defaultValue={dept.color || "#3B82F6"} className="h-9 w-12 cursor-pointer rounded-lg border border-border p-0.5" />
-                        <span className="text-[11px] text-muted-foreground">Calendar colour</span>
+                        <span className="text-xs text-muted-foreground">Calendar colour</span>
                       </div>
                     </div>
                     <div className="flex gap-2">
@@ -899,9 +900,9 @@ export default function DepartmentsPage() {
                         <div className="h-4 w-4 rounded-full" style={{ backgroundColor: dept.color || "#94A3B8" }} />
                       </div>
                       <div className="min-w-0">
-                        <h3 className="truncate text-[15px] font-semibold">{dept.name}</h3>
+                        <h3 className="truncate text-base font-semibold">{dept.name}</h3>
                         {dept.description && (
-                          <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{dept.description}</p>
+                          <p className="mt-0.5 truncate text-xs text-muted-foreground">{dept.description}</p>
                         )}
                       </div>
                     </div>
@@ -928,14 +929,14 @@ export default function DepartmentsPage() {
                   <div className="mt-3 flex gap-2 border-t border-border/50 pt-3">
                     <button
                       onClick={() => setEditingId(dept.id)}
-                      className="flex items-center gap-1 rounded-lg border border-border bg-card px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:border-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-400"
+                      className="flex items-center gap-1 rounded-lg border border-border bg-card px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:border-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-400"
                     >
                       <SquarePen className="h-3 w-3" aria-hidden="true" />
                       Edit
                     </button>
                     <button
                       onClick={() => startArchive(dept)}
-                      className="flex items-center gap-1 rounded-lg border border-border bg-card px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:border-amber-400 hover:text-amber-600 dark:hover:border-amber-700 dark:hover:text-amber-400"
+                      className="flex items-center gap-1 rounded-lg border border-border bg-card px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:border-amber-400 hover:text-amber-600 dark:hover:border-amber-700 dark:hover:text-amber-400"
                     >
                       <Archive className="h-3 w-3" aria-hidden="true" />
                       Archive

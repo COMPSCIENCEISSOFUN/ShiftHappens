@@ -81,12 +81,12 @@ export function AiResultBanner({
       </div>
 
       <div className="min-w-0 flex-1">
-        <p className="text-[13px] font-medium">
+        <p className="text-sm font-medium">
           Created &ldquo;{title}&rdquo;
         </p>
-        <p className="mt-0.5 text-[12px] text-muted-foreground">{staffing}</p>
+        <p className="mt-0.5 text-xs text-muted-foreground">{staffing}</p>
         {unscheduled && (
-          <p className="mt-1 text-[12px] text-amber-700 dark:text-amber-300">
+          <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
             Its suggested time fell outside this project&apos;s timeframe, so it
             was left unscheduled — set the dates to have it staffed.
           </p>
@@ -110,14 +110,14 @@ export function AiResultBanner({
           {href && (
             <Link
               href={href}
-              className="inline-flex items-center gap-1 text-[12px] font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+              className="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
             >
               Open it
               <ArrowRight className="size-3" aria-hidden="true" />
             </Link>
           )}
           {assigned > 0 && (
-            <span className="text-[11px] text-muted-foreground">
+            <span className="text-xs text-muted-foreground">
               Undo notifies the {assigned} assigned.
             </span>
           )}

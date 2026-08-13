@@ -41,6 +41,7 @@ import { AlertBanner } from "@/components/ui/alert-banner";
 import { toast } from "sonner";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PRIMARY_BUTTON, SECONDARY_BUTTON } from "@/components/ui/button-styles";
+import { apiErrorMessage } from "@/lib/api-error";
 
 const DAYS = [
   "Sunday",
@@ -199,7 +200,7 @@ export default function AvailabilityPage() {
 
       if (!res.ok) {
         const result = await res.json();
-        setError(result.error || "Failed to save schedule");
+        setError(apiErrorMessage(result, "Failed to save schedule"));
         return;
       }
 
@@ -236,7 +237,7 @@ export default function AvailabilityPage() {
 
       if (!res.ok) {
         const result = await res.json();
-        setError(result.error || "Failed to create override");
+        setError(apiErrorMessage(result, "Failed to create override"));
         return;
       }
 
@@ -257,7 +258,7 @@ export default function AvailabilityPage() {
       );
       if (!res.ok) {
         const result = await res.json().catch(() => ({}));
-        setError(result.error || "Failed to remove override");
+        setError(apiErrorMessage(result, "Failed to remove override"));
         return;
       }
       toast.success(contracted ? "Request withdrawn" : "Override removed");
@@ -301,7 +302,7 @@ export default function AvailabilityPage() {
       className="mb-4"
       bodyClassName="p-4"
     >
-      <p className="mb-3 text-[13px] text-muted-foreground">
+      <p className="mb-3 text-sm text-muted-foreground">
         {contracted
           ? "Set by your organisation. To change a single day, request leave above."
           : "Your regular pattern. A day left unticked means you cannot be rostered that day at all."}
@@ -330,10 +331,10 @@ export default function AvailabilityPage() {
               }`}
             >
               {contracted ? (
-                <span className="flex w-full items-center gap-2.5 text-[13px] font-medium sm:w-36">
+                <span className="flex w-full items-center gap-2.5 text-sm font-medium sm:w-36">
                   <span
                     aria-hidden="true"
-                    className={`flex h-4 w-4 shrink-0 items-center justify-center rounded text-[11px] leading-none ${
+                    className={`flex h-4 w-4 shrink-0 items-center justify-center rounded text-xs leading-none ${
                       day.isAvailable
                         ? "bg-indigo-600 text-white"
                         : "border border-border"
@@ -347,7 +348,7 @@ export default function AvailabilityPage() {
                   </span>
                 </span>
               ) : (
-                <label className="flex w-full cursor-pointer items-center gap-2.5 text-[13px] font-medium sm:w-36">
+                <label className="flex w-full cursor-pointer items-center gap-2.5 text-sm font-medium sm:w-36">
                   <input
                     type="checkbox"
                     checked={day.isAvailable}
@@ -360,7 +361,7 @@ export default function AvailabilityPage() {
 
               <div className="flex flex-1 items-center gap-2">
                 {contracted ? (
-                  <span className="text-[13px] text-muted-foreground">
+                  <span className="text-sm text-muted-foreground">
                     {day.isAvailable
                       ? `${day.startTime} – ${day.endTime}`
                       : "Not working"}
@@ -373,21 +374,21 @@ export default function AvailabilityPage() {
                       value={day.startTime}
                       onChange={(e) => updateDay(index, "startTime", e.target.value)}
                       disabled={!day.isAvailable}
-                      className="h-8 w-32 text-[13px]"
+                      className="h-8 w-32 text-sm"
                     />
-                    <span className="text-[12px] text-muted-foreground">to</span>
+                    <span className="text-xs text-muted-foreground">to</span>
                     <Input
                       type="time"
                       aria-label={`${DAYS[day.dayOfWeek]} end time`}
                       value={day.endTime}
                       onChange={(e) => updateDay(index, "endTime", e.target.value)}
                       disabled={!day.isAvailable}
-                      className="h-8 w-32 text-[13px]"
+                      className="h-8 w-32 text-sm"
                     />
                   </>
                 )}
                 {day.isAvailable && (
-                  <span className="ml-auto text-[12px] text-muted-foreground">
+                  <span className="ml-auto text-xs text-muted-foreground">
                     {windowHours(day.startTime, day.endTime).toFixed(1)}h
                   </span>
                 )}
@@ -422,7 +423,7 @@ export default function AvailabilityPage() {
       className="mb-4"
       bodyClassName="p-4"
     >
-      <p className="mb-3 text-[13px] text-muted-foreground">
+      <p className="mb-3 text-sm text-muted-foreground">
         {contracted
           ? "Ask for a day off. A manager reviews each one — until then you stay on the roster as usual."
           : "One-off exceptions to the pattern above — a day off, or a day you can work that you normally could not. An override wins over the weekly schedule for that date."}
@@ -433,7 +434,7 @@ export default function AvailabilityPage() {
         className="mb-4 flex flex-col gap-3 rounded-lg border border-border bg-muted/20 p-3 sm:flex-row sm:items-end"
       >
         <div className="space-y-1">
-          <Label htmlFor="overrideDate" className="text-[12px]">
+          <Label htmlFor="overrideDate" className="text-xs">
             Date
           </Label>
           <Input
@@ -441,7 +442,7 @@ export default function AvailabilityPage() {
             type="date"
             name="overrideDate"
             required
-            className="h-9 text-[13px]"
+            className="h-9 text-sm"
           />
         </div>
         {/*
@@ -457,13 +458,13 @@ export default function AvailabilityPage() {
         */}
         {!contracted && (
           <div className="space-y-1">
-            <Label htmlFor="overrideAvailable" className="text-[12px]">
+            <Label htmlFor="overrideAvailable" className="text-xs">
               Available?
             </Label>
             <select
               id="overrideAvailable"
               name="overrideAvailable"
-              className="h-9 rounded-lg border border-border bg-background px-3 text-[13px]"
+              className="h-9 rounded-lg border border-border bg-background px-3 text-sm"
             >
               <option value="false">Unavailable</option>
               <option value="true">Available</option>
@@ -471,14 +472,14 @@ export default function AvailabilityPage() {
           </div>
         )}
         <div className="flex-1 space-y-1">
-          <Label htmlFor="overrideReason" className="text-[12px]">
+          <Label htmlFor="overrideReason" className="text-xs">
             Reason
           </Label>
           <Input
             id="overrideReason"
             name="overrideReason"
             placeholder="Optional — e.g. medical appointment"
-            className="h-9 text-[13px]"
+            className="h-9 text-sm"
           />
         </div>
         <button type="submit" className={`${SECONDARY_BUTTON} h-9 gap-1.5`}>
@@ -513,7 +514,7 @@ export default function AvailabilityPage() {
                 */}
                 {!contracted && (
                   <span
-                    className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                    className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${
                       ov.isAvailable
                         ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
                         : "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300"
@@ -538,7 +539,7 @@ export default function AvailabilityPage() {
                 */}
                 {ov.status !== "approved" && (
                   <span
-                    className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                    className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${
                       ov.status === "pending" && !ov.lapsed
                         ? "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
                         : "bg-muted text-muted-foreground"
@@ -553,14 +554,14 @@ export default function AvailabilityPage() {
                 )}
                 {/* Only worth saying where approval was ever in question. */}
                 {contracted && ov.status === "approved" && (
-                  <span className="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+                  <span className="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
                     Approved
                   </span>
                 )}
                 <div className="min-w-0 flex-1">
                   {/* The weekday, not just the date — "14 Aug" alone does not
                       tell you which of your weekly windows it replaces. */}
-                  <p className="truncate text-[13px] font-medium">
+                  <p className="truncate text-sm font-medium">
                     {date.toLocaleDateString([], {
                       weekday: "short",
                       day: "numeric",
@@ -569,7 +570,7 @@ export default function AvailabilityPage() {
                     })}
                   </p>
                   {ov.reason && (
-                    <p className="truncate text-[12px] text-muted-foreground">
+                    <p className="truncate text-xs text-muted-foreground">
                       {ov.reason}
                     </p>
                   )}
@@ -593,10 +594,10 @@ export default function AvailabilityPage() {
     <div className="w-full">
       {/* ── Header ── */}
       <div className="mb-4">
-        <h2 className="text-xl font-bold tracking-tight sm:text-2xl">
+        <h1 className="text-xl font-bold tracking-tight sm:text-2xl">
           {contracted ? "My Working Days" : "My Availability"}
-        </h2>
-        <p className="mt-0.5 text-[13px] text-muted-foreground">
+        </h1>
+        <p className="mt-0.5 text-sm text-muted-foreground">
           {contracted
             ? "Your contracted days, and any leave you've asked for. Leave takes effect once a manager approves it."
             : "The hours you can be rostered. Anything outside these windows marks you ineligible when a manager assigns work."}

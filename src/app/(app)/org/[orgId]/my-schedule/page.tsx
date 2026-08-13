@@ -285,10 +285,10 @@ export default function MySchedulePage() {
       {/* ── Header ── */}
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-xl font-bold tracking-tight sm:text-2xl">
+          <h1 className="text-xl font-bold tracking-tight sm:text-2xl">
             My Schedule
-          </h2>
-          <p className="mt-0.5 text-[13px] text-muted-foreground">
+          </h1>
+          <p className="mt-0.5 text-sm text-muted-foreground">
             {rangeLabel} &middot; {inThisWeek.length} shift
             {inThisWeek.length === 1 ? "" : "s"}
             {inThisWeek.length > 0 && (
@@ -362,11 +362,11 @@ export default function MySchedulePage() {
                     isToday ? "bg-indigo-50 dark:bg-indigo-950/40" : ""
                   }`}
                 >
-                  <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                     {DAY_LABELS[i]}
                   </p>
                   <p
-                    className={`text-[13px] ${
+                    className={`text-sm ${
                       isToday ? "font-bold text-indigo-600 dark:text-indigo-300" : ""
                     }`}
                   >
@@ -384,7 +384,7 @@ export default function MySchedulePage() {
               {rows.map((row) => (
                 <div
                   key={row.index}
-                  className="h-12 border-b border-border/60 px-1 text-right text-[10px] tabular-nums text-muted-foreground last:border-b-0"
+                  className="h-12 border-b border-border/60 px-1 text-right text-xs tabular-nums text-muted-foreground last:border-b-0"
                 >
                   {formatHour(row.clockHour)}
                 </div>
@@ -439,7 +439,7 @@ export default function MySchedulePage() {
                           so an overnight shift reads as one thing split in two
                           rather than two unrelated ones.
                         */
-                        className={`absolute inset-x-0.5 z-[5] overflow-hidden border px-1 py-0.5 text-[10px] leading-tight ${tone.className} ${
+                        className={`absolute inset-x-0.5 z-[5] overflow-hidden border px-1 py-0.5 text-xs leading-tight ${tone.className} ${
                           block.continuesBefore ? "rounded-t-none" : "rounded-t"
                         } ${block.continuesAfter ? "rounded-b-none" : "rounded-b"}`}
                         style={{
@@ -476,7 +476,7 @@ export default function MySchedulePage() {
 
       {/* ── Legend ── */}
       {!error && mine.length > 0 && (
-        <div className="mt-3 flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground">
+        <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
           <Clock className="h-3.5 w-3.5" aria-hidden="true" />
           {["accepted", "pending", "completed"].map((status) => {
             const tone = blockTone(status);

@@ -218,7 +218,7 @@ export function NotificationBell({ orgId }: { orgId?: string }) {
           <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
         </svg>
         {unreadCount > 0 && (
-          <span className="absolute -top-0.5 -right-0.5 flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-red-500 text-white text-[10px] font-medium px-1">
+          <span className="absolute -top-0.5 -right-0.5 flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-red-500 text-white text-xs font-medium px-1">
             {unreadCount > 99 ? "99+" : unreadCount}
           </span>
         )}

@@ -38,6 +38,7 @@ import { AlertBanner } from "@/components/ui/alert-banner";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageLoading } from "@/components/ui/page-loading";
+import { apiErrorMessage } from "@/lib/api-error";
 
 interface AskedQuestion {
   id: string;
@@ -103,6 +104,7 @@ export default function PlatformFaqPage() {
   }, []);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronising with an external system: loads this page's rows on mount
     void load();
   }, [load]);
 
@@ -117,7 +119,7 @@ export default function PlatformFaqPage() {
       });
       const result = await response.json().catch(() => null);
       if (!response.ok) {
-        toast.error(result?.error || "Could not create that entry.");
+        toast.error(apiErrorMessage(result, "Could not create that entry."));
         return;
       }
       toast.success("Draft saved. Publish it when you are happy with it.");
@@ -139,7 +141,7 @@ export default function PlatformFaqPage() {
       });
       const result = await response.json().catch(() => null);
       if (!response.ok) {
-        toast.error(result?.error || "Could not save that.");
+        toast.error(apiErrorMessage(result, "Could not save that."));
         return;
       }
       toast.success(
@@ -193,10 +195,10 @@ export default function PlatformFaqPage() {
     <div className="w-full">
       {/* ── Header ── */}
       <div className="mb-4">
-        <h2 className="text-xl font-bold tracking-tight sm:text-2xl">
+        <h1 className="text-xl font-bold tracking-tight sm:text-2xl">
           Landing page FAQ
-        </h2>
-        <p className="mt-0.5 text-[13px] text-muted-foreground">
+        </h1>
+        <p className="mt-0.5 text-sm text-muted-foreground">
           Published entries appear on the public site, in position order
         </p>
       </div>
@@ -215,7 +217,7 @@ export default function PlatformFaqPage() {
               {askedTotal} waiting
             </span>
           </div>
-          <p className="mt-1 text-[13px] text-muted-foreground">
+          <p className="mt-1 text-sm text-muted-foreground">
             Sent from the landing page. Nothing here is published — answering
             one writes an entry in your words.
           </p>

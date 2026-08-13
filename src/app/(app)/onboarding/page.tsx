@@ -43,6 +43,7 @@ import {
 } from "lucide-react";
 import type { CustomTemplateData } from "@/lib/industry-templates";
 import { TIER_CONFIG } from "@/lib/subscription-tiers";
+import { apiErrorMessage } from "@/lib/api-error";
 
 const CUSTOM_TEMPLATE_ID = "custom";
 
@@ -243,7 +244,7 @@ export default function OnboardingPage() {
       });
       const result = await response.json();
       if (!response.ok) {
-        setAiError(result.error || "Failed to generate template");
+        setAiError(apiErrorMessage(result, "Failed to generate template"));
         return;
       }
       setCustomTemplate(result as CustomTemplateData);
@@ -280,7 +281,7 @@ export default function OnboardingPage() {
       });
       const result = await response.json();
       if (!response.ok) {
-        setError(result.error || "Failed to create organization");
+        setError(apiErrorMessage(result, "Failed to create organization"));
         return;
       }
 
@@ -342,6 +343,18 @@ export default function OnboardingPage() {
   return (
     <div className="flex min-h-[80vh] items-center justify-center py-8">
       <div className="w-full max-w-2xl px-4">
+        {/*
+          A page title for assistive technology, and deliberately not a visible
+          one.
+
+          Every other page in the product names itself in an `<h1>`; this one
+          could not, because the largest heading on screen is the current STEP
+          — and a page whose title changes as you advance through it gives a
+          screen-reader user a moving target rather than a place. The visible
+          step headings are untouched.
+        */}
+        <h1 className="sr-only">Set up your organisation</h1>
+
         {/* ─── Step 1: Template Selection ─────────────────────────── */}
         {step === "template" && (
           <Card>
@@ -681,7 +694,7 @@ export default function OnboardingPage() {
                           }`}
                         >
                           Annual
-                          <span className="ml-1 text-[10px] opacity-80">
+                          <span className="ml-1 text-xs opacity-80">
                             (2 months free)
                           </span>
                         </button>

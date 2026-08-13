@@ -96,7 +96,7 @@ export function LimitNotice({
   const full = atLimit(resource);
   return (
     <span
-      className={`text-[11px] font-medium ${
+      className={`text-xs font-medium ${
         full ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"
       }`}
     >

@@ -431,10 +431,10 @@ export default function TemplatesPage() {
       <div className="w-full">
         <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="text-xl font-bold tracking-tight sm:text-2xl">
+            <h1 className="text-xl font-bold tracking-tight sm:text-2xl">
               {viewMode === "create" ? "New template" : "Edit template"}
-            </h2>
-            <p className="mt-0.5 text-[13px] text-muted-foreground">
+            </h1>
+            <p className="mt-0.5 text-sm text-muted-foreground">
               Departments, work rules and certifications a new organisation
               starts with
             </p>
@@ -451,7 +451,7 @@ export default function TemplatesPage() {
           {viewMode === "create" && (
             <Panel title="Generate with AI" icon={Sparkles}>
               <div className="space-y-2 p-4">
-                <p className="text-[12px] text-muted-foreground">
+                <p className="text-xs text-muted-foreground">
                   Describe an industry and the model fills in departments, work
                   rules and certifications. Everything stays editable.
                 </p>
@@ -521,7 +521,7 @@ export default function TemplatesPage() {
           >
             <div className="space-y-3 p-4">
               {formDepartments.length === 0 ? (
-                <p className="text-[13px] text-muted-foreground">
+                <p className="text-sm text-muted-foreground">
                   At least one is required — this is what the new organisation
                   is structured around.
                 </p>
@@ -579,7 +579,7 @@ export default function TemplatesPage() {
           >
             <div className="space-y-3 p-4">
               {formWorkRules.length === 0 ? (
-                <p className="text-[13px] text-muted-foreground">
+                <p className="text-sm text-muted-foreground">
                   Optional. Break intervals and hour caps the new organisation
                   starts with.
                 </p>
@@ -696,7 +696,7 @@ export default function TemplatesPage() {
           >
             <div className="space-y-2 p-4">
               {formCertifications.length === 0 ? (
-                <p className="text-[13px] text-muted-foreground">
+                <p className="text-sm text-muted-foreground">
                   Optional. Qualifications staff may need for certain shifts.
                 </p>
               ) : (
@@ -751,7 +751,7 @@ export default function TemplatesPage() {
           <h2 className="text-xl font-bold tracking-tight sm:text-2xl">
             Industry templates
           </h2>
-          <p className="mt-0.5 text-[13px] text-muted-foreground">
+          <p className="mt-0.5 text-sm text-muted-foreground">
             What a new organisation is built from at onboarding. Deactivating one
             hides it from new sign-ups without affecting anyone already using it
           </p>
@@ -822,15 +822,15 @@ export default function TemplatesPage() {
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="text-[14px] font-semibold">{template.name}</h3>
+                    <h3 className="text-sm font-semibold">{template.name}</h3>
                     {template.isAiGenerated && (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+                      <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-blue-700 dark:bg-blue-950 dark:text-blue-300">
                         <Sparkles className="h-3 w-3" aria-hidden="true" />
                         AI
                       </span>
                     )}
                     <span
-                      className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                      className={`rounded-full px-2 py-0.5 text-xs font-semibold uppercase tracking-wide ${
                         template.isActive
                           ? "bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300"
                           : "bg-muted text-muted-foreground"
@@ -839,7 +839,7 @@ export default function TemplatesPage() {
                       {template.isActive ? "Active" : "Inactive"}
                     </span>
                   </div>
-                  <p className="mt-1 text-[12px] text-muted-foreground">
+                  <p className="mt-1 text-xs text-muted-foreground">
                     {template.description}
                   </p>
                 </div>
@@ -864,7 +864,7 @@ export default function TemplatesPage() {
                 </div>
               </div>
 
-              <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-border pt-3 text-[11px] text-muted-foreground">
+              <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-border pt-3 text-xs text-muted-foreground">
                 <span className="inline-flex items-center gap-1.5">
                   <Building2 className="h-3 w-3" aria-hidden="true" />
                   {template.departments.length} departments

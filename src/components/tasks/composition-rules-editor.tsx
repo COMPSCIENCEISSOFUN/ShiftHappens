@@ -126,7 +126,7 @@ export function CompositionRulesEditor({
         Team composition
         <span className="font-normal">Optional</span>
       </p>
-      <p className="text-[11px] text-muted-foreground">
+      <p className="text-xs text-muted-foreground">
         Rules about the group rather than about each person — &ldquo;not both
         junior&rdquo;, &ldquo;someone with First Aid&rdquo;. Checked when staff are
         assigned; a manager can override with a reason.
@@ -139,8 +139,8 @@ export function CompositionRulesEditor({
               key={`${rule.kind}-${rule.value}-${rule.comparator}-${i}`}
               className="flex items-center gap-2 rounded-lg border border-border bg-muted/40 px-2.5 py-1.5"
             >
-              <span className="flex-1 text-[11px]">{describeRule(rule)}</span>
-              <span className="rounded-full bg-background px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+              <span className="flex-1 text-xs">{describeRule(rule)}</span>
+              <span className="rounded-full bg-background px-1.5 py-0.5 text-xs font-medium text-muted-foreground">
                 {KIND_LABEL[rule.kind]}
               </span>
               <button
@@ -158,7 +158,7 @@ export function CompositionRulesEditor({
       )}
 
       {atCapacity ? (
-        <p className="text-[11px] text-muted-foreground">
+        <p className="text-xs text-muted-foreground">
           {MAX_COMPOSITION_RULES} rules is the limit. A shift needing more than
           that is one nobody can staff.
         </p>
@@ -260,12 +260,12 @@ export function CompositionRulesEditor({
             </button>
           </div>
 
-          <p className="mt-1.5 text-[10px] text-muted-foreground">
+          <p className="mt-1.5 text-xs text-muted-foreground">
             {KIND_HINT[kind]}
           </p>
 
           {error && (
-            <p role="alert" className="mt-1.5 text-[11px] text-red-600 dark:text-red-400">
+            <p role="alert" className="mt-1.5 text-xs text-red-600 dark:text-red-400">
               {error}
             </p>
           )}

@@ -56,6 +56,7 @@ import {
   BUTTON_STRETCH_MOBILE,
 } from "@/components/ui/button-styles";
 import { cn } from "@/lib/utils";
+import { apiErrorMessage } from "@/lib/api-error";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -146,16 +147,16 @@ function AssignmentHeader({ a }: { a: Assignment }) {
   return (
     <div>
       <div className="flex flex-wrap items-center gap-2">
-        <h4 className="text-[14px] font-semibold">{a.task.title}</h4>
+        <h4 className="text-sm font-semibold">{a.task.title}</h4>
         <StatusBadge value={a.status} palette="assignmentStatus" />
       </div>
       {when && (
-        <p className="mt-1 flex items-center gap-1.5 text-[13px] font-medium text-foreground">
+        <p className="mt-1 flex items-center gap-1.5 text-sm font-medium text-foreground">
           <CalendarClock className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
           {when}
         </p>
       )}
-      <p className="mt-0.5 text-[12px] text-muted-foreground">
+      <p className="mt-0.5 text-xs text-muted-foreground">
         {a.task.department?.name || "No department"} · Assigned by{" "}
         {a.assignedBy.name || "Unknown"}
       </p>
@@ -305,7 +306,7 @@ export default function MyTasksPage() {
       const res = await request();
       if (!res.ok) {
         const result = await res.json().catch(() => ({}));
-        setError(result.error || "Something went wrong");
+        setError(apiErrorMessage(result, "Something went wrong"));
         return;
       }
       const updated = await res.json().catch(() => ({}));
@@ -469,8 +470,8 @@ export default function MyTasksPage() {
     <div className="w-full">
       {/* ── Header ── */}
       <div className="mb-4">
-        <h2 className="text-xl font-bold tracking-tight sm:text-2xl">My Tasks</h2>
-        <p className="mt-0.5 text-[13px] text-muted-foreground">
+        <h1 className="text-xl font-bold tracking-tight sm:text-2xl">My Tasks</h1>
+        <p className="mt-0.5 text-sm text-muted-foreground">
           Your shifts — respond to what you&apos;ve been offered, and clock in
           when you start
         </p>
@@ -481,7 +482,7 @@ export default function MyTasksPage() {
         */}
         <Link
           href={`/org/${orgId}/my-history`}
-          className="mt-2 inline-flex items-center gap-1.5 text-[13px] font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+          className="mt-2 inline-flex items-center gap-1.5 text-sm font-medium text-indigo-600 hover:underline dark:text-indigo-400"
         >
           <History className="h-3.5 w-3.5" aria-hidden="true" />
           See everything you have finished with
@@ -588,7 +589,7 @@ export default function MyTasksPage() {
                   <AssignmentHeader a={a} />
 
                   {a.task.description && (
-                    <p className="mt-2 text-[13px] text-muted-foreground">
+                    <p className="mt-2 text-sm text-muted-foreground">
                       {a.task.description}
                     </p>
                   )}
@@ -599,7 +600,7 @@ export default function MyTasksPage() {
                     Decline would let them file it twice.
                   */}
                   {a.status === "decline_requested" ? (
-                    <p className="mt-3 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-[13px] text-orange-800 dark:border-orange-900 dark:bg-orange-950/40 dark:text-orange-300">
+                    <p className="mt-3 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-sm text-orange-800 dark:border-orange-900 dark:bg-orange-950/40 dark:text-orange-300">
                       Waiting for your manager to approve. You are still rostered
                       on this shift until they do.
                     </p>
@@ -680,14 +681,14 @@ export default function MyTasksPage() {
                   <AssignmentHeader a={a} />
 
                   {clocked && (
-                    <p className="mt-1 flex items-center gap-1.5 text-[12px] text-green-600 dark:text-green-400">
+                    <p className="mt-1 flex items-center gap-1.5 text-xs text-green-600 dark:text-green-400">
                       <Clock className="h-3.5 w-3.5" aria-hidden="true" />
                       {clocked}
                     </p>
                   )}
 
                   {a.status === "withdrawal_requested" ? (
-                    <p className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-2.5 text-[12px] text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+                    <p className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-2.5 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
                       Withdrawal requested — {reasonLabel(a.withdrawalReason)}
                       {a.withdrawalNotes ? `: ${a.withdrawalNotes}` : ""}. Awaiting
                       your manager&apos;s decision.
@@ -742,7 +743,7 @@ export default function MyTasksPage() {
                             );
                           }}
                         >
-                          <p className="text-[12px] text-muted-foreground">
+                          <p className="text-xs text-muted-foreground">
                             Your manager decides whether to release you from this
                             shift. You stay assigned until they do.
                           </p>
@@ -793,7 +794,7 @@ export default function MyTasksPage() {
                 <div key={a.id} className="p-4">
                   <AssignmentHeader a={a} />
                   {clocked && (
-                    <p className="mt-1 text-[12px] text-muted-foreground">{clocked}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{clocked}</p>
                   )}
                   <div className="mt-3 flex flex-wrap gap-2">
                     <button

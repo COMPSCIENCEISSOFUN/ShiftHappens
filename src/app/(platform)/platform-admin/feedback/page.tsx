@@ -101,6 +101,7 @@ export default function PlatformFeedbackPage() {
   }, [area, showArchived, page]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronising with an external system: loads this page's rows on mount
     void load();
   }, [load]);
 
@@ -145,8 +146,8 @@ export default function PlatformFeedbackPage() {
     <div className="w-full">
       {/* ── Header ── */}
       <div className="mb-4">
-        <h2 className="text-xl font-bold tracking-tight sm:text-2xl">Feedback</h2>
-        <p className="mt-0.5 text-[13px] text-muted-foreground">
+        <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Feedback</h1>
+        <p className="mt-0.5 text-sm text-muted-foreground">
           What customers are telling us, across every organisation
         </p>
       </div>

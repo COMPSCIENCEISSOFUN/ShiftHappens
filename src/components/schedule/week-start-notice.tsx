@@ -39,7 +39,7 @@ export function WeekStartNotice({
   const label = shortDateLabel(monday);
 
   return (
-    <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-amber-700 dark:text-amber-400">
+    <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-amber-700 dark:text-amber-400">
       <span>
         This week starts on a {day}. Rosters usually run Monday to Sunday.
       </span>

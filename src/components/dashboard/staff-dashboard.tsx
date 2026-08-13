@@ -327,17 +327,17 @@ export default function StaffDashboard({
             {data.nextShift ? (
               <>
                 <span
-                  className="text-[11px] font-semibold uppercase tracking-widest"
+                  className="text-xs font-semibold uppercase tracking-widest"
                   style={{ color: "rgba(255,255,255,0.65)" }}
                 >
                   Next shift
                 </span>
                 <div className="mt-3">
-                  <h2 className="text-[22px] font-bold leading-tight text-white">
+                  <h2 className="text-xl font-bold leading-tight text-white">
                     {data.nextShift.taskName}
                   </h2>
                   <p
-                    className="mt-1 text-[14px]"
+                    className="mt-1 text-sm"
                     style={{ color: "rgba(255,255,255,0.75)" }}
                   >
                     {formatDayTime(data.nextShift.scheduledStart)} &ndash;{" "}
@@ -481,11 +481,11 @@ export default function StaffDashboard({
                 }
               >
                 <CardContent className="flex flex-col items-center gap-2 p-3">
-                  <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                  <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                     {DAY_LABELS[i]}
                   </span>
                   <span
-                    className={`text-[18px] font-bold tabular-nums ${
+                    className={`text-lg font-bold tabular-nums ${
                       isToday ? "text-indigo-600" : ""
                     }`}
                   >
@@ -499,7 +499,7 @@ export default function StaffDashboard({
                         return (
                           <span
                             key={a.id}
-                            className="inline-flex w-full items-center justify-center rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-600 dark:bg-amber-950 dark:text-amber-400"
+                            className="inline-flex w-full items-center justify-center rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-600 dark:bg-amber-950 dark:text-amber-400"
                           >
                             pending
                           </span>
@@ -516,7 +516,7 @@ export default function StaffDashboard({
                       return (
                         <span
                           key={a.id}
-                          className="inline-flex w-full items-center justify-center rounded-full px-2 py-0.5 text-[10px] font-medium text-white"
+                          className="inline-flex w-full items-center justify-center rounded-full px-2 py-0.5 text-xs font-medium text-white"
                           style={{ background: "#4f46e5" }}
                         >
                           {startLabel && endLabel
@@ -528,7 +528,7 @@ export default function StaffDashboard({
 
                     {dayAssignments.length === 0 && avail && avail.isAvailable && (
                       <span
-                        className="inline-flex w-full items-center justify-center rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-600 dark:bg-emerald-950 dark:text-emerald-400"
+                        className="inline-flex w-full items-center justify-center rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-600 dark:bg-emerald-950 dark:text-emerald-400"
                       >
                         available
                       </span>
@@ -536,7 +536,7 @@ export default function StaffDashboard({
 
                     {dayAssignments.length === 0 &&
                       (!avail || !avail.isAvailable) && (
-                        <span className="inline-flex w-full items-center justify-center rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-500 dark:bg-gray-800 dark:text-gray-400">
+                        <span className="inline-flex w-full items-center justify-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500 dark:bg-gray-800 dark:text-gray-400">
                           off
                         </span>
                       )}
@@ -675,7 +675,7 @@ export default function StaffDashboard({
                 <p className="mt-2 text-xl font-bold tabular-nums text-indigo-600 dark:text-indigo-400">
                   {data.stats.shiftsThisMonth}
                 </p>
-                <p className="text-[10px] text-muted-foreground">this month</p>
+                <p className="text-xs text-muted-foreground">this month</p>
               </div>
 
               {/* Hours this month */}
@@ -689,7 +689,7 @@ export default function StaffDashboard({
                 <p className="mt-2 text-xl font-bold tabular-nums text-indigo-600 dark:text-indigo-400">
                   {data.stats.hoursThisMonth.toFixed(1)}
                 </p>
-                <p className="text-[10px] text-muted-foreground">this month</p>
+                <p className="text-xs text-muted-foreground">this month</p>
               </div>
             </div>
           </CardContent>

@@ -46,6 +46,7 @@ import {
   type LeaveView,
 } from "@/lib/leave-filters";
 import type { LeaveDecision } from "@/components/dashboard/leave-requests-panel";
+import { apiErrorMessage } from "@/lib/api-error";
 
 export interface RegisterRow {
   id: string;
@@ -246,7 +247,7 @@ export function LeaveRegister({
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        setError(body.error || "Failed to record the decision");
+        setError(apiErrorMessage(body, "Failed to record the decision"));
         return;
       }
       setError(null);
@@ -282,7 +283,7 @@ export function LeaveRegister({
       );
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(body.error || "Failed to dismiss");
+        setError(apiErrorMessage(body, "Failed to dismiss"));
         return;
       }
       setError(
@@ -449,14 +450,14 @@ export function LeaveRegister({
       </div>
 
       {error && (
-        <p className="rounded-lg bg-red-50 px-3 py-2 text-[13px] text-red-600 dark:bg-red-950 dark:text-red-300">
+        <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-950 dark:text-red-300">
           {error}
         </p>
       )}
 
       {/* ── Rows ────────────────────────────────────────────── */}
       {loading ? (
-        <p className="py-8 text-center text-[13px] text-muted-foreground">
+        <p className="py-8 text-center text-sm text-muted-foreground">
           Loading…
         </p>
       ) : data.rows.length === 0 ? (
@@ -515,18 +516,18 @@ export function LeaveRegister({
 
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-[13px] font-medium">
+                      <p className="text-sm font-medium">
                         {name} — asked off on {when}
                       </p>
                       <span
-                        className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${state.tone}`}
+                        className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${state.tone}`}
                       >
                         {state.label}
                       </span>
                       {row.departments.map((d) => (
                         <span
                           key={d.id}
-                          className="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium"
+                          className="shrink-0 rounded-full px-2 py-0.5 text-xs font-medium"
                           style={{
                             backgroundColor: `${d.color || "#94A3B8"}1a`,
                             color: d.color || "#64748B",
@@ -536,7 +537,7 @@ export function LeaveRegister({
                         </span>
                       ))}
                     </div>
-                    <p className="text-[12px] text-muted-foreground">
+                    <p className="text-xs text-muted-foreground">
                       {row.reason || "No reason given"}
                       {/* Who answered it, on the rows where somebody did. The
                           audit log had this and nothing else did, so "who
@@ -560,7 +561,7 @@ export function LeaveRegister({
                         onClick={() => decide(row.id, "dismissed")}
                         disabled={busy}
                         aria-label={`Dismiss lapsed leave request for ${name}`}
-                        className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-muted disabled:opacity-50"
+                        className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted disabled:opacity-50"
                       >
                         <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
                         Dismiss
@@ -572,7 +573,7 @@ export function LeaveRegister({
                           onClick={() => decide(row.id, "approved")}
                           disabled={busy}
                           aria-label={`Approve leave for ${name}`}
-                          className="flex items-center gap-1.5 rounded-lg border border-emerald-200 px-2.5 py-1.5 text-[12px] font-medium text-emerald-700 transition-colors hover:bg-emerald-50 disabled:opacity-50 dark:border-emerald-900 dark:text-emerald-400 dark:hover:bg-emerald-950"
+                          className="flex items-center gap-1.5 rounded-lg border border-emerald-200 px-2.5 py-1.5 text-xs font-medium text-emerald-700 transition-colors hover:bg-emerald-50 disabled:opacity-50 dark:border-emerald-900 dark:text-emerald-400 dark:hover:bg-emerald-950"
                         >
                           <Check className="h-3.5 w-3.5" aria-hidden="true" />
                           Approve
@@ -582,7 +583,7 @@ export function LeaveRegister({
                           onClick={() => decide(row.id, "rejected")}
                           disabled={busy}
                           aria-label={`Decline leave for ${name}`}
-                          className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600 disabled:opacity-50 dark:hover:border-red-900 dark:hover:bg-red-950 dark:hover:text-red-400"
+                          className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600 disabled:opacity-50 dark:hover:border-red-900 dark:hover:bg-red-950 dark:hover:text-red-400"
                         >
                           <X className="h-3.5 w-3.5" aria-hidden="true" />
                           Decline
@@ -599,7 +600,7 @@ export function LeaveRegister({
 
       {/* ── Paging ──────────────────────────────────────────── */}
       {data.total > data.pageSize && (
-        <div className="flex items-center justify-between text-[12px] text-muted-foreground">
+        <div className="flex items-center justify-between text-xs text-muted-foreground">
           {/* States the cap. A page that shows fifty of three hundred without
               saying so reads as complete coverage. */}
           <span>

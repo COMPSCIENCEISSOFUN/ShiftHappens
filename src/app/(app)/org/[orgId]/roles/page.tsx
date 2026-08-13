@@ -74,6 +74,7 @@ import { usePlan } from "@/components/layout/plan-provider";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { StatTile, STAT_ACCENT } from "@/components/ui/stat-tile";
 import { Panel } from "@/components/ui/panel";
+import { apiErrorMessage } from "@/lib/api-error";
 import {
   PRIMARY_BUTTON,
   SECONDARY_BUTTON,
@@ -248,7 +249,7 @@ function PermissionPicker({
     <div className="space-y-2">
       <div className="flex items-center justify-between">
         <Label className="text-xs">Permissions</Label>
-        <span className="text-[11px] text-muted-foreground">
+        <span className="text-xs text-muted-foreground">
           {selected.length} selected
         </span>
       </div>
@@ -260,7 +261,7 @@ function PermissionPicker({
           page" for all of them, which on an unseeded database is both wrong and
           unactionable: reloading cannot populate a table.
         */
-        <p className="rounded-lg border border-border p-3 text-[12px] text-muted-foreground">
+        <p className="rounded-lg border border-border p-3 text-xs text-muted-foreground">
           {state === "loading" ? (
             "Loading permissions…"
           ) : state === "failed" ? (
@@ -269,7 +270,7 @@ function PermissionPicker({
             <>
               The permission catalogue has not been seeded on this database.
               Run{" "}
-              <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">
+              <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">
                 npx prisma db seed
               </code>{" "}
               and reload. Until then a role cannot be given any permissions.
@@ -287,7 +288,7 @@ function PermissionPicker({
             return (
             <div key={category} className="rounded-lg border border-border p-3">
               <div className="mb-1.5 flex items-center justify-between gap-2">
-                <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                   <CategoryIcon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                   {label}
                 </p>
@@ -299,7 +300,7 @@ function PermissionPicker({
                   answerable by counting ticks.
                 */}
                 {chosen > 0 && (
-                  <span className="shrink-0 rounded-full bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">
+                  <span className="shrink-0 rounded-full bg-indigo-100 px-1.5 py-0.5 text-xs font-semibold text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">
                     {chosen}
                   </span>
                 )}
@@ -333,7 +334,7 @@ function PermissionPicker({
                   return (
                     <label
                       key={perm.id}
-                      className={`flex items-start gap-2 text-[12px] ${
+                      className={`flex items-start gap-2 text-xs ${
                         locked ? "cursor-not-allowed opacity-60" : "cursor-pointer"
                       }`}
                       title={
@@ -358,11 +359,11 @@ function PermissionPicker({
                           either alone.
                         */}
                         {planLocked ? (
-                          <span className="ml-1.5 inline-flex items-center rounded-[4px] bg-muted px-1.5 py-0.5 align-middle text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                          <span className="ml-1.5 inline-flex items-center rounded-[4px] bg-muted px-1.5 py-0.5 align-middle text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                             {perm.requiredTier ?? "upgrade"} plan
                           </span>
                         ) : notMine ? (
-                          <span className="ml-1.5 inline-flex items-center rounded-[4px] bg-muted px-1.5 py-0.5 align-middle text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                          <span className="ml-1.5 inline-flex items-center rounded-[4px] bg-muted px-1.5 py-0.5 align-middle text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                             not yours to grant
                           </span>
                         ) : null}
@@ -506,7 +507,7 @@ export default function RolesPage() {
       const result = await res.json();
 
       if (!res.ok) {
-        setError(result.error || "Failed to create role");
+        setError(apiErrorMessage(result, "Failed to create role"));
         return;
       }
 
@@ -549,7 +550,7 @@ export default function RolesPage() {
       const result = await res.json();
 
       if (!res.ok) {
-        setError(result.error || "Failed to update role");
+        setError(apiErrorMessage(result, "Failed to update role"));
         return;
       }
 
@@ -574,7 +575,7 @@ export default function RolesPage() {
       const result = await res.json();
 
       if (!res.ok) {
-        setError(result.error || "Failed to delete role");
+        setError(apiErrorMessage(result, "Failed to delete role"));
         return;
       }
 
@@ -693,8 +694,8 @@ export default function RolesPage() {
       {/* ── Header ── */}
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-xl font-bold tracking-tight sm:text-2xl">Roles</h2>
-          <p className="mt-0.5 text-[13px] text-muted-foreground">
+          <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Roles</h1>
+          <p className="mt-0.5 text-sm text-muted-foreground">
             Define what each kind of team member is allowed to do
           </p>
         </div>
@@ -790,7 +791,7 @@ export default function RolesPage() {
                     maxLength={50}
                     className="h-9 text-sm"
                   />
-                  <p className="text-[11px] text-muted-foreground">
+                  <p className="text-xs text-muted-foreground">
                     What your team sees on members and work rules.
                   </p>
                 </div>
@@ -914,7 +915,7 @@ export default function RolesPage() {
                   <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border px-4 py-3">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="text-[14px] font-semibold">
+                        <h3 className="text-sm font-semibold">
                           {role.displayLabel}
                         </h3>
                       </div>
@@ -926,7 +927,7 @@ export default function RolesPage() {
                         description is what actually says what the role is for.
                       */}
                       {role.description && (
-                        <p className="mt-0.5 text-[12px] text-muted-foreground">
+                        <p className="mt-0.5 text-xs text-muted-foreground">
                           {role.description}
                         </p>
                       )}
@@ -951,7 +952,7 @@ export default function RolesPage() {
                   </div>
 
                   <div className="p-4">
-                    <p className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] font-medium text-muted-foreground">
+                    <p className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-medium text-muted-foreground">
                       <span className="flex items-center gap-1.5">
                         <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
                         {role.rolePermissions.length} permission
@@ -968,7 +969,7 @@ export default function RolesPage() {
                         {role.memberCount ?? 0} member
                         {(role.memberCount ?? 0) !== 1 ? "s" : ""}
                         {role.heldByCaller && (
-                          <span className="rounded-[4px] bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">
+                          <span className="rounded-[4px] bg-indigo-100 px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">
                             including you
                           </span>
                         )}
@@ -988,7 +989,7 @@ export default function RolesPage() {
                         still almost certainly a mistake, and "it does nothing"
                         is the useful thing to say about it.
                       */
-                      <p className="text-[12px] text-amber-700 dark:text-amber-400">
+                      <p className="text-xs text-amber-700 dark:text-amber-400">
                         This role has no effect. Anyone holding it keeps exactly
                         the permissions of their system role and gains nothing.
                       </p>
@@ -1007,7 +1008,7 @@ export default function RolesPage() {
                           reader of this card could not tell that handing the
                           role to a manager took twelve permissions away.
                         */}
-                        <p className="mb-2 text-[12px] text-muted-foreground">
+                        <p className="mb-2 text-xs text-muted-foreground">
                           Added to whatever the member&rsquo;s system role
                           already allows. On a staff member, who holds nothing by
                           default, this list is everything they can do; a manager
@@ -1027,7 +1028,7 @@ export default function RolesPage() {
                             <span
                               key={rp.permission.id}
                               title={rp.permission.name}
-                              className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground"
+                              className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground"
                             >
                               {rp.permission.description}
                             </span>

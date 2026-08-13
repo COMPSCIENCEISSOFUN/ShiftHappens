@@ -145,17 +145,24 @@ function actionColor(action: string): string {
     action.includes("denied") ||
     action.includes("deactivated")
   )
-    return "bg-red-100 text-red-700";
+    return "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300";
   if (
     action.includes("created") ||
     action.includes("accepted") ||
     action.includes("approved") ||
     action.includes("activated")
   )
-    return "bg-green-100 text-green-700";
+    return "bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300";
   if (action.includes("clocked"))
-    return "bg-blue-100 text-blue-700";
-  return "bg-gray-100 text-gray-600";
+    return "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300";
+  /*
+   * `muted`, not `gray-100`. The four branches above are semantic — an action
+   * is destructive, constructive or a clock event — and this one is "none of
+   * those", which is what the theme's neutral is for. A fixed grey was also the
+   * only one of the five with no dark variant at all, so an unclassified action
+   * rendered as a pale chip on a dark page.
+   */
+  return "bg-muted text-muted-foreground";
 }
 
 export default function AuditLogPage() {
@@ -378,7 +385,7 @@ export default function AuditLogPage() {
         says in one line what the screen is for.
       */}
       <div className="mb-4">
-        <h2 className="text-xl font-bold tracking-tight sm:text-2xl">Audit log</h2>
+        <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Audit log</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Every change made in this organisation, newest first.
         </p>
@@ -553,7 +560,7 @@ export default function AuditLogPage() {
             <ChevronLeft className="h-4 w-4" aria-hidden="true" />
             Previous
           </button>
-          <p className="text-[13px] text-muted-foreground">
+          <p className="text-sm text-muted-foreground">
             Page {currentPage} of {totalPages}
           </p>
           <button

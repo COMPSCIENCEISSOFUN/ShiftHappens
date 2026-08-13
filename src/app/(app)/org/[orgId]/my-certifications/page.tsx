@@ -40,6 +40,7 @@ import {
   type CertificationDisplayState,
 } from "@/lib/certification-display";
 import { cn } from "@/lib/utils";
+import { apiErrorMessage } from "@/lib/api-error";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -298,7 +299,7 @@ export default function MyCertificationsPage() {
 
       if (!res.ok) {
         const result = await res.json().catch(() => ({}));
-        setFormError(result.error || "Could not submit that certification");
+        setFormError(apiErrorMessage(result, "Could not submit that certification"));
         return;
       }
 
@@ -331,7 +332,7 @@ export default function MyCertificationsPage() {
 
       if (!res.ok) {
         const result = await res.json().catch(() => ({}));
-        setError(result.error || "Could not withdraw that submission");
+        setError(apiErrorMessage(result, "Could not withdraw that submission"));
         return;
       }
 
@@ -405,10 +406,10 @@ export default function MyCertificationsPage() {
       {/* ── Header ── */}
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h2 className="text-xl font-bold tracking-tight sm:text-2xl">
+          <h1 className="text-xl font-bold tracking-tight sm:text-2xl">
             My Certifications
-          </h2>
-          <p className="mt-0.5 text-[13px] text-muted-foreground">
+          </h1>
+          <p className="mt-0.5 text-sm text-muted-foreground">
             Submit your qualifications so you can be assigned to tasks that
             require them
           </p>
@@ -511,7 +512,7 @@ export default function MyCertificationsPage() {
                 required
                 list="recognised-certifications"
                 placeholder={suggestions[0] ?? "e.g. Food Safety Level 2"}
-                className="h-9 w-full rounded-lg border border-border bg-background px-3 text-[13px] outline-none focus:border-indigo-400"
+                className="h-9 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus:border-indigo-400"
               />
               {/*
                 A datalist rather than a select: typing still works, which is
@@ -529,7 +530,7 @@ export default function MyCertificationsPage() {
                 ))}
               </datalist>
               {suggestions.length > 0 && (
-                <p className="mt-1 text-[11px] text-muted-foreground">
+                <p className="mt-1 text-xs text-muted-foreground">
                   Start typing to pick one your organisation recognises — that is
                   what lets a shift match it. You can still enter something else.
                 </p>
@@ -549,7 +550,7 @@ export default function MyCertificationsPage() {
                 value={form.issuedDate}
                 onChange={(e) => setForm({ ...form, issuedDate: e.target.value })}
                 required
-                className="h-9 w-full rounded-lg border border-border bg-background px-3 text-[13px] outline-none focus:border-indigo-400"
+                className="h-9 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus:border-indigo-400"
               />
             </div>
 
@@ -569,9 +570,9 @@ export default function MyCertificationsPage() {
                 // because `min` is trivially bypassed.
                 min={form.issuedDate || undefined}
                 onChange={(e) => setForm({ ...form, expiryDate: e.target.value })}
-                className="h-9 w-full rounded-lg border border-border bg-background px-3 text-[13px] outline-none focus:border-indigo-400"
+                className="h-9 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus:border-indigo-400"
               />
-              <p className="mt-1 text-[11px] text-muted-foreground">
+              <p className="mt-1 text-xs text-muted-foreground">
                 Leave blank if it does not expire
               </p>
             </div>
@@ -591,9 +592,9 @@ export default function MyCertificationsPage() {
                   setForm({ ...form, documentUrl: e.target.value })
                 }
                 placeholder="https://..."
-                className="h-9 w-full rounded-lg border border-border bg-background px-3 text-[13px] outline-none focus:border-indigo-400"
+                className="h-9 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus:border-indigo-400"
               />
-              <p className="mt-1 text-[11px] text-muted-foreground">
+              <p className="mt-1 text-xs text-muted-foreground">
                 Paste a link to a scan or photo of the certificate
               </p>
             </div>
@@ -711,7 +712,7 @@ export default function MyCertificationsPage() {
 
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="min-w-0 break-words text-[14px] font-semibold">
+                    <p className="min-w-0 break-words text-sm font-semibold">
                       {cert.name}
                     </p>
                     <StatusBadge value={state} palette="certification" />

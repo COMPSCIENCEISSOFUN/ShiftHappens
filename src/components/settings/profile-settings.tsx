@@ -46,6 +46,7 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { PageLoading } from "@/components/ui/page-loading";
 import { getSystemRoleLabel } from "@/lib/role-config";
 import { PRIMARY_BUTTON } from "@/components/ui/button-styles";
+import { apiErrorMessage } from "@/lib/api-error";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -212,7 +213,7 @@ export default function ProfileSettings() {
       const result = await res.json();
 
       if (!res.ok) {
-        setNameMessage({ type: "error", text: result.error || "Update failed" });
+        setNameMessage({ type: "error", text: apiErrorMessage(result, "Update failed") });
         return;
       }
 
@@ -260,7 +261,7 @@ export default function ProfileSettings() {
       if (!res.ok) {
         setPasswordMessage({
           type: "error",
-          text: result.error || "Update failed",
+          text: apiErrorMessage(result, "Update failed"),
         });
         return;
       }

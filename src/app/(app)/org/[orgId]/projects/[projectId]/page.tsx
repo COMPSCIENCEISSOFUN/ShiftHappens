@@ -29,6 +29,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AlertBanner } from "@/components/ui/alert-banner";
+import { apiErrorMessage } from "@/lib/api-error";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageLoading } from "@/components/ui/page-loading";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -268,7 +269,7 @@ export default function ProjectDetailPage() {
       });
       const result = await response.json().catch(() => null);
       if (!response.ok) {
-        setError(result?.error || "Request failed");
+        setError(apiErrorMessage(result, "Request failed"));
         return false;
       }
       toast.success(okMessage);
@@ -436,7 +437,7 @@ export default function ProjectDetailPage() {
       });
       const created = await response.json().catch(() => null);
       if (!response.ok || !created?.id) {
-        setError(created?.error || "Could not create the work item");
+        setError(apiErrorMessage(created, "Could not create the work item"));
         return;
       }
 
@@ -477,7 +478,7 @@ export default function ProjectDetailPage() {
         const body = await response.json().catch(() => null);
         // `delete` refuses a shift somebody has already worked, which is a
         // rule worth reading rather than a failure worth hiding.
-        setError(body?.error || "Could not undo — remove it from the list instead");
+        setError(apiErrorMessage(body, "Could not undo — remove it from the list instead"));
         return;
       }
       setAiResult(null);
@@ -496,7 +497,7 @@ export default function ProjectDetailPage() {
     try {
       const response = await fetch(`/api/organizations/${orgId}/tasks/parse`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: aiWorkRequest }) });
       const result = await response.json();
-      if (!response.ok) throw new Error(result?.error || "Could not generate a work item");
+      if (!response.ok) throw new Error(apiErrorMessage(result, "Could not generate a work item"));
       const parsedStart = result.scheduledStart ? new Date(result.scheduledStart) : null;
       const parsedEnd = result.scheduledEnd ? new Date(result.scheduledEnd) : null;
       const projectStart = project?.plannedStart ? new Date(project.plannedStart) : null;
@@ -617,8 +618,10 @@ export default function ProjectDetailPage() {
       {/* ── Overview ───────────────────────────────── */}
       <div className="mt-4 rounded-2xl border border-border bg-gradient-to-br from-card via-card to-primary/5 p-6 shadow-sm sm:flex sm:items-start sm:justify-between">
         <div className="min-w-0">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Project workspace</p>
-          <h1 className="mt-2 text-3xl font-bold tracking-tight">{project.title}</h1>
+          {/* House title style, as on every other page — see the note on the
+              projects index. The eyebrow went with it: the breadcrumb above
+              already says where you are. */}
+          <h1 className="text-xl font-bold tracking-tight sm:text-2xl">{project.title}</h1>
           <p className="mt-2 text-sm text-muted-foreground">
             {(project.projectDepartments.length > 0 ? project.projectDepartments.map((entry) => entry.department.name).join(", ") : project.department?.name || "Organisation-wide")} ·{" "}
             {formatRange(project.plannedStart, project.plannedEnd)}
@@ -629,7 +632,7 @@ export default function ProjectDetailPage() {
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <StatusBadge value={project.status} palette="taskStatus" />
             <StatusBadge value={project.priority} palette="priority" />
-            <span className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700 dark:border-indigo-800 dark:bg-indigo-950 dark:text-indigo-300">
+            <span className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700 dark:border-indigo-800 dark:bg-indigo-950 dark:text-indigo-300">
               {isProjectTeam ? "Private project" : "Open participation"}
             </span>
           </div>
@@ -1142,7 +1145,7 @@ export default function ProjectDetailPage() {
                         >
                           <ChevronUp className="size-3.5" aria-hidden="true" />
                         </button>
-                        <span className="text-[10px] font-medium tabular-nums text-muted-foreground">
+                        <span className="text-xs font-medium tabular-nums text-muted-foreground">
                           {position + 1}
                         </span>
                         <button

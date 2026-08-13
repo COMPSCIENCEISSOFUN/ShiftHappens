@@ -121,11 +121,11 @@ export function CollapsibleSection({
             aria-hidden="true"
           />
           {icon}
-          <span className="text-[11px] font-bold uppercase tracking-[0.06em] text-muted-foreground group-hover:text-foreground">
+          <span className="text-xs font-bold uppercase tracking-[0.06em] text-muted-foreground group-hover:text-foreground">
             {title}
           </span>
           {count !== undefined && count > 0 && (
-            <span className="rounded-full bg-muted px-1.5 text-[11px] font-semibold text-muted-foreground">
+            <span className="rounded-full bg-muted px-1.5 text-xs font-semibold text-muted-foreground">
               {count}
             </span>
           )}
@@ -134,7 +134,7 @@ export function CollapsibleSection({
       </div>
 
       {description && open && (
-        <p className="mb-3 text-[12px] text-muted-foreground">{description}</p>
+        <p className="mb-3 text-xs text-muted-foreground">{description}</p>
       )}
 
       {/* Hidden, not unmounted — see the note in the file header. */}

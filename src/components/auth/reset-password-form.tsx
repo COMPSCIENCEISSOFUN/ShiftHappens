@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { PageLoading } from "@/components/ui/page-loading";
+import { apiErrorMessage } from "@/lib/api-error";
 import {
   Card,
   CardContent,
@@ -69,7 +70,7 @@ function ResetPasswordContent() {
       const result = await response.json();
 
       if (!response.ok) {
-        setError(result.error || "Reset failed");
+        setError(apiErrorMessage(result, "Reset failed"));
         return;
       }
 

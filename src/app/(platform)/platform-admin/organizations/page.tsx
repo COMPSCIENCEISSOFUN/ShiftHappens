@@ -222,10 +222,10 @@ export default function PlatformOrganizationsPage() {
     <div className="w-full">
       {/* ── Header ── */}
       <div className="mb-4">
-        <h2 className="text-xl font-bold tracking-tight sm:text-2xl">
+        <h1 className="text-xl font-bold tracking-tight sm:text-2xl">
           Organizations
-        </h2>
-        <p className="mt-0.5 text-[13px] text-muted-foreground">
+        </h1>
+        <p className="mt-0.5 text-sm text-muted-foreground">
           Every tenant on the platform. Changing a tier or suspending an
           organisation takes effect immediately
         </p>
@@ -367,18 +367,18 @@ export default function PlatformOrganizationsPage() {
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="text-[14px] font-semibold">{org.name}</h3>
+                      <h3 className="text-sm font-semibold">{org.name}</h3>
                       <StatusBadge value={org.status} palette="membershipStatus" />
-                      <span className="text-[11px] text-muted-foreground">
+                      <span className="text-xs text-muted-foreground">
                         /{org.slug}
                       </span>
                     </div>
-                    <p className="mt-1 text-[12px] text-muted-foreground">
+                    <p className="mt-1 text-xs text-muted-foreground">
                       {org.industry || "No industry"} · {org._count.memberships}{" "}
                       {org._count.memberships === 1 ? "member" : "members"} ·{" "}
                       {org._count.tasks} {org._count.tasks === 1 ? "task" : "tasks"}
                     </p>
-                    <p className="mt-0.5 text-[11px] text-muted-foreground">
+                    <p className="mt-0.5 text-xs text-muted-foreground">
                       Created {new Date(org.createdAt).toLocaleDateString()}
                     </p>
                   </div>
@@ -431,7 +431,7 @@ export default function PlatformOrganizationsPage() {
       )}
 
       {filtered.length > 0 && (
-        <p className="mt-3 text-[11px] text-muted-foreground">
+        <p className="mt-3 text-xs text-muted-foreground">
           Showing {filtered.length} of {orgs.length} loaded
           {!showingAll && ` · ${total} on the platform`}
         </p>
@@ -455,7 +455,7 @@ export default function PlatformOrganizationsPage() {
       />
 
       {suspendedCount > 0 && (
-        <p className="mt-4 flex items-start gap-2 text-[11px] text-muted-foreground">
+        <p className="mt-4 flex items-start gap-2 text-xs text-muted-foreground">
           <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
           Suspended tenants keep all their data. Reinstating one restores access
           immediately.

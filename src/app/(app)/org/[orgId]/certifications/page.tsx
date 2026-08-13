@@ -53,6 +53,7 @@ import {
 import { PRIMARY_BUTTON } from "@/components/ui/button-styles";
 import { cn } from "@/lib/utils";
 import { canBeRostered } from "@/lib/role-config";
+import { apiErrorMessage } from "@/lib/api-error";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -241,7 +242,7 @@ function ReasonDialog({
           <h3 className="text-base font-semibold">
             {isRevoke ? "Revoke" : "Reject"} &ldquo;{target.cert.name}&rdquo;
           </h3>
-          <p className="mt-1 text-[13px] text-muted-foreground">
+          <p className="mt-1 text-sm text-muted-foreground">
             {isRevoke
               ? `${name} stops being eligible for tasks that require it immediately. The record is kept for the audit trail.`
               : `${name} will be notified, including the reason you pick.`}
@@ -259,7 +260,7 @@ function ReasonDialog({
                 return (
                   <label
                     key={option.value}
-                    className={`flex cursor-pointer items-start gap-2.5 rounded-lg border px-3 py-2.5 text-[13px] transition-colors ${
+                    className={`flex cursor-pointer items-start gap-2.5 rounded-lg border px-3 py-2.5 text-sm transition-colors ${
                       selected
                         ? "border-indigo-500 bg-indigo-50 dark:border-indigo-400 dark:bg-indigo-950"
                         : "border-border hover:border-indigo-300 dark:hover:border-indigo-600"
@@ -298,9 +299,9 @@ function ReasonDialog({
               onChange={(e) => setNotes(e.target.value.slice(0, REJECTION_NOTES_MAX))}
               rows={3}
               placeholder="Anything the employee needs in order to fix it..."
-              className="w-full resize-y rounded-lg border border-border bg-background px-3 py-2 text-[13px] outline-none focus:border-indigo-400"
+              className="w-full resize-y rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-indigo-400"
             />
-            <p className="mt-1 text-right text-[11px] text-muted-foreground">
+            <p className="mt-1 text-right text-xs text-muted-foreground">
               {notes.length}/{REJECTION_NOTES_MAX}
             </p>
           </div>
@@ -482,7 +483,7 @@ export default function CertificationsPage() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(data.error || "Could not add that certificate");
+        setError(apiErrorMessage(data, "Could not add that certificate"));
         return;
       }
       setError(null);
@@ -512,7 +513,7 @@ export default function CertificationsPage() {
       );
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(data.error || "Could not remove that certificate");
+        setError(apiErrorMessage(data, "Could not remove that certificate"));
         return;
       }
       setError(null);
@@ -544,7 +545,7 @@ export default function CertificationsPage() {
 
       if (!res.ok) {
         const result = await res.json().catch(() => ({}));
-        setError(result.error || "Failed to verify certification");
+        setError(apiErrorMessage(result, "Failed to verify certification"));
         return;
       }
 
@@ -588,8 +589,10 @@ export default function CertificationsPage() {
       if (!res.ok) {
         const result = await res.json().catch(() => ({}));
         setError(
-          result.error ||
+          apiErrorMessage(
+            result,
             `Failed to ${mode === "revoke" ? "revoke" : "reject"} certification`
+          )
         );
         return;
       }
@@ -764,10 +767,10 @@ export default function CertificationsPage() {
       {/* ── Header ── */}
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h2 className="text-xl font-bold tracking-tight sm:text-2xl">
+          <h1 className="text-xl font-bold tracking-tight sm:text-2xl">
             Certifications
-          </h2>
-          <p className="mt-0.5 text-[13px] text-muted-foreground">
+          </h1>
+          <p className="mt-0.5 text-sm text-muted-foreground">
             Review what your team has submitted, and keep an eye on what is about
             to lapse
           </p>
@@ -858,7 +861,7 @@ export default function CertificationsPage() {
               <button
                 key={key}
                 onClick={() => setFilter(key)}
-                className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-[13px] font-medium transition-all ${
+                className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition-all ${
                   active
                     ? "border-indigo-500 bg-indigo-50 text-indigo-700 dark:border-indigo-400 dark:bg-indigo-950 dark:text-indigo-300"
                     : "border-border bg-card text-muted-foreground hover:border-indigo-300 hover:text-indigo-600 dark:hover:border-indigo-600 dark:hover:text-indigo-400"
@@ -866,7 +869,7 @@ export default function CertificationsPage() {
               >
                 {label}
                 <span
-                  className={`inline-flex min-w-[18px] items-center justify-center rounded-full px-1 py-0 text-[11px] font-bold ${
+                  className={`inline-flex min-w-[18px] items-center justify-center rounded-full px-1 py-0 text-xs font-bold ${
                     active
                       ? "bg-indigo-600 text-white dark:bg-indigo-500"
                       : "bg-muted text-muted-foreground"
@@ -997,7 +1000,7 @@ export default function CertificationsPage() {
                   className="flex items-start gap-3 rounded-xl border border-dashed border-border bg-card p-3.5 sm:p-4"
                 >
                   <div
-                    className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[11px] font-bold text-white ${avatarColour(
+                    className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white ${avatarColour(
                       member.id
                     )}`}
                     aria-hidden="true"
@@ -1007,7 +1010,7 @@ export default function CertificationsPage() {
 
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <p className="min-w-0 break-words text-[14px] font-semibold">
+                      <p className="min-w-0 break-words text-sm font-semibold">
                         {name}
                       </p>
                       <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600 dark:bg-gray-800 dark:text-gray-400">
@@ -1088,7 +1091,7 @@ export default function CertificationsPage() {
                 {/* ── Member header ── */}
                 <div className="mb-2.5 flex items-center gap-2.5">
                   <div
-                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-bold text-white ${avatarColour(
+                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white ${avatarColour(
                       head.membership.id
                     )}`}
                     aria-hidden="true"
@@ -1134,7 +1137,7 @@ export default function CertificationsPage() {
                             {/* break-words, not truncate: a certification name
                                 is what the reviewer is deciding about, so it
                                 wraps rather than being cut off. */}
-                            <p className="min-w-0 break-words text-[14px] font-semibold">
+                            <p className="min-w-0 break-words text-sm font-semibold">
                               {cert.name}
                             </p>
                             <StatusBadge value={state} palette="certification" />

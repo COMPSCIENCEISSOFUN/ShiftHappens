@@ -21,6 +21,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { AlertBanner } from "@/components/ui/alert-banner";
+import { apiErrorMessage } from "@/lib/api-error";
 import {
   FEEDBACK_AREAS,
   FEEDBACK_AREA_LABEL,
@@ -55,7 +56,7 @@ export default function FeedbackPage() {
       const result = await response.json().catch(() => null);
 
       if (!response.ok) {
-        setError(result?.error || "Could not send that. Try again in a moment.");
+        setError(apiErrorMessage(result, "Could not send that. Try again in a moment."));
         return;
       }
 

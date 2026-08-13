@@ -107,9 +107,9 @@ export default function PlatformAdminDashboard() {
   if (error || !stats) {
     return (
       <div className="w-full">
-        <h2 className="mb-4 text-xl font-bold tracking-tight sm:text-2xl">
+        <h1 className="mb-4 text-xl font-bold tracking-tight sm:text-2xl">
           Platform overview
-        </h2>
+        </h1>
         <AlertBanner
           message={error ?? "No statistics were returned."}
           variant="error"
@@ -132,7 +132,7 @@ export default function PlatformAdminDashboard() {
         <h2 className="text-xl font-bold tracking-tight sm:text-2xl">
           Platform overview
         </h2>
-        <p className="mt-0.5 text-[13px] text-muted-foreground">
+        <p className="mt-0.5 text-sm text-muted-foreground">
           Every tenant on the platform, across all organisations
         </p>
       </div>
@@ -234,8 +234,8 @@ function SummaryRow({
     <div className="flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3">
       <Icon className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
       <div className="min-w-0">
-        <p className="truncate text-[11px] text-muted-foreground">{label}</p>
-        <p className="text-[15px] font-semibold tracking-tight">{value}</p>
+        <p className="truncate text-xs text-muted-foreground">{label}</p>
+        <p className="text-base font-semibold tracking-tight">{value}</p>
       </div>
     </div>
   );

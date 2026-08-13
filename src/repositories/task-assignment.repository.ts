@@ -14,6 +14,7 @@ import {
   RELEASED_STATUSES,
   WORKED_STATUSES,
 } from "@/lib/assignment-status";
+import { committedTaskStatusFilter } from "@/lib/task-status";
 import type { ShiftOutcome } from "@/lib/shift-outcome";
 
 
@@ -579,6 +580,21 @@ export class TaskAssignmentRepository {
       where: {
         membershipId,
         status: { in: statuses },
+        /*
+         * A CANCELLED shift owes nobody any hours.
+         *
+         * This is the eligibility engine's OTHER way of finding a member
+         * unavailable — daily cap, weekly cap, rest between shifts — and it
+         * read the assignment without ever asking whether the shift still
+         * stood. So cancelling released the clash and left the hours: a member
+         * told the shift was off could still be refused the next one for
+         * "exceeds preferred hours", against four hours nobody was going to
+         * work. Silent, where the clash at least named a shift.
+         *
+         * `completed` is NOT excluded — those hours happened. See
+         * `RELEASES_COMMITMENT`.
+         */
+        task: { status: { notIn: committedTaskStatusFilter() } },
         ...(excludeTaskId ? { taskId: { not: excludeTaskId } } : {}),
       },
       select: {

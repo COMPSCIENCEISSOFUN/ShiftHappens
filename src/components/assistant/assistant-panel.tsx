@@ -86,10 +86,10 @@ export function AssistantPanel({
    * meant to end.
    */
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronising with an external system: the organisation is owned by the URL, and this component cannot derive a reset from its own render
     setThread([]);
     setQuestion("");
     setOpen(false);
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronising with an external system: the organisation is owned by the URL, and this component cannot derive a reset from its own render
   }, [orgId]);
 
   /*
@@ -229,7 +229,7 @@ export function AssistantPanel({
           <div className="flex items-center justify-between border-b border-border px-4 py-3">
             <div>
               <p className="text-sm font-semibold">Assistant</p>
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 Answers about this organisation only
               </p>
             </div>
@@ -246,7 +246,7 @@ export function AssistantPanel({
           <div className="flex-1 space-y-3 overflow-y-auto px-4 py-3">
             {thread.length === 0 && (
               <div className="space-y-2">
-                <p className="text-[13px] text-muted-foreground">
+                <p className="text-sm text-muted-foreground">
                   Ask about your shifts, or pick one to start.
                 </p>
                 {suggestions.map((s) => (
@@ -254,7 +254,7 @@ export function AssistantPanel({
                     key={s.id}
                     type="button"
                     onClick={() => ask(s.prompt)}
-                    className="block w-full rounded-lg border border-border px-3 py-2 text-left text-[13px] transition-colors hover:border-indigo-400 hover:bg-muted"
+                    className="block w-full rounded-lg border border-border px-3 py-2 text-left text-sm transition-colors hover:border-indigo-400 hover:bg-muted"
                   >
                     {s.prompt}
                   </button>
@@ -264,11 +264,11 @@ export function AssistantPanel({
 
             {thread.map((exchange, i) => (
               <div key={i} className="space-y-1.5">
-                <p className="ml-auto w-fit max-w-[85%] rounded-2xl rounded-br-sm bg-indigo-600 px-3 py-1.5 text-[13px] text-white">
+                <p className="ml-auto w-fit max-w-[85%] rounded-2xl rounded-br-sm bg-indigo-600 px-3 py-1.5 text-sm text-white">
                   {exchange.question}
                 </p>
                 <div
-                  className={`w-fit max-w-[90%] rounded-2xl rounded-bl-sm px-3 py-2 text-[13px] ${
+                  className={`w-fit max-w-[90%] rounded-2xl rounded-bl-sm px-3 py-2 text-sm ${
                     exchange.failed
                       ? "bg-destructive/10 text-destructive"
                       : "bg-muted text-foreground"
@@ -298,7 +298,7 @@ export function AssistantPanel({
                     <Link
                       href={exchange.href}
                       onClick={closeIfCovering}
-                      className="mt-1.5 inline-block text-[11px] font-medium text-indigo-600 underline-offset-2 hover:underline dark:text-indigo-400"
+                      className="mt-1.5 inline-block text-xs font-medium text-indigo-600 underline-offset-2 hover:underline dark:text-indigo-400"
                     >
                       {exchange.hrefLabel ?? "Open the page"}
                     </Link>
@@ -322,7 +322,7 @@ export function AssistantPanel({
                     reasoning as the task parser reporting `parsedBy`.
                   */}
                   {exchange.classifiedBy === "fallback" && (
-                    <p className="mt-1 text-[10px] text-muted-foreground">
+                    <p className="mt-1 text-xs text-muted-foreground">
                       Answered without AI — matched on keywords only
                     </p>
                   )}
@@ -331,7 +331,7 @@ export function AssistantPanel({
             ))}
 
             {asking && (
-              <p className="text-[12px] text-muted-foreground">Thinking…</p>
+              <p className="text-xs text-muted-foreground">Thinking…</p>
             )}
             <div ref={endRef} />
           </div>

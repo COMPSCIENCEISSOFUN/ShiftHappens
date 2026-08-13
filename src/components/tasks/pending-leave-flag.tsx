@@ -57,7 +57,7 @@ export function PendingLeaveFlag({
   const best = alternatives[0];
 
   return (
-    <span className="mt-0.5 block rounded-md border border-amber-200 bg-amber-50/60 px-2 py-1 text-[10px] leading-snug dark:border-amber-900 dark:bg-amber-950/30">
+    <span className="mt-0.5 block rounded-md border border-amber-200 bg-amber-50/60 px-2 py-1 text-xs leading-snug dark:border-amber-900 dark:bg-amber-950/30">
       <span className="flex items-center gap-1 font-medium text-amber-800 dark:text-amber-300">
         <CalendarOff className="h-3 w-3 shrink-0" aria-hidden="true" />
         {`Asked ${when} off — awaiting approval`}

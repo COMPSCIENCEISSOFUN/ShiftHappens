@@ -44,6 +44,7 @@ import { WeekStartNotice } from "@/components/schedule/week-start-notice";
 import { Panel } from "@/components/ui/panel";
 import { PRIMARY_BUTTON, SECONDARY_BUTTON } from "@/components/ui/button-styles";
 import { usePermissions } from "@/components/layout/permission-provider";
+import { apiErrorMessage } from "@/lib/api-error";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -122,7 +123,7 @@ export default function AutoSchedulePage() {
 
       if (!res.ok) {
         const data = await res.json();
-        setError(data.error || "Failed to generate schedule");
+        setError(apiErrorMessage(data, "Failed to generate schedule"));
         return;
       }
 
@@ -175,7 +176,7 @@ export default function AutoSchedulePage() {
 
       if (!res.ok) {
         const data = await res.json();
-        setError(data.error || "Failed to confirm schedule");
+        setError(apiErrorMessage(data, "Failed to confirm schedule"));
         return;
       }
 
@@ -248,10 +249,10 @@ export default function AutoSchedulePage() {
       {/* ── Header ── */}
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-xl font-bold tracking-tight sm:text-2xl">
+          <h1 className="text-xl font-bold tracking-tight sm:text-2xl">
             Auto-Schedule
-          </h2>
-          <p className="mt-0.5 text-[13px] text-muted-foreground">
+          </h1>
+          <p className="mt-0.5 text-sm text-muted-foreground">
             Generate a draft week of assignments from availability,
             certifications and work rules — then review before anything is saved
           </p>
@@ -322,7 +323,7 @@ export default function AutoSchedulePage() {
                 </button>
               </div>
 
-              <p className="text-[13px] text-muted-foreground">
+              <p className="text-sm text-muted-foreground">
                 {weekRangeLabel(weekStart) || "Pick a date to choose a week"}
               </p>
 
@@ -346,14 +347,14 @@ export default function AutoSchedulePage() {
                   <div className="h-1 overflow-hidden rounded-full bg-muted">
                     <div className="h-full w-1/3 animate-pulse rounded-full bg-indigo-500" />
                   </div>
-                  <p className="text-[13px] text-muted-foreground">
+                  <p className="text-sm text-muted-foreground">
                     Analysing tasks, availability, certifications and work
                     rules…
                   </p>
                 </div>
               )}
 
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 Nothing is saved until you confirm the draft.
               </p>
             </div>
@@ -364,7 +365,7 @@ export default function AutoSchedulePage() {
       {/* ── Draft review ── */}
       {reviewing && (
         <div className="space-y-4">
-          <p className="text-[13px] text-muted-foreground">
+          <p className="text-sm text-muted-foreground">
             Draft for {weekRangeLabel(weekStart)} — review and adjust before
             confirming. Nothing is saved until you do.
           </p>
@@ -412,13 +413,13 @@ export default function AutoSchedulePage() {
                 <table className="hidden w-full text-sm sm:table">
                   <thead>
                     <tr className="border-b border-border bg-muted/30">
-                      <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                         Task
                       </th>
-                      <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                         Staff
                       </th>
-                      <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                         Why
                       </th>
                       <th className="w-12 px-4 py-2.5">
@@ -432,15 +433,15 @@ export default function AutoSchedulePage() {
                         key={`${a.taskId}-${a.membershipId}`}
                         className="border-b border-border last:border-b-0 transition-colors hover:bg-muted/30"
                       >
-                        <td className="px-4 py-3 text-[13px] font-medium">
+                        <td className="px-4 py-3 text-sm font-medium">
                           {a.taskTitle}
                         </td>
                         <td className="px-4 py-3">
-                          <span className="inline-block rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-medium text-green-700 dark:bg-green-900 dark:text-green-300">
+                          <span className="inline-block rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900 dark:text-green-300">
                             {a.staffName}
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-[12px] text-muted-foreground">
+                        <td className="px-4 py-3 text-xs text-muted-foreground">
                           {a.reasoning}
                         </td>
                         <td className="px-4 py-3 text-right">
@@ -466,11 +467,11 @@ export default function AutoSchedulePage() {
                       className="flex items-start justify-between gap-3 p-3.5"
                     >
                       <div className="min-w-0">
-                        <p className="text-[13px] font-medium">{a.taskTitle}</p>
-                        <span className="mt-1 inline-block rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-medium text-green-700 dark:bg-green-900 dark:text-green-300">
+                        <p className="text-sm font-medium">{a.taskTitle}</p>
+                        <span className="mt-1 inline-block rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900 dark:text-green-300">
                           {a.staffName}
                         </span>
-                        <p className="mt-1.5 text-[12px] text-muted-foreground">
+                        <p className="mt-1.5 text-xs text-muted-foreground">
                           {a.reasoning}
                         </p>
                       </div>
@@ -513,8 +514,8 @@ export default function AutoSchedulePage() {
               <ul className="divide-y divide-border">
                 {draft!.unfilledTasks.map((t) => (
                   <li key={t.taskId} className="px-4 py-2.5">
-                    <p className="text-[13px] font-medium">{t.taskTitle}</p>
-                    <p className="mt-0.5 text-[12px] text-muted-foreground">
+                    <p className="text-sm font-medium">{t.taskTitle}</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
                       {t.reason}
                     </p>
                   </li>
@@ -533,7 +534,7 @@ export default function AutoSchedulePage() {
                     className="grid items-center gap-3"
                     style={{ gridTemplateColumns: "minmax(80px,120px) 1fr 44px" }}
                   >
-                    <span className="truncate text-[12px] text-muted-foreground">
+                    <span className="truncate text-xs text-muted-foreground">
                       {h.name}
                     </span>
                     {/* Decorative: the name and the figure either side are
@@ -550,14 +551,14 @@ export default function AutoSchedulePage() {
                         }}
                       />
                     </div>
-                    <span className="text-right text-[12px] font-medium tabular-nums">
+                    <span className="text-right text-xs font-medium tabular-nums">
                       {h.hours}h
                     </span>
                   </div>
                 ))}
 
                 {edited && (
-                  <p className="pt-1 text-[11px] text-muted-foreground">
+                  <p className="pt-1 text-xs text-muted-foreground">
                     These are the hours as generated. They do not reflect the
                     assignments you have removed.
                   </p>

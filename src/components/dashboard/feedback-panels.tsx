@@ -83,9 +83,9 @@ function Stat({
 }) {
   return (
     <div className="rounded-lg border border-border p-3">
-      <p className="text-[11px] uppercase tracking-wider text-muted-foreground">{label}</p>
+      <p className="text-xs uppercase tracking-wider text-muted-foreground">{label}</p>
       <p className="mt-0.5 text-xl font-bold tracking-tight">{value}</p>
-      {detail && <p className="text-[11px] text-muted-foreground">{detail}</p>}
+      {detail && <p className="text-xs text-muted-foreground">{detail}</p>}
     </div>
   );
 }
@@ -106,12 +106,12 @@ export function ResponsePanel({ stats }: { stats: ResponseStats }) {
   return (
     <Panel title="Staff response" icon={Clock}>
       <div className="space-y-4 p-4">
-        <p className="text-[12px] text-muted-foreground">
+        <p className="text-xs text-muted-foreground">
           How the last {stats.windowDays} days of assignments were answered.
         </p>
 
         {stats.totalOffered === 0 ? (
-          <p className="rounded-lg border border-border bg-muted/40 p-3 text-[12px] text-muted-foreground">
+          <p className="rounded-lg border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
             No assignments offered in this window, so there is nothing to
             measure yet.
           </p>
@@ -141,7 +141,7 @@ export function ResponsePanel({ stats }: { stats: ResponseStats }) {
               />
             )}
 
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               The median, not the average — one person accepting after a
               fortnight&apos;s leave would move a mean by most of a day.
               {stats.unanswered > 0 && (
@@ -157,10 +157,10 @@ export function ResponsePanel({ stats }: { stats: ResponseStats }) {
 
             {stats.withdrawals.count > 0 && (
               <div className="rounded-lg border border-border p-3">
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                   Notice before dropping out
                 </p>
-                <p className="mt-1 text-[12px]">
+                <p className="mt-1 text-xs">
                   {stats.withdrawals.count} withdrawal
                   {stats.withdrawals.count === 1 ? "" : "s"}, typically{" "}
                   <span className="font-semibold">
@@ -202,14 +202,14 @@ export function SatisfactionPanel({ stats }: { stats: SatisfactionStats }) {
   return (
     <Panel title="Shift satisfaction" icon={Star}>
       <div className="space-y-4 p-4">
-        <p className="text-[12px] text-muted-foreground">
+        <p className="text-xs text-muted-foreground">
           What staff thought of the shifts they worked in the last{" "}
           {stats.windowDays} days. Ratings are optional and given by the staff
           member, not the manager.
         </p>
 
         {stats.responses === 0 ? (
-          <p className="rounded-lg border border-border bg-muted/40 p-3 text-[12px] text-muted-foreground">
+          <p className="rounded-lg border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
             Nobody has rated a shift in this window
             {stats.rateable > 0 && ` — ${stats.rateable} could have been rated`}.
             Ratings appear on a staff member&apos;s task list once a shift is
@@ -219,7 +219,7 @@ export function SatisfactionPanel({ stats }: { stats: SatisfactionStats }) {
           <>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="rounded-lg border border-border p-3">
-                <p className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                <p className="text-xs uppercase tracking-wider text-muted-foreground">
                   Average
                 </p>
                 <p className="mt-0.5 text-xl font-bold tracking-tight">
@@ -241,7 +241,7 @@ export function SatisfactionPanel({ stats }: { stats: SatisfactionStats }) {
             </div>
 
             <div>
-              <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 How the scores fall
               </h4>
               <BarList rows={rows} emptyMessage="No ratings yet." />
@@ -255,7 +255,7 @@ export function SatisfactionPanel({ stats }: { stats: SatisfactionStats }) {
             */}
             {bothSides && (
               <div className="rounded-lg border border-border p-3">
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                   Did the engine&apos;s top pick enjoy it more?
                 </p>
                 <div className="mt-2 grid gap-3 sm:grid-cols-2">
@@ -270,7 +270,7 @@ export function SatisfactionPanel({ stats }: { stats: SatisfactionStats }) {
                     detail={`${comparison.otherResponses} responses`}
                   />
                 </div>
-                <p className="mt-2 text-[11px] text-muted-foreground">
+                <p className="mt-2 text-xs text-muted-foreground">
                   A gap here is the strongest evidence the ranking means
                   something; no gap is worth knowing too, and is the honest
                   result to report.
@@ -279,7 +279,7 @@ export function SatisfactionPanel({ stats }: { stats: SatisfactionStats }) {
             )}
 
             {!bothSides && (
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 Not enough rated engine-made assignments yet to compare the
                 top-ranked pick against the rest. Shown only once both sides
                 have enough responses to mean anything.
@@ -288,7 +288,7 @@ export function SatisfactionPanel({ stats }: { stats: SatisfactionStats }) {
 
             {stats.byDepartment.length > 0 && (
               <div>
-                <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                   By department, lowest first
                 </h4>
                 <BarList
@@ -299,7 +299,7 @@ export function SatisfactionPanel({ stats }: { stats: SatisfactionStats }) {
                   }))}
                   emptyMessage=""
                 />
-                <p className="mt-1 text-[11px] text-muted-foreground">
+                <p className="mt-1 text-xs text-muted-foreground">
                   Departments with too few responses are left out rather than
                   ranked — one bad night should not put a team at the bottom of
                   a list somebody acts on.
@@ -309,7 +309,7 @@ export function SatisfactionPanel({ stats }: { stats: SatisfactionStats }) {
 
             {stats.recentComments.length > 0 && (
               <div>
-                <h4 className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                <h4 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                   <MessageSquare className="h-3 w-3" aria-hidden="true" />
                   What people said
                 </h4>
@@ -321,11 +321,11 @@ export function SatisfactionPanel({ stats }: { stats: SatisfactionStats }) {
                     >
                       <div className="flex items-center gap-2">
                         <StarRatingDisplay value={c.rating} showLabel={false} />
-                        <span className="truncate text-[11px] font-medium">
+                        <span className="truncate text-xs font-medium">
                           {c.taskTitle}
                         </span>
                       </div>
-                      <p className="mt-1 text-[11px] italic text-muted-foreground">
+                      <p className="mt-1 text-xs italic text-muted-foreground">
                         &ldquo;{c.comment}&rdquo;
                       </p>
                     </li>
