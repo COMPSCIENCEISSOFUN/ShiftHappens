@@ -5,10 +5,6 @@ A SaaS platform for intelligent workforce management in shift-based industries (
 **Project:** CSIT321 Final Year Project — University of Wollongong (SIM Campus)  
 **Team:** FYP-26-S2-22
 
-> Formerly "Smart Task Allocation". The database name `smart_task_allocation` is
-> unchanged throughout this guide — renaming it would invalidate every existing
-> `.env` file and migration history for no benefit.
-
 ---
 
 ## Tech Stack
