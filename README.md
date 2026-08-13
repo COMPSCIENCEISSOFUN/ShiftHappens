@@ -1,9 +1,13 @@
-# Smart Task Allocation
+# ShiftHappens
 
-A SaaS platform for intelligent workforce management in shift-based industries (hospitality, retail, healthcare). Features AI-powered staff allocation, eligibility engine, and real-time scheduling.
+A SaaS platform for intelligent workforce management in shift-based industries (hospitality, retail, healthcare). Features AI-powered staff allocation, an eligibility engine, projects, and real-time scheduling.
 
 **Project:** CSIT321 Final Year Project — University of Wollongong (SIM Campus)  
-**Team:** CSIT-26-S2-04
+**Team:** FYP-26-S2-22
+
+> Formerly "Smart Task Allocation". The database name `smart_task_allocation` is
+> unchanged throughout this guide — renaming it would invalidate every existing
+> `.env` file and migration history for no benefit.
 
 ---
 
@@ -17,7 +21,9 @@ A SaaS platform for intelligent workforce management in shift-based industries (
 | Database | PostgreSQL | 17+ |
 | ORM | Prisma | 6.19.3 |
 | Auth | NextAuth.js v5 | 5.0.0-beta.31 |
-| Email | Resend | 6.12.3 |
+| Email | Nodemailer (Gmail SMTP) or Resend | 7.x / 6.12.3 |
+| Payments | Stripe (Checkout + webhooks) | — |
+| Spreadsheets | SheetJS (`xlsx`) | 0.18.5 |
 | AI | Groq + Google Gemini | Strategy pattern |
 | Testing | Vitest | 4.1.6 |
 
@@ -78,9 +84,18 @@ DATABASE_URL="postgresql://postgres:YOUR_PASSWORD@localhost:5432/smart_task_allo
 NEXTAUTH_URL="http://localhost:3000"
 NEXTAUTH_SECRET="generate-a-random-secret-here"
 
-# Resend (Email)
+# Email — Gmail SMTP (preferred) OR Resend. See "Email setup" below.
+# Whichever is configured wins; Gmail takes precedence when both are present.
+GMAIL_USER="youraccount@gmail.com"
+GMAIL_APP_PASSWORD="your-16-char-app-password"
+
+# Resend — only delivers to the account owner until a DOMAIN is verified.
 RESEND_API_KEY="re_your_resend_api_key"
 RESEND_FROM_EMAIL="onboarding@resend.dev"
+
+# Stripe (billing). Test keys are fine for development.
+STRIPE_SECRET_KEY="sk_test_..."
+STRIPE_WEBHOOK_SECRET="whsec_..."
 
 # AI Providers
 GROQ_API_KEY="gsk_your_groq_api_key"
@@ -91,6 +106,10 @@ AI_PROVIDER="groq"
 # Shared secret the cron caller must present as `Authorization: Bearer <value>`.
 CRON_SECRET="generate-a-random-secret-here"
 ```
+
+> **Deploying?** `NEXTAUTH_URL` must be the deployed origin, not `localhost`.
+> Every verification and invitation link is built from it, so a stale value
+> sends working emails carrying dead links.
 
 **`.env.test`** — Used by tests:
 ```env
@@ -254,7 +273,33 @@ tests/
 - Certification management (submit, verify, reject)
 - AI-powered staff ranking via Groq with Gemini failover
 - Weighted algorithmic fallback when AI is unavailable
-- Three allocation modes: manual, suggested, auto
+- Two allocation modes: suggested (engine ranks, a human decides) and auto
+  (engine offers the shift; the person still accepts)
+
+### Phase 6 — Billing & Plans
+- Stripe Checkout for Pro and Enterprise, monthly or annual
+- Tier applied by webhook, with a second path on return from checkout so an
+  upgrade appears even when the webhook has not arrived
+- Per-resource plan limits (members, tasks, departments, work rules, custom
+  roles, projects) enforced in the service layer, not just hidden in the UI
+- Cancel schedules the end of the paid period and can be resumed
+
+### Phase 7 — Projects
+- Group related work items under one outcome, with progress and staffing
+  derived from the linked tasks
+- Open participation or a private Project Team
+- Deleting a project keeps its work items as ordinary tasks
+
+### Phase 8 — Invitations & Onboarding
+- Email invitations with a 7-day token; revoke a pending one at any time
+- Bulk invite from a spreadsheet, with the format stated before upload, a
+  downloadable template, alias matching, and AI for what the aliases miss
+- Every row previewed with per-row validation before anything is sent
+
+### Phase 9 — Feedback, Reviews & Platform Admin
+- In-app feedback and customer reviews, moderated by a platform admin
+- Platform dashboard with MRR, growth against the previous 30 days, paid
+  conversion, task completion rate and payment failures
 
 ---
 
@@ -313,6 +358,42 @@ curl -H "Authorization: Bearer %CRON_SECRET%" http://localhost:3000/api/cron
 ---
 
 ## API Keys Setup
+
+### Email — pick one
+
+The app sends verification, password-reset and invitation mail. It supports two
+providers and picks whichever is configured, preferring Gmail when both are:
+
+**Gmail SMTP (recommended for development).** Free, needs no domain, and
+delivers to anybody. Roughly 500 messages a day.
+
+1. On the Google account, turn on **2-Step Verification**
+2. Search the account settings for **App passwords** and generate one
+3. Put the account address in `GMAIL_USER` and the 16-character code in
+   `GMAIL_APP_PASSWORD`
+
+**Resend.** Better deliverability and a real sender name, but it will only
+deliver to your own account address until you verify a **domain** you own —
+which means owning one. Set `RESEND_API_KEY` and point `RESEND_FROM_EMAIL` at
+an address on the verified domain.
+
+To switch from Gmail back to Resend, remove the two `GMAIL_*` variables; no code
+change is needed.
+
+### Stripe (Billing)
+
+1. Create an account at [stripe.com](https://stripe.com) and stay in **test
+   mode** — no real money moves
+2. Copy the secret key into `STRIPE_SECRET_KEY`
+3. For webhooks locally, install the Stripe CLI and run:
+   ```bash
+   stripe listen --forward-to localhost:3000/api/webhooks/stripe
+   ```
+   It prints a signing secret for `STRIPE_WEBHOOK_SECRET`
+
+Stripe cannot reach `localhost` on its own, so without the CLI the webhook never
+arrives. The app also reconciles on return from Checkout, so an upgrade still
+appears — but the CLI is what exercises the real path.
 
 ### Groq (AI — Required for smart allocation)
 1. Go to [console.groq.com](https://console.groq.com)
@@ -385,9 +466,17 @@ npx prisma generate
 Then restart VS Code's TypeScript server: `Ctrl+Shift+P` → "TypeScript: Restart TS Server"
 
 ### Email not sending
-- Check `RESEND_API_KEY` is set in `.env.local`
-- With `onboarding@resend.dev`, you can only send to your own Resend account email
-- Check the terminal for `[Email Error]` messages
+- **Restart the dev server.** Node reads `.env.local` once at boot, so newly
+  added credentials are not picked up by a running process.
+- Check the terminal for `[Email Error]` lines — they name the provider and the
+  reason.
+- **Gmail:** `GMAIL_APP_PASSWORD` must be a Google *App Password*, not the
+  account password, and 2-Step Verification has to be on before Google will
+  issue one. Spaces in it are stripped automatically.
+- **Resend:** with `onboarding@resend.dev` you can only send to your own Resend
+  account address. Anyone else needs a verified domain.
+- `[Email Error] … no email provider configured` means neither pair of
+  variables is set.
 
 ---
 
