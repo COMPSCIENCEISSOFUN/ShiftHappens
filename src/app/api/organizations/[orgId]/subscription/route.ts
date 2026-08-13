@@ -12,6 +12,22 @@ import { SubscriptionService } from "@/services/subscription.service";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
 import { AccessService } from "@/services/access.service";
 
+/*
+ * Never cached, at either end.
+ *
+ * `force-dynamic` stops the framework holding a rendered response; the
+ * `Cache-Control` header on the way out stops the browser and anything between
+ * doing the same. Both are needed — the client asking with `no-store` only
+ * governs its own request, and a shared cache that already holds a copy will
+ * still hand it to the next reader.
+ *
+ * The cost of a stale answer here is not a slightly old number. It is a plan
+ * gate rendered from one tier while the page around it is rendered from
+ * another, which is how an Enterprise organisation was told that Projects are
+ * part of Pro.
+ */
+export const dynamic = "force-dynamic";
+
 const subscriptionService = new SubscriptionService();
 const accessService = new AccessService();
 
@@ -31,7 +47,9 @@ export async function GET(
     }
 
     const usage = await subscriptionService.getUsage(orgId);
-    return NextResponse.json(usage);
+    return NextResponse.json(usage, {
+      headers: { "Cache-Control": "no-store, must-revalidate" },
+    });
   } catch (error) {
     console.error("[Subscription GET Error]", error);
     return NextResponse.json(

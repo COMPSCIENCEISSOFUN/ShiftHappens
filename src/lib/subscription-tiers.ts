@@ -82,7 +82,17 @@ export const TIER_CONFIG: Record<SubscriptionTier, TierDefinition> = {
     limits: {
       members: 10,
       active_tasks: 20,
-      departments: 2,
+      /*
+       * Three, raised from two on 2026-08-14.
+       *
+       * Two was below the floor of the businesses this is sold to: a café with
+       * a kitchen, a floor and a bar is three, and a Free organisation with the
+       * template applied arrived already over its cap — the usage panel opened
+       * on "3 of 2 — limit reached" before the customer had done anything. A
+       * limit somebody is over on day one reads as a fault rather than as an
+       * invitation to upgrade.
+       */
+      departments: 3,
       work_rules: 3,
       custom_roles: 0,
       projects: 0,

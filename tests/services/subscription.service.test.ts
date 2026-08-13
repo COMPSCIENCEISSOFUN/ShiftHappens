@@ -12,6 +12,7 @@ import { UserRepository } from "@/repositories/user.repository";
 import {
   SubscriptionLimitError,
   FeatureNotAvailableError,
+  getResourceLimit,
 } from "@/lib/subscription-tiers";
 import { prisma } from "@/lib/prisma";
 import { cleanDatabase } from "../helpers/cleanup";
@@ -19,6 +20,30 @@ import { cleanDatabase } from "../helpers/cleanup";
 const subscriptionService = new SubscriptionService();
 const orgRepo = new OrganizationRepository();
 const userRepo = new UserRepository();
+
+/*
+ * Read from the config rather than written here.
+ *
+ * These tests hardcoded 2, which is what Free's department cap happened to be
+ * — so raising it to 3 broke five of them for a reason that had nothing to do
+ * with what any of them was testing. The behaviour under test is "refuses at
+ * the limit", not "the limit is two"; the number belongs to pricing, and
+ * pricing is allowed to change without a test suite objecting.
+ *
+ * `subscription-tiers.test.ts` is where the VALUES are asserted, which is the
+ * one place a deliberate pricing change should have to be restated.
+ */
+const FREE_DEPARTMENTS = getResourceLimit("free", "departments") as number;
+
+/** Fills the organisation exactly to its department cap. */
+async function fillDepartments() {
+  await prisma.department.createMany({
+    data: Array.from({ length: FREE_DEPARTMENTS }, (_, i) => ({
+      name: `Dept ${i + 1}`,
+      organizationId: orgId,
+    })),
+  });
+}
 
 let orgId: string;
 let userId: string;
@@ -91,17 +116,12 @@ describe("SubscriptionService", () => {
 
       expect(result.allowed).toBe(true);
       expect(result.current).toBe(0);
-      expect(result.limit).toBe(2);
+      expect(result.limit).toBe(FREE_DEPARTMENTS);
       expect(result.tier).toBe("free");
     });
 
     it("returns not allowed when at limit", async () => {
-      await prisma.department.createMany({
-        data: [
-          { name: "Dept A", organizationId: orgId },
-          { name: "Dept B", organizationId: orgId },
-        ],
-      });
+      await fillDepartments();
 
       const result = await subscriptionService.checkResourceLimit(
         orgId,
@@ -109,8 +129,8 @@ describe("SubscriptionService", () => {
       );
 
       expect(result.allowed).toBe(false);
-      expect(result.current).toBe(2);
-      expect(result.limit).toBe(2);
+      expect(result.current).toBe(FREE_DEPARTMENTS);
+      expect(result.limit).toBe(FREE_DEPARTMENTS);
     });
 
     it("returns allowed for unlimited resources on enterprise", async () => {
@@ -175,12 +195,7 @@ describe("SubscriptionService", () => {
     });
 
     it("throws SubscriptionLimitError when at limit", async () => {
-      await prisma.department.createMany({
-        data: [
-          { name: "Dept A", organizationId: orgId },
-          { name: "Dept B", organizationId: orgId },
-        ],
-      });
+      await fillDepartments();
 
       await expect(
         subscriptionService.enforceResourceLimit(orgId, "departments")
@@ -188,12 +203,7 @@ describe("SubscriptionService", () => {
     });
 
     it("includes resource and tier info in error", async () => {
-      await prisma.department.createMany({
-        data: [
-          { name: "Dept A", organizationId: orgId },
-          { name: "Dept B", organizationId: orgId },
-        ],
-      });
+      await fillDepartments();
 
       try {
         await subscriptionService.enforceResourceLimit(orgId, "departments");
@@ -363,8 +373,10 @@ describe("SubscriptionService", () => {
       const usage = await subscriptionService.getUsage(orgId);
 
       expect(usage.resources.departments.current).toBe(1);
-      expect(usage.resources.departments.limit).toBe(2);
-      expect(usage.resources.departments.percentage).toBe(50);
+      expect(usage.resources.departments.limit).toBe(FREE_DEPARTMENTS);
+      expect(usage.resources.departments.percentage).toBe(
+        Math.round((1 / FREE_DEPARTMENTS) * 100)
+      );
     });
 
     it("returns null limits and percentages for enterprise", async () => {

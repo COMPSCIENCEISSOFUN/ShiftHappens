@@ -32,6 +32,7 @@ import { TaskService } from "@/services/task.service";
 import { prisma } from "@/lib/prisma";
 import { cleanDatabase } from "../helpers/cleanup";
 import { createTenant, type Tenant } from "../helpers/fixtures";
+import { getResourceLimit } from "@/lib/subscription-tiers";
 
 const users = new UserManagementService();
 const invitations = new InvitationService();
@@ -202,19 +203,29 @@ describe("unarchiving a department takes a slot", () => {
     );
     await departments.archive(second.id, tenant.orgId, tenant.admin.userId);
 
-    // The freed slot goes to a new department.
-    await departments.create(
-      { name: "Front of House" },
-      tenant.orgId,
-      tenant.admin.userId
-    );
-    expect(await liveDepartments()).toBe(2);
+    /*
+     * The freed slot goes to new departments, until the plan is full again.
+     *
+     * Filled in a loop against the configured cap rather than by creating one
+     * named department: this test is about a slot being taken, not about Free
+     * allowing exactly two, and it broke when the cap moved to three for a
+     * reason that had nothing to do with unarchiving.
+     */
+    const cap = getResourceLimit("free", "departments") as number;
+    while ((await liveDepartments()) < cap) {
+      await departments.create(
+        { name: `Filler ${await liveDepartments()}` },
+        tenant.orgId,
+        tenant.admin.userId
+      );
+    }
+    expect(await liveDepartments()).toBe(cap);
 
     await expect(
       departments.unarchive(second.id, tenant.orgId, tenant.admin.userId)
     ).rejects.toThrow(/limit reached/);
 
-    expect(await liveDepartments()).toBe(2);
+    expect(await liveDepartments()).toBe(cap);
   });
 });
 

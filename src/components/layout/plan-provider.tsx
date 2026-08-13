@@ -141,7 +141,24 @@ export function PlanProvider({
 
     (async () => {
       try {
-        const res = await fetch(`/api/organizations/${orgId}/subscription`);
+        /*
+         * `no-store`, because a cached answer here contradicts the page it is
+         * rendered beside.
+         *
+         * The TIER arrives with the layout, server-rendered and always fresh.
+         * The usage arrives from this fetch. When the browser served a cached
+         * copy from before an upgrade, the two disagreed on screen — the
+         * Projects page told an Enterprise organisation that "Projects are part
+         * of Pro" and then, in the next sentence, that it was on Enterprise,
+         * because the heading came from the stale limit and the sentence from
+         * the live tier.
+         *
+         * This response is a snapshot of counts that change constantly and is
+         * cheap to recompute; there was never anything to gain by caching it.
+         */
+        const res = await fetch(`/api/organizations/${orgId}/subscription`, {
+          cache: "no-store",
+        });
         if (!res.ok) return;
         const data = await res.json();
         if (cancelled || !data?.resources) return;
