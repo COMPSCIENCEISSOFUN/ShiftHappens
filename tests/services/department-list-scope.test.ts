@@ -132,3 +132,53 @@ describe("listing departments", () => {
     expect(all.map((d) => d.id)).toEqual([tenant.departmentId]);
   });
 });
+
+/*
+ * The read behind the invite-import preview.
+ *
+ * That route held `DepartmentRepository` itself — the one endpoint in the
+ * application reaching Entity without a service in between — so this query had
+ * no coverage at the layer anything now calls it through.
+ */
+describe("active department names", () => {
+  it("leaves out an archived department", async () => {
+    const archived = await prisma.department.create({
+      data: {
+        organizationId: tenant.orgId,
+        name: "Closed Kitchen",
+        archivedAt: new Date(),
+      },
+    });
+
+    const names = await departments.getActiveNames(tenant.orgId);
+
+    expect(names.map((d) => d.id)).toContain(tenant.departmentId);
+    expect(names.map((d) => d.id)).not.toContain(archived.id);
+  });
+
+  /*
+   * A spreadsheet naming another company's department must not resolve. The
+   * preview shows the row as matched, and the invitation then places somebody
+   * into a department their organisation does not own.
+   */
+  it("does not reach into another organisation", async () => {
+    const other = await createTenant("names-other");
+
+    const names = await departments.getActiveNames(tenant.orgId);
+
+    expect(names.map((d) => d.id)).not.toContain(other.departmentId);
+  });
+
+  /*
+   * The empty-array trap, one more time. `null` is unrestricted; `[]` is
+   * scoped to nothing. A check written `if (ids?.length)` hands a manager with
+   * no departments the whole organisation, which is the bug this convention
+   * exists to prevent.
+   */
+  it("treats an empty scope as nothing, not everything", async () => {
+    expect(await departments.getActiveNames(tenant.orgId, [])).toEqual([]);
+    expect(
+      (await departments.getActiveNames(tenant.orgId, null)).map((d) => d.id)
+    ).toContain(tenant.departmentId);
+  });
+});
