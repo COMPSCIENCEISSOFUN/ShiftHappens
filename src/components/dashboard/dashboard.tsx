@@ -53,12 +53,12 @@
  * was built to prevent.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { ExportReportButton } from "@/components/dashboard/export-report-button";
 import {
   BAND_LABEL,
-  DASHBOARD_BANDS,
   bandGroups,
   cardsInBand,
   type CardSubject,
@@ -122,6 +122,36 @@ function greeting(): string {
  * coming, and which cards this reader gets is not known until the response
  * arrives. Three neutral blocks say "loading" without saying what.
  */
+/**
+ * The two halves of the dashboard, and which bands fall in each.
+ *
+ * ## Why the page is split at all
+ *
+ * Stacked, the three bands are about a dozen regions at equal visual weight, so
+ * the eye has nowhere to land and every visit costs a full read. The split is
+ * by CADENCE rather than by subject: everything you check to answer "is today
+ * covered" sits in one place, and everything you look at weekly sits in the
+ * other. `needs` and `now` answer the first question; `trend` is the second by
+ * its own definition — "how it is going".
+ *
+ * ## Why this is not two routes
+ *
+ * The dashboard is the page everyone opens. A second route only gets visited by
+ * people who already know it exists, and the trends half is precisely the half
+ * nobody would go looking for.
+ */
+const TAB_BANDS = {
+  today: ["needs", "now"],
+  trends: ["trend"],
+} as const satisfies Record<string, readonly DashboardBand[]>;
+
+type DashboardTab = keyof typeof TAB_BANDS;
+
+const TAB_LABEL: Record<DashboardTab, string> = {
+  today: "Today",
+  trends: "Trends",
+};
+
 function DashboardSkeleton() {
   return (
     <div className="space-y-4" aria-hidden="true">
@@ -146,6 +176,31 @@ export function Dashboard({
   const [data, setData] = useState<DashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
+
+  /*
+   * Which half is on screen, held in the URL rather than in state.
+   *
+   * So it can be linked and bookmarked — "look at the trends" is a thing one
+   * colleague says to another, and it should be a URL. `replace` rather than
+   * `push`: switching tabs is not navigation, and pushing would make the back
+   * button walk through every toggle before leaving the page.
+   *
+   * Anything other than `trends` reads as `today`, so a mistyped or stale
+   * parameter opens on the half that answers the urgent question.
+   */
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const activeTab: DashboardTab =
+    searchParams.get("view") === "trends" ? "trends" : "today";
+
+  function selectTab(tab: DashboardTab) {
+    const next = new URLSearchParams(searchParams.toString());
+    if (tab === "today") next.delete("view");
+    else next.set("view", tab);
+    const query = next.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+  }
 
   const reader: DashboardReader = useMemo(
     () => ({
@@ -173,6 +228,7 @@ export function Dashboard({
   }, [orgId]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronising with an external system: loads the dashboard sections on mount
     void load();
   }, [load]);
 
@@ -268,6 +324,17 @@ export function Dashboard({
     if (subject === "self") return "Yours";
     return departmentScope === null ? orgName : "Your departments";
   }
+
+  /**
+   * Whether both halves have something in them.
+   *
+   * Asked of the registry rather than assumed: a reader who cannot see any
+   * trend card would otherwise get a Trends tab that opens onto nothing, which
+   * is worse than no tab — it looks like the page failed to load.
+   */
+  const tabsWorthShowing = (
+    Object.values(TAB_BANDS) as readonly (readonly DashboardBand[])[]
+  ).every((bands) => bands.some((name) => cardsInBand(reader, name).length > 0));
 
   function band(name: DashboardBand) {
     /*
@@ -365,7 +432,48 @@ export function Dashboard({
         <ExportReportButton orgId={orgId} />
       </header>
 
-      {DASHBOARD_BANDS.map((name) => band(name))}
+      {/*
+        Only shown when there is somewhere to go.
+
+        A reader whose cards all fall in one half — a plain staff member with no
+        trend cards, say — gets no tabs at all rather than a tab that opens onto
+        an empty page. The registry already decides who qualifies for what, so
+        this asks it rather than assuming.
+      */}
+      {tabsWorthShowing && (
+        <div
+          role="tablist"
+          aria-label="Dashboard view"
+          className="flex items-center gap-2"
+        >
+          {(Object.keys(TAB_BANDS) as DashboardTab[]).map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === tab}
+              onClick={() => selectTab(tab)}
+              className={`inline-flex shrink-0 items-center rounded-full border px-3.5 py-1.5 text-sm font-medium transition-all ${
+                activeTab === tab
+                  ? "border-indigo-600 bg-indigo-600 text-white shadow-sm"
+                  : "border-border bg-card text-muted-foreground hover:border-indigo-400 hover:text-foreground"
+              }`}
+            >
+              {TAB_LABEL[tab]}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/*
+        Only the active half is rendered, which is what makes this worth doing
+        rather than a scroll break.
+
+        Three cards fetch for themselves, and the engine report — thirty days of
+        allocation history — is one of them. Stacked, every morning check paid
+        for it. Unmounted, it is not requested until somebody opens Trends.
+      */}
+      {TAB_BANDS[activeTab].map((name) => band(name))}
     </div>
   );
 }
