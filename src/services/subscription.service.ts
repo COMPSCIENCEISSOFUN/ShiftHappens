@@ -82,6 +82,61 @@ export class SubscriptionService {
   }
 
   /**
+   * Keeps a downgraded organisation whole, without confiscating anything.
+   *
+   * Call after any tier change. It only ever RAISES the quota, so an upgrade
+   * runs it harmlessly and a downgrade is the case it exists for.
+   *
+   * ## The problem it solves
+   *
+   * Projects are permanent — they cannot be archived, and only an empty one can
+   * be deleted. So an Enterprise organisation with fifteen that drops to Pro
+   * keeps all fifteen and has no way to shed any of them. With a bare
+   * `limit = 10 + addon`, creating a sixteenth would mean buying SIX slots to
+   * get ONE usable project, while a customer sitting at ten buys one slot for
+   * one project. Same money, wildly different value, and the person penalised
+   * is the one who used to pay the most.
+   *
+   * Recording the overage as granted quota fixes the arithmetic: they land
+   * exactly at their limit, nothing is taken away, and the next slot they buy
+   * gets them a project like it does for everybody else.
+   *
+   * ## `projectQuotaAddon` therefore holds two kinds of slot
+   *
+   * Slots somebody paid for, and slots granted here. It is deliberately not
+   * split: from the organisation's side a slot is a slot, and a second column
+   * would have to be summed everywhere this one is already read. It does mean
+   * the number is NOT a record of money received — do not report revenue from
+   * it.
+   *
+   * @returns the quota now in force, so a caller can log what it did.
+   */
+  async grandfatherProjectOverage(organizationId: string): Promise<number> {
+    const state = await this.subscriptionRepository.getPlanState(organizationId);
+    const tier = validateTier(state.tier);
+
+    const base = getResourceLimit(tier, 'projects');
+    // Unlimited: nothing can be over it, so there is nothing to preserve.
+    if (base === null) return state.projectQuotaAddon;
+
+    const current = await this.subscriptionRepository.countResource(
+      organizationId,
+      'projects'
+    );
+
+    const shortfall = current - base;
+    // Never lowers an existing grant. Somebody who bought slots and then
+    // downgraded keeps what they paid for as well as what they carried in.
+    if (shortfall <= state.projectQuotaAddon) return state.projectQuotaAddon;
+
+    await this.subscriptionRepository.setProjectQuotaAddon(
+      organizationId,
+      shortfall
+    );
+    return shortfall;
+  }
+
+  /**
    * Check whether creating one more resource would stay within limits.
    * Returns a result object — does NOT throw.
    */

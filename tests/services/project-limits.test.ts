@@ -16,7 +16,10 @@
  */
 import { describe, it, expect, beforeEach } from "vitest";
 import { ProjectService } from "@/services/project.service";
-import { SubscriptionLimitError } from "@/lib/subscription-tiers";
+import {
+  SubscriptionLimitError,
+  getResourceLimit,
+} from "@/lib/subscription-tiers";
 import { prisma } from "@/lib/prisma";
 import { cleanDatabase } from "../helpers/cleanup";
 import { createTenant, type Tenant } from "../helpers/fixtures";
@@ -54,23 +57,34 @@ describe("project limits by plan", () => {
     expect(await projectCount(tenant.orgId)).toBe(0);
   });
 
-  it("allows the one included project on Pro, then refuses the second", async () => {
+  it("allows Pro its full allowance, then refuses the next", async () => {
+    /*
+     * Filled from the config rather than to a written number. Pro's allowance
+     * moved from one to ten when projects became permanent, and this test was
+     * about "refuses past the limit" rather than about the limit being one.
+     */
     const tenant = await createTenant("pro-proj", { subscriptionTier: "pro" });
+    const allowance = getResourceLimit("pro", "projects") as number;
 
-    await makeProject(tenant, "Included");
-    expect(await projectCount(tenant.orgId)).toBe(1);
+    for (let i = 0; i < allowance; i++) {
+      await makeProject(tenant, `Included ${i + 1}`);
+    }
+    expect(await projectCount(tenant.orgId)).toBe(allowance);
 
-    await expect(makeProject(tenant, "Second")).rejects.toThrow(
+    await expect(makeProject(tenant, "One too many")).rejects.toThrow(
       SubscriptionLimitError
     );
-    expect(await projectCount(tenant.orgId)).toBe(1);
+    expect(await projectCount(tenant.orgId)).toBe(allowance);
   });
 
   it("names Enterprise as the way up when Pro is full", async () => {
     const tenant = await createTenant("pro-hint", { subscriptionTier: "pro" });
-    await makeProject(tenant, "Included");
+    const allowance = getResourceLimit("pro", "projects") as number;
+    for (let i = 0; i < allowance; i++) {
+      await makeProject(tenant, `Included ${i + 1}`);
+    }
 
-    await expect(makeProject(tenant, "Second")).rejects.toThrow(
+    await expect(makeProject(tenant, "One too many")).rejects.toThrow(
       /Upgrade to Enterprise/
     );
   });
@@ -86,10 +100,19 @@ describe("project limits by plan", () => {
     expect(await projectCount(tenant.orgId)).toBe(4);
   });
 
-  it("frees the slot when a project is deleted", async () => {
+  it("frees the slot when an EMPTY project is deleted", async () => {
+    /*
+     * The only route back under a limit, and deliberately narrow: a project
+     * holding work items cannot be deleted at all, so this cannot be used to
+     * recycle a permanent slot. `project-delete.test.ts` pins that half.
+     */
     const tenant = await createTenant("recycle", { subscriptionTier: "pro" });
+    const allowance = getResourceLimit("pro", "projects") as number;
 
-    const first = await makeProject(tenant, "Included");
+    const first = await makeProject(tenant, "Included 1");
+    for (let i = 1; i < allowance; i++) {
+      await makeProject(tenant, `Included ${i + 1}`);
+    }
     await expect(makeProject(tenant, "Blocked")).rejects.toThrow(
       SubscriptionLimitError
     );
@@ -98,6 +121,6 @@ describe("project limits by plan", () => {
 
     // The slot is genuinely back — not merely un-refused.
     await makeProject(tenant, "Replacement");
-    expect(await projectCount(tenant.orgId)).toBe(1);
+    expect(await projectCount(tenant.orgId)).toBe(allowance);
   });
 });

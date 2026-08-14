@@ -1,13 +1,16 @@
 // @vitest-environment node
 /**
- * Deleting a project.
+ * Deleting a project, and mostly refusing to.
  *
- * The assertion that carries the weight is that the WORK ITEMS SURVIVE. A work
- * item here is a real shift — it has a time, it has people assigned to it, and
- * some of them have already worked it. Cascading the delete would cancel
- * somebody's roster and erase completed hours because an admin tidied up a
- * grouping, so `Task.project` is declared `onDelete: SetNull` and these tests
- * exist to stop that being "simplified" to a cascade later.
+ * Projects became permanent on 2026-08-14: they cannot be archived, and only an
+ * EMPTY one can be deleted. The rule exists because a project records why a set
+ * of shifts was grouped, who owned it and over what period — and because the
+ * plan quota counts projects, so a deletable project is a renewable slot and
+ * the limit stops meaning anything.
+ *
+ * The exception is the one genuinely unfair case: a project created by mistake,
+ * with nothing in it to audit, which would otherwise consume a permanent slot
+ * forever and be remediable only by buying another.
  *
  * The tenant test is the other half: the project id arrives from a URL, and a
  * delete scoped only by id would remove another organisation's project.
@@ -55,8 +58,10 @@ beforeEach(async () => {
   tenant = await createTenant("proj-del", { subscriptionTier: "enterprise" });
 });
 
-describe("deleting a project", () => {
-  it("removes the project", async () => {
+describe("an empty project can be deleted", () => {
+  it("removes it", async () => {
+    // The mistake case: a typo in the title, nothing inside, no reason to keep
+    // it and every reason not to charge somebody a permanent slot for it.
     const project = await makeProject(tenant);
 
     await projects.remove(project.id, tenant.orgId, tenant.admin.userId);
@@ -66,49 +71,8 @@ describe("deleting a project", () => {
     ).toBeNull();
   });
 
-  it("keeps the work items, unlinked", async () => {
-    // The promise the whole feature rests on. These are shifts, not folders.
+  it("reports that it unlinked nothing", async () => {
     const project = await makeProject(tenant);
-    const task = await workItem(tenant, project.id, "Stock check");
-
-    await projects.remove(project.id, tenant.orgId, tenant.admin.userId);
-
-    const survivor = await prisma.task.findUnique({ where: { id: task.id } });
-    expect(survivor).not.toBeNull();
-    expect(survivor?.projectId).toBeNull();
-    expect(survivor?.title).toBe("Stock check");
-  });
-
-  it("does not touch the assignments on those work items", async () => {
-    /*
-     * Somebody is rostered on this. Losing the row would take the shift off
-     * their schedule with no notification and no audit entry — the exact
-     * phantom-coverage failure that deactivation was fixed for, arrived at
-     * from the other direction.
-     */
-    const project = await makeProject(tenant);
-    const task = await workItem(tenant, project.id, "Saturday close");
-    const assignment = await prisma.taskAssignment.create({
-      data: {
-        taskId: task.id,
-        membershipId: tenant.admin.membershipId,
-        status: "accepted",
-        assignedById: tenant.admin.userId,
-      },
-    });
-
-    await projects.remove(project.id, tenant.orgId, tenant.admin.userId);
-
-    const survivor = await prisma.taskAssignment.findUnique({
-      where: { id: assignment.id },
-    });
-    expect(survivor?.status).toBe("accepted");
-  });
-
-  it("reports how many work items it unlinked", async () => {
-    const project = await makeProject(tenant);
-    await workItem(tenant, project.id, "One");
-    await workItem(tenant, project.id, "Two");
 
     const result = await projects.remove(
       project.id,
@@ -116,12 +80,11 @@ describe("deleting a project", () => {
       tenant.admin.userId
     );
 
-    expect(result.unlinkedTasks).toBe(2);
+    expect(result.unlinkedTasks).toBe(0);
   });
 
   it("records it, since the project row is the thing that just vanished", async () => {
     const project = await makeProject(tenant, "Weekend service");
-    await workItem(tenant, project.id, "One");
 
     await projects.remove(project.id, tenant.orgId, tenant.admin.userId);
 
@@ -129,13 +92,78 @@ describe("deleting a project", () => {
       where: { organizationId: tenant.orgId, action: "project.deleted" },
     });
     expect(entry).toBeTruthy();
-    expect(entry.details).toMatchObject({
-      title: "Weekend service",
-      unlinkedTasks: 1,
-    });
+    expect(entry.details).toMatchObject({ title: "Weekend service" });
   });
 
-  it("refuses a project belonging to another organisation", async () => {
+  it("frees the slot it was occupying", async () => {
+    // The quota counts projects, and an empty one that has been removed is not
+    // one. This is the only route back under a limit, which is why it is
+    // narrow.
+    const project = await makeProject(tenant);
+    const before = await prisma.project.count({
+      where: { organizationId: tenant.orgId },
+    });
+
+    await projects.remove(project.id, tenant.orgId, tenant.admin.userId);
+
+    expect(
+      await prisma.project.count({ where: { organizationId: tenant.orgId } })
+    ).toBe(before - 1);
+  });
+});
+
+describe("a project holding work is permanent", () => {
+  it("refuses to delete one with a work item", async () => {
+    const project = await makeProject(tenant);
+    await workItem(tenant, project.id, "Stock check");
+
+    await expect(
+      projects.remove(project.id, tenant.orgId, tenant.admin.userId)
+    ).rejects.toThrow(/cannot be deleted/i);
+  });
+
+  it("leaves the project and its work exactly as they were", async () => {
+    /*
+     * A refusal that had already deleted half of something would be worse than
+     * no refusal at all. Asserted on both, because the guard sits before the
+     * write and this is what proves it.
+     */
+    const project = await makeProject(tenant);
+    const task = await workItem(tenant, project.id, "Saturday close");
+
+    await expect(
+      projects.remove(project.id, tenant.orgId, tenant.admin.userId)
+    ).rejects.toThrow();
+
+    expect(
+      await prisma.project.findUnique({ where: { id: project.id } })
+    ).not.toBeNull();
+    const survivor = await prisma.task.findUnique({ where: { id: task.id } });
+    expect(survivor?.projectId).toBe(project.id);
+  });
+
+  it("refuses even when the work item is cancelled", async () => {
+    /*
+     * Emptiness is about whether anything ever happened here, not about
+     * whether it is still outstanding. If a cancelled item made a project
+     * disposable, cancelling everything inside one would be the way to recycle
+     * a permanent slot — which is the loophole the rule exists to close.
+     */
+    const project = await makeProject(tenant);
+    const task = await workItem(tenant, project.id, "Called off");
+    await prisma.task.update({
+      where: { id: task.id },
+      data: { status: "cancelled" },
+    });
+
+    await expect(
+      projects.remove(project.id, tenant.orgId, tenant.admin.userId)
+    ).rejects.toThrow(/cannot be deleted/i);
+  });
+});
+
+describe("whose project it is", () => {
+  it("refuses one belonging to another organisation", async () => {
     // Scoped in the query, so the wrong tenant deletes nothing rather than
     // deleting somebody else's project.
     const other = await createTenant("proj-del-other", {

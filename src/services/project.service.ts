@@ -129,6 +129,30 @@ export class ProjectService {
       throw new Error("Project not found");
     }
 
+    /*
+     * Only an EMPTY project can be deleted.
+     *
+     * Projects are permanent once work has happened inside them: they record
+     * why a set of shifts was grouped, who owned it and over what period, and
+     * the plan quota counts them for that reason. Letting one be removed once
+     * it holds work would also hand any organisation unlimited projects for the
+     * price of emptying one.
+     *
+     * The exception exists for the only genuinely unfair case: a project
+     * created by mistake — a typo in the title, the wrong department — which
+     * has nothing in it to audit and would otherwise consume a permanent slot
+     * forever, remediable only by buying another.
+     *
+     * Zero work items is the whole test. Nothing else about the project can
+     * make it disposable, and nothing about it being empty makes it worth
+     * keeping.
+     */
+    if (existing.tasks.length > 0) {
+      throw new Error(
+        "A project with work items cannot be deleted. Projects are kept as a permanent record once work has been added."
+      );
+    }
+
     const unlinkedTasks = existing.tasks.length;
 
     const removed = await this.projectRepo.remove(projectId, organizationId);

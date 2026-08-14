@@ -18,7 +18,10 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { SubscriptionService } from "@/services/subscription.service";
 import { SubscriptionRepository } from "@/repositories/subscription.repository";
 import { ProjectService } from "@/services/project.service";
-import { SubscriptionLimitError } from "@/lib/subscription-tiers";
+import {
+  SubscriptionLimitError,
+  getResourceLimit,
+} from "@/lib/subscription-tiers";
 import { prisma } from "@/lib/prisma";
 import { cleanDatabase } from "../helpers/cleanup";
 import { createTenant, type Tenant } from "../helpers/fixtures";
@@ -39,29 +42,35 @@ beforeEach(async () => {
   await cleanDatabase();
 });
 
+/** Pro's included allowance, read rather than written — see the note above. */
+const PRO_PROJECTS = getResourceLimit("pro", "projects") as number;
+
 describe("purchased project quota", () => {
   it("adds to the tier allowance rather than replacing it", async () => {
     const tenant = await createTenant("addon", { subscriptionTier: "pro" });
     await subscriptionRepo.setProjectQuotaAddon(tenant.orgId, 3);
 
     const check = await subscriptions.checkResourceLimit(tenant.orgId, "projects");
-    // Pro includes 1; the pack adds 3.
-    expect(check.limit).toBe(4);
+    // Whatever Pro includes, plus the three that were bought. Read from the
+    // config because the included allowance moved from 1 to 10 when projects
+    // became permanent, and this test is about the ADDITION.
+    expect(check.limit).toBe(PRO_PROJECTS + 3);
   });
 
   it("lets the organisation actually create up to the raised limit", async () => {
     const tenant = await createTenant("addon-create", { subscriptionTier: "pro" });
     await subscriptionRepo.setProjectQuotaAddon(tenant.orgId, 2);
 
-    for (const title of ["One", "Two", "Three"]) {
-      await makeProject(tenant, title);
+    const raised = PRO_PROJECTS + 2;
+    for (let i = 0; i < raised; i++) {
+      await makeProject(tenant, `Project ${i + 1}`);
     }
-    await expect(makeProject(tenant, "Fourth")).rejects.toThrow(
+    await expect(makeProject(tenant, "One too many")).rejects.toThrow(
       SubscriptionLimitError
     );
     expect(
       await prisma.project.count({ where: { organizationId: tenant.orgId } })
-    ).toBe(3);
+    ).toBe(raised);
   });
 
   it("reports the same raised limit on the usage panel as it enforces", async () => {
@@ -71,7 +80,7 @@ describe("purchased project quota", () => {
     const usage = await subscriptions.getUsage(tenant.orgId);
     const check = await subscriptions.checkResourceLimit(tenant.orgId, "projects");
 
-    expect(usage.resources.projects.limit).toBe(6);
+    expect(usage.resources.projects.limit).toBe(PRO_PROJECTS + 5);
     expect(usage.resources.projects.limit).toBe(check.limit);
   });
 
@@ -106,6 +115,6 @@ describe("purchased project quota", () => {
     await subscriptionRepo.setProjectQuotaAddon(tenant.orgId, -5);
 
     const check = await subscriptions.checkResourceLimit(tenant.orgId, "projects");
-    expect(check.limit).toBe(1);
+    expect(check.limit).toBe(PRO_PROJECTS);
   });
 });

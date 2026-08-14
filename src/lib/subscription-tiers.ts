@@ -20,12 +20,20 @@ export const RESOURCE_TYPES = [
   'work_rules',
   'custom_roles',
   /*
-   * Counted concurrently, like every other resource here: deleting a project
-   * frees the slot. Pro's single project is therefore one project AT A TIME
-   * rather than one ever, which is the same promise `departments` and
-   * `work_rules` already make and the only one the schema can keep — `Project`
-   * has no soft-delete, so a lifetime count would need a separate column that
-   * never decrements.
+   * The one LIFETIME allowance here, unlike every other resource on this list.
+   *
+   * A project cannot be archived, and only an EMPTY one can be deleted — see
+   * `ProjectService.remove`. So a project consumed is a project consumed for
+   * good, and the count never comes down once work has happened inside it.
+   *
+   * That is deliberate: a project records why a set of shifts was grouped, who
+   * owned it and over what period, and a deletable project is a renewable slot
+   * that makes the limit mean nothing. It is also why Pro's allowance is ten
+   * rather than the one it started at — a lifetime quota has to be generous
+   * where a concurrent one can be tight.
+   *
+   * The empty-project exception exists only for a project created by mistake,
+   * which has nothing in it to audit and would otherwise cost a permanent slot.
    */
   'projects',
 ] as const;
@@ -112,13 +120,27 @@ export const TIER_CONFIG: Record<SubscriptionTier, TierDefinition> = {
       work_rules: 20,
       custom_roles: 10,
       /*
-       * The included project. Raised above this by buying add-on quota, which
-       * is added to this baseline per-organisation — see
-       * `SubscriptionService.checkResourceLimit`. It is deliberately not
-       * unlimited-on-purchase: the add-on is a recurring subscription item, so
-       * the quota lasts exactly as long as it is paid for.
+       * Ten, raised from one on 2026-08-14, and the number moved because the
+       * KIND of limit did.
+       *
+       * A project is now permanent: it cannot be archived, and it can only be
+       * deleted while it holds no work items. So this is a lifetime quota, not
+       * a count of what may run at once — and those are wildly different offers
+       * wearing the same words. One concurrent project is a tight plan; one
+       * project EVER is a countdown, and a customer who used theirs last
+       * January would be paying $29 a month to be permanently unable to start
+       * anything.
+       *
+       * Ten permanent projects is roughly as generous as two concurrent ones
+       * and does not read as a trap.
+       *
+       * Raised further by buying add-on quota, added to this baseline
+       * per-organisation — see `SubscriptionService.checkResourceLimit`. That
+       * purchase is now ONE-OFF rather than a recurring subscription item: the
+       * thing it unlocks is permanent, so billing for it monthly forever would
+       * be a bill that only ever goes up.
        */
-      projects: 1,
+      projects: 10,
     },
     gatedFeatures: [
       'custom_roles',
