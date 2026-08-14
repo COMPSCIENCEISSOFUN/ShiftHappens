@@ -17,6 +17,7 @@ import { useRef, useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useScrollReveal, Reveal } from "./reveal";
 import TeamSection from "./team-section";
+import { CONTACT_EMAIL } from "@/lib/site";
 import {
   Brain,
   CalendarClock,
@@ -48,17 +49,16 @@ import { apiErrorMessage } from "@/lib/api-error";
 import { Logo, LogoMark } from "@/components/brand/logo";
 
 // ─── Video Source Configuration ───────────────────────────────────────────
-// Replace null with your video details when ready.
+// A file lives in public/videos and is referenced from the site root.
+// An embed is a provider URL, such as https://www.youtube.com/embed/VIDEO_ID.
+// poster is optional. Without one the browser shows the first frame.
 //
-// Examples:
-//   { url: "https://www.youtube.com/embed/VIDEO_ID", type: "embed" }
-//   { url: "/videos/product-demo.mp4", type: "file" }
-//
+// null renders the placeholder, so a tab can ship before its video does.
 const VIDEO_SOURCES: Record<
   string,
-  { url: string; type: "embed" | "file" } | null
+  { url: string; type: "embed" | "file"; poster?: string } | null
 > = {
-  demo: null,
+  demo: { url: "/videos/product-demo.mp4", type: "file" },
   technical: null,
 };
 
@@ -547,9 +547,11 @@ function VideoShowcase() {
               ) : (
                 <video
                   src={source.url}
-                  className="absolute inset-0 h-full w-full object-cover"
+                  poster={source.poster}
+                  className="absolute inset-0 h-full w-full bg-black object-contain"
                   controls
                   playsInline
+                  preload="metadata"
                 />
               )
             ) : (
@@ -1125,7 +1127,7 @@ function Testimonials({ reviews }: { reviews: LandingReview[] }) {
 
 
 /**
- * The address enquiries reach.
+ * Where enquiries go, and why this is not a form.
  *
  * The form that stood here waited 800ms on a `setTimeout` and then said
  * "submitted" — it sent nothing, stored nothing, and a visitor who used it was
@@ -1133,7 +1135,6 @@ function Testimonials({ reviews }: { reviews: LandingReview[] }) {
  * one; members who are already signed in have `Send feedback` in the app, which
  * arrives with an account attached and is worth more than an anonymous form.
  */
-const CONTACT_EMAIL = "shifthappens@gmail.com";
 
 export interface LandingFaqEntry {
   id: string;
@@ -1499,6 +1500,18 @@ function Footer() {
               className="hover:text-slate-300 transition-colors"
             >
               Sign up
+            </Link>
+            <Link
+              href="/terms"
+              className="hover:text-slate-300 transition-colors"
+            >
+              Terms
+            </Link>
+            <Link
+              href="/privacy"
+              className="hover:text-slate-300 transition-colors"
+            >
+              Privacy
             </Link>
           </div>
         </div>
