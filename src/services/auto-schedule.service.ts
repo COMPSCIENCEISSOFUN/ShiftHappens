@@ -434,7 +434,7 @@ export class AutoScheduleService {
         compositionData
       );
     } catch (error) {
-      console.log("[Auto-Schedule] AI failed, using algorithmic fallback:", error);
+      console.error("[Auto-Schedule] AI failed, using algorithmic fallback:", error);
     }
 
     /*
@@ -457,14 +457,14 @@ export class AutoScheduleService {
     }
 
     if (aiDraft && aiDraft.assignments.length > 0) {
-      console.log(
+      console.error(
         `[Auto-Schedule] AI filled ${aiDraft.assignments.length}/${demand} slots — comparing with the algorithmic pass`
       );
     } else {
       // Zero assignments counts as a failure, not as an AI result — otherwise a
       // model that returned nothing useful still shows up in the provider
       // charts as the engine having worked.
-      console.log("[Auto-Schedule] AI produced no valid assignments, using algorithmic fallback");
+      console.error("[Auto-Schedule] AI produced no valid assignments, using algorithmic fallback");
     }
 
     const algorithmic = await this.generateAlgorithmic(

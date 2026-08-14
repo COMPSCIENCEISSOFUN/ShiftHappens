@@ -477,10 +477,24 @@ export default function TasksPage() {
     required: number;
   } | null>(null);
   const [undoing, setUndoing] = useState(false);
-  // "suggested" | "auto" — auto-assign is only offered in "auto" mode.
-  // ("manual" was a third mode until 2026-08-13; rows were migrated to
-  // "suggested" and the stored value kept its name.)
-  const [allocationMode, setAllocationMode] = useState<string>("suggested");
+  /*
+   * The EFFECTIVE mode — what the plan permits, not what the organisation
+   * asked for. `/settings` resolves the two before answering: a company that
+   * chose `auto` and later dropped to Free keeps its preference in the
+   * database and reads back as `manual` here.
+   *
+   * All three values are live again. A comment here said `manual` had been
+   * retired on 2026-08-13 and rows migrated away from it, which was true of
+   * the STORED column and stopped being true of this variable the moment
+   * `allocation-mode.ts` began stepping a plan down into it.
+   *
+   * `manual` is the initial value because it is the least permissive one.
+   * `suggested` was, so a Free organisation was shown the AI Suggest button
+   * for the moment before the settings request landed — a paid control
+   * offered, briefly, to somebody who cannot use it. The wrong default is
+   * cheap to fix and the wrong direction to be wrong in.
+   */
+  const [allocationMode, setAllocationMode] = useState<string>("manual");
   const [autoAssigningId, setAutoAssigningId] = useState<string | null>(null);
   /**
    * Ranked replacements, keyed by the ASSIGNMENT being decided rather than by
@@ -648,7 +662,9 @@ export default function TasksPage() {
       const res = await fetch(`/api/organizations/${orgId}/settings`);
       if (!res.ok) return;
       const data = await res.json();
-      setAllocationMode(data.allocationMode ?? "suggested");
+      // The same least-permissive fallback as the initial state above: a
+      // response missing the field must not grant the paid control.
+      setAllocationMode(data.allocationMode ?? "manual");
     } catch {}
   }
 
