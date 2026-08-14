@@ -25,6 +25,8 @@ import {
   paidPlanLineItem,
   createPlanPrice,
   isBillingInterval,
+  projectSlotLineItem,
+  MAX_SLOTS_PER_PURCHASE,
   type BillingInterval,
   type PaidPlan,
 } from "@/lib/stripe";
@@ -56,6 +58,16 @@ import { SubscriptionService } from "@/services/subscription.service";
  * chose to leave.
  */
 const ATTENTION_STATUSES = ["past_due", "unpaid", "incomplete"];
+
+/**
+ * Marks a one-off checkout as a project-slot purchase.
+ *
+ * Written into the session's metadata and checked before any quota is
+ * credited. The mode alone is not enough: `mode: "payment"` means only "this
+ * was not a subscription", so keying on it would silently credit slots for any
+ * one-off product sold later.
+ */
+const SLOT_PURCHASE_PURPOSE = "project_slots";
 
 function periodEndOf(sub: Stripe.Subscription): Date | null {
   const seconds = sub.items.data[0]?.current_period_end;
@@ -166,6 +178,96 @@ export class BillingService {
       entityType: "subscription",
       entityId: session.id,
       details: { interval, source, plan },
+    });
+
+    return session.url;
+  }
+
+  /**
+   * Start a one-off purchase of extra project slots.
+   *
+   * Separate from `createCheckoutSession` rather than a flag on it: that method
+   * builds a SUBSCRIPTION and everything downstream of it — the tier write, the
+   * interval, the renewal date — assumes a plan was bought. This buys a
+   * quantity of a permanent thing and touches none of that.
+   *
+   * The quantity is carried in metadata as well as in the line item. Stripe
+   * reports the quantity on the line items of the completed session, which
+   * would mean expanding them in the webhook to find out what was bought;
+   * metadata arrives on the session itself and cannot be reinterpreted.
+   */
+  async createSlotCheckout(params: {
+    organizationId: string;
+    userId: string;
+    userEmail: string;
+    quantity: number;
+    origin: string;
+  }): Promise<string> {
+    const { organizationId, userId, userEmail, quantity, origin } = params;
+
+    if (!Number.isInteger(quantity) || quantity < 1) {
+      throw new Error("Choose at least one project slot");
+    }
+    if (quantity > MAX_SLOTS_PER_PURCHASE) {
+      throw new Error(
+        `You can buy at most ${MAX_SLOTS_PER_PURCHASE} slots at a time`
+      );
+    }
+
+    const billing = await this.billingRepo.getByOrgId(organizationId);
+    if (!billing) throw new Error("Organisation not found");
+
+    /*
+     * Reuses the organisation's Stripe customer when it has one, so slot
+     * purchases appear on the same customer as the subscription rather than
+     * creating a second identity for the same business.
+     */
+    let customerId = billing.stripeCustomerId;
+    if (!customerId) {
+      const customer = await getStripe().customers.create({
+        email: userEmail,
+        metadata: { organizationId },
+      });
+      customerId = customer.id;
+      await this.billingRepo.setStripeCustomerId(organizationId, customerId);
+    }
+
+    const session = await getStripe().checkout.sessions.create({
+      mode: "payment",
+      customer: customerId,
+      line_items: [projectSlotLineItem(quantity)],
+      metadata: {
+        organizationId,
+        userId,
+        purpose: SLOT_PURCHASE_PURPOSE,
+        slots: String(quantity),
+      },
+      /*
+       * Carries the session id for the same reason the plan checkout does: the
+       * quota is credited by the WEBHOOK, which is delivered out of band and
+       * cannot reach localhost at all. Without this the money leaves and the
+       * slot never arrives, with nothing on screen to say why — which is
+       * exactly what happened the first time this shipped.
+       *
+       * `reconcileCheckout` reads it back FROM Stripe and routes it through the
+       * same handler the webhook uses, so whichever gets there first wins and
+       * the other is a no-op.
+       */
+      success_url: `${origin}/org/${organizationId}/projects?slots=purchased&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${origin}/org/${organizationId}/projects?slots=canceled`,
+    });
+
+    if (!session.url) {
+      throw new Error("Stripe did not return a checkout URL");
+    }
+
+    void this.auditService.log({
+      organizationId,
+      userId,
+      action: ACTIONS.CHECKOUT_STARTED,
+      entityType: "subscription",
+      entityId: session.id,
+      details: { purpose: SLOT_PURCHASE_PURPOSE, slots: quantity },
     });
 
     return session.url;
@@ -552,6 +654,13 @@ export class BillingService {
      * that did not buy a plan is not its business.
      */
     if (session.mode !== "subscription") {
+      // A one-off purchase. The only kind this application sells is project
+      // slots, and it identifies itself in metadata rather than being inferred
+      // from the mode — so a future one-off product cannot be silently credited
+      // as quota.
+      if (session.metadata?.purpose === SLOT_PURCHASE_PURPOSE) {
+        await this.creditProjectSlots(session, organizationId);
+      }
       return;
     }
 
@@ -572,6 +681,74 @@ export class BillingService {
       entityType: "subscription",
       entityId: toId(session.subscription) ?? session.id,
       details: { tier: updated.subscriptionTier, interval: updated.billingInterval },
+    });
+  }
+
+  /**
+   * Adds bought slots to the organisation's permanent project quota.
+   *
+   * ## Why this reads the quota and adds to it
+   *
+   * The webhook can deliver the same event more than once — Stripe retries on
+   * any non-2xx, and a timeout after the write looks identical to a failure. A
+   * blind `+= n` would therefore credit twice for one payment.
+   *
+   * The session id is checked against the audit log first, which is the record
+   * of what has already been credited. It is not a perfect lock — two
+   * deliveries arriving at the same instant could both read "not yet credited"
+   * — but the window is milliseconds against a retry schedule measured in
+   * minutes, and the alternative is a dedicated table for a case that has not
+   * happened. If it ever does, the cure is a unique constraint on the session
+   * id, not a bigger comment.
+   */
+  private async creditProjectSlots(
+    session: Stripe.Checkout.Session,
+    organizationId: string
+  ): Promise<void> {
+    /*
+     * `paid` is the only status that bought anything. A session can complete
+     * while payment is still processing — some methods settle asynchronously —
+     * and crediting then would hand over quota for money that may never arrive.
+     */
+    if (session.payment_status !== "paid") return;
+
+    const slots = Number(session.metadata?.slots);
+    if (!Number.isInteger(slots) || slots < 1) {
+      console.error(
+        `[Billing] slot purchase ${session.id} carried no usable quantity`
+      );
+      return;
+    }
+
+    const alreadyCredited = await this.auditService.hasEntry({
+      organizationId,
+      action: ACTIONS.SUBSCRIPTION_UPDATED,
+      entityId: session.id,
+    });
+    if (alreadyCredited) return;
+
+    const state = await this.subscriptionRepo.getPlanState(organizationId);
+    await this.subscriptionRepo.setProjectQuotaAddon(
+      organizationId,
+      state.projectQuotaAddon + slots
+    );
+
+    /*
+     * Awaited, and keyed on the session id, because this entry is what makes
+     * the check above work. Lost, the next delivery of the same event would
+     * credit the slots a second time.
+     */
+    await this.auditService.log({
+      organizationId,
+      userId: session.metadata?.userId,
+      action: ACTIONS.SUBSCRIPTION_UPDATED,
+      entityType: "subscription",
+      entityId: session.id,
+      details: {
+        purpose: SLOT_PURCHASE_PURPOSE,
+        slots,
+        quotaAfter: state.projectQuotaAddon + slots,
+      },
     });
   }
 
@@ -608,6 +785,16 @@ export class BillingService {
       cancelAtPeriodEnd: sub.cancel_at_period_end === true,
     });
 
+    /*
+     * An Enterprise organisation dropping to Pro keeps every project it has,
+     * and cannot shed any of them — projects are permanent. Without this, its
+     * next slot purchase would go entirely on covering the overage rather than
+     * buying anything, so the customer who used to pay most would pay six times
+     * for what everybody else gets for one. Only ever raises the quota, so an
+     * upgrade through here is a no-op.
+     */
+    await this.subscriptionService.grandfatherProjectOverage(organizationId);
+
     void this.auditService.log({
       organizationId,
       action: ACTIONS.SUBSCRIPTION_UPDATED,
@@ -637,18 +824,22 @@ export class BillingService {
     });
 
     /*
-     * Purchased project quota goes with the subscription that carried it.
-     * The add-on is a recurring item on that subscription, so once it is gone
-     * nothing is being charged for the quota — and quota that outlives its
-     * payments is indistinguishable from a free permanent upgrade.
+     * Purchased project quota SURVIVES the subscription. It used to be cleared
+     * here, and that was right while the add-on was a recurring item on this
+     * subscription — quota outliving its payments would have been a free
+     * permanent upgrade.
      *
-     * Deliberately AFTER the tier reset and not merged into it: this is a
-     * different question (what was bought) from the one above (what plan is
-     * held), and the free tier allows no projects at all, so leaving a stale
-     * addon here would grant an ex-customer exactly the projects they stopped
-     * paying for.
+     * The add-on became a ONE-OFF purchase on 2026-08-14, because the thing it
+     * unlocks is permanent: a project cannot be archived and only an empty one
+     * can be deleted. Clearing the quota now would take away something that was
+     * paid for once and in full, and — worse — the projects it covers cannot be
+     * deleted to get back under the limit, so the organisation would be left
+     * permanently over a cap it paid to raise.
+     *
+     * The overage is preserved instead, which also covers the quota this
+     * organisation may have been granted on an earlier downgrade.
      */
-    await this.subscriptionRepo.setProjectQuotaAddon(organizationId, 0);
+    await this.subscriptionService.grandfatherProjectOverage(organizationId);
 
     void this.auditService.log({
       organizationId,

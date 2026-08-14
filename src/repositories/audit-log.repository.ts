@@ -11,6 +11,29 @@ import { prisma } from "@/lib/prisma";
 
 export class AuditLogRepository {
   /** Creates a new audit log entry */
+  /**
+   * Whether a matching entry has already been written.
+   *
+   * `entityId` is the discriminator — for the case this exists for it is a
+   * Stripe checkout session id, which is unique per payment. Org-scoped too, so
+   * one tenant's entry can never answer for another's.
+   */
+  async exists(params: {
+    organizationId: string;
+    action: string;
+    entityId: string;
+  }): Promise<boolean> {
+    const found = await prisma.auditLog.findFirst({
+      where: {
+        organizationId: params.organizationId,
+        action: params.action,
+        entityId: params.entityId,
+      },
+      select: { id: true },
+    });
+    return found !== null;
+  }
+
   async create(data: {
     organizationId: string;
     userId?: string;

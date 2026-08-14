@@ -22,7 +22,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import {
   ArrowUpRight,
   FolderKanban,
@@ -43,7 +43,11 @@ import { PageLoading } from "@/components/ui/page-loading";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { StatTile, STAT_ACCENT } from "@/components/ui/stat-tile";
 import { LimitNotice } from "@/components/ui/plan-gate";
-import { PRIMARY_BUTTON } from "@/components/ui/button-styles";
+import {
+  PRIMARY_BUTTON,
+  SECONDARY_BUTTON,
+} from "@/components/ui/button-styles";
+import { PROJECT_SLOT_PRICE_LABEL } from "@/lib/stripe";
 import { usePlan } from "@/components/layout/plan-provider";
 import { TIER_CONFIG } from "@/lib/subscription-tiers";
 
@@ -143,12 +147,51 @@ export default function ProjectsPage() {
   const params = useParams();
   const orgId = params.orgId as string;
   const plan = usePlan();
+  const router = useRouter();
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** True while the slot checkout is being opened. */
+  const [buyingSlot, setBuyingSlot] = useState(false);
+
+  /**
+   * Buys one more permanent project slot.
+   *
+   * Always one. A quantity picker would be a second decision on a panel whose
+   * whole job is to unblock the person in front of it — they wanted to create a
+   * project, not to plan a purchase — and buying another is the same two
+   * clicks again.
+   *
+   * Grants nothing itself: the quota is credited by the webhook once Stripe
+   * confirms payment, which is why this only ever navigates.
+   */
+  async function buySlot() {
+    setError(null);
+    setBuyingSlot(true);
+    try {
+      const response = await fetch(
+        `/api/organizations/${orgId}/projects/slots`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ quantity: 1 }),
+        }
+      );
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok || !body?.url) {
+        setError(apiErrorMessage(body, "Could not start the purchase"));
+        return;
+      }
+      window.location.href = body.url;
+    } catch {
+      setError("Could not reach the server. Check your connection and try again.");
+    } finally {
+      setBuyingSlot(false);
+    }
+  }
 
   const load = useCallback(async () => {
     try {
@@ -179,6 +222,48 @@ export default function ProjectsPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronising with an external system: loads projects and departments on mount
     void load();
   }, [load]);
+
+  /*
+   * Returning from a slot purchase.
+   *
+   * The quota is credited by the webhook, which is delivered out of band and
+   * cannot reach localhost — so without this the payment succeeds and the slot
+   * never appears. The session id goes back to the server, which reads it from
+   * Stripe and routes it through the same handler the webhook uses; crediting
+   * is idempotent, so whichever arrives second does nothing.
+   *
+   * The parameters are cleared immediately, otherwise a refresh would re-run
+   * this against a purchase made an hour ago.
+   */
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("slots") !== "purchased") return;
+
+    const sessionId = params.get("session_id");
+    window.history.replaceState({}, "", window.location.pathname);
+    if (!sessionId) return;
+
+    void (async () => {
+      try {
+        await fetch(`/api/organizations/${orgId}/checkout/reconcile`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sessionId }),
+        });
+        toast.success("Project slot added — it is yours permanently.");
+      } catch {
+        // The webhook may still land it. The reload below tells the truth
+        // either way, and a failure here is not worth an error banner over a
+        // payment that succeeded.
+      } finally {
+        await load();
+        // The limit panel is driven by the plan context, which is fetched by a
+        // server-rendered provider — so the new quota only appears once the
+        // server components re-render.
+        router.refresh();
+      }
+    })();
+  }, [orgId, load, router]);
 
   async function createProject(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -311,21 +396,44 @@ export default function ProjectsPage() {
                   You have used all {limit} project{limit === 1 ? "" : "s"} on{" "}
                   {plan.tierName}
                 </p>
+                {/*
+                  It no longer says "delete a project to free the slot".
+
+                  That was true when projects were disposable and is now a lie:
+                  a project holding work items cannot be deleted at all, so an
+                  organisation at its cap has no route back under it. Telling
+                  somebody to do a thing the product refuses is worse than
+                  saying nothing — they go and try, fail, and conclude it is
+                  broken rather than deliberate.
+                */}
                 <p className="mt-1 max-w-xl text-sm leading-relaxed text-muted-foreground">
-                  Enterprise runs unlimited projects for $
-                  {TIER_CONFIG.enterprise.monthlyPrice} a month, with unlimited
-                  members and tasks alongside them. Delete a project to free the
-                  slot, or move up.
+                  Projects are kept permanently once work is added, so this
+                  cannot be freed up by tidying. Add a slot for{" "}
+                  {PROJECT_SLOT_PRICE_LABEL} — a one-off charge, kept for good —
+                  or move to Enterprise for unlimited projects at $
+                  {TIER_CONFIG.enterprise.monthlyPrice} a month.
                 </p>
               </div>
             </div>
-            <Link
-              href={`/org/${orgId}/billing`}
-              className={`${PRIMARY_BUTTON} shrink-0`}
-            >
-              Compare plans
-              <ArrowUpRight className="size-3.5" aria-hidden="true" />
-            </Link>
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={buySlot}
+                disabled={buyingSlot}
+                className={`${PRIMARY_BUTTON} disabled:cursor-not-allowed disabled:opacity-60`}
+              >
+                {buyingSlot
+                  ? "Opening…"
+                  : `Add a project — ${PROJECT_SLOT_PRICE_LABEL}`}
+              </button>
+              <Link
+                href={`/org/${orgId}/billing`}
+                className={SECONDARY_BUTTON}
+              >
+                Compare plans
+                <ArrowUpRight className="size-3.5" aria-hidden="true" />
+              </Link>
+            </div>
           </div>
         </div>
       )}

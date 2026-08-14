@@ -75,6 +75,28 @@ export class AuditLogService {
   }
 
   /**
+   * Whether an entry already exists for this exact act.
+   *
+   * Written for webhook idempotency: Stripe retries on any non-2xx, and a
+   * timeout after the write is indistinguishable from a failure, so a handler
+   * that credits something must be able to ask whether it already did. The
+   * audit log is the natural place to ask, because it is already the record of
+   * what happened and is written in the same breath as the effect.
+   *
+   * NOT swallowed like `log`. A caller uses this to decide whether to apply a
+   * financial effect, and answering "no entry" because the query failed would
+   * turn a database blip into a double credit — the exact outcome it is being
+   * called to prevent.
+   */
+  async hasEntry(params: {
+    organizationId: string;
+    action: AuditAction;
+    entityId: string;
+  }): Promise<boolean> {
+    return this.auditRepo.exists(params);
+  }
+
+  /**
    * Records an account event against every organisation the user belongs to.
    *
    * Password changes and profile edits happen outside any organisation, and

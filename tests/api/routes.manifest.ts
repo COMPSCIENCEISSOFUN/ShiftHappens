@@ -113,6 +113,12 @@ export const ROUTES: RouteSpec[] = [
    */
   org("checkout/reconcile", "POST", ADMIN),
   /*
+   * Buying permanent project quota. `billing:manage` rather than a projects
+   * permission: this spends money, and whoever may create a project is not
+   * necessarily whoever may commit the organisation to paying for one.
+   */
+  org("projects/slots", "POST", ADMIN, { suspension: true }),
+  /*
    * `billing:manage` rather than a role list. Usage is separately readable by
    * any member through `subscription` above — what this gates is the money.
    */

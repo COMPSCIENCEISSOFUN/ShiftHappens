@@ -67,6 +67,51 @@ export function paidPlanLineItem(
   };
 }
 
+/**
+ * One extra permanent project slot.
+ *
+ * Priced in cents as an integer so the money never goes through a float:
+ * `3.99 * 100` is 398.99999999999994 in IEEE 754, and `Math.round` would save
+ * this particular number while quietly mis-charging some other one later.
+ */
+export const PROJECT_SLOT_PRICE_CENTS = 399;
+
+/** The same figure as a string, for anything that has to say it out loud. */
+export const PROJECT_SLOT_PRICE_LABEL = "$3.99";
+
+/** How many slots may be bought in one go — a sanity bound, not a policy. */
+export const MAX_SLOTS_PER_PURCHASE = 50;
+
+/**
+ * A one-off charge for project slots.
+ *
+ * `recurring` is deliberately absent, which is what makes the whole checkout
+ * `mode: "payment"` rather than `"subscription"`. The thing being bought is
+ * permanent — a project cannot be archived and only an empty one can be
+ * deleted — so billing for it every month would be a charge that never ends for
+ * something that was finished long ago, on a bill that only ever goes up.
+ *
+ * That mode is also what keeps this away from the tier: `onCheckoutCompleted`
+ * returns early on anything that is not a subscription, so buying slots cannot
+ * accidentally rewrite the plan.
+ */
+export function projectSlotLineItem(
+  quantity: number
+): Stripe.Checkout.SessionCreateParams.LineItem {
+  return {
+    quantity,
+    price_data: {
+      currency: BILLING_CURRENCY,
+      product_data: {
+        name: "ShiftHappens project slot",
+        description:
+          "One additional project, kept permanently. Projects are not deleted once work has been added to them.",
+      },
+      unit_amount: PROJECT_SLOT_PRICE_CENTS,
+    },
+  };
+}
+
 /** Backwards-compatible convenience for the existing Pro checkout callers. */
 export function proPlanLineItem(interval: BillingInterval) {
   return paidPlanLineItem("pro", interval);
