@@ -23,6 +23,11 @@ import { AvailabilityRepository } from "@/repositories/availability.repository";
 import { prisma } from "@/lib/prisma";
 import { cleanDatabase } from "../helpers/cleanup";
 import { createTenant, type Tenant } from "../helpers/fixtures";
+import {
+  dayOfWeekInTimeZone,
+  localDateInTimeZone,
+  startOfDayInTimeZone,
+} from "@/lib/timezone";
 
 const service = new AvailabilityService();
 const repo = new AvailabilityRepository();
@@ -34,10 +39,24 @@ beforeEach(async () => {
   tenant = await createTenant("avdel");
 });
 
+/**
+ * A date the lapse rule will still accept whenever this runs.
+ *
+ * `createOverride` refuses a date that has already passed, and reads the real
+ * clock to decide. A fixed date therefore passes until the calendar reaches
+ * it and fails every run afterwards. This file used 14 August 2026 and went
+ * red at midnight on the 15th, having been green an hour earlier.
+ */
+function upcoming(weeksAhead = 1): Date {
+  const day = new Date();
+  day.setUTCDate(day.getUTCDate() + weeksAhead * 7);
+  return new Date(`${localDateInTimeZone(day)}T00:00:00.000Z`);
+}
+
 async function makeOverride(
   membershipId: string,
   isAvailable = false,
-  date = new Date("2026-08-14T00:00:00.000Z")
+  date = upcoming()
 ) {
   return service.createOverride(membershipId, {
     date: date.toISOString(),
@@ -59,12 +78,12 @@ describe("deleting an override", () => {
     const first = await makeOverride(
       tenant.staff.membershipId,
       false,
-      new Date("2026-08-14T00:00:00.000Z")
+      upcoming(1)
     );
     const second = await makeOverride(
       tenant.staff.membershipId,
       false,
-      new Date("2026-08-21T00:00:00.000Z")
+      upcoming(2)
     );
 
     await service.deleteOverride(first.id);
@@ -77,23 +96,23 @@ describe("deleting an override", () => {
    * has to hand the date back to it rather than leave the member unavailable.
    */
   it("returns the date to the weekly schedule", async () => {
-    // Friday 14 August 2026, available 09:00–17:00 by the weekly pattern.
+    // Available 09:00 to 17:00 on that weekday by the weekly pattern. The day
+    // is read off the chosen date so the two cannot disagree.
+    const target = upcoming();
     await prisma.availability.create({
       data: {
         membershipId: tenant.staff.membershipId,
-        dayOfWeek: 5,
+        dayOfWeek: dayOfWeekInTimeZone(target),
         startTime: "09:00",
         endTime: "17:00",
         isAvailable: true,
       },
     });
-    const date = new Date("2026-08-14T10:00:00+08:00");
-
-    const created = await makeOverride(
-      tenant.staff.membershipId,
-      false,
-      new Date("2026-08-14T00:00:00.000Z")
+    const date = new Date(
+      startOfDayInTimeZone(target).getTime() + 10 * 60 * 60 * 1000
     );
+
+    const created = await makeOverride(tenant.staff.membershipId, false, target);
     const blocked = await repo.isAvailableAt(
       tenant.staff.membershipId,
       date,
@@ -175,7 +194,7 @@ describe("the endpoint carries ownership through", () => {
 describe("whose override may be deleted", () => {
   it("refuses one belonging to somebody else", async () => {
     const created = await service.createOverride(tenant.staff.membershipId, {
-      date: "2026-09-01T00:00:00.000Z",
+      date: upcoming(3).toISOString(),
       isAvailable: false,
     });
 
@@ -186,7 +205,7 @@ describe("whose override may be deleted", () => {
 
   it("leaves it in place when it refuses", async () => {
     const created = await service.createOverride(tenant.staff.membershipId, {
-      date: "2026-09-02T00:00:00.000Z",
+      date: upcoming(4).toISOString(),
       isAvailable: false,
     });
 
@@ -201,7 +220,7 @@ describe("whose override may be deleted", () => {
 
   it("allows the owner", async () => {
     const created = await service.createOverride(tenant.staff.membershipId, {
-      date: "2026-09-03T00:00:00.000Z",
+      date: upcoming(5).toISOString(),
       isAvailable: false,
     });
 
