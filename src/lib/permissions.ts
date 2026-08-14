@@ -213,19 +213,40 @@ export const PERMISSION_FEATURE: Record<string, GatedFeature> = {
   "audit:view": "audit_log",
   "reports:export": "pdf_export",
   /*
-   * The assistant is gated by plan as well as by permission, which breaks the
-   * rule stated at the top of `subscription-tiers`: every "smart" feature is
-   * available on all tiers, deliberately, and only scale limits and business
-   * tools are gated.
+   * The assistant used to be the ONE exception to a rule `subscription-tiers`
+   * stated and no longer does — that every "smart" feature is available on all
+   * tiers. The exception was argued from cost shape: every other AI feature
+   * spends one provider call at a moment the ORGANISATION chooses, while a
+   * chat box spends one every time anybody types.
    *
-   * Broken here on purpose, and the distinction is not "this one is fancier".
-   * Every other AI feature costs one provider call at a moment the
-   * ORGANISATION chooses — creating a task, running an allocation. A chat box
-   * costs a call every time anybody types, at a rate nobody controls, on a
-   * plan with no revenue behind it. That is a different kind of cost and it
-   * gets a different answer.
+   * That argument was right and is now beside the point. As of 2026-08-14 the
+   * whole ranking-and-automation family sits above Free, so this is an
+   * ordinary entry rather than a documented exception.
    */
   "assistant:use": "assistant",
+
+  /*
+   * The three allocation permissions that describe the engine DECIDING rather
+   * than a human deciding.
+   *
+   * Mapping them here rather than adding `enforceFeatureAccess` calls to four
+   * routes is what puts the plan check BEFORE the permission check, which is
+   * the whole reason this map exists: a Free manager who also lacks
+   * `allocation:use_suggestions` is told the plan does not include smart
+   * suggestions, rather than "Forbidden" — which would send their admin
+   * granting a permission that changes nothing.
+   *
+   * `eligibility:view` and `eligibility:override` are deliberately ABSENT.
+   * Deterministic eligibility, its reasons, and a permitted override with a
+   * reason are core workforce management and stay on Free; they are what
+   * "manual allocation" is made of.
+   *
+   * `tasks:assign` is absent for the same reason — a human choosing who works
+   * a shift is the Free product, not a paid one.
+   */
+  "allocation:use_suggestions": "smart_suggestions",
+  "allocation:auto_allocate": "auto_allocation",
+  "allocation:auto_schedule": "auto_schedule",
 };
 
 /*

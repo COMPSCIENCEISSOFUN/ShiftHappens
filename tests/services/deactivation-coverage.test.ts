@@ -66,8 +66,19 @@ async function setUp(allocationMode: string) {
   const org = await orgRepo.create({ name: "Acme", slug: "acme" }, admin.id);
   orgId = org.id;
 
+  // Enterprise, for the reason given in auto-schedule.service.test: the column
+  // defaults to "free", and Free excludes the engine these tests drive.
+  await prisma.organization.update({
+    where: { id: orgId },
+    data: { subscriptionTier: "enterprise" },
+  });
+
   // Stated, never inherited — the column default moved once already and
   // silently put test tenants into auto-allocation.
+  //
+  // The TIER above is stated for the same reason and is now load-bearing too:
+  // `allocationMode: "auto"` only produces auto-allocation on a plan that
+  // includes it, so a Free tenant would take the manual branch instead.
   await prisma.companySettings.create({
     data: { organizationId: orgId, allocationMode, workingDayHours: 8 },
   });

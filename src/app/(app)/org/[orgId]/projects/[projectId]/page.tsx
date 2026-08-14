@@ -36,6 +36,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { PageLoading } from "@/components/ui/page-loading";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { AiResultBanner } from "@/components/tasks/ai-result-banner";
+import { usePlan } from "@/components/layout/plan-provider";
 
 type Department = { id: string; name: string; color: string | null };
 
@@ -176,6 +177,29 @@ export default function ProjectDetailPage() {
   const [orgMembers, setOrgMembers] = useState<OrgMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  /*
+   * Whether the plan still includes projects.
+   *
+   * A downgraded organisation keeps its projects — they are a permanent
+   * record — and can still READ this page, which is the whole point. It can
+   * no longer edit one or change its team, both of which the server refuses
+   * with a 403, so the two controls are withheld rather than left to fail.
+   *
+   * Delete is deliberately NOT withheld: `ProjectService.remove` is ungated,
+   * because clearing an empty project created by mistake is tidying up after
+   * yourself and refusing it would strand the organisation with a row it can
+   * neither use nor remove.
+   */
+  const plan = usePlan();
+  const canEditProject = plan.has("projects");
+  /*
+   * Natural-language work-item creation, `ai_task_create` — a separate
+   * feature from `projects`, and separately gated, because the two are sold
+   * as separate things. Hidden rather than disabled: a control that could
+   * never become usable is worse dead than absent.
+   */
+  const canAiCreate = plan.has("ai_task_create");
 
   const [showEdit, setShowEdit] = useState(false);
   /** Whether the delete confirmation is open, and whether it is running. */
@@ -691,9 +715,11 @@ export default function ProjectDetailPage() {
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => setShowEdit((open) => !open)}>
-            {showEdit ? "Cancel" : "Edit project"}
-          </Button>
+          {canEditProject && (
+            <Button variant="outline" size="sm" onClick={() => setShowEdit((open) => !open)}>
+              {showEdit ? "Cancel" : "Edit project"}
+            </Button>
+          )}
           {/*
             Quieter than Edit, and only red on hover. Deleting a project is the
             rarer act of the two and should not be the thing the eye lands on,
@@ -871,7 +897,7 @@ export default function ProjectDetailPage() {
             <h2 className="flex items-center gap-2 text-lg font-semibold">
               <Users className="h-4 w-4" /> Project Team
             </h2>
-            {!isClosed && (
+            {!isClosed && canEditProject && (
               <Button variant="outline" size="sm" onClick={() => setShowTeam((open) => !open)}>
                 {showTeam ? "Cancel" : "Manage team"}
               </Button>
@@ -1003,7 +1029,7 @@ export default function ProjectDetailPage() {
           </div>
         </div>
 
-        {!isClosed && (
+        {!isClosed && canAiCreate && (
           <div className="mt-5 rounded-2xl border border-indigo-200/80 bg-gradient-to-r from-indigo-50/70 to-violet-50/60 p-5 shadow-sm dark:border-indigo-900 dark:from-indigo-950/30 dark:to-violet-950/20">
             <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">AI quick add</p>
             <Label htmlFor="aiWorkRequest" className="mt-1 block">Generate a work item with AI</Label>

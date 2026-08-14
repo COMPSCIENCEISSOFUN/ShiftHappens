@@ -62,6 +62,8 @@ import { AlertBanner } from "@/components/ui/alert-banner";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { SECONDARY_BUTTON } from "@/components/ui/button-styles";
 import { usePermissions } from "@/components/layout/permission-provider";
+import { usePlan } from "@/components/layout/plan-provider";
+import { getTierConfig } from "@/lib/subscription-tiers";
 import { EmptyState } from "@/components/ui/empty-state";
 import { apiErrorMessage } from "@/lib/api-error";
 import { Bell, Building2, Clock, CreditCard, Settings, Wrench } from "lucide-react";
@@ -79,7 +81,12 @@ interface OrgDetails {
 }
 
 interface Settings {
+  /** The mode in FORCE — the stored preference stepped down to the plan. */
   allocationMode: string;
+  /** What the organisation asked for, regardless of plan. */
+  requestedAllocationMode?: string;
+  /** True when the two differ, so this screen can say why. */
+  allocationModeDowngraded?: boolean;
   experiencedShiftThreshold: number;
   seniorShiftThreshold: number;
   operatingHoursStart: number;
@@ -126,6 +133,27 @@ function RadioCard({
   onSelect,
   title,
   description,
+  /**
+   * The plan does not include this mode.
+   *
+   * Shown greyed and named rather than removed — which is the house answer
+   * for a plan gate on an individual control, established by the permission
+   * picker on the Roles page. An absent option makes a two-way choice look
+   * like a one-way statement; a locked one says there is a choice and what it
+   * costs.
+   */
+  lockedBy,
+  /**
+   * Not selectable, and not because of the plan either.
+   *
+   * For the "Manual" card a Free organisation is ALREADY on: there is nothing
+   * to upgrade to and no tier badge to show, and it is the option in force
+   * rather than one being withheld. It is also not a value the settings
+   * schema accepts — `updateCompanySettingsSchema` allows only "suggested"
+   * and "auto" — so a selectable card would submit a body the API refuses,
+   * which is the exact class of defect this whole pass exists to remove.
+   */
+  fixed,
 }: {
   name: string;
   value: string;
@@ -133,25 +161,44 @@ function RadioCard({
   onSelect: (v: string) => void;
   title: string;
   description: string;
+  lockedBy?: string;
+  fixed?: boolean;
 }) {
+  const locked = Boolean(lockedBy) || Boolean(fixed);
   return (
     <label
-      className={`flex cursor-pointer items-start gap-3 rounded-lg border-2 px-4 py-3 transition-colors ${
+      /*
+       * Selection wins over locking in the styling, which matters for the
+       * `fixed` card: it is both non-interactive AND the mode in force, and
+       * greying out the option somebody is actually on would say the opposite
+       * of what is true. Only a locked card that is NOT selected is muted.
+       */
+      className={`flex items-start gap-3 rounded-lg border-2 px-4 py-3 transition-colors ${
         selected
           ? "border-primary bg-primary/5"
-          : "border-border hover:border-primary/40"
-      }`}
+          : locked
+            ? "border-border bg-muted/30 opacity-70"
+            : "border-border hover:border-primary/40"
+      } ${locked ? "cursor-not-allowed" : "cursor-pointer"}`}
     >
       <input
         type="radio"
         name={name}
         value={value}
         checked={selected}
+        disabled={locked}
         onChange={() => onSelect(value)}
         className="mt-0.5 accent-primary"
       />
       <div>
-        <p className="text-sm font-medium">{title}</p>
+        <p className="flex items-center gap-1.5 text-sm font-medium">
+          {title}
+          {lockedBy && (
+            <span className="rounded-full border border-border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              {lockedBy}
+            </span>
+          )}
+        </p>
         <p className="text-xs text-muted-foreground">{description}</p>
       </div>
     </label>
@@ -220,6 +267,18 @@ export default function SettingsPage() {
   // The unautomated mode, until the load says otherwise. Starting on "auto"
   // would show an organisation the automatic option pre-selected for the
   // moment before its real setting arrives.
+  /*
+   * The plan, for the allocation-mode cards.
+   *
+   * Not a security boundary — `SettingsService.updateSettings` refuses a mode
+   * the plan does not include, and `effectiveAllocationMode` refuses the
+   * BEHAVIOUR regardless of what is stored. This is so the panel describes
+   * what will actually happen.
+   */
+  const { has: planHas, requiredTier, tierName } = usePlan();
+  const tierNameFor = (feature: Parameters<typeof planHas>[0]) =>
+    getTierConfig(requiredTier(feature)).displayName;
+
   const [allocationMode, setAllocationMode] = useState("suggested");
   const [weights, setWeights] = useState<RankingWeights>(DEFAULT_WEIGHTS);
   // Completed-shift counts at which a member is treated as experienced, then
@@ -242,6 +301,12 @@ export default function SettingsPage() {
     text: string;
   } | null>(null);
   const [taskLoading, setTaskLoading] = useState(false);
+  /*
+   * Whether the plan is holding the saved preference back. Served rather than
+   * derived here, so this screen and the enforcement agree by construction.
+   */
+  const [allocationModeDowngraded, setAllocationModeDowngraded] =
+    useState(false);
 
   // ─── Notification state ────────────────────────────────────
   const [notifPrefs, setNotifPrefs] = useState({
@@ -356,6 +421,7 @@ export default function SettingsPage() {
 
       setSettings(data);
       setAllocationMode(data.allocationMode);
+      setAllocationModeDowngraded(Boolean(data.allocationModeDowngraded));
       // The service hands these back already parsed, so the screen never has an
       // opinion about a malformed column.
       /*
@@ -960,13 +1026,41 @@ export default function SettingsPage() {
                       across, so neither radio appearing unselected is not a
                       state anybody should reach.
                     */}
+                    {/*
+                      A third card, shown ONLY to a plan without ranking.
+
+                      "manual" is a real stored value that stopped being
+                      settable in 2026-08-13 — and became reachable again on
+                      2026-08-14, not as a choice but as what a Free
+                      organisation resolves to. Without this card a Free admin
+                      opened the panel with neither radio selected and nothing
+                      saying why, which reads as a bug rather than a plan.
+                    */}
+                    {!planHas("smart_suggestions") && (
+                      <RadioCard
+                        name="allocationMode"
+                        value="manual"
+                        selected={allocationMode === "manual"}
+                        onSelect={setAllocationMode}
+                        title="Manual"
+                        description="You assign each shift yourself, with eligibility checked for every candidate"
+                        fixed
+                      />
+                    )}
                     <RadioCard
                       name="allocationMode"
                       value="suggested"
                       selected={allocationMode === "suggested"}
                       onSelect={setAllocationMode}
-                      title="Manual"
+                      title={
+                        planHas("smart_suggestions") ? "Manual" : "Ranked"
+                      }
                       description="You assign each shift, with the best-fit staff ranked and shown to you"
+                      lockedBy={
+                        planHas("smart_suggestions")
+                          ? undefined
+                          : tierNameFor("smart_suggestions")
+                      }
                     />
                     <RadioCard
                       name="allocationMode"
@@ -975,8 +1069,29 @@ export default function SettingsPage() {
                       onSelect={setAllocationMode}
                       title="Auto"
                       description="AI assigns staff automatically based on rules"
+                      lockedBy={
+                        planHas("auto_allocation")
+                          ? undefined
+                          : tierNameFor("auto_allocation")
+                      }
                     />
                   </div>
+                  {/*
+                    The stored preference and the mode in force have diverged.
+
+                    Worded as a fact about the PLAN rather than about "your
+                    saved preference", and that is not a style choice. The
+                    column defaults to "auto" for every new organisation, so on
+                    Free this fires for people who have never opened this panel
+                    — and telling them their saved preference is being held
+                    back would be describing a decision they never made.
+                  */}
+                  {allocationModeDowngraded && (
+                    <p className="text-xs text-amber-600 dark:text-amber-400">
+                      Shifts are allocated manually on {tierName}. Upgrade to
+                      have the engine rank candidates or assign them for you.
+                    </p>
+                  )}
                 </div>
 
                 <Separator />

@@ -183,6 +183,51 @@ describe("readerQualifies", () => {
     expect(readerQualifies(card, reader([], null, false))).toBe(false);
     expect(readerQualifies(card, reader([], null, true))).toBe(true);
   });
+
+  /*
+   * The plan gate, added 2026-08-14 when the smart-engine panels moved to Pro.
+   *
+   * The card keeps `reports:view` because that permission stays on every plan
+   * — it also decides which dashboard a member lands on — so the plan is a
+   * second, independent condition. An admin holds every permission and an
+   * unrestricted scope, which is exactly the reader who would otherwise
+   * qualify.
+   */
+  it("refuses a plan-gated card to a reader whose plan excludes it", () => {
+    const card = DASHBOARD_CARDS.find((c) => c.id === "engine")!;
+    expect(card.feature).toBe("advanced_analytics");
+
+    const entitled: DashboardReader = { ...admin, hasFeature: () => true };
+    const free: DashboardReader = { ...admin, hasFeature: () => false };
+
+    expect(readerQualifies(card, entitled)).toBe(true);
+    expect(readerQualifies(card, free)).toBe(false);
+  });
+
+  /*
+   * `hasFeature` is optional, and an absent one must mean "assume included"
+   * rather than "assume excluded".
+   *
+   * The direction matters: a caller that forgets to pass it can then only
+   * fail to HIDE a card, never hide one it should show — and the route behind
+   * the card refuses on its own, so the worst outcome is an empty panel
+   * rather than a dashboard silently missing sections nobody can explain.
+   */
+  it("treats an absent plan answer as included, never as excluded", () => {
+    const card = DASHBOARD_CARDS.find((c) => c.id === "engine")!;
+    expect(readerQualifies(card, admin)).toBe(true);
+  });
+
+  /*
+   * The plan must not RESCUE a card the permissions already refused. Both
+   * gates can only deny — that is the rule `permission-guard` states — so a
+   * reader entitled by plan but lacking the permission still gets nothing.
+   */
+  it("does not let the plan grant what the permission withheld", () => {
+    const card = DASHBOARD_CARDS.find((c) => c.id === "engine")!;
+    const entitledStaff: DashboardReader = { ...staff, hasFeature: () => true };
+    expect(readerQualifies(card, entitledStaff)).toBe(false);
+  });
 });
 
 /*

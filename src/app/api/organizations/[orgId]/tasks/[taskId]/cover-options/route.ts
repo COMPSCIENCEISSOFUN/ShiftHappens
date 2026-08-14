@@ -28,6 +28,7 @@ import { AllocationService } from "@/services/allocation.service";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
 import { AccessService } from "@/services/access.service";
 import { requirePermission } from "@/lib/permission-guard";
+import { planRefusal } from "@/lib/api-utils";
 
 const allocationService = new AllocationService();
 const accessService = new AccessService();
@@ -55,6 +56,15 @@ export async function GET(
     const options = await allocationService.coverOptions(taskId, orgId);
     return NextResponse.json({ options });
   } catch (error) {
+    /*
+     * `smart_suggestions`, enforced in `AllocationService.coverOptions` and
+     * not by the guard above — which checks `tasks:assign`, a permission Free
+     * keeps because deciding who works a shift IS the Free product. Only the
+     * ranked shortlist behind the decision moved above Free.
+     */
+    const plan = planRefusal(error);
+    if (plan) return plan;
+
     // Raised by buildCandidatePool for a task in another tenant. Answered as a
     // 404 rather than falling through to a 500, which is what the handler
     // beside this one does and what the route contract expects.

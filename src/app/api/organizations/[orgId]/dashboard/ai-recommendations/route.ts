@@ -21,8 +21,11 @@ import { AIDashboardService } from "@/services/ai-dashboard.service";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
 import { requirePermission } from "@/lib/permission-guard";
 import { departmentScopeFor } from "@/lib/department-scope";
+import { SubscriptionService } from "@/services/subscription.service";
+import { planRefusal } from "@/lib/api-utils";
 
 const aiService = new AIDashboardService();
+const subscriptionService = new SubscriptionService();
 
 export async function GET(
   request: NextRequest,
@@ -38,6 +41,18 @@ export async function GET(
     if (!gate.ok) return gate.response;
     const membership = gate.membership;
 
+    /*
+     * `advanced_analytics`, Pro and above from 2026-08-14. Not reachable
+     * through `PERMISSION_FEATURE` because this route needs `reports:view`,
+     * which Free keeps for the basic dashboard.
+     *
+     * The service ALSO refuses, returning `{ call: null }` so no provider call
+     * is ever spent. Both are deliberate: this one tells a caller who asked
+     * directly why the answer is missing, and that one is what holds when some
+     * future caller reaches the service another way.
+     */
+    await subscriptionService.enforceFeatureAccess(orgId, "advanced_analytics");
+
     const result = await aiService.getPriorityCall(
       orgId,
       // Managers see only their own departments. Without this the engine could
@@ -46,6 +61,9 @@ export async function GET(
     );
     return NextResponse.json(result);
   } catch (error) {
+    const plan = planRefusal(error);
+    if (plan) return plan;
+
     console.error("[Priority Call Error]", error);
     return NextResponse.json(
       { error: "Failed to determine priority" },

@@ -16,6 +16,7 @@
 import { aiTimeoutSignal, hasApiKey } from "@/lib/ai-limits";
 import { sanitisePromptInput } from "@/lib/ai-prompt-safety";
 import { DepartmentRepository } from "@/repositories/department.repository";
+import { SubscriptionService } from "@/services/subscription.service";
 import {
   DEFAULT_TIMEZONE,
   endOfDayInTimeZone,
@@ -96,6 +97,7 @@ function gapsIn(
 
 export class AITaskParserService {
   private departmentRepo = new DepartmentRepository();
+  private subscriptionService = new SubscriptionService();
 
   /**
    * Parses a natural language description into structured task data.
@@ -124,6 +126,25 @@ export class AITaskParserService {
      */
     departmentIds?: string[] | null
   ): Promise<ParsedTask> {
+    /*
+     * Plan first — before the input is sanitised and before the departments
+     * are read.
+     *
+     * `ai_task_create` sits above Free from 2026-08-14. The check has to live
+     * here rather than only on the route, because the route is gated on
+     * `tasks:create` — a permission every plan keeps, since typing a task in
+     * by hand is core workforce management. Only the parsing moved.
+     *
+     * It covers the KEYWORD fallback as well as the model call, deliberately.
+     * The fallback is not a free consolation prize; it is the same feature
+     * answering when a provider is down, and leaving it open would sell Free
+     * natural-language task creation that works most of the time.
+     */
+    await this.subscriptionService.enforceFeatureAccess(
+      organizationId,
+      "ai_task_create"
+    );
+
     /*
      * Shared, not private.
      *

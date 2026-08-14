@@ -52,6 +52,13 @@ beforeEach(async () => {
   });
   orgId = org.id;
 
+  // Enterprise, for the reason given in auto-schedule.service.test: the column
+  // defaults to "free", and Free excludes the engine these tests drive.
+  await prisma.organization.update({
+    where: { id: orgId },
+    data: { subscriptionTier: "enterprise" },
+  });
+
   await prisma.membership.create({
     data: { userId: admin.id, organizationId: orgId, role: "company_admin", status: "active" },
   });

@@ -12,6 +12,7 @@ import { updateCompanySettingsSchema } from "@/lib/validations";
 import { getAuthenticatedUser, unauthorizedResponse, checkOrgSuspended } from "@/lib/auth-guard";
 import { requirePermission } from "@/lib/permission-guard";
 import { WEIGHTS_ERROR_PREFIX } from "@/lib/ranking-weights";
+import { planRefusal } from "@/lib/api-utils";
 
 const settingsService = new SettingsService();
 
@@ -86,6 +87,15 @@ export async function PATCH(
     const updated = await settingsService.updateSettings(orgId, parsed.data, user.id);
     return NextResponse.json(updated);
   } catch (error) {
+    /*
+     * A plan refusal — a Free organisation trying to select an allocation mode
+     * its plan does not include. 403 with the plan's own message, so the
+     * screen can say which plan grants it rather than showing "Internal
+     * server error" for a setting that is working exactly as sold.
+     */
+    const plan = planRefusal(error);
+    if (plan) return plan;
+
     /*
      * The ranking-priority rules are cross-field, so Zod cannot express them —
      * "not all zero" and "no dimension above 70% of the total" are properties

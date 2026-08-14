@@ -12,6 +12,12 @@
  *   Pro         — everything except priority support
  *   Enterprise  — everything
  *
+ * The grid grew by six on 2026-08-14, when the smart/automation family moved
+ * above Free: ranked suggestions, automatic allocation, natural-language task
+ * creation, the weekly auto-schedule, advanced analytics and Projects. Free's
+ * row is unchanged — it was already empty — which is the point of stating it
+ * as an explicit list rather than deriving it.
+ *
  * `priority_support` is the one entry with no code path behind it, and that is
  * correct: it is a response-time commitment, not a route. It is listed anyway
  * because the pricing page sells it, and a row that is sold but absent from the
@@ -34,6 +40,12 @@ const EXPECTED: Record<SubscriptionTier, GatedFeature[]> = {
     "audit_log",
     "assistant",
     "calendar_sync",
+    "smart_suggestions",
+    "auto_allocation",
+    "ai_task_create",
+    "auto_schedule",
+    "advanced_analytics",
+    "projects",
   ],
   enterprise: [
     "custom_roles",
@@ -43,6 +55,12 @@ const EXPECTED: Record<SubscriptionTier, GatedFeature[]> = {
     "priority_support",
     "assistant",
     "calendar_sync",
+    "smart_suggestions",
+    "auto_allocation",
+    "ai_task_create",
+    "auto_schedule",
+    "advanced_analytics",
+    "projects",
   ],
 };
 

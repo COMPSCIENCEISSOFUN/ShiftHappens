@@ -42,6 +42,8 @@
  * clear.
  */
 
+import type { GatedFeature } from "@/lib/subscription-tiers";
+
 /** Ordered. Rendering follows this sequence. */
 export const DASHBOARD_BANDS = ["needs", "now", "trend"] as const;
 
@@ -110,6 +112,19 @@ export interface DashboardCard {
    * who the engine will consider, and self-service data needs no grant.
    */
   rosterable?: boolean;
+  /**
+   * A subscription feature this card needs, on top of the permission.
+   *
+   * Absent means the card is on every plan, which is true of all but one of
+   * them: the basic dashboard and its coverage and task counts are core
+   * workforce management and stay on Free.
+   *
+   * Gated HERE rather than inside the card component, so that a card the plan
+   * excludes is never counted, never laid out and never fetched. A component
+   * that renders null on a 403 still costs a request per dashboard load, and
+   * an empty band that once held it still reserves its heading.
+   */
+  feature?: GatedFeature;
 }
 
 /**
@@ -162,13 +177,31 @@ export const DASHBOARD_CARDS: readonly DashboardCard[] = [
   { id: "department-workload", band: "trend", priority: 50, permission: "reports:view", scope: "unrestricted", subject: "org" },
   { id: "staff-utilisation", band: "trend", priority: 60, permission: "reports:view", scope: "any", subject: "org" },
   { id: "decline-reasons", band: "trend", priority: 70, permission: "reports:view", scope: "any", subject: "org" },
-  { id: "engine", band: "trend", priority: 80, permission: "reports:view", scope: "unrestricted", subject: "org" },
+  /*
+   * The five smart-engine panels — allocation mix, eligibility overrides,
+   * coverage, response times, satisfaction. `advanced_analytics`, Pro and
+   * above from 2026-08-14: `reports:view` stays on every plan because it also
+   * decides which dashboard a member lands on, so the plan has to be named
+   * separately.
+   */
+  { id: "engine", band: "trend", priority: 80, permission: "reports:view", scope: "unrestricted", subject: "org", feature: "advanced_analytics" },
   { id: "my-stats", band: "trend", priority: 90, permission: null, scope: "any", subject: "self", rosterable: true },
 ];
 
 export interface DashboardReader {
   /** Everything the caller holds, system and custom combined. */
   permissions: ReadonlySet<string>;
+  /**
+   * Does the organisation's plan include this feature?
+   *
+   * Optional so that every existing caller and test keeps working: absent
+   * means "assume included", which is exactly the behaviour before any card
+   * was plan-gated. A caller that omits it cannot accidentally HIDE a card —
+   * only fail to hide one — and the routes behind each card refuse
+   * independently, so the failure mode is an empty panel rather than data
+   * leaking to a plan that did not pay for it.
+   */
+  hasFeature?: (feature: GatedFeature) => boolean;
   /**
    * `null` for an unrestricted reader. An array scopes — and an EMPTY array is
    * a real answer, not a missing one: a manager assigned to no departments is
@@ -208,6 +241,10 @@ export function readerQualifies(
   reader: DashboardReader
 ): boolean {
   if (card.rosterable && !reader.rosterable) return false;
+  // Plan before permission, the order the route guard uses everywhere else.
+  if (card.feature && reader.hasFeature && !reader.hasFeature(card.feature)) {
+    return false;
+  }
   return holdsPermission(card, reader) && satisfiesScope(card, reader);
 }
 

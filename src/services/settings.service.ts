@@ -27,15 +27,46 @@ import {
 } from "@/lib/ranking-weights";
 import { SettingsRepository } from "@/repositories/settings.repository";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
+import { SubscriptionService } from "@/services/subscription.service";
+import {
+  effectiveAllocationMode,
+  isAllocationModeDowngraded,
+  type AllocationMode,
+} from "@/lib/allocation-mode";
+import { FeatureNotAvailableError } from "@/lib/subscription-tiers";
 import type { UpdateCompanySettingsInput } from "@/lib/validations";
 
 export class SettingsService {
   private settingsRepo = new SettingsRepository();
   private auditService = new AuditLogService();
+  private subscriptionService = new SubscriptionService();
+
+  /**
+   * The allocation mode actually in force — the stored preference, stepped
+   * down to what the plan includes.
+   *
+   * THE read for anything that acts on the mode. The five places that used to
+   * read `settings.allocationMode` off the repository directly each had to be
+   * trusted to remember the plan; this is the one that remembers it for them.
+   * See `@/lib/allocation-mode` for why the column is resolved on read rather
+   * than rewritten on downgrade.
+   */
+  async effectiveAllocationMode(
+    organizationId: string
+  ): Promise<AllocationMode> {
+    const [settings, entitlements] = await Promise.all([
+      this.settingsRepo.getOrCreate(organizationId),
+      this.subscriptionService.allocationEntitlements(organizationId),
+    ]);
+    return effectiveAllocationMode(settings.allocationMode, entitlements);
+  }
 
   /** Gets settings for an org, creating defaults if none exist */
   async getSettings(organizationId: string) {
-    const settings = await this.settingsRepo.getOrCreate(organizationId);
+    const [settings, entitlements] = await Promise.all([
+      this.settingsRepo.getOrCreate(organizationId),
+      this.subscriptionService.allocationEntitlements(organizationId),
+    ]);
     /*
      * `smartAllocationWeights` is a JSON STRING in the column, and returning it
      * raw would make every caller parse it — including the settings screen,
@@ -45,6 +76,28 @@ export class SettingsService {
      */
     return {
       ...settings,
+      /*
+       * `allocationMode` is the EFFECTIVE mode, not the stored one.
+       *
+       * Every existing consumer of this field — the tasks board deciding
+       * whether to offer Auto-assign, the settings screen, `findCover` —
+       * wants to know what will actually happen, and giving them the raw
+       * preference is how a Free organisation came to be shown an
+       * Auto-assign button the server would refuse.
+       *
+       * The preference is still returned, under a name that says it is one.
+       */
+      allocationMode: effectiveAllocationMode(
+        settings.allocationMode,
+        entitlements
+      ),
+      /** What the organisation asked for, regardless of plan. */
+      requestedAllocationMode: settings.allocationMode,
+      /** True when the two differ, so the UI can say why. */
+      allocationModeDowngraded: isAllocationModeDowngraded(
+        settings.allocationMode,
+        entitlements
+      ),
       smartAllocationWeights: parseWeights(settings.smartAllocationWeights),
     };
   }
@@ -97,7 +150,35 @@ export class SettingsService {
       smartAllocationWeights?: string;
     } = {};
 
-    if (input.allocationMode !== undefined) updateData.allocationMode = input.allocationMode;
+    /*
+     * The mode is plan-gated on WRITE as well as resolved on read.
+     *
+     * The read-side step-down already makes a stored `"auto"` harmless, so
+     * this is not what stops the behaviour — it is what stops the SCREEN
+     * lying. Without it a Free admin could save "auto", the settings page
+     * would reload showing "manual", and nothing would say why. Refusing the
+     * write names the plan and the feature.
+     *
+     * Checked only when the field is being changed. An organisation that
+     * downgrades keeps its stored preference and may still edit its operating
+     * hours or its notification policy without being made to give it up.
+     */
+    if (input.allocationMode !== undefined) {
+      if (input.allocationMode !== existing.allocationMode) {
+        const tier = await this.subscriptionService.getOrganizationTier(
+          organizationId
+        );
+        const entitlements =
+          await this.subscriptionService.allocationEntitlements(organizationId);
+        if (input.allocationMode === "auto" && !entitlements.auto) {
+          throw new FeatureNotAvailableError("auto_allocation", tier);
+        }
+        if (input.allocationMode === "suggested" && !entitlements.suggestions) {
+          throw new FeatureNotAvailableError("smart_suggestions", tier);
+        }
+      }
+      updateData.allocationMode = input.allocationMode;
+    }
     if (input.workingDayHours !== undefined) updateData.workingDayHours = input.workingDayHours;
     if (input.operatingHoursStart !== undefined) updateData.operatingHoursStart = input.operatingHoursStart;
     if (input.operatingHoursEnd !== undefined) updateData.operatingHoursEnd = input.operatingHoursEnd;
@@ -150,7 +231,7 @@ export class SettingsService {
     // file. Zod has already bounded each hour individually, and every pair
     // within those bounds names a real window.
 
-    const settings = await this.settingsRepo.update(organizationId, updateData);
+    await this.settingsRepo.update(organizationId, updateData);
 
     await this.auditService.log({
       organizationId,
@@ -160,6 +241,23 @@ export class SettingsService {
       details: updateData,
     });
 
-    return settings;
+    /*
+     * Re-read through `getSettings` rather than returning the repository row.
+     *
+     * The PATCH route returns this straight to the client, and the GET route
+     * returns `getSettings` — so a raw row here meant the two disagreed about
+     * what `allocationMode` means. Saving would put the STORED preference on
+     * screen and the next reload would replace it with the EFFECTIVE mode,
+     * which on a downgraded plan is a different word appearing for no visible
+     * reason.
+     *
+     * It also fixes a smaller inconsistency that predates the plan gate:
+     * `smartAllocationWeights` came back as a JSON string from a save and as a
+     * parsed object from a read.
+     *
+     * One extra read on a settings save, which is a rare, human-initiated
+     * action — cheap for having one shape of settings in the product.
+     */
+    return this.getSettings(organizationId);
   }
 }

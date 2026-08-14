@@ -10,7 +10,6 @@
  */
 import { TaskRepository } from "@/repositories/task.repository";
 import { TaskAssignmentRepository } from "@/repositories/task-assignment.repository";
-import { SettingsRepository } from "@/repositories/settings.repository";
 import { MembershipRepository } from "@/repositories/membership.repository";
 import { DepartmentRepository } from "@/repositories/department.repository";
 import { EligibilityService } from "@/services/eligibility.service";
@@ -20,6 +19,7 @@ import type { AllocationProvenance } from "@/lib/allocation-provenance";
 import { taskWatcherUserIds } from "@/services/task-watchers";
 import { NotificationService, NOTIFICATION_TYPES } from "@/services/notification.service";
 import { SubscriptionService } from "@/services/subscription.service";
+import { SettingsService } from "@/services/settings.service";
 import { EligibilityOverrideRepository } from "@/repositories/eligibility-override.repository";
 import {
   RecurringTaskService,
@@ -45,12 +45,13 @@ export class TaskService {
   private recurringTaskService = new RecurringTaskService();
   private assignmentRepo = new TaskAssignmentRepository();
   private membershipRepo = new MembershipRepository();
-  private settingsRepo = new SettingsRepository();
   private auditService = new AuditLogService();
   private notificationService = new NotificationService();
   private eligibilityService = new EligibilityService();
   private overrideRepo = new EligibilityOverrideRepository();
   private subscriptionService = new SubscriptionService();
+  // For the plan-aware allocation mode; see `maybeAutoAllocate`.
+  private settingsService = new SettingsService();
   private compositionService = new CompositionService();
   private deptRepo = new DepartmentRepository();
   private projectRepo = new ProjectRepository();
@@ -237,8 +238,16 @@ export class TaskService {
      */
     let auto = false;
     try {
-      const settings = await this.settingsRepo.getOrCreate(orgId);
-      auto = settings.allocationMode === "auto";
+      /*
+       * The EFFECTIVE mode, which folds the subscription plan in. Reading
+       * `settings.allocationMode` straight off the repository here would have
+       * let a Free organisation holding a stale `"auto"` preference — one
+       * written while it was on Pro — keep having shifts staffed
+       * automatically, which is the behaviour that moved above Free on
+       * 2026-08-14.
+       */
+      auto =
+        (await this.settingsService.effectiveAllocationMode(orgId)) === "auto";
     } catch (error) {
       console.error("[Auto-Allocate Error] settings unreadable", error);
       return;

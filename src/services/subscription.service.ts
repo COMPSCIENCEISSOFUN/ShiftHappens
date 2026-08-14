@@ -207,6 +207,25 @@ export class SubscriptionService {
   }
 
   /**
+   * What the plan lets the allocation engine do, for `effectiveAllocationMode`.
+   *
+   * One tier read for both answers rather than two `canUseFeature` calls, which
+   * is not just an optimisation: the two must be resolved against the SAME
+   * tier. Read separately they could straddle a plan change and produce a
+   * combination no tier actually sells — `auto` without `suggestions`, which
+   * the ladder in `allocation-mode` has no meaningful answer for.
+   */
+  async allocationEntitlements(
+    organizationId: string
+  ): Promise<{ auto: boolean; suggestions: boolean }> {
+    const tier = await this.getOrganizationTier(organizationId);
+    return {
+      auto: isFeatureAvailable(tier, 'auto_allocation'),
+      suggestions: isFeatureAvailable(tier, 'smart_suggestions'),
+    };
+  }
+
+  /**
    * Get full usage report for an org — used by settings page and upgrade prompts.
    */
   async getUsage(organizationId: string): Promise<UsageReport> {

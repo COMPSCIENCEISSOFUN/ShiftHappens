@@ -3,9 +3,30 @@
  * Used by: SubscriptionService (enforcement), API routes (guards),
  * UI (gating/upgrade prompts), landing page (pricing table).
  *
- * All "smart" features (AI suggest, auto-schedule, NL create, smart-swap,
- * insights, calendar, notifications, availability, certifications, dark mode)
- * are available on ALL tiers. Only scale limits and business tools are gated.
+ * ## The positioning, as of 2026-08-14
+ *
+ *   Free  = core workforce management + deterministic eligibility + MANUAL
+ *           allocation.
+ *   Pro+  = smart ranking + AI + automation + Projects + advanced tools.
+ *
+ * This REVERSES the rule this file used to state, which was that every "smart"
+ * feature is available on all tiers and only scale limits and business tools
+ * are gated. That rule gave the Free plan the entire product minus a member
+ * cap: AI ranking, auto-allocation, the weekly auto-schedule and
+ * natural-language task creation were all free, each one a paid provider call
+ * against no revenue, and there was correspondingly little reason to buy Pro.
+ *
+ * What Free keeps is a complete and honest workforce manager — organisations,
+ * departments, members, tasks and recurrences, availability, leave,
+ * certifications, working-hour and overlap checks, the DETERMINISTIC
+ * eligibility engine with its reasons, manual and multi-staff assignment,
+ * reassignment, overrides with a reason, withdrawals and their approval,
+ * clock in/out, history, notifications, the calendar and the basic dashboard.
+ * Nothing in that list costs a provider call or runs unattended.
+ *
+ * What moves above Free is everything that RANKS, DECIDES or SPENDS on the
+ * organisation's behalf, plus Projects, reporting export, integrations and the
+ * premium analytics/audit surfaces.
  */
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -47,12 +68,76 @@ export const GATED_FEATURES = [
   'audit_log',
   'priority_support',
   /*
-   * The one AI feature that IS gated, against the rule stated at the top of
-   * this file. Every other smart feature costs a provider call at a moment the
-   * organisation chooses; the assistant costs one every time anybody types.
-   * See the note beside `assistant:use` in `permissions.ts`.
+   * The AI assistant. Was the ONE gated AI feature back when every other smart
+   * feature was free, on the argument that a chat box costs a provider call
+   * every time anybody types while the others cost one at a moment the
+   * organisation chooses. The argument was sound and is now moot: the whole
+   * ranking/automation family joined it below.
    */
   'assistant',
+  /*
+   * ── The smart/automation family, gated from 2026-08-14 ──────────────────
+   *
+   * Split into six rather than one `ai` flag, because they are six separate
+   * decisions and a single flag cannot express a plan that sells one without
+   * the others. It also keeps each refusal specific: "Weekly auto-schedule is
+   * not available on Free" is actionable where "AI is not available" is not.
+   */
+
+  /**
+   * Ranked staff suggestions — the `/suggest` endpoint, the ranked cover
+   * preview behind a withdrawal decision, and the named best-fit line in a
+   * backfill notification.
+   *
+   * Covers the ALGORITHMIC ranker as well as the AI providers, deliberately.
+   * The two are one feature wearing two implementations — `FallbackRanker` is
+   * what answers when a provider is down — so gating only the provider calls
+   * would leave Free with the same product and a worse engine, which is not
+   * what "manual allocation" means.
+   */
+  'smart_suggestions',
+  /**
+   * Automatic allocation: `allocationMode: "auto"`, the per-task auto-allocate
+   * action, the auto branch of recurring-task generation, the unfilled-shift
+   * sweep, and automatic backfill of a released shift.
+   *
+   * This is the one that runs UNATTENDED, which is why it is gated at the
+   * setting as well as at the action — see `SettingsService.updateSettings`.
+   * A Free
+   * organisation cannot select the mode, and a previously-Pro organisation
+   * still holding `auto` in its settings row does not get the behaviour.
+   */
+  'auto_allocation',
+  /** Natural-language task creation — `POST /tasks/parse`. */
+  'ai_task_create',
+  /** The whole-week draft schedule: generate and confirm. */
+  'auto_schedule',
+  /**
+   * Premium analytics — the smart-engine report panels (allocation mix,
+   * eligibility overrides, response times, satisfaction) and the dashboard's
+   * priority call.
+   *
+   * NOT the basic dashboard, task-coverage counts or `GET /reports`, which
+   * Free keeps. The line is between counting what happened and analysing it.
+   */
+  'advanced_analytics',
+  /**
+   * Projects — creating one, editing one, staffing its team, and buying extra
+   * project quota.
+   *
+   * The UI hides Projects outright on a plan without them — no link, no list,
+   * an upsell in place of the page — because a Free organisation cannot have
+   * projects and showing it a read-only set it can never use would be
+   * offering half a feature.
+   *
+   * `ProjectService.list` and `.get` are nonetheless left ungated, and that is
+   * not an oversight. The rows survive a downgrade untouched and come back
+   * intact on upgrade, so the SERVICE has no reason to refuse a read; gating
+   * it would mean the data could not be exported, audited or migrated by any
+   * path at all. What Free does not get is the feature, which is a decision
+   * about what to render, not about what may be read.
+   */
+  'projects',
   /*
    * Subscribing to your own shifts from a calendar app.
    *
@@ -105,6 +190,13 @@ export const TIER_CONFIG: Record<SubscriptionTier, TierDefinition> = {
       custom_roles: 0,
       projects: 0,
     },
+    /*
+     * Empty, and it is the ONLY tier for which that is the whole story: Free
+     * is defined by what it does not include, so every entry in
+     * `GATED_FEATURES` is refused here. The limits above are the other half —
+     * `custom_roles: 0` and `projects: 0` mean the two features that also have
+     * a count are refused twice over, by flag and by cap.
+     */
     gatedFeatures: [],
   },
   pro: {
@@ -162,6 +254,17 @@ export const TIER_CONFIG: Record<SubscriptionTier, TierDefinition> = {
        * better resolution of the same problem.
        */
       'audit_log',
+      /*
+       * The smart/automation family, gated from 2026-08-14. Pro is where the
+       * product starts ranking, deciding and spending on the organisation's
+       * behalf — see the positioning note at the top of this file.
+       */
+      'smart_suggestions',
+      'auto_allocation',
+      'ai_task_create',
+      'auto_schedule',
+      'advanced_analytics',
+      'projects',
     ],
   },
   enterprise: {
@@ -178,15 +281,17 @@ export const TIER_CONFIG: Record<SubscriptionTier, TierDefinition> = {
       custom_roles: null,
       projects: null,
     },
-    gatedFeatures: [
-      'custom_roles',
-      'pdf_export',
-      'mass_import',
-      'audit_log',
-      'calendar_sync',
-      'priority_support',
-      'assistant',
-    ],
+    /*
+     * Everything, spread from the catalogue rather than listed.
+     *
+     * Enterprise is "the whole product" by definition, and the hand-written
+     * list was a standing bug waiting for the next feature: six were added to
+     * Pro in one pass, and an Enterprise list that had to be updated in the
+     * same breath would eventually not be — leaving the most expensive plan
+     * quietly missing something the cheaper one had. Spreading makes that
+     * impossible instead of merely unlikely.
+     */
+    gatedFeatures: [...GATED_FEATURES],
   },
 };
 
@@ -279,6 +384,31 @@ export class SubscriptionLimitError extends Error {
   }
 }
 
+/**
+ * What each feature is called when a refusal is read by a human.
+ *
+ * `feature.replace('_', ' ')` replaced only the FIRST underscore, so the
+ * message for `ai_task_create` read "ai task_create is not available" — and
+ * even fixed to replace all of them it would say "ai task create", which is a
+ * flag name with spaces in it rather than the name of anything in the product.
+ * These are the words the pricing table and the UI use.
+ */
+export const FEATURE_LABELS: Record<GatedFeature, string> = {
+  custom_roles: 'Custom roles',
+  pdf_export: 'PDF report export',
+  mass_import: 'Mass import',
+  audit_log: 'The audit log',
+  priority_support: 'Priority support',
+  assistant: 'The AI assistant',
+  smart_suggestions: 'Smart ranked suggestions',
+  auto_allocation: 'Automatic allocation',
+  ai_task_create: 'Natural language task creation',
+  auto_schedule: 'The weekly auto-schedule',
+  advanced_analytics: 'Advanced analytics',
+  projects: 'Projects',
+  calendar_sync: 'Calendar sync',
+};
+
 export class FeatureNotAvailableError extends Error {
   public readonly feature: GatedFeature;
   public readonly currentTier: SubscriptionTier;
@@ -286,7 +416,7 @@ export class FeatureNotAvailableError extends Error {
 
   constructor(feature: GatedFeature, currentTier: SubscriptionTier) {
     const requiredTier = getMinimumTierForFeature(feature);
-    const label = feature.replace('_', ' ');
+    const label = FEATURE_LABELS[feature] ?? feature.replaceAll('_', ' ');
     super(
       `${label} is not available on the ${TIER_CONFIG[currentTier].displayName} plan. Upgrade to ${TIER_CONFIG[requiredTier].displayName} to access this feature.`
     );
@@ -307,34 +437,53 @@ export interface PricingFeatureRow {
   category: 'scale' | 'ai' | 'tools';
 }
 
+/*
+ * Every row here is 'tools' or 'scale', because those are the only two
+ * categories anything renders — the billing page and the landing page both
+ * filter to `category === "tools"`, and 'scale' is read from the limits above.
+ * The 'ai' category is retained on the type for compatibility and is
+ * deliberately unused: a row in it is data nothing displays, which is how six
+ * AI rows came to advertise "free: true" for features that are no longer free.
+ */
 export const PRICING_FEATURES: PricingFeatureRow[] = [
-  // Scale limits
+  // Scale limits — must match TIER_CONFIG.limits above.
   { name: 'Team members', free: 'Up to 10', pro: 'Up to 50', enterprise: 'Unlimited', category: 'scale' },
   { name: 'Active tasks', free: 'Up to 20', pro: 'Up to 200', enterprise: 'Unlimited', category: 'scale' },
-  { name: 'Departments', free: 'Up to 2', pro: 'Up to 10', enterprise: 'Unlimited', category: 'scale' },
+  // Three since 2026-08-14; this row still said two. See the note on the Free
+  // tier's `departments` limit.
+  { name: 'Departments', free: 'Up to 3', pro: 'Up to 10', enterprise: 'Unlimited', category: 'scale' },
   { name: 'Work rules', free: 'Up to 3', pro: 'Up to 20', enterprise: 'Unlimited', category: 'scale' },
-  { name: 'Projects', free: '—', pro: '1 included', enterprise: 'Unlimited', category: 'scale' },
-  // AI — all tiers
-  { name: 'AI-powered suggestions', free: true, pro: true, enterprise: true, category: 'ai' },
-  { name: 'Smart auto-schedule', free: true, pro: true, enterprise: true, category: 'ai' },
-  { name: 'Natural language tasks', free: true, pro: true, enterprise: true, category: 'ai' },
-  { name: 'Smart-swap replacements', free: true, pro: true, enterprise: true, category: 'ai' },
-  { name: 'AI dashboard insights', free: true, pro: true, enterprise: true, category: 'ai' },
-  { name: 'Coverage gap detection', free: true, pro: true, enterprise: true, category: 'ai' },
-  // Business tools
+  // Ten since the project allowance became a lifetime quota; this row still
+  // advertised the one it replaced.
+  { name: 'Projects', free: '—', pro: '10 included', enterprise: 'Unlimited', category: 'scale' },
+  { name: 'Custom roles', free: '—', pro: 'Up to 10', enterprise: 'Unlimited', category: 'scale' },
+
+  // ── Core workforce management: every plan, including Free ────────────────
+  { name: 'Departments, members & roles', free: true, pro: true, enterprise: true, category: 'tools' },
+  { name: 'Tasks & recurring shifts', free: true, pro: true, enterprise: true, category: 'tools' },
+  { name: 'Availability & leave management', free: true, pro: true, enterprise: true, category: 'tools' },
+  { name: 'Certifications & verification', free: true, pro: true, enterprise: true, category: 'tools' },
+  { name: 'Eligibility checks & reasons', free: true, pro: true, enterprise: true, category: 'tools' },
+  { name: 'Manual & multi-staff assignment', free: true, pro: true, enterprise: true, category: 'tools' },
+  { name: 'Clock in/out & shift history', free: true, pro: true, enterprise: true, category: 'tools' },
   { name: 'Calendar + heatmap', free: true, pro: true, enterprise: true, category: 'tools' },
   { name: 'Notifications', free: true, pro: true, enterprise: true, category: 'tools' },
+  { name: 'Dashboard & coverage view', free: true, pro: true, enterprise: true, category: 'tools' },
   { name: 'Dark mode', free: true, pro: true, enterprise: true, category: 'tools' },
+
+  // ── Smart, AI & automation: Pro and above ────────────────────────────────
+  { name: 'Smart ranked suggestions', free: false, pro: true, enterprise: true, category: 'tools' },
+  { name: 'Automatic allocation', free: false, pro: true, enterprise: true, category: 'tools' },
+  { name: 'Weekly auto-schedule', free: false, pro: true, enterprise: true, category: 'tools' },
+  { name: 'Natural language task creation', free: false, pro: true, enterprise: true, category: 'tools' },
+  { name: 'AI assistant', free: false, pro: true, enterprise: true, category: 'tools' },
+  { name: 'Advanced analytics', free: false, pro: true, enterprise: true, category: 'tools' },
+  { name: 'Projects', free: false, pro: true, enterprise: true, category: 'tools' },
+
+  // ── Business tools: Pro and above ────────────────────────────────────────
   { name: 'Custom roles (RBAC)', free: false, pro: true, enterprise: true, category: 'tools' },
   { name: 'PDF report export', free: false, pro: true, enterprise: true, category: 'tools' },
   { name: 'Mass import (Excel)', free: false, pro: true, enterprise: true, category: 'tools' },
-  /*
-   * Both of these are in GATED_FEATURES and have been sold to Pro all along —
-   * they were simply missing from this table, so the pricing page advertised
-   * neither. Listed as 'tools' rather than 'ai' because the pricing cards
-   * render only the 'tools' rows; an 'ai' row is data nothing displays.
-   */
-  { name: 'AI assistant', free: false, pro: true, enterprise: true, category: 'tools' },
   { name: 'Calendar sync', free: false, pro: true, enterprise: true, category: 'tools' },
   /*
    * Pro since 2026-08-11 — see the note beside `audit_log` in the Pro tier

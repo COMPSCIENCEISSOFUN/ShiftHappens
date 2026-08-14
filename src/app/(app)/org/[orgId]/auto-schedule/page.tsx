@@ -44,6 +44,8 @@ import { WeekStartNotice } from "@/components/schedule/week-start-notice";
 import { Panel } from "@/components/ui/panel";
 import { PRIMARY_BUTTON, SECONDARY_BUTTON } from "@/components/ui/button-styles";
 import { usePermissions } from "@/components/layout/permission-provider";
+import { usePlan } from "@/components/layout/plan-provider";
+import { PlanLocked } from "@/components/ui/plan-gate";
 import { apiErrorMessage } from "@/lib/api-error";
 
 /* ------------------------------------------------------------------ */
@@ -89,6 +91,7 @@ interface DraftSchedule {
 
 export default function AutoSchedulePage() {
   const { can } = usePermissions();
+  const { has: planHas } = usePlan();
 
   const params = useParams();
   const orgId = params.orgId as string;
@@ -236,6 +239,27 @@ export default function AutoSchedulePage() {
    * Not a security boundary. The routes enforce this independently; this
    * is so the product does not offer what it will refuse.
    */
+  /*
+   * The PLAN before the permission, matching the order the route guard uses.
+   *
+   * `allocation:auto_schedule` maps to the `auto_schedule` feature in
+   * `PERMISSION_FEATURE`, so on Free the route refuses before it ever looks at
+   * the permission — and a company admin holds every permission, so checking
+   * the permission first here would tell them they lacked one they have.
+   */
+  if (!planHas("auto_schedule")) {
+    return (
+      <div className="w-full">
+        <PlanLocked
+          feature="auto_schedule"
+          title="Whole-week auto-scheduling"
+          description="Draft a week's rota in one pass and review it before anything is assigned."
+          orgId={orgId}
+        />
+      </div>
+    );
+  }
+
   if (!can("allocation:auto_schedule")) {
     return (
       <div className="w-full">

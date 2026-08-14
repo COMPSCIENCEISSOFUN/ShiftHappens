@@ -66,6 +66,22 @@ beforeEach(async () => {
   );
   orgId = org.id;
 
+  /*
+   * Enterprise, stated rather than inherited.
+   *
+   * `Organization.subscriptionTier` defaults to "free", and from 2026-08-14
+   * the Free plan excludes ranked suggestions, automatic allocation, the
+   * weekly auto-schedule and natural-language task creation — so a tenant
+   * built at the column default now meets a plan refusal before reaching the
+   * behaviour these tests are about. The same reasoning `tests/helpers/
+   * fixtures.ts` gives for defaulting `createTenant` to enterprise: a plan
+   * gate must not be able to masquerade as an engine result.
+   */
+  await prisma.organization.update({
+    where: { id: orgId },
+    data: { subscriptionTier: "enterprise" },
+  });
+
   await prisma.department.create({
     data: { name: "Kitchen", organizationId: orgId },
   });

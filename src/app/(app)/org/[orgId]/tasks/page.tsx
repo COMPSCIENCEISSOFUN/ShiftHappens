@@ -216,11 +216,24 @@ type CoverState =
 function CoverOptions({
   state,
   onFind,
+  /**
+   * Whether the plan includes ranked suggestions.
+   *
+   * The ranked shortlist behind a withdrawal decision is `smart_suggestions`
+   * and `AllocationService.coverOptions` refuses it on Free. The DECISION
+   * itself — approve, deny, assign somebody by hand — stays on every plan, so
+   * only this button goes: the manager still answers the request, they are
+   * just not handed a shortlist to answer it from.
+   */
+  available,
 }: {
   taskId: string;
   state: CoverState | undefined;
   onFind: () => void;
+  available: boolean;
 }) {
+  if (!available) return null;
+
   if (!state) {
     return (
       <button
@@ -354,8 +367,27 @@ export default function TasksPage() {
    */
   const canCorrectClock = can("assignments:correct_clock");
 
-  const canSuggest = can("allocation:use_suggestions");
-  const canAutoAllocate = can("allocation:auto_allocate");
+  /*
+   * Plan AND permission for the three engine actions, plan first — the same
+   * order the route guard uses, and for the same reason: `PERMISSION_FEATURE`
+   * maps all three permissions onto gated features, so on Free the route
+   * refuses before it reaches the permission.
+   *
+   * Written as `&&` here rather than as a separate plan check at each button,
+   * because these two flags already gate every control that would call those
+   * routes. Folding the plan into them means a control cannot be added later
+   * that reads the permission and forgets the plan.
+   */
+  const canSuggest =
+    can("allocation:use_suggestions") && plan.has("smart_suggestions");
+  const canAutoAllocate =
+    can("allocation:auto_allocate") && plan.has("auto_allocation");
+  /*
+   * Natural-language creation is `tasks:create` plus the plan — the two are
+   * genuinely separate here, because typing a task in by hand needs the same
+   * permission and stays on every plan. Only the parsing moved above Free.
+   */
+  const canAiCreate = canCreate && plan.has("ai_task_create");
 
   const [assigningTaskId, setAssigningTaskId] = useState<string | null>(null);
   const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
@@ -1662,6 +1694,17 @@ export default function TasksPage() {
       {/* ──────────────────────────────────────────────── */}
       {/* 3. AI natural-language creation bar              */}
       {/* ──────────────────────────────────────────────── */}
+      {/*
+        Hidden rather than disabled on a plan without it.
+
+        A disabled control is right for a temporary state — at the cap, mid
+        request — because the reader will be able to use it again. This one
+        would never become usable, and a permanently dead input is worse than
+        an absent one. The pricing page is where the feature is offered; the
+        task board is not the place to advertise it every time somebody
+        creates a shift.
+      */}
+      {canAiCreate && (
       <div className="mb-4 flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-1 transition-shadow focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-500/10 dark:focus-within:border-indigo-500 dark:focus-within:ring-indigo-400/10">
         {/* Sparkle icon */}
         <Sparkles className="h-[18px] w-[18px] shrink-0 text-indigo-500" aria-hidden="true" />
@@ -1683,6 +1726,7 @@ export default function TasksPage() {
           {parsing ? "Parsing..." : "AI Create"}
         </Button>
       </div>
+      )}
 
       {/*
         What the last AI Create actually did. Shown instead of a confirmation
@@ -2651,6 +2695,7 @@ export default function TasksPage() {
                                     taskId={task.id}
                                     state={cover[a.id]}
                                     onFind={() => findCover(a.id, task.id)}
+                                    available={canSuggest}
                                   />
                                   {/* Says what each button DOES, not just yes
                                       and no. Denying returns the shift to
@@ -2697,6 +2742,7 @@ export default function TasksPage() {
                                     taskId={task.id}
                                     state={cover[a.id]}
                                     onFind={() => findCover(a.id, task.id)}
+                                    available={canSuggest}
                                   />
                                   <div className="mt-2 flex gap-2">
                                     <button

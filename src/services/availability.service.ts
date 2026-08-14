@@ -18,7 +18,7 @@ import { TaskAssignmentRepository } from "@/repositories/task-assignment.reposit
 import { EligibilityService } from "@/services/eligibility.service";
 import { NotificationService, NOTIFICATION_TYPES } from "@/services/notification.service";
 import { MembershipRepository } from "@/repositories/membership.repository";
-import { SettingsRepository } from "@/repositories/settings.repository";
+import { SettingsService } from "@/services/settings.service";
 import {
   AuditLogService,
   ACTIONS,
@@ -138,7 +138,10 @@ export class AvailabilityService {
   private eligibilityService = new EligibilityService();
   private notificationService = new NotificationService();
   private membershipRepo = new MembershipRepository();
-  private settingsRepo = new SettingsRepository();
+  // For the plan-aware allocation mode; see `findCover`. The settings
+  // REPOSITORY is deliberately not held here: the stored preference and the
+  // mode actually in force are different things once a plan can veto one.
+  private settingsService = new SettingsService();
   private auditService = new AuditLogService();
 
   /**
@@ -1623,7 +1626,19 @@ export class AvailabilityService {
       return;
     }
 
-    const settings = await this.settingsRepo.getOrCreate(commitment.organizationId);
+    /*
+     * The EFFECTIVE mode, which folds the subscription plan in.
+     *
+     * Both branches below are gated features from 2026-08-14: naming the three
+     * best-fit replacements is `smart_suggestions`, and assigning one is
+     * `auto_allocation`. `effectiveAllocationMode` steps a Free organisation
+     * down to `manual`, which is the branch immediately below — the plain
+     * "shift needs cover" notice. That is the "basic replacement assignment"
+     * Free is sold: the manager is told the shift is open and picks somebody.
+     */
+    const mode = await this.settingsService.effectiveAllocationMode(
+      commitment.organizationId
+    );
 
     /*
      * A legacy value, kept on purpose rather than deleted with the mode.
@@ -1641,7 +1656,7 @@ export class AvailabilityService {
      * migrated" is a statement about intent, not a guarantee. Six lines is a
      * cheap price for that gap.
      */
-    if (settings.allocationMode === "manual") {
+    if (mode === "manual") {
       await tell(
         NOTIFICATION_TYPES.BACKFILL_NEEDED,
         "Shift needs cover",
@@ -1667,7 +1682,7 @@ export class AvailabilityService {
       return;
     }
 
-    if (settings.allocationMode === "suggested") {
+    if (mode === "suggested") {
       const names = (
         await Promise.all(
           rankings.slice(0, 3).map((r) => this.memberName(r.membershipId))

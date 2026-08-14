@@ -26,11 +26,22 @@ export class ProjectService {
     userId: string
   ) {
     /*
-     * First, as in every other create that is capped — before the dates are
-     * validated and before any department is read. An organisation that is over
-     * its limit should be told that, not walked through the reasons its input
-     * was also wrong.
+     * Both plan gates first, as in every other create that is capped — before
+     * the dates are validated and before any department is read. An
+     * organisation that cannot have a project should be told that, not walked
+     * through the reasons its input was also wrong.
+     *
+     * The FEATURE, then the count, and the order matters because the two say
+     * different things. The limit error reads "projects limit reached (0/0)",
+     * which describes a full container; the feature error names Projects and
+     * the plan that includes them. On a plan whose allowance is zero the
+     * second is the true account of what happened.
+     *
+     * The limit is still enforced immediately after, because it is the one
+     * that bites on Pro — where the feature is included and the allowance is
+     * ten plus whatever was bought.
      */
+    await this.subscriptionService.enforceFeatureAccess(organizationId, "projects");
     await this.subscriptionService.enforceResourceLimit(organizationId, "projects");
 
     this.validateDates(
@@ -186,6 +197,22 @@ export class ProjectService {
     input: UpdateProjectInput,
     userId: string
   ) {
+    /*
+     * `projects`, Pro and above from 2026-08-14.
+     *
+     * Only the MUTATIONS are gated. `list` and `get` deliberately are not —
+     * the rows survive a downgrade and come back intact on upgrade, so there
+     * is nothing for a read to protect, and gating it would put the data
+     * beyond export, audit and migration alike. The FEATURE is hidden in the
+     * UI instead: a Free organisation sees no Projects link and an upsell in
+     * place of the page.
+     *
+     * `remove` is likewise ungated: deleting an empty project created by
+     * mistake is tidying up after yourself, and refusing it would strand a
+     * Free organisation with a row it can neither use nor clear.
+     */
+    await this.subscriptionService.enforceFeatureAccess(organizationId, "projects");
+
     const existing =
       await this.get(
         projectId,
@@ -404,6 +431,10 @@ export class ProjectService {
     membershipIds: string[],
     userId: string
   ) {
+    // `projects`, Pro and above — same gate and same reasoning as `update`
+    // above, which is where the read/mutate split is explained.
+    await this.subscriptionService.enforceFeatureAccess(organizationId, "projects");
+
     const project =
       await this.get(
         projectId,

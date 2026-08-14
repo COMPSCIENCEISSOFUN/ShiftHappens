@@ -23,6 +23,7 @@ import { z } from "zod";
 import { BillingService } from "@/services/billing.service";
 import { ProfileService } from "@/services/profile.service";
 import { requirePermission } from "@/lib/permission-guard";
+import { planRefusal } from "@/lib/api-utils";
 import { MAX_SLOTS_PER_PURCHASE } from "@/lib/stripe";
 import {
   getAuthenticatedUser,
@@ -90,6 +91,15 @@ export async function POST(
 
     return NextResponse.json({ url });
   } catch (error) {
+    /*
+     * A plan refusal, not a bad request. `projects` is Pro and above, and a
+     * Free organisation reaching here is being stopped from paying for quota
+     * on a feature it does not have — which deserves the plan's own message
+     * and a 403, not the blanket 400 below.
+     */
+    const plan = planRefusal(error);
+    if (plan) return plan;
+
     console.error("[Slot Checkout Error]", error);
     return NextResponse.json(
       {

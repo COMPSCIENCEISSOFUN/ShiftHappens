@@ -314,10 +314,17 @@ export default function ProjectsPage() {
   const limit = plan.limitFor("projects");
   /*
    * "Not on this plan" and "used them all" are separate questions and get
-   * separate answers. `limit === 0` is a plan that never included projects;
-   * `atLimit` is a plan that did and is full.
+   * separate answers. `atLimit` is a plan that includes projects and is full.
+   *
+   * The plan FLAG, not `limit === 0`, and the difference is a downgraded
+   * organisation. Projects are a permanent record, so a Pro customer that
+   * drops to Free keeps theirs — and `grandfatherProjectOverage` records the
+   * overage as granted quota, which makes their limit their project COUNT
+   * rather than zero. Read off the limit, such an organisation looked like a
+   * paying customer who had filled their allowance, and was shown a
+   * "buy another slot" button the server now refuses with a 403.
    */
-  const notOnPlan = limit === 0;
+  const notOnPlan = !plan.has("projects");
   const full = plan.atLimit("projects");
   const canCreate = !notOnPlan && !full;
 
@@ -583,7 +590,16 @@ export default function ProjectsPage() {
         </form>
       )}
 
-      {/* ── The list, or why there is not one ──────────────────────────── */}
+      {/*
+        ── The list, or why there is not one ────────────────────────────
+
+        On a plan without Projects the upsell REPLACES the list outright,
+        including for an organisation that carries projects across a
+        downgrade. Free organisations cannot have projects, so the page says
+        that and nothing else; the rows stay in the database and come back
+        intact on upgrade, but they are not part of the Free product and are
+        not shown as though they were.
+      */}
       {notOnPlan ? (
         <div className="overflow-hidden rounded-2xl border border-border bg-card">
           <div className="border-b border-border bg-gradient-to-br from-indigo-50 to-violet-50 px-6 py-8 text-center dark:from-indigo-950/50 dark:to-violet-950/30">

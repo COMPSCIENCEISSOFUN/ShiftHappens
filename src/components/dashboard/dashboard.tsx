@@ -91,6 +91,7 @@ import {
   TaskSummaryCard,
 } from "@/components/dashboard/cards/trend-cards";
 import { EngineCard } from "@/components/dashboard/cards/engine-card";
+import { usePlan } from "@/components/layout/plan-provider";
 
 /**
  * What the page hands down.
@@ -202,13 +203,24 @@ export function Dashboard({
     router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
   }
 
+  /*
+   * The plan, so a card the subscription excludes is never laid out at all.
+   *
+   * `planHas` comes from context and is stable across renders, but it is
+   * listed as a dependency anyway rather than omitted with a comment: a memo
+   * that quietly depends on something it does not declare is the kind of
+   * correctness that stops being true when the provider changes.
+   */
+  const { has: planHas } = usePlan();
+
   const reader: DashboardReader = useMemo(
     () => ({
       permissions: new Set(permissions),
       departmentScope,
       rosterable,
+      hasFeature: planHas,
     }),
-    [permissions, departmentScope, rosterable]
+    [permissions, departmentScope, rosterable, planHas]
   );
 
   const load = useCallback(async () => {

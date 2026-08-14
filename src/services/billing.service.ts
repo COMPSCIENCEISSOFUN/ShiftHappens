@@ -205,6 +205,23 @@ export class BillingService {
   }): Promise<string> {
     const { organizationId, userId, userEmail, quantity, origin } = params;
 
+    /*
+     * The plan, before the quantity is even looked at.
+     *
+     * Extra project quota is only meaningful on a plan that has projects, and
+     * a Free organisation buying slots would be paying to raise a limit of
+     * zero on a feature it does not have — money taken for nothing, which is
+     * worse than any refusal. `projects` is Pro and above from 2026-08-14.
+     *
+     * Enforced HERE rather than only on the route because this is the method
+     * that talks to Stripe: a gate on the boundary protects one URL, and a
+     * gate on the thing that creates a Checkout session protects the charge.
+     */
+    await this.subscriptionService.enforceFeatureAccess(
+      organizationId,
+      "projects"
+    );
+
     if (!Number.isInteger(quantity) || quantity < 1) {
       throw new Error("Choose at least one project slot");
     }

@@ -31,6 +31,7 @@ import { CertificationRepository } from "@/repositories/certification.repository
 import { DepartmentRepository } from "@/repositories/department.repository";
 import type { AIProviderName } from "@/services/ai-provider";
 import { ReportingService, type NeedsAttentionItem } from "@/services/reporting.service";
+import { SubscriptionService } from "@/services/subscription.service";
 import { countOccupied } from "@/lib/assignment-status";
 
 /**
@@ -214,6 +215,7 @@ export class AIDashboardService {
   private certRepo = new CertificationRepository();
   private departmentRepo = new DepartmentRepository();
   private reportingService = new ReportingService();
+  private subscriptionService = new SubscriptionService();
 
   /**
    * System prompt for the priority call.
@@ -256,6 +258,28 @@ RULES:
     /** Manager scope. null/undefined = unrestricted (company admin). */
     departmentIds?: string[] | null
   ): Promise<PriorityCallResponse> {
+    /*
+     * `advanced_analytics`, above Free from 2026-08-14.
+     *
+     * Returns the ordinary empty answer rather than throwing. Every other
+     * "no honest answer" case in this method — no model configured, fewer
+     * than two items, a reply that failed validation — is already
+     * `{ call: null }`, and its one caller renders nothing for it. A plan
+     * refusal is the same shape of nothing, and throwing here would turn a
+     * Free dashboard's optional panel into a 500 on every load.
+     *
+     * The route still returns the panel's data only to entitled callers; this
+     * is the layer that guarantees no provider call is spent either way.
+     */
+    if (
+      !(await this.subscriptionService.canUseFeature(
+        organizationId,
+        "advanced_analytics"
+      ))
+    ) {
+      return { call: null };
+    }
+
     // Recomputed here rather than accepted from the client. The dashboard
     // already holds this list, but trusting a posted copy would let a caller
     // choose what the model comments on. It is the same bounded computation

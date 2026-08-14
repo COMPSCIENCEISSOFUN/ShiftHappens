@@ -44,6 +44,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
+import { usePlan } from "@/components/layout/plan-provider";
 import type {
   CompositionCandidate,
   CompositionRule,
@@ -129,6 +130,16 @@ const EMPTY: AssignData = {
 
 export function useAssignData(orgId: string) {
   const [data, setData] = useState<AssignData>(EMPTY);
+  /*
+   * Whether the plan includes ranked suggestions.
+   *
+   * Read HERE rather than at each caller, because the two callers reach
+   * `loadSuggestions` for different reasons — the tasks page on a button, the
+   * calendar modal on open — and only the first had a control that could
+   * carry a gate. Putting it in the hook means neither can forget it, and a
+   * third caller added later inherits it.
+   */
+  const hasSuggestions = usePlan().has("smart_suggestions");
 
   /**
    * The three things a panel needs the moment it opens.
@@ -209,6 +220,20 @@ export function useAssignData(orgId: string) {
    */
   const loadSuggestions = useCallback(
     async (taskId: string): Promise<AISuggestion[] | null> => {
+      /*
+       * `smart_suggestions` is Pro and above from 2026-08-14, and the route
+       * answers 403. Returning the empty ranking rather than `null` is
+       * deliberate: `null` means "the request failed" and the tasks page
+       * shows an error for it, which is the wrong thing to say about a plan
+       * that simply does not include the feature. `[]` means "nobody was
+       * ranked", and the panel renders eligibility alone — which is exactly
+       * the Free product.
+       */
+      if (!hasSuggestions) {
+        setData((d) => ({ ...d, suggestions: [], loadingSuggestions: false }));
+        return [];
+      }
+
       setData((d) => ({ ...d, loadingSuggestions: true }));
       try {
         const res = await fetch(
@@ -242,7 +267,7 @@ export function useAssignData(orgId: string) {
         return null;
       }
     },
-    [orgId]
+    [orgId, hasSuggestions]
   );
 
   /** Clears everything. Called when a panel closes, so the next one starts blank. */

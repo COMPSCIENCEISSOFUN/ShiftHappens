@@ -102,6 +102,52 @@ describe("the catalogue", () => {
   });
 
   /**
+   * The three allocation permissions that describe the ENGINE deciding rather
+   * than a human deciding, mapped on 2026-08-14.
+   *
+   * This map is the only thing that makes the plan check run BEFORE the
+   * permission check on those four routes. Unmapped, a Free manager who also
+   * lacked `allocation:use_suggestions` would be answered "Forbidden" — and
+   * their admin would go and grant a permission that changes nothing, because
+   * the plan is a separate condition that still says no.
+   *
+   * Pinned as a table rather than three assertions so that adding a fourth
+   * allocation permission without deciding its plan is a visible omission.
+   */
+  it.each([
+    ["allocation:use_suggestions", "smart_suggestions"],
+    ["allocation:auto_allocate", "auto_allocation"],
+    ["allocation:auto_schedule", "auto_schedule"],
+  ])("gates %s on %s", (permission, feature) => {
+    expect(PERMISSION_FEATURE[permission]).toBe(feature);
+  });
+
+  /**
+   * The other half, and the one a gating pass is likelier to get wrong.
+   *
+   * Free is sold as "core workforce management + deterministic eligibility +
+   * manual allocation". Every permission here is part of that sentence, so
+   * mapping any of them to a gated feature would take from Free something it
+   * is advertised as having — a quieter failure than leaving a paid feature
+   * open, and a worse one, because the customer meets it rather than us.
+   */
+  it.each([
+    "eligibility:view",
+    "eligibility:override",
+    "tasks:create",
+    "tasks:update",
+    "tasks:assign",
+    "assignments:correct_clock",
+    "reports:view",
+    "calendar:view_team",
+    "certifications:review",
+    "members:request_availability",
+    "work_rules:manage",
+  ])("leaves %s available on every plan", (permission) => {
+    expect(PERMISSION_FEATURE[permission]).toBeUndefined();
+  });
+
+  /**
    * The description is not documentation — it is the label an admin reads while
    * ticking boxes on the Roles screen, so it is part of the interface. This one
    * advertised a format the product has never been able to produce.

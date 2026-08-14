@@ -951,9 +951,22 @@ function Pricing() {
         </div>
 
         <Reveal delay={350}>
+          {/*
+            This said "All plans include AI suggestions, auto-schedule,
+            smart-swap, natural language tasks, dashboard insights, and
+            coverage detection" — which was true until 2026-08-14 and became
+            the single most misleading sentence on the site the moment the
+            smart features moved to Pro. A pricing page that contradicts its
+            own comparison table is worse than one with no summary at all.
+
+            What replaces it is the positioning itself, which is the thing a
+            reader scanning the table is trying to work out.
+          */}
           <p className="text-center text-sm text-slate-400 mt-8">
-            All plans include AI suggestions, auto-schedule, smart-swap,
-            natural language tasks, dashboard insights, and coverage detection.
+            Free covers the whole of day-to-day workforce management —
+            departments, shifts, availability, leave, certifications,
+            eligibility checks and manual assignment. Pro adds smart ranking,
+            AI, automation and Projects.
           </p>
         </Reveal>
       </div>

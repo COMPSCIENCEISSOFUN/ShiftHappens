@@ -11,6 +11,7 @@ import { AITaskParserService } from "@/services/ai-task-parser.service";
 import { getAuthenticatedUser, unauthorizedResponse, checkOrgSuspended } from "@/lib/auth-guard";
 import { requirePermission } from "@/lib/permission-guard";
 import { departmentScopeFor } from "@/lib/department-scope";
+import { planRefusal } from "@/lib/api-utils";
 
 const parser = new AITaskParserService();
 
@@ -55,6 +56,16 @@ export async function POST(
     );
     return NextResponse.json(parsed);
   } catch (error) {
+    /*
+     * The plan first. `ai_task_create` is enforced inside the parser service
+     * rather than by the route guard, because the guard here checks
+     * `tasks:create` — a permission every plan keeps, since typing a task in
+     * by hand is core workforce management. Without this branch that refusal
+     * arrived as a 500.
+     */
+    const plan = planRefusal(error);
+    if (plan) return plan;
+
     console.error("[Task Parser Error]", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }

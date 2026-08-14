@@ -18,6 +18,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { ProjectService } from "@/services/project.service";
 import {
   SubscriptionLimitError,
+  FeatureNotAvailableError,
   getResourceLimit,
 } from "@/lib/subscription-tiers";
 import { prisma } from "@/lib/prisma";
@@ -47,11 +48,26 @@ beforeEach(async () => {
 });
 
 describe("project limits by plan", () => {
-  it("refuses the very first project on Free", async () => {
+  /*
+   * The FEATURE error, not the limit error, and the change is deliberate.
+   *
+   * Projects became a gated feature on 2026-08-14 as well as a counted one,
+   * and `ProjectService.create` asks for the feature first. Both refuse a Free
+   * organisation, but they say different things: the limit error reads
+   * "projects limit reached (0/0)", which describes a container that is full,
+   * where the truth is that the plan has no projects in it at all.
+   *
+   * The limit error is still what Pro meets, which the test below pins — so
+   * the two are asserted separately rather than collapsed into "it throws".
+   */
+  it("refuses the very first project on Free, naming the plan", async () => {
     const tenant = await createTenant("free-proj", { subscriptionTier: "free" });
 
     await expect(makeProject(tenant, "First")).rejects.toThrow(
-      SubscriptionLimitError
+      FeatureNotAvailableError
+    );
+    await expect(makeProject(tenant, "First")).rejects.toThrow(
+      /not available on the Free plan/i
     );
     // Both halves: refused, AND nothing was written on the way to refusing.
     expect(await projectCount(tenant.orgId)).toBe(0);

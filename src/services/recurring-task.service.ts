@@ -17,8 +17,8 @@
  *    generation stops at the cap rather than silently blowing past it.
  */
 import { TaskRepository } from "@/repositories/task.repository";
-import { SettingsRepository } from "@/repositories/settings.repository";
 import { SubscriptionService } from "@/services/subscription.service";
+import { SettingsService } from "@/services/settings.service";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 import {
   NotificationService,
@@ -57,10 +57,11 @@ export interface GenerationResult {
 
 export class RecurringTaskService {
   private taskRepo = new TaskRepository();
-  private settingsRepo = new SettingsRepository();
   private auditService = new AuditLogService();
   private notificationService = new NotificationService();
   private subscriptionService = new SubscriptionService();
+  // For the plan-aware allocation mode; see `staffNewInstances`.
+  private settingsService = new SettingsService();
 
   /**
    * Materialises instances for every recurring series in an org.
@@ -259,8 +260,16 @@ export class RecurringTaskService {
     if (fresh.length === 0) return;
 
     try {
-      const settings = await this.settingsRepo.getOrCreate(organizationId);
-      if (settings.allocationMode !== "auto") return;
+      /*
+       * The EFFECTIVE mode, which folds the subscription plan in. Automatic
+       * allocation moved above Free on 2026-08-14, and a downgraded
+       * organisation keeps its stored `"auto"` preference — so reading the
+       * column directly here would have gone on staffing every generated
+       * instance for a plan that no longer includes it.
+       */
+      if ((await this.settingsService.effectiveAllocationMode(organizationId)) !== "auto") {
+        return;
+      }
 
       const { AllocationService } = await import(
         "@/services/allocation.service"

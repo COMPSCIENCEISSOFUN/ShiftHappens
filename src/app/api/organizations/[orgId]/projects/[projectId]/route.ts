@@ -5,6 +5,7 @@ import { requireAnyPermission, requirePermission } from "@/lib/permission-guard"
 import { TASK_LIST_READERS } from "@/lib/permissions";
 import { updateProjectSchema } from "@/lib/validations";
 import { ProjectService } from "@/services/project.service";
+import { planRefusal } from "@/lib/api-utils";
 
 const projects = new ProjectService();
 
@@ -41,6 +42,11 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     if (!isDepartmentInScope(nextDepartmentId, departmentScopeFor(membership))) return NextResponse.json({ error: "Project department is outside your scope." }, { status: 403 });
     return NextResponse.json(await projects.update(projectId, orgId, parsed.data, user.id));
   } catch (error) {
+    // A plan refusal (`projects` is Pro and above) is a 403 with the plan's
+    // own message — not the 400 this branch answers a bad input with.
+    const plan = planRefusal(error);
+    if (plan) return plan;
+
     return NextResponse.json({ error: error instanceof Error ? error.message : "Could not update project" }, { status: 400 });
   }
 }

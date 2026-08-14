@@ -28,6 +28,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { StatTile, STAT_ACCENT } from "@/components/ui/stat-tile";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { CardLoadFailed, DashboardCardShell } from "@/components/dashboard/card-shell";
+import { usePlan } from "@/components/layout/plan-provider";
 import {
   LeaveRequestsPanel,
   type LeaveDecision,
@@ -101,7 +102,19 @@ export function AlertsCard({
    * model call is slow and the list is complete without it. Failure is silent
    * because the only thing lost is the ORDER hint.
    */
+  /*
+   * `advanced_analytics`, Pro and above from 2026-08-14.
+   *
+   * Checked before the request rather than after it: the route now answers
+   * 403 on Free, which this effect would swallow correctly — but it would
+   * swallow it on every dashboard load, for every admin, forever. The alert
+   * list keeps its own deterministic order without this, which is what the
+   * silent-failure design below was already built for.
+   */
+  const hasAnalytics = usePlan().has("advanced_analytics");
+
   useEffect(() => {
+    if (!hasAnalytics) return;
     let cancelled = false;
     (async () => {
       try {
@@ -120,7 +133,7 @@ export function AlertsCard({
     return () => {
       cancelled = true;
     };
-  }, [orgId]);
+  }, [orgId, hasAnalytics]);
 
   if (alerts === null) {
     return (

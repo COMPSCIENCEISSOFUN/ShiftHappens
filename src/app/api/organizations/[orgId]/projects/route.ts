@@ -4,7 +4,7 @@ import { departmentScopeFor, isDepartmentInScope } from "@/lib/department-scope"
 import { requireAnyPermission, requirePermission } from "@/lib/permission-guard";
 import { TASK_LIST_READERS } from "@/lib/permissions";
 import { createProjectSchema } from "@/lib/validations";
-import { SubscriptionLimitError } from "@/lib/subscription-tiers";
+import { planRefusal } from "@/lib/api-utils";
 import { ProjectService } from "@/services/project.service";
 import { DepartmentService } from "@/services/department.service";
 
@@ -54,15 +54,20 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json(await projects.create({ ...parsed.data, departmentIds }, orgId, user.id), { status: 201 });
   } catch (error) {
     /*
-     * The plan limit is a refusal, not a fault — 403 like every other capped
-     * create. Left in the 500 branch it would have been reported as a server
-     * error, and the message it carries ("projects limit reached (1/1).
-     * Upgrade to Enterprise…") is the one thing on that path a reader can act
-     * on, so it must not arrive dressed as a crash.
+     * A plan refusal is not a fault — 403 like every other capped create.
+     * Left in the 500 branch it would have been reported as a server error,
+     * and the message it carries is the one thing on that path a reader can
+     * act on, so it must not arrive dressed as a crash.
+     *
+     * `planRefusal` answers BOTH kinds: the feature error ("Projects is not
+     * available on the Free plan") and the limit error ("projects limit
+     * reached (10/10). Upgrade to Enterprise…"). `ProjectService.create` asks
+     * for the feature first, so a Free organisation — whose allowance is zero
+     * and would otherwise be told (0/0), as though a container were full —
+     * gets the one that names the plan.
      */
-    if (error instanceof SubscriptionLimitError) {
-      return NextResponse.json({ error: error.message }, { status: 403 });
-    }
+    const plan = planRefusal(error);
+    if (plan) return plan;
     const message = error instanceof Error ? error.message : "Could not create project";
     const validationError = message === "A project needs both a start and end date, or neither" || message === "Project end must be after its start";
     return NextResponse.json({ error: message }, { status: validationError ? 400 : 500 });

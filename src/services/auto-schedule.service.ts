@@ -30,6 +30,7 @@ import {
   type CommittedAssignmentsCache,
 } from "@/services/eligibility.service";
 import { CompositionService } from "@/services/composition.service";
+import { SubscriptionService } from "@/services/subscription.service";
 import { EligibilityOverrideRepository } from "@/repositories/eligibility-override.repository";
 import {
   describeRule,
@@ -185,6 +186,7 @@ export class AutoScheduleService {
   private membershipRepo = new MembershipRepository();
   private eligibilityService = new EligibilityService();
   private compositionService = new CompositionService();
+  private subscriptionService = new SubscriptionService();
   private overrideRepo = new EligibilityOverrideRepository();
   private projectRepo = new ProjectRepository();
   private auditService = new AuditLogService();
@@ -368,6 +370,20 @@ export class AutoScheduleService {
     /** See `collectWeekData` — null for an admin, the caller's departments otherwise. */
     departmentScope?: string[] | null
   ): Promise<DraftSchedule> {
+    /*
+     * `auto_schedule`, Pro and above from 2026-08-14.
+     *
+     * The two routes are already refused by the guard, because
+     * `allocation:auto_schedule` maps to this feature in `PERMISSION_FEATURE`.
+     * This is the belt: it calls the AI providers directly rather than going
+     * through `AllocationService`, so a future caller reaching it another way
+     * would spend provider quota with no gate between them and the bill.
+     */
+    await this.subscriptionService.enforceFeatureAccess(
+      organizationId,
+      "auto_schedule"
+    );
+
     const context = await this.collectWeekData(
       organizationId,
       weekStart,
@@ -1323,6 +1339,14 @@ Use the exact task numbers (1, 2, 3...) and staff letters (A, B, C...) from abov
      */
     departmentScope?: string[] | null
   ) {
+    // Confirming a draft creates real assignments and notifies staff, so it is
+    // gated in its own right — a caller that somehow held a draft must not be
+    // able to commit it on a plan that cannot produce one.
+    await this.subscriptionService.enforceFeatureAccess(
+      organizationId,
+      "auto_schedule"
+    );
+
     const provider =
       draftProvider && (AI_PROVIDERS as readonly string[]).includes(draftProvider)
         ? draftProvider

@@ -69,11 +69,33 @@ Staff Members have an employment type that affects scheduling:
 
 ## 3. Subscription Plans
 
+The positioning, as of 2026-08-14:
+
+- **Free** = core workforce management + deterministic eligibility + manual allocation.
+- **Pro / Enterprise** = smart ranking + AI + automation + Projects + advanced tools.
+
+Free is a complete workforce manager within its limits: organisations,
+departments, members, built-in roles, tasks and recurrences, availability,
+leave, certifications and verification, working-hour and overlap checks, the
+deterministic eligibility engine with its reasons, manual and multi-staff
+assignment, reassignment, permitted overrides with a reason, withdrawal
+requests and their approval, basic replacement assignment, clock in/out, task
+history, notifications, the calendar and the basic dashboard. Nothing in that
+list costs a provider call or runs unattended.
+
+What sits above Free is everything that ranks, decides or spends on the
+organisation's behalf, plus Projects, reporting export, integrations and the
+premium analytics and audit surfaces.
+
 | Plan | Member Limit | Price (Monthly) | Key Features |
 |---|---|---|---|
-| Free | Up to 10 | $0 | Core features, 2 departments, 20 active tasks |
-| Pro | Up to 50 | $29 | Custom roles, PDF export, mass import, 10 departments |
-| Enterprise | Unlimited | Contact us | Audit log, priority support, unlimited everything |
+| Free | Up to 10 | $0 | Core workforce management, 3 departments, 3 work rules, 20 active tasks. No AI, automation, Projects or custom roles |
+| Pro | Up to 50 | $29 | Smart ranked suggestions, auto-allocation, weekly auto-schedule, NL task creation, AI assistant, advanced analytics, 10 Projects, custom roles, PDF export, mass import, calendar sync, audit log |
+| Enterprise | Unlimited | $59 | Everything in Pro, plus priority support and unlimited everything |
+
+`src/lib/subscription-tiers.ts` is the single source of truth for the grid;
+this table is a summary of it and `tests/services/tier-feature-matrix.test.ts`
+is what stops the two drifting.
 
 ### 3.1 Stripe Integration (Sandbox/Test Mode)
 

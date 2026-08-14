@@ -679,7 +679,13 @@ export function AppSidebar({
     // a role that may assign but not create still needs the page.
     if (canAny("tasks:create", "tasks:update", "tasks:delete", "tasks:assign")) {
       overviewItems.push({ href: `/org/${orgId}/tasks`, label: "Tasks", icon: TasksIcon });
-      overviewItems.push({ href: `/org/${orgId}/projects`, label: "Projects", icon: ProjectsIcon });
+      // Projects, tier AND permission — the same pairing as Roles below.
+      // Hidden outright without the plan, including for an organisation that
+      // carries projects across a downgrade: Projects are not part of the
+      // Free product, so Free shows no link to them.
+      if (planHas("projects")) {
+        overviewItems.push({ href: `/org/${orgId}/projects`, label: "Projects", icon: ProjectsIcon });
+      }
     }
     if (can("calendar:view_team")) {
       overviewItems.push({ href: `/org/${orgId}/calendar`, label: "Calendar", icon: CalendarIcon });
@@ -807,7 +813,10 @@ export function AppSidebar({
     if (can("work_rules:manage")) {
       orgItems.push({ href: `/org/${orgId}/work-rules`, label: "Work Rules", icon: WorkRulesIcon });
     }
-    if (can("allocation:auto_schedule")) {
+    // Tier AND permission, plan first — as with Roles and Audit Log. The
+    // whole page is one gated feature, so without the plan there is nothing
+    // behind the link at all.
+    if (can("allocation:auto_schedule") && planHas("auto_schedule")) {
       orgItems.push({ href: `/org/${orgId}/auto-schedule`, label: "Auto-Schedule", icon: AutoScheduleIcon });
     }
 

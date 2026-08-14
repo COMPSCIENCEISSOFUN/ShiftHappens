@@ -28,6 +28,8 @@ import type {
 import { GroqProvider } from "./providers/groq.provider";
 import { GeminiProvider } from "./providers/gemini.provider";
 import { EligibilityService } from "./eligibility.service";
+import { SubscriptionService } from "./subscription.service";
+import { SettingsService } from "./settings.service";
 import { isAllowedByProjectTeam } from "@/lib/project-staffing";
 import { ProjectRepository } from "@/repositories/project.repository";
 import { CertificationRepository } from "@/repositories/certification.repository";
@@ -61,6 +63,14 @@ export class AllocationService {
   private availRepo = new AvailabilityRepository();
   private projectRepo = new ProjectRepository();
   private taskService = new TaskService();
+  private subscriptionService = new SubscriptionService();
+  /*
+   * For the EFFECTIVE allocation mode, never `settingsRepo.allocationMode`.
+   * The repository returns the stored preference; a downgraded organisation's
+   * preference and its entitlement are different things. See
+   * `@/lib/allocation-mode`.
+   */
+  private settingsService = new SettingsService();
 
   constructor() {
     const primary = process.env.AI_PROVIDER || "groq";
@@ -128,6 +138,20 @@ export class AllocationService {
     taskId: string,
     organizationId: string
   ): Promise<RankingResult> {
+    /*
+     * Plan first, before any work and before any provider call.
+     *
+     * Ranking is `smart_suggestions` and sits above Free from 2026-08-14. The
+     * check is here rather than only on the `/suggest` route because this
+     * method has three other callers — `getSuggestions`, `autoAllocate` and
+     * the auto-schedule service — and a gate on one route would have left the
+     * other three paths open to exactly the spend it exists to prevent.
+     */
+    await this.subscriptionService.enforceFeatureAccess(
+      organizationId,
+      "smart_suggestions"
+    );
+
     /*
      * The shared builder, which this used NOT to use.
      *
@@ -252,8 +276,18 @@ export class AllocationService {
   ): Promise<{ considered: number; filled: number }> {
     const result = { considered: 0, filled: 0 };
 
-    const settings = await this.settingsRepo.getOrCreate(organizationId);
-    if (settings.allocationMode !== "auto") return result;
+    /*
+     * The EFFECTIVE mode, which folds the plan in — so a Free organisation
+     * holding a stale `"auto"` preference is skipped here rather than
+     * discovering the refusal one `autoAllocate` throw at a time.
+     *
+     * A silent return, not an error: this is a cron sweep across every tenant,
+     * and a plan that does not include automation is a normal state of the
+     * world rather than a fault worth a log line per organisation per hour.
+     */
+    if ((await this.settingsService.effectiveAllocationMode(organizationId)) !== "auto") {
+      return result;
+    }
 
     const now = Date.now();
     const notBefore = now + SHORT_NOTICE_MS;
@@ -334,6 +368,25 @@ export class AllocationService {
   ): Promise<
     { membershipId: string; name: string; rank: number; score: number }[]
   > {
+    /*
+     * `smart_suggestions`, even though nothing here calls a provider.
+     *
+     * This is the judgement call in the 2026-08-14 gating pass, so it is worth
+     * stating. The feature being sold is RANKED SUGGESTIONS, not "AI" — the
+     * providers and `FallbackRanker` are two implementations of one product
+     * promise, and gating only the provider calls would leave Free with the
+     * same screen and a slightly worse engine.
+     *
+     * What Free keeps is the decision itself. Approving or rejecting a
+     * withdrawal, and assigning a replacement by hand, are core workforce
+     * management and are not touched by this; the manager simply is not handed
+     * a ranked shortlist to do it from.
+     */
+    await this.subscriptionService.enforceFeatureAccess(
+      organizationId,
+      "smart_suggestions"
+    );
+
     /*
      * `rankWithoutAI`, not a second call to the ranker.
      *
@@ -481,11 +534,25 @@ export class AllocationService {
      */
     options?: { useAI?: boolean }
   ) {
+    /*
+     * Plan before anything else — before the task is even read.
+     *
+     * The mode check below would already refuse a Free organisation, because
+     * `effectiveAllocationMode` never returns `auto` without the entitlement.
+     * This is here anyway and deliberately, because the two say different
+     * things: "auto allocation is not enabled" is a settings problem an admin
+     * would go and try to fix, and on Free there is no setting that fixes it.
+     * The plan error names the plan.
+     */
+    await this.subscriptionService.enforceFeatureAccess(
+      organizationId,
+      "auto_allocation"
+    );
+
     const task = await this.taskRepo.findById(taskId);
     if (!task || task.organizationId !== organizationId) throw new Error("Task not found");
 
-    const settings = await this.settingsRepo.getOrCreate(organizationId);
-    if (settings.allocationMode !== "auto") {
+    if ((await this.settingsService.effectiveAllocationMode(organizationId)) !== "auto") {
       throw new Error("Auto allocation is not enabled");
     }
 

@@ -12,6 +12,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { checkOrgSuspended, getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
 import { departmentScopeFor, isDepartmentInScope } from "@/lib/department-scope";
+import { planRefusal } from "@/lib/api-utils";
 import { requireAnyPermission, requirePermission } from "@/lib/permission-guard";
 import { TASK_LIST_READERS } from "@/lib/permissions";
 import { setProjectTeamSchema } from "@/lib/validations";
@@ -83,6 +84,11 @@ export async function PUT(
       await projects.setTeam(projectId, orgId, parsed.data.membershipIds, user.id)
     );
   } catch (error) {
+    // A plan refusal (`projects` is Pro and above) is a 403 with the plan's
+    // own message — not the 400 this branch answers a bad input with.
+    const plan = planRefusal(error);
+    if (plan) return plan;
+
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Could not update project team" },
       { status: 400 }
