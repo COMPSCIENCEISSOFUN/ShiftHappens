@@ -67,7 +67,7 @@ export default function PrivacyPage() {
             "Google, for email delivery. Verification, password reset and invitation emails are sent through Gmail's SMTP service, so recipient addresses and message contents pass through Google.",
             "Resend, an alternative email provider. It is only used when Gmail credentials are not configured, and it receives the same information when it is.",
             "Stripe, for payments. It receives your billing details directly through its own hosted checkout.",
-            "Groq, which runs the Llama 3.1 model used for scheduling assistance and the in-app assistant.",
+            "Groq, which runs the GPT-OSS-20B model used for scheduling assistance and the in-app assistant.",
             "Google, which runs the Gemini model used as a fallback when Groq is unavailable.",
             "Vercel, which hosts and serves the application.",
             "Supabase, which hosts the PostgreSQL database in the deployed environment.",

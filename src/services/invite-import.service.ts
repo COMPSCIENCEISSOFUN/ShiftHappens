@@ -333,7 +333,7 @@ Never invent an id. When two departments are equally plausible, answer null.`;
               "Content-Type": "application/json",
             },
             body: JSON.stringify({
-              model: "llama-3.1-8b-instant",
+              model: "openai/gpt-oss-20b",
               messages: [
                 { role: "system", content: system },
                 { role: "user", content: prompt },
@@ -359,7 +359,7 @@ Never invent an id. When two departments are equally plausible, answer null.`;
     if (hasApiKey(geminiKey)) {
       try {
         const response = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${geminiKey}`,
           {
             method: "POST",
             signal: aiTimeoutSignal(),

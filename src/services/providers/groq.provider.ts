@@ -47,7 +47,7 @@ export class GroqProvider implements AIProvider {
     return process.env.GROQ_API_KEY ?? "";
   }
 
-  private model = "llama-3.1-8b-instant";
+  private model = "openai/gpt-oss-20b";
 
   async rankStaff(
     task: {

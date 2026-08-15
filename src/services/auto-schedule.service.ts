@@ -1288,7 +1288,7 @@ Use the exact task numbers (1, 2, 3...) and staff letters (A, B, C...) from abov
       method: "POST",
       signal: aiTimeoutSignal(),
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${process.env.GROQ_API_KEY}` },
-      body: JSON.stringify({ model: "llama-3.1-8b-instant", messages: [{ role: "user", content: prompt }], temperature: 0, max_tokens: 2000 }),
+      body: JSON.stringify({ model: "openai/gpt-oss-20b", messages: [{ role: "user", content: prompt }], temperature: 0, max_tokens: 2000 }),
     });
     if (!res.ok) throw new Error(`Groq error: ${res.status}`);
     const data = await res.json();
@@ -1301,7 +1301,7 @@ Use the exact task numbers (1, 2, 3...) and staff letters (A, B, C...) from abov
       throw new Error("Gemini API key not configured");
     }
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
       {
         method: "POST",
         signal: aiTimeoutSignal(),

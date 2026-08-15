@@ -25,7 +25,7 @@ import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
 
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
 const GEMINI_API_URL =
-  "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
+  "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent";
 
 const VALID_RULE_TYPES = ["break_interval", "max_hours_daily", "max_hours_weekly"];
 const DEFAULT_COLORS = ["#EF4444", "#3B82F6", "#10B981", "#8B5CF6", "#F59E0B", "#6B7280"];
@@ -98,7 +98,7 @@ async function callGroq(description: string): Promise<ProviderReply> {
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: "llama-3.1-8b-instant",
+        model: "openai/gpt-oss-20b",
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
           { role: "user", content: `Business description: ${description}` },

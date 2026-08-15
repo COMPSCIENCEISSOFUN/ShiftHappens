@@ -74,7 +74,7 @@ export class GeminiProvider implements AIProvider {
 
     try {
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${this.apiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${this.apiKey}`,
         {
           // Without this the failover below is unreachable on a hang — see
           // AI_TIMEOUT_MS. A socket that never answers is neither an error nor a

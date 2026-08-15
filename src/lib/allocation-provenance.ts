@@ -35,8 +35,8 @@ export const SOURCE_DESCRIPTION: Record<AllocationSource, string> = {
 };
 
 export const PROVIDER_LABEL: Record<string, string> = {
-  groq: "Groq (Llama 3.1)",
-  gemini: "Gemini 2.0 Flash",
+  groq: "Groq (GPT-0SS-20B)",
+  gemini: "Gemini (Gemini 3.6 Flash)",
   algorithmic: "Algorithmic ranker",
 };
 
