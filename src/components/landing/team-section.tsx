@@ -64,7 +64,7 @@ export interface TeamMember {
 const TEAM: TeamMember[] = [
   {
     name: "Chen Zhijie",
-    role: "UI/UX Designer, Documentation",
+    role: "UI/UX Designer, Frontend Developer, Documentation",
     contribution: "Supported the Web UI for user roles; Responsible for designing Dashboard layouts, Task Management views, Calendar integration, and iCal feed.",
     photo: "/team/zhijie.jpg",
     github: "", // optional — delete the line if unused
@@ -72,7 +72,7 @@ const TEAM: TeamMember[] = [
   },
   {
     name: "Cleon Lim Kang Wue",
-    role: "Team Leader, Scrum Master, Product Owner, Documentation",
+    role: "Team Leader, Scrum Master, Product Owner, Documentation, Frontend Developer",
     contribution: "Facilitates Scrum activities (planning, reviews, retrospectives); Maintains product backlog; Defines acceptance criteria; Liaises with supervisors and stakeholders; Ensures team adheres to Scrum processes.",
     photo: "/team/cleon.jpg",
     github: "",
@@ -88,7 +88,7 @@ const TEAM: TeamMember[] = [
   },
   {
     name: "Delvinjit Singh",
-    role: "Lead QA Tester, Documentation",
+    role: "Lead QA Tester, Backend Developer, Documentation",
     contribution: "Led quality assurance by designing and executing functional, integration, regression, and end-to-end tests, while supporting defect tracking and project documentation.",
     photo: "/team/delvin.jpg",
     github: "",
@@ -96,7 +96,7 @@ const TEAM: TeamMember[] = [
   },
   {
     name: "Saumya Rengarajan",
-    role: "QA Tester, Documentation",
+    role: "Frontend Developer, QA Tester, Documentation",
     contribution: "Supported system testing and quality assurance, including test execution, documentation updates, user guidance, and validation of system workflows.",
     photo: "/team/saumya.jpg",
     github: "",
@@ -118,7 +118,7 @@ const TEAM: TeamMember[] = [
  */
 const SUPERVISOR: TeamMember | null = null;
 
-const COURSE_LINE = "CSIT-26-S2-04 · University of Wollongong · 2026";
+const COURSE_LINE = "FYP-26-S2-22 · University of Wollongong · 2026";
 
 // ---------------------------------------------------------------------------
 // Nothing below here needs editing.
