@@ -23,6 +23,7 @@ import { TaskAssignmentRepository } from "@/repositories/task-assignment.reposit
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 import { NotificationService, NOTIFICATION_TYPES } from "@/services/notification.service";
 import { HourAlertService } from "@/services/hour-alert.service";
+import { taskWatcherUserIds } from "@/services/task-watchers";
 
 export class TaskAssignmentService {
   private assignmentRepo = new TaskAssignmentRepository();
@@ -516,9 +517,34 @@ export class TaskAssignmentService {
     });
 
     const staffName = assignment.membership.user?.name || "A staff member";
-    void this.notificationService.notify(
+    /*
+     * Everyone who can ANSWER this, not only whoever assigned the shift.
+     *
+     * `assignedById` was the sole recipient, and it is the wrong question. It
+     * names the person who created the assignment — which may be an admin, a
+     * manager who has since moved department, or, on an auto-allocated shift,
+     * whoever happened to trigger the run. Meanwhile the tasks board shows the
+     * request, with approve and deny on it, to every manager holding
+     * `tasks:assign` in that department. So the people looking at the buttons
+     * were not the people being told, and a request could sit on the board
+     * with nobody notified that it was there.
+     *
+     * `taskWatcherUserIds` is the same set the board uses — active members
+     * with `tasks:assign`, department-scoped — so who is told and who can act
+     * are now one list rather than two that happen to overlap.
+     */
+    const deciders = await taskWatcherUserIds(
       assignment.task.organizationId,
-      assignment.assignedById,
+      assignment.task.departmentId ?? null
+    );
+    void this.notificationService.notifyMany(
+      assignment.task.organizationId,
+      /*
+       * The assigner is kept even when they are not a current watcher — they
+       * own the decision they made — and de-duplicated, because they usually
+       * ARE one and `notifyMany` writes a row per id.
+       */
+      [...new Set([...deciders, assignment.assignedById])],
       NOTIFICATION_TYPES.WITHDRAWAL_REQUESTED,
       "Withdrawal requested",
       // The stored value is an enum key; a manager reading a notification should

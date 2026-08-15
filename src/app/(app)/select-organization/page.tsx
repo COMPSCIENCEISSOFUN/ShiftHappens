@@ -35,6 +35,7 @@ import {
   TIER_CONFIG,
   type SubscriptionTier,
 } from "@/lib/subscription-tiers";
+import { Logo } from "@/components/brand/logo";
 
 const orgService = new OrganizationService();
 
@@ -71,13 +72,19 @@ export default async function SelectOrganizationPage() {
           and would otherwise be the only screen in the application with
           nothing on it that says which application it is.
         */}
-        <div className="mb-8 flex items-center gap-2.5">
-          <div className="flex h-9 w-9 items-center justify-center rounded-[10px] bg-gradient-to-br from-indigo-600 to-violet-600 text-sm font-extrabold text-white shadow-sm">
-            S
-          </div>
-          <span className="text-base font-bold tracking-tight">
-            ShiftHappens
-          </span>
+        {/*
+          The shared component, not a sixth hand-typed copy.
+
+          `brand/logo` was written because the same mark had been typed out
+          five times and drifted across three sizes and two corner radii, and
+          its docblock predicted that "the sixth would have been written by
+          whoever added the next page". This page was the sixth: a gradient
+          tile with a letter S in it, which is what the component replaced
+          everywhere else — so the real artwork in `public/logo.png` appeared
+          on every screen except this one.
+        */}
+        <div className="mb-8">
+          <Logo />
         </div>
 
         <h1 className="text-2xl font-bold tracking-tight">

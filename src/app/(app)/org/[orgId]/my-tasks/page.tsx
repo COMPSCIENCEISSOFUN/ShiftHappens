@@ -127,15 +127,45 @@ function shiftWhen(start: string | null, end: string | null): string | null {
  * as "09:00 — 17:00" with nothing saying which day — unreadable as soon as there
  * was more than one entry in the list.
  */
+/**
+ * The clock record, as one line.
+ *
+ * ## Why the out time carries a date and the in time's is not repeated
+ *
+ * It used to render the out time as a bare clock face, which is right for the
+ * ordinary shift that starts and ends on one day and actively misleading for
+ * the one that does not. A record reading "16 Aug, 16:15 — 17:15 · 25.0h" is
+ * what that produced: an hour on the face of it, twenty-five in the arithmetic
+ * beside it, and nothing anywhere saying the clock-out was the following day.
+ *
+ * The duration was always right — it is computed from the timestamps — so the
+ * number was the only clue that the times were not what they appeared to be,
+ * and it read as the bug rather than as the evidence of one. That matters more
+ * than tidiness here: these are the figures hours totals are built from, and a
+ * manager correcting a clock time is the likeliest way to produce a span that
+ * crosses midnight by accident.
+ *
+ * The date is added only when it differs, so nothing changes for the normal
+ * case.
+ */
 function clockedWhen(inAt: string | null, outAt: string | null): string | null {
   if (!inAt) return null;
   const from = new Date(inAt);
-  const stamp = `${from.toLocaleDateString([], { day: "numeric", month: "short" })}, ${from.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
+  const dayOf = (d: Date) =>
+    d.toLocaleDateString([], { day: "numeric", month: "short" });
+  const timeOf = (d: Date) =>
+    d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+
+  const stamp = `${dayOf(from)}, ${timeOf(from)}`;
   if (!outAt) return `Clocked in ${stamp}`;
 
   const to = new Date(outAt);
+  // Compared on the rendered day rather than on the raw dates, so the label
+  // and the test agree in whatever timezone the reader is in.
+  const crossesDay = dayOf(to) !== dayOf(from);
+  const out = crossesDay ? `${dayOf(to)}, ${timeOf(to)}` : timeOf(to);
   const hours = (to.getTime() - from.getTime()) / 3_600_000;
-  return `${stamp} — ${to.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} · ${hours.toFixed(1)}h`;
+  return `${stamp} — ${out} · ${hours.toFixed(1)}h`;
 }
 
 

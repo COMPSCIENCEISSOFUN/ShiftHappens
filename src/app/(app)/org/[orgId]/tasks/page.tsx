@@ -34,7 +34,7 @@ import { apiErrorMessage } from "@/lib/api-error";
 import { AiResultBanner } from "@/components/tasks/ai-result-banner";
 import { toast } from "sonner";
 import { EmptyState } from "@/components/ui/empty-state";
-import { Clock, Lock, Plus, Sparkles, SquarePen, Trash2, Users, Zap } from "lucide-react";
+import { ChevronDown, Clock, Lock, Plus, Sparkles, SquarePen, Trash2, Users, Zap } from "lucide-react";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { StatTile, STAT_ACCENT } from "@/components/ui/stat-tile";
 import { toDateTimeLocalValue } from "@/lib/timezone";
@@ -515,6 +515,20 @@ export default function TasksPage() {
    * preference, and storing it as one keeps the org-wide setting meaning
    * exactly what it meant before.
    */
+  /*
+   * Which task is open. One at a time, deliberately.
+   *
+   * An accordion rather than a set of independent toggles: the reason the
+   * board needed collapsing is that too much was on screen at once, and
+   * letting every card be opened at the same time hands that straight back.
+   * Opening a shift is how you say which one you are working on.
+   */
+  const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
+
+  function toggleTaskExpanded(taskId: string) {
+    setExpandedTaskId((current) => (current === taskId ? null : taskId));
+  }
+
   const allocationPrefKey = `shifthappens:allocation-pref:${orgId}`;
   const [allocationPref, setAllocationPref] = useState<string | null>(null);
 
@@ -2278,7 +2292,41 @@ export default function TasksPage() {
                   ? "bg-amber-500"
                   : "bg-red-500";
             const isCompleted = task.status === "completed" || task.status === "cancelled";
-            const hasWithdrawal = task.assignments.some((a) => a.status === "withdrawal_requested");
+            /*
+             * Somebody is waiting on this manager for an answer.
+             *
+             * `hasWithdrawal` existed here and was read by nothing. Collapsing
+             * the card is what gave it a job — and made it necessary: the
+             * approve/deny buttons now live inside the closed half, so without
+             * a mark on the summary a request would sit unanswered behind a
+             * row that looks like every other row. Both kinds count, because
+             * both are a person waiting.
+             */
+            const awaitingDecision = task.assignments.some(
+              (a) =>
+                a.status === "withdrawal_requested" ||
+                a.status === "decline_requested"
+            );
+
+            /*
+             * Open, and the three ways that happens without a click.
+             *
+             * `editingTaskId` and `assigningTaskId` are set by controls that
+             * live INSIDE the collapsed region, so they cannot be true while
+             * it is shut — but they can outlive it. Opening a second shift
+             * closes the first, and without these the edit form or assign
+             * panel would still be mounted and invisible, with unsaved input
+             * in it and no way back to the form that holds it.
+             *
+             * `highlightId` is the deep link — arriving from a notification
+             * that names a shift must land on it open, not on a closed row the
+             * reader has to work out they need to press.
+             */
+            const isExpanded =
+              expandedTaskId === task.id ||
+              editingTaskId === task.id ||
+              assigningTaskId === task.id ||
+              highlightId === task.id;
 
             return (
               <div
@@ -2297,13 +2345,67 @@ export default function TasksPage() {
                   <div className="w-1.5 shrink-0 rounded-l-xl" style={{ backgroundColor: deptColor }} />
 
                   <div className="min-w-0 flex-1 px-4 py-4 sm:px-5">
+                    {/*
+                      The scannable half, and the click target.
+                    
+                      Everything below it — description, the actions, the edit form, the
+                      assign panel and every assignment row — used to render for every task
+                      in the list at once. On a board of seventy that is a page nobody can
+                      scan: the thing you are looking for is somewhere inside four screens of
+                      controls for tasks you are not interested in.
+                    
+                      What stays visible is what you choose BY: title, status, priority,
+                      department, when it runs, and whether it is staffed. Opening one is how
+                      you say which shift you mean.
+                    
+                      A div rather than a button, because a button may not contain the
+                      headings and badges below it — so the keyboard behaviour a button would
+                      have given for free is written out instead.
+                    */}
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      aria-expanded={isExpanded}
+                      onClick={() => toggleTaskExpanded(task.id)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          toggleTaskExpanded(task.id);
+                        }
+                      }}
+                      className="cursor-pointer select-none rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40"
+                    >
                     {/* ── Title ───────────────────── */}
-                    <h3 className="truncate text-base font-semibold tracking-tight">{task.title}</h3>
+                    <div className="flex items-start gap-2">
+                      <h3 className="min-w-0 flex-1 truncate text-base font-semibold tracking-tight">{task.title}</h3>
+                      {/*
+                        The affordance. Without it a collapsed card is just a
+                        row that happens to respond to a click, which nobody
+                        discovers. Rotated rather than swapped for a second
+                        icon so the two states are visibly the same control.
+                      */}
+                      <ChevronDown
+                        className={`mt-0.5 size-4 shrink-0 text-muted-foreground transition-transform ${
+                          isExpanded ? "rotate-180" : ""
+                        }`}
+                        aria-hidden="true"
+                      />
+                    </div>
 
                     {/* ── Badges ──────────────────── */}
                     <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                       <StatusBadge value={task.status} palette="taskStatus" />
                       <StatusBadge value={task.priority} palette="priority" />
+                      {/*
+                        Amber, and only for somebody who can actually answer.
+                        Marking a request on a card whose buttons the reader
+                        will never be shown is an alarm they cannot act on.
+                      */}
+                      {awaitingDecision && canAssign && (
+                        <span className="rounded-full border border-orange-300 bg-orange-50 px-2 py-0.5 text-xs font-medium text-orange-700 dark:border-orange-800 dark:bg-orange-950 dark:text-orange-300">
+                          Needs your decision
+                        </span>
+                      )}
                       {task.isRecurring && (
                         <span
                           className="rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-xs font-medium text-violet-700 dark:border-violet-800 dark:bg-violet-950 dark:text-violet-300"
@@ -2376,7 +2478,10 @@ export default function TasksPage() {
                         </span>
                       ))}
                     </div>
+                    </div>
 
+                    {isExpanded && (
+                    <>
                     {/* ── Description ─────────────── */}
                     {task.description && editingTaskId !== task.id && (
                       <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{task.description}</p>
@@ -3418,6 +3523,8 @@ export default function TasksPage() {
                         </div>
                       );
                     })()}
+                    </>
+                    )}
                   </div>
                 </div>
               </div>
