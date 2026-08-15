@@ -54,7 +54,6 @@ _to_delete/
 list(1).md
 MANUAL_TEST_PHASE1.md
 .build.log
-.npm-ci-err.log
-.npm-ci.log
+.npm-ci*.log
 AGENTS.md
 CLAUDE.md
