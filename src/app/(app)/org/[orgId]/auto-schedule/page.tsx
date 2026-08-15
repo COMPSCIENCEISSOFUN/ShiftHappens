@@ -6,16 +6,6 @@
  * them all in one batch.
  *
  * Workflow: pick a week → generate → review → confirm or discard.
- *
- * ## On the visual language
- *
- * This page predates the Phase 12 overhaul and had kept its own conventions:
- * bespoke `bg-muted/50` summary boxes instead of the house stat tiles, an
- * unstyled table, a bare `rounded-lg border` panel with no section header, and
- * a "← Dashboard" button no other org page has. It now follows the same
- * structure as Departments, Members and Calendar — page header, stat row, card
- * panels with headed sections — so that moving between them does not feel like
- * moving between two applications.
  */
 "use client";
 

@@ -1,18 +1,5 @@
 /**
  * Composition rules and the auto-scheduler.
- *
- * ## The bug
- *
- * `assignStaff` refuses an assignment that puts a composition rule beyond
- * reach. `confirmSchedule` writes assignments through its own path and did not
- * check at all, so a generated week could produce exactly the roster the manual
- * path refuses — two juniors on a shift whose rule says at most one.
- *
- * Neither draft strategy considered the rules either, so the fix has two halves
- * and both matter: the generator no longer proposes what cannot be written, and
- * the confirm step refuses it anyway. The second is not redundant — the draft
- * round-trips through the browser, so by the time it comes back it may be stale
- * or edited.
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { AutoScheduleService } from "@/services/auto-schedule.service";

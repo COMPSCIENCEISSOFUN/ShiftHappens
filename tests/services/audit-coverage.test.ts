@@ -1,27 +1,5 @@
 /**
  * What actually reaches the audit log.
- *
- * ## The gap this closes
- *
- * An audit log's value is entirely its completeness, and nothing about this one
- * was automatic: every entry exists because a service explicitly wrote a line
- * saying so. Six services mutated data and wrote nothing — password resets,
- * profile edits, somebody accepting an invitation and joining the organisation,
- * and a platform admin suspending a whole tenant all happened silently.
- *
- * `certification.submitted` was the sharpest one. Verification, rejection,
- * revocation and withdrawal were all logged; submission was not — so the log
- * could tell you a certificate had been verified with no record of it ever
- * arriving, and a certificate is what makes somebody eligible for shifts. The
- * constant had been declared for months with nothing raising it.
- *
- * ## The two static checks
- *
- * The behavioural tests below cover the calls that now exist. The scans at the
- * bottom cover the next one somebody forgets — the same reasoning as
- * `ordering-determinism` and `no-fixed-sleeps`, and the reason those two exist:
- * a defect that is the natural thing to type is not fixed by fixing its known
- * instances.
  */
 import { describe, it, expect, beforeEach } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";

@@ -49,7 +49,7 @@ import { rateLimit } from "@/lib/rate-limit";
  * deliberately NOT here — nothing about them can be brute-forced, and they fall
  * to the relaxed tier with every other read.
  *
- * ⚠️ `callback/credentials` is where `signIn()` posts a password, and it is
+ * !! `callback/credentials` is where `signIn()` posts a password, and it is
  * named exactly rather than by prefix. If the provider is ever renamed, or a
  * second one added, this list must move with it — a path that matches nothing
  * removes the protection SILENTLY, which is the dangerous direction. The tests

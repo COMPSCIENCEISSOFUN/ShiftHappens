@@ -1,26 +1,6 @@
 // @vitest-environment node
 /**
  * `/dashboard` decides which organisation you meant, or admits it cannot.
- *
- * ## What this replaces
- *
- * The page used to open with `const org = orgs[0]` and render that
- * organisation's dashboard. For a user in one organisation that is right. For
- * a user in two it was a guess with no way to correct it — no picker, no
- * switcher, and the sidebar's own Dashboard link pointed back here, so
- * standing inside organisation B and pressing Dashboard took you to A.
- *
- * The dashboard now lives under `/org/[orgId]` where the organisation is a
- * fact. This file pins what is left behind: a signpost with three answers and
- * no opinions.
- *
- * ## Why `redirect` is mocked rather than its thrown error inspected
- *
- * Next signals a redirect by throwing, and encodes the destination in the
- * error's `digest` — a private, version-dependent string. Asserting against it
- * would pass today and break on an upgrade for a reason unrelated to this
- * rule. Capturing the argument tests the same thing in the terms the page
- * actually uses: which URL it asked for.
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 

@@ -5,45 +5,6 @@
  * departments, work rules and certifications, pre-filled for an industry.
  * Platform admins only.
  *
- * ## On the visual language
- *
- * The most dated page in the application — bare shadcn `Card` stacks, plain
- * grey boxes where the stat tiles go, text-only buttons, no icons anywhere. It
- * now matches the org-level pages.
- *
- * ## What changed beyond the styling
- *
- * - **A failed load showed an empty list and said nothing.** `fetchTemplates`
- *   was `if (res.ok) { ... }` with no else, so a 500 rendered "no templates
- *   yet" — indistinguishable from a working platform with nothing in it. This
- *   is the same failure mode that made the deployed Tasks page hard to
- *   diagnose, and it is worse here, because the honest empty state and the
- *   broken one looked identical.
- * - **Deactivating had no confirmation**, and its failure was swallowed the
- *   same way. Deactivating a template does not delete it, but it does remove an
- *   industry from onboarding for every future customer.
- * - **The form was not a `<form>`.** Submit lived on a button's onClick, so
- *   pressing Enter in any field did nothing.
- * - **`isAiGenerated` was recomputed on save** as `aiPrompt.length > 0`. On
- *   edit the prompt box is empty, so editing an AI-built template would have
- *   flipped the flag to false. It never actually did, because the PATCH route
- *   does not read that field — but the client was sending a wrong value and
- *   relying on the server to ignore it. It is now only sent on create.
- * - **Certifications were sent as typed**, including blank rows the user added
- *   and left empty. Trimmed and dropped now, as the service expects.
- * - **The success banner never cleared**, so "Template created" stayed on
- *   screen while you edited the next one. Fixed here, once, by clearing it at
- *   the start of each handler — which left the same defect standing on seven
- *   other pages, because it was treated as a bug in this file rather than as a
- *   consequence of confirming a finished action with a persistent element.
- *   Confirmations are toasts now, everywhere; the clearing calls are gone.
- *
- * ## On the certifications shape
- *
- * They are `string[]` — plain names, not objects. That is what
- * `industry-templates.ts` seeds, what the service validates, and what
- * onboarding reads. Worth stating because the departments beside them ARE
- * objects, and the asymmetry invites a wrong assumption.
  */
 "use client";
 

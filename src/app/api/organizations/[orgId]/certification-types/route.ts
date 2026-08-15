@@ -2,30 +2,6 @@
  * Certification Types API Endpoint (Boundary Layer)
  * GET  /api/organizations/[orgId]/certification-types — the organisation's list
  * POST /api/organizations/[orgId]/certification-types — add a name to it
- *
- * ## Why GET needs only membership
- *
- * Three screens read this list and they answer to different people. A manager
- * picks from it when saying what a shift requires; a STAFF MEMBER sees it as
- * suggestions when recording a certificate of their own. Gating the read on
- * `certifications:review` would have left the member's own screen unable to
- * show them the very list they are meant to pick from, which is the half of the
- * feature that stops the two vocabularies drifting apart.
- *
- * There is nothing sensitive in it. It is a list of certificate names an
- * organisation recognises, and every active member of that organisation is
- * expected to hold some of them.
- *
- * ## Why POST reuses `certifications:review`
- *
- * The people who verify a member's certificate are the people who should decide
- * what the organisation recognises — it is the same judgement, made at the same
- * desk, and the review screen is where an unfamiliar name first appears.
- *
- * A new permission was the alternative and was rejected: the catalogue is
- * seeded from `src/lib/permissions.ts` by `prisma db seed` rather than by a
- * migration, so adding one means a seed run against every database including
- * test, for a distinction nobody asked for.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { CertificationTypeService } from "@/services/certification-type.service";

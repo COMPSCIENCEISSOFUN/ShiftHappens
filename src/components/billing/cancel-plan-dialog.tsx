@@ -1,27 +1,5 @@
 /**
  * The moment somebody decides to leave.
- *
- * ## Why this is not `ConfirmDialog`
- *
- * That component asks one question and offers two answers. This screen has a
- * third, and the third is the whole point: an organisation on Enterprise that
- * finds it more than they need should be offered the smaller plan before the
- * exit, not after. "Are you sure?" with a yes and a no turns every "this is too
- * expensive" into a cancellation, when a good share of them are a downgrade.
- *
- * ## Why it lists what is lost, by name
- *
- * A cancellation confirmation that says "this cannot be undone" tells the
- * reader nothing they did not already know. Naming the audit log, the custom
- * roles and the member cap they are about to drop to is the only version of
- * this dialog that lets somebody discover they were about to cancel the thing
- * they actually use — and it is read by people who did not set the plan up.
- *
- * ## Why "Keep my plan" is the primary button
- *
- * The destructive action is deliberately the quietest control here. Cancelling
- * is one click away in Stripe's own portal if that is genuinely what they want;
- * this dialog exists to make sure it is.
  */
 "use client";
 

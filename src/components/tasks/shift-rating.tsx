@@ -1,26 +1,5 @@
 /**
  * The staff-facing rating control on a worked shift.
- *
- * ## Why it is inline rather than a dialog
- *
- * A modal is a decision to interrupt someone. The rating is optional, it is
- * not urgent, and the moment it appears — just after a shift is clocked out —
- * is the moment the person most wants to put their phone away. Inline, it can
- * be ignored by doing nothing, which is the correct default for a question
- * nobody is obliged to answer.
- *
- * ## Why the comment box only appears after a score
- *
- * Two fields shown together read as a form to fill in. One tap followed by an
- * optional box reads as a question that has already been answered, with room
- * to say more. The first costs a rating; the second collects one and sometimes
- * gets the reason as well.
- *
- * ## Why an existing rating stays editable
- *
- * A rating given one-handed on a phone is easy to mis-tap, and a permanently
- * wrong score is worse for the data than a corrected one. The audit log keeps
- * every submission, so nothing is lost by allowing the change.
  */
 "use client";
 

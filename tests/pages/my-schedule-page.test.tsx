@@ -1,17 +1,6 @@
 // @vitest-environment jsdom
 /**
  * My Schedule — the member's own week.
- *
- * What is worth pinning here is not the geometry, which `calendar-grid` already
- * owns and tests, but the three decisions this page makes on top of it:
- *
- *   - it reads the member-scoped endpoint and not the organisation task board,
- *     which is a permission boundary and not a preference;
- *   - a shift the member turned down is not on their calendar, while one they
- *     have merely ASKED to leave still is, because they are still rostered
- *     until a manager decides;
- *   - a member with no shifts at all is told that, rather than shown an empty
- *     grid to click backwards through.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen } from "@testing-library/react";

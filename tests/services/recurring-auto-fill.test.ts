@@ -1,27 +1,5 @@
 /**
  * Auto allocation mode, applied to the shifts the system creates for itself.
- *
- * ## The gap
- *
- * "auto" was wired into `TaskService.create` and nowhere else, and
- * `RecurringTaskService` materialises its instances through the REPOSITORY —
- * so it never passed through that hook. The consequence was the wrong way round
- * in a rota product: shifts a human typed in by hand were staffed
- * automatically, and the shifts the hourly cron generated on its own arrived
- * empty and stayed empty. Recurring work is most of a week.
- *
- * ## Why every test here creates the series in MANUAL mode first
- *
- * A recurring task IS the first occurrence of its series, so `create` staffs
- * the template itself as an ordinary task — through the AI path, because a
- * human pressed the button. Building the fixture in auto mode therefore puts a
- * second actor inside every assertion: the first draft of this file spied on
- * the provider and caught the TEMPLATE's call, and counted the template's
- * "could not fill" notice alongside the series'.
- *
- * Both were true findings about `create`, and neither was what these tests are
- * about. Creating in manual mode and switching afterwards leaves exactly one
- * thing running: the generation pass.
  */
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { RecurringTaskService } from "@/services/recurring-task.service";

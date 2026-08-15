@@ -1,26 +1,6 @@
 /**
  * The caller's effective permissions, available to any page under `(app)`.
  *
- * ## Why this exists
- *
- * The sidebar was aligned with permissions first, so a non-admin is no longer
- * LINKED to a page they cannot use. The pages themselves were never aligned at
- * all: the departments page, for one, carried zero role checks, so a manager
- * arriving by URL saw a "+ New Department" button, Edit, Archive and Delete on
- * every row — four actions that each returned 403 — plus org-wide counts they
- * are scoped out of everywhere else in the product.
- *
- * The permissions are resolved once, server-side, in the `(app)` layout, from
- * the same membership the route guard uses. Passing them down rather than
- * fetching them again means the menu, the page and the API cannot disagree
- * about who the caller is.
- *
- * ## What this is NOT
- *
- * Not a security boundary. Hiding a button stops a person pressing something
- * that will fail; it does not stop a request. Every action behind these checks
- * is independently enforced by `requirePermission` at its route, and that is
- * what actually refuses. This is about not offering what cannot be done.
  */
 "use client";
 

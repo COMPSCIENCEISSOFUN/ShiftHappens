@@ -1,28 +1,6 @@
 /**
  * Ordering that does not depend on luck.
  *
- * ## The bug
- *
- * Prisma maps `DateTime` to Postgres `timestamp(3)` — milliseconds. Two rows
- * written in the same millisecond therefore carry the SAME `createdAt`, and
- * `ORDER BY "createdAt"` alone leaves their relative order undefined: Postgres
- * may return them either way, and does, depending on plan and page layout.
- *
- * It surfaced as a test that passed here and failed on Darryn's machine. The
- * sandbox is slow enough that two inserts land 50ms apart; a fast laptop put
- * them in the same millisecond. Nothing was wrong with the test — the ordering
- * genuinely was undefined, and the slow machine was hiding it.
- *
- * The fix is `{ id }` as a second key everywhere. `id` is a cuid, unique by
- * definition, so the order becomes total. Matching the direction of `createdAt`
- * keeps it intuitive: cuids are roughly monotonic, so ties among same-instant
- * rows read newest-first under `desc` like everything around them.
- *
- * ## Why a static check as well
- *
- * The behavioural test below covers one query. The scan covers every query
- * anyone writes next — this was a seventeen-site problem precisely because the
- * single-key form is the natural thing to type.
  */
 import { describe, it, expect, beforeEach } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";

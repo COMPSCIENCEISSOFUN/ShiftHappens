@@ -4,26 +4,6 @@
  * The member's own record: what they worked, what they turned down, what was
  * called off, and how many hours the clock actually captured.
  *
- * ## Why this is not a tab on My Tasks
- *
- * My Tasks is a to-do list read standing up, on a phone, to answer "am I on
- * tonight". It already collapses finished work behind a count, which is right
- * for that question and wrong for this one — a history is read sitting down,
- * against a payslip or before a conversation with a manager, and it needs a
- * date range, totals, and every row rather than the last three.
- *
- * ## The totals are honest about what they cannot measure
- *
- * `hoursWorked` counts complete clock pairs only. A shift somebody clocked into
- * and never out of contributes nothing, and the tile says how many did that
- * rather than quietly filling the gap with the scheduled span — which would
- * produce a number that looks measured on exactly the rows where it is not.
- *
- * ## Not for admins
- *
- * The sidebar hides the link and the route returns 403, both from
- * `canBeRostered`. An admin cannot be put on a shift, so an empty page here
- * would give the wrong reason for being empty.
  */
 "use client";
 

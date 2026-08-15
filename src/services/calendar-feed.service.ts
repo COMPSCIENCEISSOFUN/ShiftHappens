@@ -1,26 +1,6 @@
 /**
  * Calendar subscribe feeds (Control Layer) — US-81.
  *
- * ## Why this is a SUBSCRIBE feed and not a download
- *
- * A download is a snapshot: the moment a shift moves, the file in somebody's
- * calendar is wrong and nothing tells them. The story asks for a feed a client
- * polls, so the rota in their phone is the rota in the product. That is the
- * whole feature; the .ics serialisation is the easy half.
- *
- * ## The consequence, which shapes everything here
- *
- * Calendar clients send no session, no cookie and no header. There is nowhere
- * to put an authorisation, so the token in the URL is the credential — which
- * means this service runs with NO authenticated user and must resolve every
- * question from the token alone: which membership, which organisation, whether
- * that organisation still pays for this, and whether that person is still
- * active.
- *
- * Each of those is a refusal an ordinary route gets from `requirePermission`
- * and this one has to ask for itself. They are listed in `feedFor` in the order
- * they are checked, and the order matters: a deactivated member of a paying
- * organisation and an active member of a downgraded one are different answers.
  */
 import { CalendarFeedRepository } from "@/repositories/calendar-feed.repository";
 import { TaskAssignmentRepository } from "@/repositories/task-assignment.repository";

@@ -1,44 +1,5 @@
 /**
  * Seniority — how experienced a staff member is, and how the system knows.
- *
- * ## Why this is not a certification
- *
- * The eligibility engine already answers "is this person allowed to do this?"
- * — certifications, verified by a manager and expiring on a date. It has never
- * been able to answer "has this person done it enough times?", and the two are
- * not the same question: a First Aid certificate issued last Tuesday and one
- * issued in 2019 are indistinguishable to every check in the system.
- *
- * A composition rule like "these two cannot both be junior" is entirely about
- * the second question, so it needs a dimension of its own.
- *
- * ## Why it is derived rather than typed in
- *
- * A manually-maintained seniority column is correct on the day it is set and
- * decays from then on. The platform already records every completed shift, so
- * it can count instead of asking — and a count cannot go stale, cannot be
- * forgotten during a busy month, and is the same number for every member
- * without anyone having to be fair about it.
- *
- * It is counted **per department**. A three-year kitchen veteran is a novice
- * behind the bar, and an org-wide count would confidently say otherwise.
- *
- * ## Why the override exists anyway
- *
- * Derivation has exactly one failure it cannot fix by itself: an experienced
- * hire from another company has completed no shifts *here*. Every count says
- * junior on their first day, and a composition rule would then keep them off
- * the shifts that would prove otherwise — the count is not merely wrong, it is
- * self-confirming. A manager can pin the level; the UI always shows which of
- * the two is in force, because a level that decides who gets rostered should
- * never be an unexplained assertion.
- *
- * ## Why tenure is not part of it
- *
- * Completed shifts already capture tenure and frequency together. Someone
- * employed for two years who works twice a month is not experienced, and any
- * formula including tenure would say they are. One signal is also one
- * sentence to explain to the person it is being applied to.
  */
 
 /**

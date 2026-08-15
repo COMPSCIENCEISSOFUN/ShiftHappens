@@ -7,25 +7,6 @@
  * parser that fills the form in for them was handed EVERY department in the
  * organisation, so a Kitchen manager typing "2 bar staff tomorrow" got a form
  * pre-filled with Bar and a refusal on submit.
- *
- * ## The fix is structural, not a filter
- *
- * The model is shown only the departments the caller may use, and its answer is
- * resolved against that same list. Bar is not rejected afterwards — it was
- * never a value that could come back. An id the model was not given is an id it
- * cannot invent, whatever an injected instruction talks it into typing.
- *
- * That is the same argument as the assistant's closed intent set, and it is
- * worth making the same way twice: constrain what the model can SAY, rather
- * than checking afterwards what it said.
- *
- * ## No provider runs here
- *
- * With no API key the service falls through to `fallbackParse`, which matches
- * department names out of the text against the same list. So these tests
- * exercise the real scoping path deterministically, without a network — and
- * the keyword parser is the more dangerous of the two anyway, because it looks
- * for a name ANYWHERE in the sentence.
  */
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { AITaskParserService } from "@/services/ai-task-parser.service";

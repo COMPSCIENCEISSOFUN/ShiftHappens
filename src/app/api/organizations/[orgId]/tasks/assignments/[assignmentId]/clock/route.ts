@@ -3,21 +3,6 @@
  * PATCH /api/organizations/[orgId]/tasks/assignments/[assignmentId]/clock
  *
  * A manager amends a recorded clock in or out time, with a reason.
- *
- * ## Its own permission
- *
- * `assignments:correct_clock`, not `tasks:assign`. Rostering somebody decides
- * the future; amending a clock time rewrites the record of what already
- * happened, on the field the hours totals are built from. An organisation may
- * reasonably grant one without the other — a shift lead who books people should
- * not necessarily be able to change how long they were paid for.
- *
- * ## Its own route, not a method on the sibling
- *
- * The file next door cancels an assignment on `tasks:assign`. Adding a PATCH
- * there would put two different authorities behind one path, and the route
- * manifest — which records one role per (path, method) — would be telling the
- * truth about half of it.
  */
 import { NextRequest, NextResponse } from "next/server";
 

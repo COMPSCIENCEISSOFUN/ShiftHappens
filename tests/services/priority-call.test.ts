@@ -1,16 +1,5 @@
 /**
  * The priority call — the smart engine's only contribution to the action list.
- *
- * ## What this replaced
- *
- * The dashboard computed deterministic alerts, then handed the same data to a
- * model asking for "3-5 recommendations". Having nothing to add, it restated
- * the alerts — and where it volunteered a figure it sometimes got it wrong,
- * printing "Only 2/3 staff are assigned" beneath an alert reading "0/3".
- *
- * The model now orders rather than enumerates. Most of what follows pins the
- * things it must NOT be able to do: invent an id, smuggle a number back in, or
- * put words in a row it did not write.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { AIDashboardService } from "@/services/ai-dashboard.service";

@@ -1,19 +1,5 @@
 /**
  * What the model is told, and what it is judged on, must be the same list.
- *
- * ## The bug
- *
- * Composition rules were added to the gate on both draft paths without being
- * added to the prompt. The HARD RULES section listed five constraints and
- * composition was an unstated sixth: the model proposed blind, the gate
- * discarded what broke a rule, the AI draft filled fewer slots, and
- * `generateSchedule` then preferred the algorithmic pass on the "whichever
- * filled more" comparison. So on any organisation using composition rules the
- * AI path was quietly handicapped by a rule it had never been shown.
- *
- * The same reasoning applies to the attributes. A rule about seniority is
- * unusable by a model that is not told anyone's seniority — stating the rule
- * without the facts would be the same bug one layer down.
  */
 import { describe, it, expect, beforeEach } from "vitest";
 import { AutoScheduleService } from "@/services/auto-schedule.service";

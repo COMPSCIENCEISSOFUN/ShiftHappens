@@ -1,33 +1,5 @@
 /**
  * What the AI just did, said out loud and undoable.
- *
- * ## Why this exists at all
- *
- * A clean parse now creates and staffs a shift without showing anybody a form
- * — which is the point of an automated product, and also the moment it can be
- * confidently wrong. "Cover the lunch rush Thursday" resolved to the wrong
- * Thursday passes every check the parser makes, gets created, and tells real
- * people they are working it.
- *
- * So the safety is not a confirmation before, it is a statement after: what was
- * made, who is on it, and a way back. The manager reads one line instead of
- * filling in a form, and the wrong result is visible immediately rather than
- * discovered by whoever turns up.
- *
- * ## Why undo says it will notify
- *
- * Because it will, and it must. The staff were told thirty seconds ago that
- * they are on this shift; removing it silently leaves them believing they still
- * are, which is worse than a second notification. `TaskService.delete` already
- * sends the cancellation and already refuses when somebody has actually worked
- * the shift — so this button is honest about a cost it does not get to avoid.
- *
- * ## Why it does not expire
- *
- * No countdown. A timer running out while somebody is reading the sentence is
- * its own kind of annoyance, and there is no cost to leaving the offer open:
- * `delete` enforces the only rule that matters, which is that work already done
- * cannot be erased.
  */
 "use client";
 

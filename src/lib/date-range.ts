@@ -1,36 +1,5 @@
 /**
  * A from/to date filter, and every way one can be wrong.
- *
- * Three screens now filter by a date range — the leave register, tasks, and
- * certifications — and each `<input type="date">` hands back a bare
- * "YYYY-MM-DD" string with no timezone in it. That string is the source of four
- * separate mistakes, and writing the rule three times means making some subset
- * of them three times.
- *
- * ## The four
- *
- * **Reversed.** From after To matches nothing. Filtered silently, the screen
- * shows an empty list, which reads as "there is no leave in August" rather than
- * "you have asked an impossible question". It is refused and said out loud.
- *
- * **Unparseable.** A typed or pasted "2026-13-45" is a real `Date` as far as
- * `new Date()` is concerned on some inputs and `Invalid Date` on others, and an
- * `Invalid Date` in a comparison is silently false — every row drops out and
- * nothing says why.
- *
- * **The timezone.** This is the one worth the file on its own. The picker
- * yields a wall-clock date in the READER's zone; the rows carry instants. A
- * shift at 07:00 on 3 August in Singapore is 23:00 on 2 August in UTC, so
- * comparing `Date` objects puts it in the wrong day for anybody whose browser
- * is not on the organisation's clock — and, on a UTC host, for everybody.
- * Comparison is therefore done on the CALENDAR-DAY STRING, produced by
- * `localDateInTimeZone` in the organisation's zone. No date arithmetic, no
- * offsets, no boundary: "2026-08-03" either sits between two other strings or
- * it does not.
- *
- * **Inclusivity.** From and To are both inclusive, so a range of one day finds
- * that day. Half-open reads as an off-by-one to everybody who is not holding
- * the code.
  */
 import { localDateInTimeZone } from "@/lib/timezone";
 

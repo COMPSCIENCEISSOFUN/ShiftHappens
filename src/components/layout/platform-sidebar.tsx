@@ -2,37 +2,6 @@
  * Platform Admin Sidebar (Boundary Layer)
  *
  * The same piece of furniture as `app-sidebar.tsx`, in slate instead of indigo.
- *
- * ## Why it looks different, and why that is deliberate
- *
- * Platform admin spans every tenant, so it should not wear any single
- * organisation's colour — you should be able to tell from across the room that
- * the thing you are about to suspend is not your own company. That was the
- * original intent behind making this sidebar dark.
- *
- * What was wrong was not the colour but everything around it. This panel had
- * its own width, its own link shape, its own footer, a shadcn `Button` where
- * the app uses a flat action row, and — the part that actually broke — **no
- * mobile handling at all**. `app-sidebar` collapses to an overlay drawer below
- * 768px; this one stayed a fixed 256px column, so on a phone a third of the
- * screen was navigation and the page beside it was squeezed into what was left.
- * That is what made the section read as unfinished rather than as distinct.
- *
- * It now shares `.app-sidebar` — width, padding, sticky behaviour, dot grid,
- * pill links, action rows, and the drawer — and overrides only the gradient,
- * through `--sidebar-gradient` on `.app-sidebar-platform`. A change to the
- * sidebar's shape now lands in both places, which is the whole point.
- *
- * ## Two smaller things brought into line
- *
- * There was no theme toggle here, so a platform admin could not switch to dark
- * mode without going back to an org page. There is one now, in the same place.
- *
- * The nav marks were emoji before (`📊 🏢 📋`) — worst here of anywhere, since
- * this panel is permanently dark and an emoji is an OS colour bitmap that
- * cannot inherit `currentColor`. They stayed full-colour while their labels
- * moved between grey, hover-grey and active, and did not dim with inactive
- * items. They are `lucide` components, sized to match `app-sidebar`.
  */
 "use client";
 

@@ -3,28 +3,6 @@
  *
  * A titled block that can be folded away, with the choice remembered.
  *
- * ## Why remembering matters
- *
- * A collapse that resets on every page load is worse than no collapse at all —
- * the user closes the same panel every morning and eventually stops bothering.
- * The state is kept in `sessionStorage` rather than component state so it
- * survives navigating away and back.
- *
- * `sessionStorage`, not `localStorage`: the preference is "not right now",
- * which is a property of this sitting rather than of the account. It also
- * means a demo starts from the designed default every time, which is what you
- * want when showing the product to someone.
- *
- * ## Why the content is not unmounted
- *
- * Collapsing hides with CSS and keeps the children mounted. Unmounting would
- * discard any data they hold and re-fetch on every expand, turning a layout
- * preference into a network round trip. The cost is that a collapsed section
- * still renders — acceptable here, where the children are already-fetched
- * summaries rather than heavy trees.
- *
- * A count in the header is what makes a collapsed section useful: "Needs your
- * action" folded away is only safe if it still says how many things are in it.
  */
 "use client";
 

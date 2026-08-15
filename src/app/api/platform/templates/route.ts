@@ -5,19 +5,6 @@
  *
  * Platform admin only, both verbs.
  *
- * ## What changed
- *
- * GET used to branch on `isPlatformAdmin` and never deny — an admin got every
- * template with usage counts, everyone else got the active ones. It was
- * recorded as a KNOWN GAP in the route manifest, because a path under
- * `/api/platform/` that any authenticated user may call is a contradiction: the
- * prefix is the only thing telling the next person who the audience is.
- *
- * The member-facing half moved to `GET /api/industry-templates`, which is
- * honest about serving anyone signed in. What stays here is the part that
- * genuinely belongs to the console: retired templates, and usage counts — a
- * cross-tenant aggregate of how many organisations chose each template, which
- * nothing outside the platform console should read.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";

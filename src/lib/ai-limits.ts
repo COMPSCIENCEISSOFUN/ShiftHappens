@@ -1,22 +1,5 @@
 /**
  * Bounds on how long an AI provider gets to answer.
- *
- * ## Why this is a shared constant rather than a local one
- *
- * The dashboard fixed this properly and nowhere else did. Its docblock states
- * the problem exactly — a hung connection is neither an error nor a non-ok
- * response, so a failover chain that advances on a throw never advances at all,
- * and the whole point of having a second provider is defeated by the failure
- * mode second providers exist for.
- *
- * That reasoning applies to every provider call in the codebase, and four other
- * call sites had no bound: both allocation providers, both auto-schedule calls,
- * both task-parser calls and both template-generation calls. Each of them sits
- * in front of a real deterministic fallback — `FallbackRanker`,
- * `generateAlgorithmic`, `fallbackParse`, the preset templates — and each of
- * those fallbacks was unreachable on a hang.
- *
- * Stated once so a new provider call cannot quietly omit it.
  */
 export const AI_TIMEOUT_MS = 8000;
 

@@ -11,11 +11,6 @@
  * asked about a shift being scheduled, so an override for last Tuesday was read
  * by nothing — and the form reported success, which is the worst of both: no
  * effect, and no way to tell that from an effect.
- *
- * Deliberately NOT fixed here, and still documented: several windows per day.
- * That is a schema change plus eight call sites that each assume
- * `find(w => w.dayOfWeek === day)` returns THE window, and it is separable from
- * the two above.
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 

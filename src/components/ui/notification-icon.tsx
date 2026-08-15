@@ -1,37 +1,5 @@
 /**
  * Notification type → icon.
- *
- * ## Why this exists
- *
- * The notifications page and the bell each carried their own emoji table, and
- * the page's own comment said it "mirrors the bell so the two never look like
- * different features" — two hand-maintained copies held in sync by good
- * intentions. The bell covered 7 types and the page covered 14, so they had
- * already drifted: seven notification types showed a generic bell in one place
- * and a specific icon in the other.
- *
- * ## Why not emoji
- *
- * Same reasoning as `certification-state-icon.tsx`, which this deliberately
- * mirrors. Emoji are OS-supplied colour bitmaps: they cannot inherit
- * `currentColor`, they ignore dark mode entirely, and they render as visibly
- * different pictures on Windows, macOS and Android — so a screenshot in a
- * report does not match what a marker sees on their own machine. Every other
- * icon in this application is lucide.
- *
- * ## Choices a future edit should not undo
- *
- * - `withdrawal_approved` and `withdrawal_denied` are a thumbs-up/thumbs-down
- *   pair in emoji. As icons they are `CheckCheck` and `Undo2` — approving a
- *   withdrawal REMOVES someone from a shift, so a green tick reads as "task
- *   done" when the outcome is "assignment reversed". The shape says what
- *   happened, not whether a request succeeded.
- * - `task_cancelled` and `task_unassigned` share `Ban` and a red tint, because
- *   from the recipient's point of view they are the same event: work that was
- *   theirs no longer is.
- * - The fallback is `Bell`, matching the unknown-state fallback in
- *   `certification-state-icon.tsx`: an unrecognised type renders as a generic
- *   notification rather than being silently relabelled as something specific.
  */
 import {
   Ban,

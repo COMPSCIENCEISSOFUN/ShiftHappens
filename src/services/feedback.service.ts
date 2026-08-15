@@ -1,18 +1,5 @@
 /**
  * Product feedback (Control layer).
- *
- * ## Why there is no status, and no audit line
- *
- * This is feedback, not a ticket. Nothing here assigns, replies or resolves,
- * and the form says as much — a status column would be a promise the product
- * does not keep, and a sender who can see "open" will reasonably wait for
- * "closed".
- *
- * Nothing here writes to the audit log either, and that is deliberate rather
- * than an omission. `AuditLog` is org-scoped: every row belongs to a tenant and
- * every query filters by one. A platform admin archiving a message has no
- * tenant to file it under, and borrowing the sender's would put an action they
- * did not take into their own audit trail.
  */
 import { FEEDBACK_MAX_LENGTH, isFeedbackArea } from "@/lib/feedback-areas";
 import { FeedbackRepository } from "@/repositories/feedback.repository";

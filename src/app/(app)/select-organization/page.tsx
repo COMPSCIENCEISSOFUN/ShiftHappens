@@ -6,25 +6,6 @@
  * from a list of one is a worse experience than being sent straight in, and it
  * is the case almost every user is in.
  *
- * ## Why this page has no sidebar
- *
- * It sits under `(app)/layout.tsx`, which renders its children bare. That is
- * deliberate rather than unfinished: the sidebar is an organisation's menu —
- * its name, its plan, the permissions the caller holds INSIDE it — and this is
- * the one screen in the product where no organisation has been chosen yet.
- * Rendering a menu here would mean picking one of the options to decorate the
- * page with while asking which option the user wants, which is the same guess
- * this whole change exists to remove.
- *
- * ## Suspended organisations are listed
- *
- * Listed, marked, and still clickable. `org/[orgId]/layout.tsx` answers a
- * suspended organisation with the suspension banner, which tells the user what
- * has happened and who to contact. Hiding the organisation instead would leave
- * somebody staring at a list their colleague can see and they cannot, with
- * nothing on screen to explain it.
- *
- * BCE compliant: only imports from Control layer (services).
  */
 import Link from "next/link";
 import { redirect } from "next/navigation";

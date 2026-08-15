@@ -1,28 +1,5 @@
 /**
  * The organisation's list of recognised certificates.
- *
- * ## The bug underneath all of this
- *
- * `Certification.name` is typed by the staff member. `Task.requiredCertifications`
- * is typed by the manager. `EligibilityService.checkCertifications` compares the
- * two by `trim().toLowerCase()` equality — and nothing ever brought the two
- * vocabularies together, so the app's own placeholder text disagreed with
- * itself: "e.g. Food Safety Level 2" on one screen, "e.g. Food Safety, RSA" on
- * the other. Follow both and the holder is silently ineligible for a shift they
- * are qualified for.
- *
- * ## What is worth testing here
- *
- * Not that rows can be written — that is Prisma's job. Three things:
- *
- *   1. case-insensitive uniqueness, which is STRICTER than the database index
- *      and has to be, because eligibility lower-cases before comparing
- *   2. the removal guard, which exists to stop a shift quietly losing a
- *      requirement the picker can no longer represent
- *
- * Filling the list from names already in use is NOT here. It is a data
- * migration, so it lives in the migration file and is tested against the real
- * statement in `tests/lib/certification-type-backfill.test.ts`.
  */
 import { describe, it, expect, beforeEach } from "vitest";
 import { CertificationTypeService } from "@/services/certification-type.service";

@@ -1,43 +1,6 @@
 /**
  * iCalendar (RFC 5545) serialisation, as pure functions.
  *
- * ## Why this is a lib and not three lines in a route
- *
- * The format looks like "join some strings with newlines" and is not. Four of
- * its rules are invisible until a real client refuses the file, and by then the
- * symptom is "Google says the URL is not a calendar" with no further detail.
- *
- * **CRLF, always.** RFC 5545 §3.1 specifies CRLF between content lines. Plenty
- * of parsers tolerate LF; Outlook historically has not, and a file that imports
- * everywhere except the one client somebody uses is the worst kind of bug.
- *
- * **Folding at 75 octets.** A content line longer than 75 OCTETS must be split,
- * with each continuation beginning with a single space. Octets, not characters:
- * a shift titled with an emoji or an accented name counts more bytes than it
- * has letters, so folding on `.length` splits in the middle of a UTF-8
- * sequence and produces mojibake in the client.
- *
- * **Escaping.** Backslash, semicolon and comma are structural in TEXT values,
- * and a newline has to become a literal `\n`. A shift note reading
- * "Bring keys; ask for Mo" silently truncates without it.
- *
- * **UID must be stable.** A subscribe feed is fetched over and over; the client
- * matches events across fetches by UID. Derive it from anything volatile and
- * every refresh deletes and recreates every shift, which in most clients means
- * a fresh round of notifications for shifts the person has known about for
- * weeks.
- *
- * ## What this deliberately does not do
- *
- * No VTIMEZONE. Every timestamp is emitted in UTC with a trailing `Z`, and the
- * client converts to whatever zone its owner is in — which is the correct
- * behaviour anyway for somebody reading their rota abroad. Emitting local times
- * with a TZID would require shipping a timezone definition and keeping it
- * current, to arrive at the same instant.
- *
- * No CANCELLED events and no SEQUENCE. A subscribe feed is a full snapshot on
- * every fetch, so an event that disappears IS the cancellation. Those fields
- * matter for emailed invitations, which this is not.
  */
 
 /** RFC 5545 §3.1: content lines are folded at 75 octets. */

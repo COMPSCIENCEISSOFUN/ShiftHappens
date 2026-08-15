@@ -1,27 +1,6 @@
 /**
  * Icons drawn by hand where the icon set already has one.
  *
- * ## The bug
- *
- * `lucide-react` is the house icon set and most of the application uses it.
- * Alongside it, 46 `<svg>` elements had been hand-written across nine page
- * files — and sampling the paths showed them reproducing icons lucide already
- * provides and this codebase already imports elsewhere: `Sparkles`, `Clock`,
- * `Users`, `Zap`, `Search`, `Trash2`, `SquarePen`.
- *
- * They were drawn at different stroke widths and sizes, so a screen carrying
- * both showed two icons of the same idea that did not match. The tasks page had
- * eleven, four of them the same star at four different sizes.
- *
- * ## Why a scan and not another sweep
- *
- * `claude/PHASE7-ICON-SWEEP-AND-HOURS-FIX.md` records an icon sweep already
- * having been done once. It drifted back, because pasting an `<svg>` is the
- * fastest way to get a glyph on screen and nothing objected. A second sweep
- * without a guard buys the same amount of time as the first one did.
- *
- * Same reasoning as `ordering-determinism` and `no-fixed-sleeps`: the defect is
- * the natural thing to type, so fixing the known instances is not enough.
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync, statSync } from "node:fs";

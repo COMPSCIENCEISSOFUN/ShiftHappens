@@ -4,27 +4,6 @@
  * The register: every request that went through review, filtered by status,
  * department, date and person.
  *
- * ## Why this stopped being a queue
- *
- * It listed only what was awaiting a decision. That made it useful for exactly
- * one question — what do I owe an answer on — and unable to answer the one
- * everybody asked next: was Sam's July leave approved, and by whom. Once a
- * request was decided it existed only in the audit log, alongside role changes
- * and certification verdicts, which is not where anybody looks for a rota
- * question.
- *
- * The filters are the reason the change is worth making rather than a garnish
- * on it. A list of every request an organisation has ever made is unusable
- * without them, and a list of only the open ones needs none — so "add filters"
- * and "show history" are the same piece of work.
- *
- * ## Every filter is a server round trip
- *
- * Nothing is filtered in the browser. The register is paged, so filtering the
- * loaded rows would mean "filter the first fifty" while the count beside it
- * described something else. The department filter in particular is resolved in
- * the service, where it is INTERSECTED with the reader's own scope rather than
- * replacing it — the shape the 2026-08-05 audit was about.
  */
 "use client";
 

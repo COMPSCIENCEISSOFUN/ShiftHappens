@@ -1,34 +1,6 @@
 /**
  * Billing (Boundary Layer).
  *
- * ## Why this is a page and not a section of Settings
- *
- * It was a section of Settings, and Settings is three thousand lines. The thing
- * this page exists to show — that a payment has failed — cannot live where
- * people scroll past it.
- *
- * ## The defect it surfaces
- *
- * `subscriptionStatus` has been written by the Stripe webhook since billing was
- * wired up and read by nothing. An organisation whose card failed sat at
- * `past_due` in the database with nobody told, keeping full access until Stripe
- * gave up and the tier silently dropped to Free. This screen is the first
- * reader that column has ever had.
- *
- * ## Why the plans are shown here rather than linked to
- *
- * The upgrade used to be a single line of text naming one plan and a price
- * typed into the markup. It said what the next plan COST and never what it
- * DID, so the only way to find out was to buy it — and the typed price went
- * stale the first time the real one moved. The comparison below is built from
- * `TIER_CONFIG`, so it cannot disagree with what checkout charges.
- *
- * ## What is deliberately still not here
- *
- * Invoices and payment methods. They are one button away in Stripe's hosted
- * portal, because owning them would mean storing copies of amounts we did not
- * calculate, and editing a card would mean the number passing through this
- * application. Cancellation moved IN — see `cancel-plan-dialog`.
  */
 "use client";
 

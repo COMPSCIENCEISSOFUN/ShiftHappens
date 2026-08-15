@@ -6,23 +6,6 @@
  * tasks that are neither completed nor cancelled. Every limit was enforced on
  * the CREATE path and only there, so any transition that moved a row back INTO
  * the counted state walked straight past the cap. Four of them did.
- *
- * ## The first draft of this file was written the wrong way round
- *
- * It reached the over-limit state and then asserted the count was within the
- * limit — which failed loudly before the fix, exactly as intended, and failed
- * just as loudly afterwards because a correct refusal THROWS and the assertion
- * was never reached. "The count did not go over" and "the operation was
- * refused" are different claims, and only the second one is what these guards
- * actually do.
- *
- * So each test now asserts both halves: the step is rejected, and the count is
- * still inside the plan. The second line is what stops this passing for the
- * wrong reason — an unrelated error would satisfy the first on its own.
- *
- * The last test is the other direction, and it is the one that would catch a
- * fix worse than the bug: an edit to a task ALREADY counted must still go
- * through at the cap.
  */
 import { describe, it, expect, beforeEach } from "vitest";
 import { UserManagementService } from "@/services/user-management.service";

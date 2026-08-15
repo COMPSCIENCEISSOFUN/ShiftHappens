@@ -7,22 +7,6 @@
  *   /org/[orgId]/profile  — from inside an organisation, wearing its sidebar
  *   /settings/profile     — for somebody who has no organisation yet
  *
- * The data is the person's own and is org-agnostic either way; `GET /api/profile`
- * takes no org id and never has. What the org-scoped address buys is the
- * sidebar: opening your profile from inside an organisation used to drop you
- * onto chrome that had to guess which organisation you meant, and for anyone in
- * two it guessed wrong or gave up. The menu you arrived with is the menu you
- * keep.
- *
- * Original notes follow.
- *
- * Redesigned profile page with:
- * - Profile hero banner (avatar, name, email, contextual tags)
- * - Two-column layout: Personal Info + Password (separate save buttons)
- * - Password UX: show/hide toggle, strength meter
- * - Organisation Memberships card (dynamic from API)
- * - Account Details card (metadata)
- *
  * All data is fetched from GET /api/profile which returns the user
  * profile with org memberships via ProfileService.getFullProfile().
  */

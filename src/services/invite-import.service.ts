@@ -5,27 +5,6 @@
  * system already understands. Nothing here writes: it resolves what the file
  * MEANT and hands back a preview, and `UserManagementService.bulkInvite` is
  * what acts on the answer.
- *
- * ## Aliases first, AI second
- *
- * Almost every real file is resolved without a model. "E-mail", "Dept",
- * "F/T" and "Supervisor" are not ambiguous, they are just not our spelling,
- * and a lookup table settles them in microseconds for free — deterministically,
- * which matters because the same file uploaded twice must preview identically.
- *
- * The model is asked only about what the tables could not place: an unusual
- * header, a department written the way people say it rather than the way it was
- * typed into the app, a role nobody anticipated. That keeps the AI on the part
- * of the problem that is genuinely open-ended, and it means a missing API key
- * degrades the feature to "the obvious cases work" instead of breaking it.
- *
- * ## Why the department list is passed in rather than looked up
- *
- * Departments are the one field that cannot be resolved from a static table —
- * they are this organisation's data. Passing them as an argument keeps the
- * service free of a repository it would otherwise need only to re-fetch what
- * every caller already has, and makes the tenant boundary explicit: this can
- * only ever match against the list it was given.
  */
 import {
   HEADER_ALIASES,

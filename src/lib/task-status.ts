@@ -1,36 +1,6 @@
 /**
  * What a task's status permits.
  *
- * ## Why this exists
- *
- * `assignStaff` checked seven things before writing an assignment — the member
- * exists, is active, is not an admin, belongs to the organisation, is not
- * already on the task, does not exceed the headcount, has no scheduling
- * conflict — and never once looked at the task itself. So a shift that had been
- * **cancelled** or marked **completed** still accepted new people, silently and
- * with no reason to think otherwise.
- *
- * Cancelling is the project's chosen alternative to deletion: `TaskService`
- * refuses to delete a task with assignments and sets `status: "cancelled"`
- * instead, precisely so the record survives as "this was real and is not
- * happening". Rostering somebody onto it afterwards contradicts the whole point
- * of that decision — and the person would appear on a shift the board shows as
- * cancelled, be counted in nobody's headcount, and never be told it was off.
- *
- * ## Why `in_progress` is allowed
- *
- * Cover arriving mid-shift is ordinary. Somebody calls in sick two hours in and
- * a replacement is found — that assignment is legitimate and the task is
- * genuinely in progress. Refusing it would push the work off the system, which
- * is the same argument that stopped full-time declines being blocked outright.
- *
- * ## Why a module for one predicate
- *
- * Two call sites need it — assigning a person and confirming a whole week's
- * draft — and a draft generated on Monday can be confirmed on Wednesday, after
- * somebody cancelled the shift. Written twice, the two would eventually
- * disagree, which is the failure `assignment-status.ts` was created to end and
- * the one this codebase has repeated more than any other.
  */
 
 /** Lifecycle: open → in_progress → completed. Off-ramp: cancelled. */

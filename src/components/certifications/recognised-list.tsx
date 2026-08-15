@@ -1,20 +1,6 @@
 /**
  * The organisation's list of recognised certificates, and the panel that edits it.
  *
- * ## What this list is, and is not
- *
- * It is a VOCABULARY — which certificate names exist here. It is not a
- * statement that anybody must hold them, and it is not a per-shift requirement.
- * Those are three different things, and only the first one belongs to the
- * organisation as a whole.
- *
- * ## Why it lives on the Certifications page
- *
- * The people who verify a member's certificate are the people who should decide
- * what the organisation recognises — the same judgement, at the same desk. A
- * separate screen would need its own sidebar entry for a panel with one input
- * on it, and would put the decision somewhere other than the place an
- * unfamiliar name first appears.
  */
 "use client";
 

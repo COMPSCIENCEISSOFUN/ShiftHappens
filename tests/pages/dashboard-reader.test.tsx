@@ -1,28 +1,6 @@
 // @vitest-environment node
 /**
  * What the dashboard page tells the screen about the caller.
- *
- * ## What this replaces
- *
- * `dashboard-switch`, which pinned WHICH of three components the page picked.
- * There is one component now. The page's whole job is to state the reader —
- * the permissions they hold, the departments they are scoped to, and whether
- * they can hold a shift — and `src/lib/dashboard-cards.ts` turns that into
- * cards. So this file pins the three facts, and then, through `cardsFor`, the
- * cases the old switch got wrong.
- *
- * ## Why it goes through `cardsFor` rather than stopping at the props
- *
- * Asserting the props alone would pass while the screen showed nothing, which
- * is exactly the defect being fixed: the API sent a granted section and the
- * chosen dashboard had nowhere to put it. Running the page's own reader through
- * the registry is the only assertion that spans both halves, and it is the same
- * reader the endpoint gates on.
- *
- * The server component is awaited and its returned element inspected rather
- * than rendered — there is no DOM question here, and rendering a chart-heavy
- * tree to answer "what did it compute" would be slower and would fail for
- * reasons unrelated to the rule under test.
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 

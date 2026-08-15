@@ -1,28 +1,6 @@
 /**
  * The composition-rule builder on the task form.
  *
- * ## Why a builder rather than a text field
- *
- * `requiredCertifications` next door is a comma-separated box, and that works
- * because it has one shape: a list of names. A composition rule has four parts
- * and two of them constrain each other — the legal values of `value` depend on
- * `kind`, and a seniority rule reads in opposite directions under the two
- * comparators. Typed free-hand, most attempts would be a 400 the author cannot
- * interpret.
- *
- * ## Why every rule is echoed back in plain English
- *
- * "At most 1 Junior" is ambiguous on a screen in a way it is not in code: does
- * it mean people at exactly that level, or that level and below? The preview
- * says "At most 1 assignee at Junior or below" using the same `describeRule`
- * the refusal message uses, so what the author reads while writing the rule is
- * word-for-word what a blocked manager reads later.
- *
- * ## Why rules are added rather than edited in place
- *
- * A rule is four small choices. Editing one in place needs per-row state,
- * validation and a save affordance; removing and re-adding needs none of it,
- * and the whole interaction is under five seconds either way.
  */
 "use client";
 

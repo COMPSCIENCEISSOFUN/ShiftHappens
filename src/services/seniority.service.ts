@@ -8,15 +8,7 @@
  * The rules themselves are pure and live in `@/lib/seniority`. This service is
  * only the part that needs the database: the completed-shift counts, the
  * per-member pins, and the organisation's thresholds.
- *
- * ## Why one call for many members
- *
- * The candidate list evaluates every active member of an organisation at once.
- * A count query per member would put the cost of opening the assign dialog on
- * the size of the organisation, and it is the kind of thing that is fine with
- * the eight members in a demo seed and unusable at two hundred. Everything
- * here is three queries regardless of how many members are asked about.
- *
+ * 
  * BCE: Service (Control) → Repository (Entity).
  */
 import { MembershipRepository } from "@/repositories/membership.repository";

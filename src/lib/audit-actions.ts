@@ -1,23 +1,6 @@
 /**
  * Every event the application can record, as a closed set.
  *
- * ## Why this is in `lib` and not in the service
- *
- * The audit page is a client component and needs these to build its filter and
- * to label its rows. Importing them from `audit-log.service` would pull the
- * repository, and therefore Prisma, into the browser bundle — the same reason
- * `audit-entities.ts` and `shift-outcome.ts` live here.
- *
- * ## Nothing here is raised automatically
- *
- * Declaring an action does not record it. Each one is written by a service that
- * explicitly chose to, and the audit log is only as complete as those choices.
- * Two constants — `user.registered` and `user.logged_in` — sat here for months
- * with nothing raising them, and were deleted rather than implemented:
- * registration happens before any membership exists and a login has no
- * organisation at the moment NextAuth authorises it, so neither can be scoped
- * to the tenant that `AuditLog.organizationId` requires. An action nothing can
- * raise is the same defect as a setting nothing reads.
  */
 export const ACTIONS = {
   // Tasks

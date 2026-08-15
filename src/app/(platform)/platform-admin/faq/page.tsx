@@ -3,17 +3,6 @@
  *
  * The questions and answers shown on the public site. Platform admins only.
  *
- * ## Writing and publishing are separate
- *
- * An entry is created unpublished, and publishing is a deliberate second act.
- * The alternative — live on save — means a half-finished answer reaches the
- * public page by being interrupted, which is the one failure a marketing page
- * cannot afford.
- *
- * ## Order is a number, not a drag
- *
- * Drag-and-drop needs a pointer, and this list is short. A position field is
- * one tap on a phone, survives a reload, and says exactly what it does.
  */
 "use client";
 

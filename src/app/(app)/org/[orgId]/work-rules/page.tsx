@@ -3,32 +3,6 @@
  *
  * Company admins configure break intervals and hour limits. A rule can target
  * everyone, a department, a custom role, or a department AND a role.
- *
- * ## On the visual language
- *
- * Predates the Phase 12 overhaul: shadcn `Card` primitives, a bare `h2`, no
- * stat tiles, no icons. It now matches Departments, Members and Calendar.
- *
- * ## What changed beyond the styling
- *
- * - `fetchRules` did `if (!res.ok) throw new Error()`, discarding the server's
- *   message so the page always said "Failed to load work rules" whatever had
- *   actually gone wrong. That is precisely what made a missing database column
- *   on the deployed site hard to diagnose. The server's own message is shown.
- * - The form was a `<div>` with the submit handler on a button, so pressing
- *   Enter in a text field did nothing. It is a real `<form>`.
- * - `params` was a promise resolved into state; every other page uses
- *   `useParams()`. Now it does too, which also removes the render pass where
- *   `orgId` was the empty string.
- * - Deleting used `window.confirm()`. Now the app's own `ConfirmDialog`.
- *
- * ## A note on the role dropdown
- *
- * `members/page.tsx` filters system roles out of its role picker; this page
- * deliberately does the same now. A rule scoped to a system role could never
- * match anybody — `assignCustomRole` refuses to assign one — so the rule would
- * silently apply to nobody. Nothing currently creates a system role, so this is
- * a guard against a future footgun rather than a live fix.
  */
 "use client";
 

@@ -1,28 +1,6 @@
 // @vitest-environment jsdom
 /**
  * The Mine / Everyone toggle on the team calendar.
- *
- * ## Why it exists
- *
- * A manager is rostered AND can open the team calendar, so they held two: this
- * one, and My Schedule drawing the same week already filtered to them. This
- * toggle answers "what does MY week look like" without hunting for your own
- * name among everyone else's.
- *
- * It was built to make a SUBTRACTION safe — the sidebar stopped offering My
- * Schedule to anybody who could open Calendar. That subtraction has since been
- * reversed, because My Schedule grew the calendar subscribe link and a rostered
- * manager could no longer reach it. The toggle stays and stands on its own: a
- * manager looking at the team's week still wants to pick their own shifts out
- * of it without changing page.
- *
- * ## The thing that would be easy to get wrong
- *
- * Deciding "mine" by NAME. The task payload has always carried the assignee's
- * `user.id` — `findByOrganizationId` selects it and nothing strips it — but
- * this page's own interface declared only `name`, so the id was invisible to
- * anybody reading the file and the obvious implementation was a string compare.
- * Two people can share a name, and this is a screen somebody plans a week on.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen } from "@testing-library/react";

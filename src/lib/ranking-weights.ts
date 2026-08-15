@@ -1,25 +1,5 @@
 /**
  * How much each dimension counts when the engine ranks candidates.
- *
- * ## Why this exists now
- *
- * `CompanySettings.smartAllocationWeights` has been on the schema since the
- * settings migration and was read by NOTHING — not a service, not a route, not
- * a test. Meanwhile `FallbackRanker` hardcoded the four numbers the column
- * names. So the data model advertised a tunable allocation engine and the
- * engine ignored it.
- *
- * ## Relative, not absolute
- *
- * Nothing here requires the four to sum to 100. Ranking depends only on the
- * RATIO between them — 30/25/25/20 and 60/50/50/40 produce identical orders —
- * so they are normalised at the point of use. That matters for the UI: four
- * sliders that must total a constant fight the person moving them, because
- * every adjustment demands arithmetic on the other three.
- *
- * Everything in this file is pure, so the rules can be tested without a
- * database and reused by both the Boundary (validating a form) and the Control
- * layer (ranking).
  */
 
 export interface RankingWeights {

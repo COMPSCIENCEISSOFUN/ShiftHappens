@@ -3,42 +3,6 @@
  *
  * Answers a small, closed set of questions about the caller's own shifts and —
  * with the permission that owns the data — about their organisation.
- *
- * ## The whole architecture, in one paragraph
- *
- * A provider is asked to pick one id from `ASSISTANT_INTENTS` and nothing
- * else. It is given no credentials, no schema, no query language and no
- * tools. The id it returns is validated against the closed set, then checked
- * against the caller's permissions, and only then is the answer fetched — by
- * the same services that serve the pages, which resolve organisation and
- * department scope themselves. The provider's reply is treated exactly like
- * any other untrusted input, because that is what it is.
- *
- * The consequence worth stating: a successful prompt injection changes which
- * of nine questions gets answered. It cannot reach another tenant, because it
- * is not the thing doing the reaching.
- *
- * ## The model does not write the answer
- *
- * Every sentence returned from here is built from fetched values by ordinary
- * code. A model asked to summarise "31.5 hours" will occasionally say 35, and
- * a plausible wrong number in a rostering product is worse than no answer —
- * you cannot tell it from a right one by looking. So the model contributes the
- * interpretation of the QUESTION and nothing else, and no figure it emits is
- * ever shown to anybody.
- *
- * ## Failure, and saying so
- *
- * Groq, then Gemini, then keywords — the same chain, in the same order, as
- * `AllocationService` falling through to `FallbackRanker`. The keyword
- * classifier answers the plainly-phrased question and returns `unknown` for
- * everything else, so the feature degrades instead of disappearing. Which
- * classifier ran is returned to the caller and shown, for the reason the task
- * parser reports `parsedBy`: a keyword answer and a model answer look
- * identical, and an assistant that has quietly stopped understanding
- * paraphrase should say so rather than appear stupid.
- *
- * BCE: Control. Reads through services and repositories; raises no HTTP.
  */
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 import { ReportingService } from "@/services/reporting.service";

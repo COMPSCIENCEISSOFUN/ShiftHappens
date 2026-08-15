@@ -1,23 +1,5 @@
 /**
  * Who gets told a shift no longer fits its people.
- *
- * ## The rule that changed
- *
- * This asked `role !== "manager"` — the authorisation model the permission
- * catalogue replaced everywhere else, still deciding a notification list. It
- * made the message miss the person whose job it is: a member holding a custom
- * role with `tasks:assign`, who can actually move people on and off the task,
- * was not told, because their title was wrong.
- *
- * The question is "who can put this right", so the answer is `tasks:assign`.
- *
- * ## What scope is doing here
- *
- * The notification names a staff member and a task title, which is exactly the
- * data a department-scoped member may not read from any reporting endpoint. So
- * the permission alone is not the whole rule: it is the permission AND the
- * task being inside their scope, or the notification becomes a side door into
- * the leak scoping closed at the front.
  */
 import { describe, it, expect, beforeEach } from "vitest";
 

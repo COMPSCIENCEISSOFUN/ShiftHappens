@@ -1,30 +1,6 @@
 /**
  * Choosing which certificates a shift requires.
  *
- * ## Why this replaced a text box
- *
- * It was `<Input placeholder="e.g. Food Safety, RSA" />` and a comma split. The
- * member's own screen was a different text box, placeholdered "e.g. Food Safety
- * Level 2", and `EligibilityService.checkCertifications` compares the two by
- * lower-cased string equality. Follow both hints and the holder is silently
- * ineligible for a shift they are qualified for — and told they are "Missing
- * required certification(s): Food Safety" while holding one.
- *
- * The manager is not losing a decision here. They still say which certificates
- * this shift needs; they have stopped also having to guess how somebody else
- * spelled them.
- *
- * ## Why a name already on the task stays selectable
- *
- * `extras` are requirements the task carries that are NOT on the organisation's
- * list — a task written before the list existed, or one whose certificate was
- * removed from it since. They render as ticked, and unticking them works.
- *
- * Dropping them silently would be the worst version of this change: a manager
- * opens a shift to move its start time, saves, and the food-safety requirement
- * is gone with nothing said. This is the same rule the role permission picker
- * follows — what is already granted stays editable, because removing is not the
- * thing being guarded against.
  */
 "use client";
 

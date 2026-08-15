@@ -11,30 +11,6 @@
  * anywhere in the application, which is the same claim-outruns-behaviour shape
  * as the alerts that wore an "AI Insight" badge over a SQL join.
  *
- * ## Why it disappears instead of refusing
- *
- * Two independent gates, both answered before anything is offered, and both can
- * only deny: absent without `reports:export`, absent on a plan without
- * `pdf_export`. Neither costs a request — the permissions and the tier both come
- * from the `(app)` shell's providers, which the layout resolved server-side — so
- * there is no flicker and no 403 to explain.
- *
- * HIDDEN rather than greyed with an upgrade badge, which is the opposite of the
- * house answer for a plan-gated *checkbox* and deliberately so. The precedent
- * here is Import Members: a Pro-only control on a page a Free organisation can
- * open, and it is simply not rendered. A greyed button is still an offer, and
- * the menu rule — do not offer what cannot be done — applies to page controls
- * for the same reason it applies to the sidebar.
- *
- * ## Why this fetches rather than being a link
- *
- * An `<a download>` would be shorter and wrong in three ways. A refusal would
- * navigate the manager away from their dashboard to a page of raw JSON; there
- * would be no way to disable it while the PDF is building, so an impatient
- * second click bills a second render of a document that takes seconds; and the
- * server's filename, which carries the date, would still have to be duplicated
- * here to be used. Reading the response lets all three be handled where they
- * happen.
  */
 "use client";
 

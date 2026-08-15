@@ -1,34 +1,6 @@
 /**
  * Turning a role's display label into its stored `name`.
  *
- * ## Why the form no longer asks for this
- *
- * Creating a role used to require two names: a "Display label" and an "Internal
- * name" annotated *"Used in code. Lowercase, no spaces."* Every part of that
- * annotation was false.
- *
- * Nothing in the codebase reads `role.name`. Its only uses are a uniqueness
- * check on itself, one audit-log detail, and being printed back on the roles
- * screen — the places that genuinely need to tell roles apart use the
- * `isSystemRole` boolean. The format was never validated either: the schema
- * accepted any string up to 50 characters, so `Shift Lead!!` saved happily. And
- * `updateRoleSchema` has no `name`, so it was permanent as well as unenforced.
- *
- * So the field asked a manager to invent a technical identifier for a technical
- * purpose that does not exist, and then did not check it.
- *
- * ## The bug that made it worth fixing rather than deleting
- *
- * `@@unique([organizationId, name])` put the uniqueness rule on the field
- * nobody sees. Two roles could therefore both be labelled "Shift Lead" — one
- * stored as `shift_lead`, the other as `shiftlead` — and appear as two
- * identical entries in the roles list and every member dropdown, with nothing
- * on screen distinguishing them.
- *
- * The column stays (existing rows have values, and the unique index is what
- * enforces the rule at the database). It is now DERIVED, and the label is
- * checked for uniqueness in its own right, so the constraint guards what people
- * actually read.
  */
 
 /** Roles whose stored name is fixed by the seed and must never be generated. */

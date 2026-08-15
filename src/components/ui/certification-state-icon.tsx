@@ -3,25 +3,6 @@
  *
  * One tinted glyph per certification display state — the row icon on both the
  * admin certifications page and the staff my-certifications page.
- *
- * Both pages previously carried their own copy of an emoji table. Emoji are
- * the wrong primitive here, for three reasons that are the whole reason this
- * module exists:
- *
- *   1. They cannot inherit `currentColor`, so they were the only marks on the
- *      page that ignored the theme — a full-colour trophy on a pale green
- *      tint, identical in dark mode where everything around it inverted.
- *   2. They are font resources. Segoe UI Emoji, Apple Color Emoji and Noto
- *      draw the same code point differently, so the page did not match itself
- *      across the machines it gets demonstrated on.
- *   3. `⚠️` carries a variation selector and can render monochrome text-style
- *      on some platforms while its neighbours stay in colour.
- *
- * Shapes come from lucide-react, whose stroke geometry is what the sidebar
- * icons are hand-drawn to: 24×24 box, no fill, 2px stroke, round caps and
- * joins. Using it here means the page agrees with the nav item that leads to
- * it — `CertificationsIcon` in the sidebar is a shield, not a trophy, because
- * a certification is a credential rather than an award.
  */
 import {
   CalendarX,

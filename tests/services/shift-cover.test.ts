@@ -1,27 +1,6 @@
 /**
  * What happens to a shift somebody has just come off.
  *
- * ## The gap these cover
- *
- * `findCover` — mode-aware, short-notice-aware, and the only code in the
- * product that notifies somebody on EVERY branch including "nobody is
- * available" — had exactly one caller: approved leave. An approved decline and
- * an approved withdrawal are the same event, and both did nothing: the slot
- * emptied, the member was told, and the only thing that ever surfaced it was
- * the dashboard's understaffed alert, which is a human noticing.
- *
- * ## The seam worth testing, not just the wiring
- *
- * Approving a withdrawal used to DELETE the assignment row. The engine's rule
- * for who may be proposed is "anyone who does not already hold a row on this
- * shift" — so the moment the row went, so did the only reason not to offer the
- * shift straight back to the person who had just asked to come off it. They
- * would have ranked well, too: nothing records WHY somebody withdrew as a fact
- * about their availability.
- *
- * Keeping the row fixes it, and that is a correctness property held up by two
- * files agreeing with each other. The first test below is the one that would
- * catch them drifting apart.
  */
 import { describe, it, expect, beforeEach } from "vitest";
 import { TaskAssignmentService } from "@/services/task-assignment.service";

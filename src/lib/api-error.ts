@@ -1,26 +1,5 @@
 /**
  * Turning an API error response into something a person can act on.
- *
- * ## The defect this exists for
- *
- * Every boundary route refuses a bad body the same way:
- *
- *     { error: "Validation failed", details: parsed.error.flatten() }
- *
- * and every page read `body.error` and threw `details` away. So a refusal that
- * knew exactly which field was wrong and why rendered as a red box reading
- * "Validation failed" — four words, no field, no reason, and no way forward
- * except to guess or to ask somebody with access to the server.
- *
- * That is not a small loss. The information was computed, serialised, sent over
- * the wire, parsed by the client, and then dropped one line before it would
- * have been useful.
- *
- * ## Why a shared function and not a fix per page
- *
- * There are dozens of call sites and they all made the same choice, which is
- * the signal that the choice belonged somewhere shared. A page that wants the
- * message now asks for it rather than deciding how to build one.
  */
 
 /** Zod's `flatten()` shape, which is what every route sends. */

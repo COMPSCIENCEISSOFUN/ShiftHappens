@@ -1,24 +1,6 @@
 /**
  * What a plan-locked screen and a full resource look like.
  *
- * ## Why these are components rather than a sentence per page
- *
- * The permission gates on these same pages already share one shape — an
- * `EmptyState` with a lock, saying what is missing and who to ask. Plan gates
- * were written nowhere, so each screen would have invented its own wording, and
- * the three that need one would have disagreed about whether the answer is
- * "upgrade", "not available on your plan", or "contact your administrator".
- *
- * ## Why a plan gate reads differently from a permission gate
- *
- * A permission is not the reader's to change: the honest ending is "ask a
- * company admin". A PLAN is — by an admin, from a page in this product — so the
- * ending is a route rather than a request. That difference is the whole reason
- * these are not the same component with a different string.
- *
- * The tier is NAMED for the same reason the permission picker names it:
- * "Enterprise" is something a reader can act on, "unavailable" invites a
- * support ticket.
  */
 "use client";
 

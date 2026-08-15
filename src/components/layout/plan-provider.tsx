@@ -1,58 +1,6 @@
 /**
  * The organisation's plan, available to any page under `(app)`.
  *
- * ## Why this exists
- *
- * There are two independent gates in this product and only one of them was
- * visible. `PermissionProvider` tells a page what the caller may do;
- * nothing told it what the PLAN allows. So every tier-gated screen enforced
- * correctly on the server and said nothing on the way in:
- *
- *   - Import Members showed its button on a Free organisation, ran the whole
- *     upload-and-column-mapping flow, and refused at submit — after the work.
- *   - The Roles page let a Free organisation compose a role box by box and
- *     refused it on save, having already offered fourteen categories of
- *     checkboxes.
- *   - The Audit Log page loaded and its data request came back 403.
- *
- * The permission-picker fix on the Roles page had already established the house
- * answer for this — grey the control, name the tier — but it applied to
- * individual checkboxes inside one screen. This is the same idea at the level
- * of a page.
- *
- * ## Why the tier comes from the server and the usage does not
- *
- * `tier` is passed down from the `(app)` layout, which has already loaded the
- * organisation for the suspension check. It costs nothing, it is correct on the
- * first paint, and feature availability derives from it through a pure function
- * — so a page never renders its unlocked state and then takes it away.
- *
- * That flicker was real. The sidebar fetched `/subscription` on mount and
- * treated "not answered yet" as "allowed", so Roles and Audit Log appeared in
- * the menu on every page load and then vanished. That fetch is now gone; the
- * sidebar reads the same `tier` this provider does.
- *
- * USAGE COUNTS cannot come the same way. They are five `count()` queries, they
- * change as you work, and putting them in the layout would run them on every
- * page load for the benefit of the two or three pages that show a create
- * button. They are fetched once here instead.
- *
- * ## Why the counts are fetched rather than derived from what a page has
- *
- * The obvious alternative is for the Members page to count its own rows. It
- * would be wrong. `countResource` counts ACTIVE memberships, non-archived
- * departments, and tasks that are neither completed nor cancelled — while the
- * pages hold filtered, searched and sometimes paged lists. A second count that
- * disagreed with the enforced one is precisely the defect
- * `SubscriptionRepository` warns about in its own comment: one number shown,
- * a different one enforced.
- *
- * ## What this is NOT
- *
- * Not a security boundary, for the same reason `PermissionProvider` is not.
- * Every gated route calls `enforceFeatureAccess` or `enforceResourceLimit`
- * itself, and that is what actually refuses. This exists so the product stops
- * offering what it will not do.
  */
 "use client";
 

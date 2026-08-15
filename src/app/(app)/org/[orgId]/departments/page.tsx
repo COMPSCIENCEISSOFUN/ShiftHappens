@@ -11,8 +11,6 @@
  *  - Archived departments can be restored (unarchived) or permanently deleted
  *  - Permanent delete is only available on archived departments
  *
- * Phase 12 visual overhaul — stat tiles, colour-coded cards,
- * responsive grid layout, full-width.
  */
 "use client";
 
@@ -399,13 +397,6 @@ export default function DepartmentsPage() {
     null
   );
   const [showCreate, setShowCreate] = useState(false);
-  /*
-   * This page had NO role check of any kind. A manager arriving by URL was
-   * offered "+ New Department", plus Edit, Archive and Delete on every row —
-   * four actions that each returned 403 — and four stat tiles counting every
-   * department and member in the organisation, which is outside the scope they
-   * are held to everywhere else.
-   */
   const { can, canAny } = usePermissions();
   const plan = usePlan();
   const canCreate = can("departments:create");

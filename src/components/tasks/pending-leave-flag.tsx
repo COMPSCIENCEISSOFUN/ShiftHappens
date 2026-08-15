@@ -19,24 +19,6 @@ export interface Alternative {
 /**
  * Says when a candidate has asked for this day off and nobody has answered —
  * and offers somebody else.
- *
- * ## Why a warning and not a block
- *
- * The chosen model is that leave binds on APPROVAL. A pending request therefore
- * leaves the person genuinely rosterable, and a manager who needs them may
- * still say so. What was missing was the knowing: stage 1 shipped the binding
- * half, so a manager could roster straight over an unanswered request and the
- * first either party heard of it was when the leave was approved and the shift
- * had to be unpicked.
- *
- * ## Why the alternative sits here
- *
- * A warning that only says "this is awkward" makes the manager go and find
- * somebody themselves, which is the work they opened this panel to avoid. The
- * suggestion is drawn from the ranking the panel has already loaded rather than
- * a second mechanism — and it deliberately excludes anyone with their own
- * pending request, because offering a replacement who has also asked for the
- * day off is worse than offering nobody.
  */
 export function PendingLeaveFlag({
   leave,

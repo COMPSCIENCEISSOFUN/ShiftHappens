@@ -5,20 +5,6 @@
  * and out of what they've taken, and ask to withdraw from something they can no
  * longer work.
  *
- * ## On the visual language
- *
- * This page predates the Phase 12 overhaul. It used shadcn `Card` primitives
- * where every other page uses the house panel, a bare `h2` with no subtitle, no
- * stat tiles, no icons, and a `<select>` with no background colour — which made
- * it unreadable in dark mode. It now matches Departments, Members and Calendar.
- *
- * ## Why it is built mobile-first
- *
- * This is the one page in the application read mostly on a phone, standing up,
- * often in a hurry — a staff member checking whether they're on tonight, or
- * clocking in at the door. So the action buttons are full-width and stacked
- * below `sm`, the sections that need a decision come first, and finished work
- * is collapsed behind a count rather than filling the screen.
  */
 "use client";
 
@@ -225,30 +211,6 @@ function ReasonSelect({ name }: { name: string }) {
 /**
  * A withdrawal request whose shift has already ended.
  *
- * ## Why this leaves the page
- *
- * This list is what is on the MEMBER's plate. A pending withdrawal is on the
- * MANAGER's — the member has asked and can do nothing further — and it appears
- * here only so they can see the request is still open. Once the shift has been
- * and gone, that information is stale: the shift was either covered or it was
- * not, and no answer now changes either.
- *
- * The list was filtered by STATUS alone, with no date anywhere in it, so a
- * request a manager never answered stayed on the member's plate forever. A demo
- * account opened in August showed "Awaiting your manager's decision" against a
- * shift from 30 May, on the one screen whose whole job is answering "am I on
- * tonight".
- *
- * ## Why only a withdrawal
- *
- * The same shape applies to an ACCEPTED shift that was never clocked into, and
- * that one deliberately stays. The member may still need to record it, and
- * hiding it would remove their only way to. The difference is whether there is
- * anything left for them to do.
- *
- * A missing end time keeps the row: a shift with no schedule cannot have
- * passed, and dropping it would hide a live request on the grounds that nobody
- * had said when it was.
  */
 function isStaleWithdrawal(assignment: {
   status: string;

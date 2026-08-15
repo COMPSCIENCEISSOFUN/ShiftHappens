@@ -1,38 +1,6 @@
 /**
  * The permission gate for API routes (Boundary Layer).
  *
- * ## What this replaced
- *
- * Every guarded route carried its own two-liner:
- *
- *     const membership = await accessService.getMembership(user.id, orgId);
- *     if (!membership || !["company_admin", "manager"].includes(membership.role)) {
- *       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
- *     }
- *
- * Forty-four copies of it, all keyed on the three-value `role` string. Meanwhile
- * the Roles screen let an admin compose fine-grained permission sets that no
- * code path ever read. This is where the two are joined: a route names the
- * permission it needs, and the gate resolves what the caller actually holds.
- *
- * ## Order of the checks, and why it matters
- *
- * 1. Active membership — not a member, or no longer one, is 403 either way.
- * 2. **Subscription plan**, when the permission describes a gated feature.
- * 3. Permission.
- *
- * The plan is checked BEFORE the permission, and that ordering is the point: a
- * plan can veto a permission, but a permission can never buy a plan. Granting
- * `audit:view` to a custom role on a Pro organisation does not open the audit
- * log — an Enterprise plan is a separate condition and it still says no. Were
- * the order reversed the result would be the same, but the error message would
- * read "Forbidden" and send an admin looking for a permissions bug instead of
- * an upgrade button.
- *
- * Department scope is NOT part of this gate. It answers a different question —
- * not what may be done but whose data it may be done to — and routes that need
- * it call `isTaskInScope` afterwards, as they always did. Keeping them separate
- * means a custom role can never widen a manager's department scope.
  */
 import { NextResponse } from "next/server";
 import { AccessService } from "@/services/access.service";

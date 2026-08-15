@@ -1,37 +1,6 @@
 /**
  * The notification vocabulary: every type, how it is grouped, and what it is
  * called on screen.
- *
- * ## Why it moved out of the service
- *
- * The service imports `NotificationRepository` and therefore Prisma, so the
- * notifications page and the bell could not read it — and both had their own
- * hand-written copy instead. There were FOUR lists of notification types by the
- * end: the service's, the page's badge labels, the icon map, and a test whose
- * "known types" array was itself typed out by hand. They had drifted: six types
- * had no label and rendered as "Update", five had no icon and fell back to a
- * generic bell, and the drift-guard test did not cover a single one of them,
- * because it had drifted too.
- *
- * Same move, same reason, as `audit-actions.ts` and `audit-entities.ts`: the
- * vocabulary is presentation data, the browser needs it, and a file the browser
- * can import cannot be the one that opens a database connection.
- *
- * ## Why `Record<NotificationType, …>` everywhere below
- *
- * Because a test that reminds somebody to add a label is a test somebody has to
- * remember to update. A `Record` over the union does not remind anybody — it
- * refuses to compile. Adding a notification type now means naming it, grouping
- * it, and saying where it links to (`notification-links.ts`), or the build
- * fails.
- *
- * ## `org_suspended` is gone
- *
- * It was declared, categorised, given an icon, a label and tests, and no code
- * path anywhere ever raised it — the eighth "built and uncalled" instance in
- * this codebase. It could not usefully have existed either: suspending an
- * organisation blocks its members from signing in, so the notification would
- * have been readable only by somebody who cannot log in to read it.
  */
 
 export const NOTIFICATION_TYPES = {

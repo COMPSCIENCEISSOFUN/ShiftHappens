@@ -1,32 +1,5 @@
 /**
  * A finished action is not a condition.
- *
- * Eight pages confirmed a completed action — "Invitation sent to …", "Schedule
- * saved", "Task updated" — with a persistent `AlertBanner`. Each one pushed the
- * page down, landed wherever that page happened to render it (on Members,
- * between the stat tiles and the search box), and stayed until the next
- * navigation. One of them had already been "fixed" locally by clearing the
- * state at the top of every handler, which left the same defect standing on the
- * other seven: it was treated as a bug in one file rather than as a consequence
- * of the choice of element.
- *
- * They are toasts now. This stops the ninth.
- *
- * ## Why a scan rather than a lint rule or a code review
- *
- * The mistake is invisible in review: `<AlertBanner variant="success" />` is
- * correct-looking, consistent with the file around it, and behaves fine on the
- * screen where you test it. Nothing fails. The reason not to write it is a
- * convention, and a convention nobody can see is a convention that erodes —
- * which is exactly the argument `audit-coverage` makes about audit entries
- * being raised from Control.
- *
- * ## The exceptions are named, not pattern-matched
- *
- * Both are success messages that describe something still true rather than
- * something finished, and the difference cannot be read off the markup. Listing
- * the files means adding a ninth is a deliberate act with a reason attached to
- * it, rather than a scan quietly widening.
  */
 import { describe, it, expect } from "vitest";
 import { readdirSync, readFileSync, statSync } from "node:fs";

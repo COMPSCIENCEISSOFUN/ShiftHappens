@@ -1,21 +1,3 @@
-/**
- * Three related defects in the whole-week scheduler.
- *
- * 1. It counted CLOCKED hours as the week's load, so a shift booked for next
- *    Tuesday read as zero — and "fewest hours worked" carries the ranker's
- *    largest single weight. Two runs in the same week therefore piled work onto
- *    the same people, with every hard rule passing.
- * 2. It ran org-wide for everybody, so a manager granted the permission through
- *    a custom role drafted and confirmed across departments they have no
- *    authority over.
- * 3. Confirm re-read headcount and composition from live state but not the
- *    person-level constraints, so two drafts built from the same starting state
- *    could each place one person on a different overlapping shift.
- *
- * Scope narrows WHAT IT FILLS and WHO IT MAY USE, never WHAT IT COUNTS — hours
- * and conflicts are facts about a person, not a department, and a draft blind
- * to another department's shifts would roster straight through a rest gap.
- */
 import { describe, it, expect, beforeEach } from "vitest";
 
 import { AutoScheduleService } from "@/services/auto-schedule.service";

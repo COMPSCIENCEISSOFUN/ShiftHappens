@@ -1,27 +1,6 @@
 /**
  * The application's two button styles, as class strings.
  *
- * ## Why these are strings and not a component
- *
- * `button.tsx` (shadcn) is still here and still used by the older pages. These
- * are deliberately separate rather than another variant on it, for two reasons:
- * shadcn's `asChild` is not supported in the version pinned here, so the escape
- * hatch that would let a `<Link>` wear a button's clothes does not exist; and
- * every call site in the redesigned pages is a plain `<button>` that wants a
- * class, not a wrapper component. A string composes with `cn()` and disappears
- * at build time.
- *
- * ## Why they are shared
- *
- * These lived as copies in four page files. Three were byte-identical; the
- * fourth — my-tasks — had already drifted, because that page is mobile-first
- * and its buttons stretch to fill the row on a phone. Nobody had noticed,
- * because the drift was intentional and local.
- *
- * That is exactly the state StatTile was in before it was extracted, and it is
- * the state a shared file is meant to prevent: the next person to adjust the
- * hover colour fixes it in one place and silently creates two house styles.
- * The mobile variant is now an explicit modifier rather than a divergent copy.
  */
 
 /** Filled indigo. The affirmative action — save, create, generate. */

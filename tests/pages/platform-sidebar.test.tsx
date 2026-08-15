@@ -1,16 +1,6 @@
 // @vitest-environment jsdom
 /**
  * Platform sidebar.
- *
- * The reason this has a test at all is the mobile drawer. The panel used to be
- * a fixed 256px column with no small-screen handling, so on a phone it ate a
- * third of the viewport and squeezed the page beside it. A drawer that does not
- * open, or does not close on navigation, fails in exactly the way nobody
- * notices on a desktop — which is where it will be developed.
- *
- * The shared-shell assertions matter for a different reason: the whole point of
- * `.app-sidebar` is that this panel and the org one cannot drift. A rewrite
- * that quietly reintroduces bespoke widths would pass every other test here.
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen } from "@testing-library/react";

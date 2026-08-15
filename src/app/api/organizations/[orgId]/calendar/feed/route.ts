@@ -3,21 +3,6 @@
  * GET  /api/organizations/[orgId]/calendar/feed — this member's subscribe URL
  * POST /api/organizations/[orgId]/calendar/feed — replace it
  *
- * ## No permission, by design
- *
- * A feed is your own shifts. There is nothing here another member could read
- * and nothing an administrator needs to grant — the membership IS the
- * authorisation, resolved from the session, and a caller can only ever reach
- * their own row. Inventing a permission would add an unticked checkbox to every
- * custom role, which is the trap the leave routes documented.
- *
- * ## Why the plan is NOT checked here
- *
- * Deliberately. The refusal belongs on the feed itself, which is polled long
- * after anybody visited this page: an organisation that downgrades must stop a
- * calendar already sitting in somebody's phone, and no check made at subscribe
- * time can do that. Showing the URL on a Free plan is harmless — following it
- * returns a calendar that explains the plan.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { CalendarFeedService } from "@/services/calendar-feed.service";

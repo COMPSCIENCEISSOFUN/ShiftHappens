@@ -1,39 +1,6 @@
 /**
  * Business days and operating windows.
  *
- * ## The problem this solves
- *
- * A calendar day runs midnight to midnight. An operational day usually does
- * not. A restaurant's Friday ends when the kitchen closes at 2am on Saturday;
- * a cleaning contractor's day might start at 8pm. Judging "hours worked that
- * day" against midnight boundaries splits a single shift across two days and
- * makes a daily cap fire on work nobody thinks of as belonging to that day.
- *
- * `CompanySettings.operatingHoursStart` is therefore treated as the
- * organisation's DAY BOUNDARY as well as the start of its opening window. This
- * is the same design used by hospitality workforce products (Restaurant365
- * calls it "start of day"), and it collapses two settings into one: move the
- * boundary and overnight shifts stop crossing it, rather than needing to be
- * split and reattributed.
- *
- * Two distinct spans follow from the pair of settings, and confusing them is
- * the easy mistake:
- *
- *   - The BUSINESS DAY is always exactly 24 hours, `[start, start + 24h)`.
- *     It is what hours are attributed to.
- *   - The OPERATING WINDOW is the open period inside it, from
- *     `operatingHoursStart` to `operatingHoursEnd`. It may be shorter than the
- *     business day, and it may wrap past midnight. It is what the calendar
- *     draws by default.
- *
- * When the window is 24 hours the two coincide.
- *
- * ## Why the window may wrap
- *
- * `operatingHoursEnd` used to be required to be greater than
- * `operatingHoursStart`, which made a night-time operation inexpressible: a
- * business open 20:00–04:00 could not enter its own hours. Any pair is now
- * legal and `end <= start` means the window runs past midnight.
  */
 import {
   DEFAULT_TIMEZONE,

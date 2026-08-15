@@ -4,16 +4,6 @@
  * Every tenant's product feedback, newest first. The one screen in the
  * application whose question has no organisation in it.
  *
- * ## Counting, not guessing
- *
- * The area chips carry exact counts from SQL, because the sender picked the
- * area. That is the whole reason the list is closed rather than free text: an
- * exact answer, one query, available the moment the first message arrives.
- *
- * ## Archiving is housekeeping
- *
- * It is invisible to the sender and reversible here. A queue nobody dares tidy
- * stops being read, and "cleared" must not come to mean "judged".
  */
 "use client";
 

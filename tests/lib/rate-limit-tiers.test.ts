@@ -1,29 +1,5 @@
 /**
  * Which endpoints are rate limited, and out of whose allowance.
- *
- * ## The bug these were written for
- *
- * The strict list carried the bare prefix `/api/auth`. That is the mount point
- * for every Auth.js endpoint, and only one of them — the credentials callback —
- * has a secret in it to guess. Issuing a CSRF token, listing providers, reading
- * a session and signing out were all competing for the same five requests a
- * minute.
- *
- * The arithmetic is what made it break rather than merely pinch. `signIn()`
- * costs three requests and `signOut()` costs two, so signing in and straight
- * back out spends the whole minute before a mistyped password is considered.
- *
- * And logging out then failed SILENTLY: `getCsrfToken()` swallows a failed
- * fetch and returns an empty string, `signOut` posts that, the server rejects
- * it, and the session cookie is never cleared. The browser redirects to
- * `/login` regardless, which bounces a still-signed-in user onward. Pressing
- * Log out appeared to work and did nothing.
- *
- * ## What is asserted
- *
- * Both halves, because either alone would have let the bug through: that the
- * password check is STILL strictly limited, and that the machinery around it is
- * not. A test of the first alone passes on the broken version.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { NextRequest } from "next/server";

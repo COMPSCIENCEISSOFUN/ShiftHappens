@@ -3,37 +3,6 @@
  *
  * Company admins define custom roles and the permissions attached to them.
  *
- * ## On the visual language
- *
- * This page predates the Phase 12 overhaul: shadcn `Card` primitives where
- * every other page uses the house panel, a bare `h2` with no subtitle, no stat
- * tiles, no icons, and two hard-coded light-mode colours. It now matches
- * Departments, Members and Calendar.
- *
- * ## Two behaviour bugs fixed here
- *
- * 1. The create form and the edit form shared ONE `selectedPermissions` array,
- *    and neither closed the other. With the create form open, clicking Edit
- *    rendered both, reading and writing the same selection — ticking a box in
- *    one moved it in the other, and whichever you saved won. Opening either
- *    form now closes the other, which is the only way one shared selection can
- *    be correct.
- *
- * 2. Unticking every permission and saving was silently ignored: the update
- *    sent `permissionIds: undefined`, Prisma skipped the field, and the role
- *    kept its old permissions while the UI reported success. Creating already
- *    refused an empty selection; editing now refuses it too, for the same
- *    reason and with the same message.
- *
- * ## What a role means, as of 2026-08-08
- *
- * A custom role ADDS to the holder's system-role permissions; it cannot take
- * anything away. This screen used to describe the opposite by omission — it
- * listed what a role granted and said nothing about the twelve permissions
- * that handing it to a manager silently removed. Two things here exist because
- * of that: the sentence above each chip list saying what the role does to a
- * staff member and to a manager, and the empty-role warning, which has now been
- * true in three different ways and is worth reading rather than assuming.
  */
 "use client";
 

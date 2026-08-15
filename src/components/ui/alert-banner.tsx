@@ -5,31 +5,6 @@
  * Supports error, success, warning, and info variants with
  * appropriate colors that work in both light and dark mode.
  *
- * ## When this, and when a toast
- *
- * The rule is about DURATION, not severity.
- *
- * This is for a condition that is still true while you look at it — the form
- * was refused, the plan does not include this, the organisation is suspended.
- * It occupies layout because the thing it describes has not gone away, and it
- * belongs beside whatever it is about.
- *
- * A finished action is not a condition. "Invitation sent", "Schedule saved",
- * "Task updated" describe something already over, and rendering them here
- * pushed the page down, sat between two unrelated sections, and stayed until
- * the next navigation. Those are `toast.success(...)` from `sonner`, mounted
- * once in `app/layout.tsx`.
- *
- * Two success banners survive that rule, both deliberately:
- *
- *   - `verify-email` — the confirmation IS the page's content; there is
- *     nothing underneath for a toast to float over
- *   - `settings` post-checkout — describes a state that persists and is not
- *     finished ("your plan will update momentarily"), tied to a URL parameter
- *     rather than to a click
- *
- * `tests/lib/no-success-banners.test.ts` holds that line, because the cheap
- * mistake is to add a ninth.
  */
 import { cn } from "@/lib/utils";
 import { X } from "lucide-react";

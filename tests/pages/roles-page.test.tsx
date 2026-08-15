@@ -1,18 +1,6 @@
 // @vitest-environment jsdom
 /**
  * The Roles screen, rendered for the first time.
- *
- * It has been through three behaviour fixes and a visual overhaul without ever
- * being in a test — the sort of file where "green" and "seen" have never been
- * the same claim.
- *
- * What is asserted is what the page SAYS a role does, because that is where it
- * has been wrong twice. It described a role by listing its grants, which was a
- * complete description only while roles could not remove anything; in between,
- * handing a role to a manager silently took twelve permissions away and nothing
- * on this card mentioned it. The wording is therefore load-bearing rather than
- * decorative, and it belongs in a test for the same reason the empty-role
- * warning does: both have now been true in more than one way.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, within } from "@testing-library/react";

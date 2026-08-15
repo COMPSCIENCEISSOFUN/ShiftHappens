@@ -1,23 +1,5 @@
 /**
  * One engine, one set of priorities, and a fallback that is actually reachable.
- *
- * Three separate defects met here.
- *
- * The whole-week scheduler had its OWN scoring — `100 - hours + (inDepartment ?
- * 25 : 0) + 25` — so an organisation got a different answer depending on which
- * screen asked: fill one shift and certifications and availability counted, one
- * of them wrongly; generate the week and neither existed, plus a constant that
- * was identical for everybody. Nothing explained the difference because nothing
- * intended it.
- *
- * The configured priorities reached only `FallbackRanker`, which runs when both
- * providers fail — a setting that worked exclusively during an outage. The
- * models are now told the ordering in the prompt.
- *
- * And no provider call had a timeout. A failover chain advances on a throw, and
- * a socket that never answers is neither an error nor a non-ok response, so a
- * hung connection made every deterministic fallback in the codebase unreachable
- * — the exact failure mode second providers exist for.
  */
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 

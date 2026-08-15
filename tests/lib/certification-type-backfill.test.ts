@@ -1,33 +1,6 @@
 /**
  * The data half of the certificate-type migration, run as SQL.
  *
- * ## Why this is in the migration and not in a script
- *
- * Filling the list from the names already in use is a DATA MIGRATION: it has to
- * happen once per database, at the moment the table appears, before anybody
- * edits a task. A shift requiring "Food Safety" cannot show that requirement
- * until the name is on the list, and saving it in the meantime drops the
- * requirement silently.
- *
- * "Once per database, at the moment the table appears" is the definition of a
- * migration step. A script alongside it is a second thing to remember, on a
- * different schedule, needing a production connection string on somebody's
- * laptop; a button in the UI is a one-time job wearing a permanent feature's
- * clothes. Both were considered and both are worse than putting the statement
- * in the file that creates the table, where it runs in the same transaction and
- * cannot be forgotten.
- *
- * ## Why it is tested at all
- *
- * Migration SQL is usually written once and trusted, which is exactly why it is
- * worth testing here: this statement carries four rules that are easy to get
- * wrong and impossible to notice afterwards — both sources, blanks dropped,
- * case-insensitive collapse, and org scoping. Getting the third wrong would
- * produce two entries for one certificate, which is the ambiguity the whole
- * table exists to remove, introduced at the moment it is created.
- *
- * The statement is read from the migration file rather than copied, so this
- * cannot drift from what actually runs.
  */
 import { describe, it, expect, beforeEach } from "vitest";
 import { readFileSync } from "node:fs";

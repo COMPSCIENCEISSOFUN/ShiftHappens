@@ -7,9 +7,6 @@
  * Client-side: SheetJS parses the file, algorithmic column mapping and validation.
  * Server-side: AI column mapping + department matching (enhancement, wired later).
  * Constrained fields (role, department, employment type) use dropdowns from org data.
- *
- * Phase 12 visual overhaul — stat tiles, styled drag-drop,
- * responsive layout, full-width.
  */
 "use client";
 

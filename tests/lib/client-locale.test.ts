@@ -1,36 +1,5 @@
 /**
  * A screen formats dates in the READER's language; the server picks one.
- *
- * Two rules, and they are opposites, so both need holding.
- *
- * ## On screen: no locale argument
- *
- * Roughly thirty call sites in pages and components already pass none, so a
- * date renders however the reader's own machine spells it. Five hard-coded one
- * — and not the same one: `en-GB` twice, `en-US` twice, and `en-AU` on the
- * profile page, which nobody chose. A reader whose browser is set to Chinese
- * therefore saw Chinese on Tasks and English on Calendar, in one application,
- * on one afternoon.
- *
- * This is deliberately NOT the same question as the timezone. `lib/timezone`
- * exists because a shift at 17:00 in Singapore is one instant and the viewer's
- * machine gets no vote on which. How that instant is SPELLED is a preference,
- * and `13 Aug` and `8月13日` name the same day.
- *
- * ## Off screen: exactly one locale
- *
- * PDFs, notification text, email bodies and AI prompts have no browser to ask.
- * Four files were choosing separately and `schedule-week.ts` chose twice, eight
- * lines apart — `en-US` on line 96 and `en-GB` on 134. `en-GB` is day-first
- * and `en-US` month-first, so `8/11` meant two different days in one product.
- * They now read `SERVER_LOCALE`.
- *
- * ## Why a scan
- *
- * Neither rule fails anything. A hard-coded `en-AU` renders a perfectly good
- * date, and a stray `en-US` in a PDF is only wrong next to the `en-GB` on the
- * page before it. Both are invisible until somebody with a different machine
- * opens the app — which is how this was found, from a screenshot.
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync, statSync } from "node:fs";

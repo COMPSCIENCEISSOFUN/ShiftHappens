@@ -1,42 +1,6 @@
 /**
  * One sentence saying what an audit entry actually did.
  *
- * ## Why this exists
- *
- * The log RECORDS plenty. Every service writes a `details` object — department
- * names, the plan tier before and after, the certificate and whose it was, the
- * decline reason, how many shifts a run filled. The screen rendered four of
- * them. `formatDetails` had a branch for `task.created`, `task.assigned`,
- * `assignment.rejected` and `task.updated`, and returned an empty string for
- * the other sixty-five actions.
- *
- * So an audit log whose whole purpose is answering "what happened" showed a
- * coloured badge, a name and a time, and left the reader to guess which
- * department was archived, which member was deactivated, and what a plan
- * changed from. The data was there the entire time.
- *
- * ## Why a Record and not a switch
- *
- * `Record<AuditAction, Summariser>` makes the compiler the reviewer: a new
- * action cannot be added to `ACTIONS` without deciding what its row says. That
- * is the same device the notification labels and the feedback areas use, and
- * it is here because the failure mode is silent — a missing branch renders a
- * blank cell rather than an error, which is exactly how sixty-five of them
- * came to be missing without anybody noticing.
- *
- * ## What a summary may and may not contain
- *
- * NEVER a raw id. `entityId` is a cuid, and a row reading "Task deleted —
- * cmf3k2..." is worse than one reading nothing, because it looks like it
- * answered the question. Deletion actions record the NAME for exactly this
- * reason — see the note on `PROJECT_DELETED` in `audit-actions` — so the
- * summary uses what was captured at the time and returns null when nothing
- * was.
- *
- * `null` means "there is genuinely nothing to add", and the screen shows a
- * muted dash. `member.activated` is the honest example: the action, the actor
- * and the target are the whole story, and inventing a sentence for it would be
- * padding.
  */
 import { ACTIONS, type AuditAction } from "@/lib/audit-actions";
 import { reasonLabel } from "@/lib/decline-reasons";

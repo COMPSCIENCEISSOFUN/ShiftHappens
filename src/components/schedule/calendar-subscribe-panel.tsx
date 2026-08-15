@@ -1,22 +1,7 @@
 "use client";
 
 /**
- * Subscribe to your shifts from a calendar app — US-81.
- *
- * ## Why a URL and not a download button
- *
- * A downloaded .ics is a snapshot. The moment a shift moves, the copy in
- * somebody's calendar is wrong and nothing tells them — which is worse than not
- * having it, because they now trust it. A subscribe URL is polled, so the rota
- * in their phone is the rota in the product.
- *
- * ## Why the warning is not a disclaimer
- *
- * Calendar clients send no session, so the link IS the credential: anyone
- * holding it can read this person's shifts until it is replaced. That is a real
- * thing for the reader to know before they paste it somewhere, and Regenerate
- * beside it is the only remedy — so the two sit together rather than the
- * warning living in a help page nobody opens.
+ * Subscribe to your shifts from a calendar app.
  */
 
 import { useCallback, useEffect, useState } from "react";

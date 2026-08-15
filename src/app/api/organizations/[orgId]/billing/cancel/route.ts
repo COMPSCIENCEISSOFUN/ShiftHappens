@@ -3,20 +3,6 @@
  * POST   /api/organizations/[orgId]/billing/cancel — schedule cancellation
  * DELETE /api/organizations/[orgId]/billing/cancel — undo a scheduled one
  *
- * ## Why this exists when the Stripe portal can already cancel
- *
- * It can, and it still can — the portal link is unchanged. But sending somebody
- * to a third-party page to leave means the one moment they are most likely to
- * reconsider happens somewhere this product cannot say anything. Cancelling
- * here lets the screen offer the cheaper plan first, which is the entire reason
- * a downgrade path exists.
- *
- * ## Why cancelling is scheduled rather than immediate
- *
- * The organisation has paid to the end of the period. Revoking on click would
- * take back time already bought. Stripe emits the deletion when the period
- * actually ends, and the existing webhook drops the tier then — one path for
- * tier changes, not two.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { BillingService } from "@/services/billing.service";

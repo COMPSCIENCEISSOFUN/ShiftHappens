@@ -4,32 +4,6 @@
  * These exist to answer one question honestly: does the allocation engine do
  * anything, and is it any good?
  *
- * ## Why this could not be built before
- *
- * The engine ranked candidates, scored them, explained itself and named a
- * winner — and then the assignment was written with none of that attached. So
- * an AI-chosen assignment was indistinguishable from one a manager picked by
- * hand, and a Groq ranking was indistinguishable from the algorithmic fallback
- * that runs when Groq is down. Provenance is now recorded at the moment of
- * assignment (see src/lib/allocation-provenance.ts) and these panels read it.
- *
- * ## The honesty rules these panels follow
- *
- * **Unrecorded is shown, not hidden.** Every assignment made before provenance
- * existed has no source. Folding those into "manual" would invent a human
- * decision for each one; dropping them would compute every percentage against
- * a flattering denominator. They get their own neutral slice.
- *
- * **"Top pick retained" is not called accuracy.** It measures how often the
- * candidate the engine ranked first was still on the shift rather than having
- * rejected or withdrawn. A shift falls through for reasons no ranking could
- * anticipate, so this is a signal, not a verdict — and it is labelled as one.
- * It is shown beside the same figure for lower-ranked picks, because the number
- * means nothing alone: only the gap between them says whether ranking first
- * meant anything.
- *
- * **An empty panel says why.** A brand-new organisation and a broken engine
- * both produce zeroes, and only one of them is the reader's problem.
  */
 "use client";
 

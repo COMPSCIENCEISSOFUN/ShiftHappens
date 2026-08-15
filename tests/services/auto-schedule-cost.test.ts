@@ -1,27 +1,5 @@
 /**
  * What a generated week costs, and which draft wins.
- *
- * ## The query explosion
- *
- * Both auto-schedule paths call `checkEligibilityForTask` per task, and the
- * engine's per-member memo lived for exactly one call — so every member's
- * commitments were reloaded for every task. Worse, the memo was keyed on
- * `membershipId|excludeTaskId`, and the excluded task differs per task, so even
- * a shared memo could not have been reused. At 100 tasks and 100 members that
- * is 10,000 identical round trips for data that does not change during a run.
- *
- * Two changes: the memo is keyed on the member alone and the excluded task is
- * filtered in memory, and the auto-scheduler owns one memo for the whole run.
- * The count is the property worth asserting — timing is flaky and proves
- * nothing on a fast machine.
- *
- * ## Which draft wins
- *
- * `generateSchedule` preferred the AI draft whenever it returned anything at
- * all. That was defensible while the AI path validated nothing, but every
- * proposal is now screened against the engine, so a draft that filled three of
- * twenty slots still won — leaving seventeen shifts for a manager to fill by
- * hand while the panel reported the model had scheduled the week.
  */
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { AutoScheduleService } from "@/services/auto-schedule.service";

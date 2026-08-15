@@ -9,24 +9,6 @@
  *           allocation.
  *   Pro+  = smart ranking + AI + automation + Projects + advanced tools.
  *
- * This REVERSES the rule this file used to state, which was that every "smart"
- * feature is available on all tiers and only scale limits and business tools
- * are gated. That rule gave the Free plan the entire product minus a member
- * cap: AI ranking, auto-allocation, the weekly auto-schedule and
- * natural-language task creation were all free, each one a paid provider call
- * against no revenue, and there was correspondingly little reason to buy Pro.
- *
- * What Free keeps is a complete and honest workforce manager — organisations,
- * departments, members, tasks and recurrences, availability, leave,
- * certifications, working-hour and overlap checks, the DETERMINISTIC
- * eligibility engine with its reasons, manual and multi-staff assignment,
- * reassignment, overrides with a reason, withdrawals and their approval,
- * clock in/out, history, notifications, the calendar and the basic dashboard.
- * Nothing in that list costs a provider call or runs unattended.
- *
- * What moves above Free is everything that RANKS, DECIDES or SPENDS on the
- * organisation's behalf, plus Projects, reporting export, integrations and the
- * premium analytics/audit surfaces.
  */
 
 // ─── Types ──────────────────────────────────────────────────────────────────

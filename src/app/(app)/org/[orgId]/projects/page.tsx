@@ -1,22 +1,6 @@
 /**
  * Projects (Boundary Layer).
  *
- * ## Why this page grew a plan gate
- *
- * Projects were the only capped resource on the only page with no plan
- * awareness. Every other create screen — members, tasks, departments, work
- * rules, roles — shows a `LimitNotice` beside its button and disables it at the
- * cap; this one posted regardless and let the server refuse, which since
- * projects became limited would have meant a raw error banner reading
- * "projects limit reached (1/1)" where an upgrade route should be.
- *
- * ## The three states, which are genuinely different
- *
- * A plan that includes NO projects is not the same as a plan that includes some
- * and has used them all, and neither is the same as having room and none made
- * yet. The first is an offer, the second is a decision, the third is an empty
- * page. Collapsing them — as a single "No projects yet" would — tells a Free
- * organisation to create something the server will refuse.
  */
 "use client";
 

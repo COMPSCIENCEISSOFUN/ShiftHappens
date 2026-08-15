@@ -1,21 +1,5 @@
 /**
  * One name field, and uniqueness on the one people read.
- *
- * ## The bug
- *
- * `@@unique([organizationId, name])` put the uniqueness rule on the stored
- * `name` — a field the form asked a manager to invent, annotated "Used in code.
- * Lowercase, no spaces." Nothing read it, the format was never validated, and
- * it could not be changed after creation.
- *
- * So two roles could both be labelled "Shift Lead" — stored as `shift_lead` and
- * `shiftlead` — and appear as two identical entries in the roles list, the
- * members dropdown and the work-rule targeting picker, with nothing on screen
- * distinguishing them. The constraint guarded the invisible field and left the
- * visible one open.
- *
- * The form now asks for one name. The slug is derived, and the LABEL is what
- * uniqueness applies to.
  */
 import { describe, it, expect, beforeEach } from "vitest";
 import { RoleService } from "@/services/role.service";

@@ -9,9 +9,6 @@
  *
  * Click a day header to drill into day view.
  * "Back to week" returns to the weekly overview.
- *
- * Phase 12 visual overhaul — stat tiles, accent corners, dept
- * colour bars, avatar stacks, responsive breakpoints.
  */
 "use client";
 
@@ -201,36 +198,6 @@ function avatarColour(name: string | null): string {
 /**
  * The detail for one shift, as a right-hand drawer.
  *
- * ## Why it moved out of the flow
- *
- * It rendered BELOW the calendar. On a week grid running 6 AM to 10 PM that is
- * a screen and a half down, so clicking a shift appeared to do nothing and the
- * reader had to scroll away from the thing they had just clicked to read about
- * it. The grid also has its own scroll, so "scroll down" meant two different
- * gestures depending on where the pointer was.
- *
- * ## Why a drawer and not a popover or a sticky bar
- *
- * A sticky bar would have been five lines and would cover 5 PM to 10 PM — the
- * busiest hours of a hospitality rota, and the ones somebody clicking an
- * understaffed shift is most likely looking at.
- *
- * A popover anchored to the block is what a dedicated calendar does and is the
- * better answer in the abstract; it is also edge-case positioning work against
- * a scrolling grid.
- *
- * A drawer is the pattern this product ALREADY has — `MemberEditDrawer`, same
- * geometry, same backdrop, same Escape handling. A second answer to "show me
- * the detail of the thing I clicked" is how a codebase ends up with two of
- * everything, which is the argument `button-styles` and `canBeRostered` both
- * make. It overlays rather than pushes, so the grid does not reflow and the
- * column you clicked stays exactly where it was.
- *
- * ## What is different from the members drawer
- *
- * Nothing here writes. There is no form, no error region and no unsaved state,
- * so closing can never lose anything — which is why the backdrop closes on a
- * single click with no confirmation.
  */
 function TaskDetailDrawer({
   task,
@@ -737,7 +704,7 @@ export default function CalendarPage() {
       : byDepartment;
   const unscheduledCount = filteredTasks.filter((t) => !t.scheduledStart || !t.scheduledEnd).length;
 
-  /* ------------------------------------------------------------------ */
+  /* ------------------------------------------------------------------  */
   /*  Grid geometry                                                      */
   /*                                                                     */
   /*  The grid is anchored to the organisation's BUSINESS DAY, which     */
@@ -755,7 +722,7 @@ export default function CalendarPage() {
   /*     height, was clamped to a 2% sliver and pinned to the bottom     */
   /*     edge of the grid — present, but unreadable and in the wrong     */
   /*     place.                                                          */
-  /* ------------------------------------------------------------------ */
+  /* ------------------------------------------------------------------  */
 
   const dayStartHour = opStart;
   const windowHours = operatingWindowHours(opStart, opEnd);

@@ -6,41 +6,6 @@
  * resilience: each section is independently nullable, so one failed query does
  * not empty the page.
  *
- * ## Why this stopped branching on the role string
- *
- * It used to read:
- *
- *     if (role === "staff")         → personal sections only
- *     if (role === "manager")       → org sections, department-scoped
- *     if (role === "company_admin") → org sections, plus two org-wide ones
- *
- * Permissions were never consulted, on the single largest data surface in the
- * product — which made the custom-role feature untrue in both directions. An
- * admin who composed a role deliberately WITHOUT `reports:view` and gave it to
- * a manager still sent them key metrics, staff utilisation, rejection trends,
- * coverage and tomorrow's schedule. The permission was removed and nothing
- * happened. In the other direction a senior staff member granted `reports:view`
- * got nothing, because the branch never asked.
- *
- * Every section is now gated by the permission that owns its data, so the
- * catalogue governs this endpoint the way it governs every other one. The three
- * system roles receive exactly what they received before — that is the
- * contract, and `tests/api/dashboard-permissions.test.ts` pins it.
- *
- * ## Permission and scope are separate questions
- *
- * Two sections are org-wide by nature: `departmentWorkload` compares
- * departments against each other, and `certificationSummary` counts across all
- * of them. Neither can be honestly narrowed to one department, so both need an
- * UNRESTRICTED caller as well as the permission. `certificationSummary` is the
- * one where that matters: managers hold `certifications:review` in their
- * bundle, so gating on the permission alone would newly hand every manager an
- * org-wide figure — a scoping regression introduced by a permissions fix.
- *
- * `teamRoster` is the mirror image: it is a scoped member's view of their own
- * team, so it needs a scope with departments in it, which is why an admin does
- * not receive it and did not before.
- *
  * Rate limit tier: relaxed (100 req/min)
  */
 import { NextRequest, NextResponse } from "next/server";

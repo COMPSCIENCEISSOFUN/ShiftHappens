@@ -1,34 +1,6 @@
 /**
  * The chrome for the signed-in pages that are not about a particular
  * organisation: onboarding, and the personal profile.
- *
- * ## It no longer guesses
- *
- * It used to take `orgs[0]` — the user's oldest organisation — and decorate
- * these pages with that organisation's name, role badge, plan and menu. For a
- * user in one organisation that is the right answer. For a user in two it was
- * a guess presented as a fact: open your profile from inside organisation B
- * and the sidebar quietly became organisation A.
- *
- * Now it resolves an organisation only when there is nothing to resolve:
- *
- *   exactly one  → that one, which is not a default but the only element
- *   none, or two
- *   or more      → the org-agnostic chrome, with no org name, no plan badge
- *                  and no org links
- *
- * The second case is a deliberate, visible reduction rather than a hidden
- * wrong answer. These pages are about the PERSON, not an organisation, and the
- * profile page already lists every organisation the caller belongs to — so the
- * one screen where the menu goes quiet is also the screen that says why.
- *
- * The dashboard used to come through here too. It now lives under
- * `/org/[orgId]/dashboard`, where the organisation is a fact rather than a
- * default, and `/dashboard` is a redirect with no chrome at all.
- *
- * Anything under `/org/[orgId]` must NOT come through here. That subtree has a
- * real answer in its URL and a layout that reads it — see
- * `app/(app)/org/[orgId]/layout.tsx`.
  */
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";

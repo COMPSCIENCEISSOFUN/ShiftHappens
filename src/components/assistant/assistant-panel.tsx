@@ -13,13 +13,6 @@
  * forbids and which is easy to write by accident when the guard is the first
  * thing on your mind.
  *
- * ## A panel, not a drawer
- *
- * Anchored to the launcher, about the size of a phone screen, and it does not
- * cover the page. The questions are about what you are looking at, so hiding
- * what you are looking at to ask them would work against the feature. Full
- * screen on a phone, where there is no "beside" to be.
- *
  * ## Nothing is persisted
  *
  * The conversation lives in this component's state: it survives navigation

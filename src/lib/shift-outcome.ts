@@ -1,30 +1,6 @@
 /**
  * What actually became of a shift, from the assignee's point of view.
  *
- * ## Why this is not just the status
- *
- * `TaskAssignment.status` answers "where is this row in the lifecycle", which
- * is the question the workflow asks. A history is read by the person who lived
- * it, and they are asking something else: what happened. Those come apart in
- * three places, and each one is a row somebody would otherwise misread.
- *
- *  - `accepted` on a shift that ended last week does not mean "accepted, on the
- *    way". It means nobody clocked anything, and the row says so only if you
- *    notice the date;
- *  - a CANCELLED shift leaves the assignment at whatever it was. Its status
- *    reports the member's last decision about a shift that then stopped
- *    existing, which is not what happened to them;
- *  - `pending` on an ended shift is a question that was never answered. The
- *    lifecycle has no terminal state for that, because from the workflow's
- *    side nothing happened — which is exactly the finding.
- *
- * ## No accusations
- *
- * There is no `no_show`. A missing clock-in means a missing clock-in: the
- * person may have worked the whole shift and forgotten the button, and a badge
- * on their own history page asserting they failed to turn up would be the
- * system stating as fact something it cannot observe. `no_clock_in` is what is
- * known; whether it mattered is a conversation, not a column.
  */
 import { wasWorked } from "@/lib/assignment-status";
 

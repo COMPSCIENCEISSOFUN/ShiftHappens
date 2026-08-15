@@ -1,7 +1,7 @@
 /**
  * Tests that wait on a clock instead of on a condition.
  *
- * ## The bug
+ * ## The bug that we encountered
  *
  * Audit logging and notifications are fire-and-forget by design — the service
  * fires them with `void` so they can never block or fail the operation that
@@ -14,7 +14,7 @@
  * failed on a Windows laptop run straight after a production build. Nothing was
  * wrong with the code. The test was making a claim about the hardware.
  *
- * ## Why a static check as well
+ * ## Why a static check was needed as well
  *
  * The seventeen sites were converted, which fixes seventeen tests. This covers
  * the eighteenth, written by whoever next needs to wait for a notification —

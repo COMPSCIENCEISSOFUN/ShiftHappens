@@ -7,25 +7,6 @@
  * is how a filter comes to send `"declined"` to an endpoint that only knows
  * `"rejected"` — which is precisely the trap here, because the UI has always
  * said "Declined" and the column has always stored `"rejected"`.
- *
- * ## Why "awaiting" and "lapsed" are separate views of one status
- *
- * Neither is a value in the database. Both are `status: "pending"`; what
- * separates them is whether the date has gone by. The split lives here rather
- * than in the column because it is not a fact about the row — it changes at
- * midnight, without anybody writing anything.
- *
- * ## Why "approved" is not simply `status = "approved"`
- *
- * A CASUAL member's override is written `approved` the moment they save it,
- * because their availability is an offer that binds at once. Those are not
- * leave requests and nobody ever decided them; listing them in a register of
- * decisions would bury the real ones under everyone's ordinary availability
- * edits. The register asks a different question — did this row ever go through
- * review — and answers it with `reviewedById`, which is set only when somebody
- * acted. That is the same field `deleteOverride` tests, and for the same
- * reason: it is the fact that a decision was made, where the status is only
- * what the row currently says.
  */
 
 export const LEAVE_VIEWS = [

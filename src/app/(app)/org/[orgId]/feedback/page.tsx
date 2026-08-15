@@ -2,14 +2,6 @@
  * Send Feedback Page (Boundary Layer)
  *
  * Any member, no permission, no plan gate — see the route for why.
- *
- * ## It says what it is
- *
- * There is no status, no reply and no place to come back to, so the page does
- * not imply any of the three. It is "send feedback", not "raise a ticket": a
- * ticket is something you chase, and a product that offers one and then never
- * mentions it again has told a small lie on the way in. The confirmation says
- * what actually happens to it and nothing more.
  */
 "use client";
 
@@ -71,19 +63,6 @@ export default function FeedbackPage() {
   }
 
   return (
-    /*
-      `w-full`, and not centred.
-
-      This has been narrowed twice — `max-w-2xl`, then `max-w-5xl` — each time
-      arguing that a textarea should not stretch across a wide monitor. That is
-      sound in isolation and loses to the argument that matters more here: no
-      other page in the shell caps its width, so any cap leaves a gutter only
-      these two pages have, and a page stopping short of the edge reads as
-      unfinished rather than as considered.
-
-      The measure is defended below instead, on the field that actually needs
-      it, rather than by shrinking the whole page around one textarea.
-    */
     <div className="w-full">
       {/*
         The house header: `h2`, bold, a 13px muted line under it, `mb-4` to the

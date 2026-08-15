@@ -1,31 +1,5 @@
 /**
  * What the URL alone gets you.
- *
- * ## The hole
- *
- * Nothing server-side read the org id from the URL. `middleware.ts` matches
- * `/api/:path*`, so pages never reached it; the `(app)` layout checked that a
- * session existed and stopped; and every page under `/org/[orgId]` is a client
- * component taking its id from `useParams()`.
- *
- * So a signed-in user could type `/org/<someone-else's-id>/members` and be
- * served the whole product. The DATA was safe — every route resolves the
- * caller's membership against the same id — but the page was served, and it was
- * rendered with the visitor's OWN org name, role badge and permission set,
- * because those came from `orgs[0]` rather than from the URL.
- *
- * ## What is asserted here
- *
- * The layout is a server component and cannot be rendered in this suite, so
- * these tests pin the decisions it makes — the ones a page-level guard would
- * otherwise have to get right fourteen times over:
- *
- *   is the caller a member of the org in the URL?
- *   which org's permissions govern the page?
- *   is THAT org suspended?
- *
- * plus the route-level consequences of tightening the four reference lists,
- * which is where the data actually was.
  */
 import { describe, it, expect, beforeEach } from "vitest";
 import { AccessService } from "@/services/access.service";

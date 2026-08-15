@@ -380,16 +380,6 @@ export default function AuditLogPage() {
   }
 
   return (
-    /*
-      `w-full`, like every other page in the shell.
-
-      This was `max-w-5xl`, which capped the content well short of the right
-      edge and left a gutter no sibling page has — so walking from Notifications
-      to Audit Log shrank the page for no stated reason. A width cap is worth
-      having for a column of prose (the feedback and review forms keep one) and
-      is exactly wrong for a table: the room goes to "What happened", which is
-      the column that holds a sentence.
-    */
     <div className="w-full">
       {/*
         The house header shape. This page kept `text-2xl font-bold` with no
@@ -548,22 +538,6 @@ export default function AuditLogPage() {
               }
             />
           ) : (
-            /*
-              A table, and the reason is the "What happened" column.
-
-              The rows used to be a badge, a name and a time laid out with
-              flexbox, so nothing lined up: the actor started at a different
-              horizontal position on every row depending on how wide the badge
-              was, and the eye had to re-find it each time. An audit log is read
-              by scanning ONE column — usually who, sometimes when — and a list
-              of differently-shaped rows is the one layout that makes scanning
-              impossible.
-
-              `overflow-x-auto` rather than a separate stacked layout for
-              phones. Two markups for one table is two places for a column to
-              be added to only one of them, and this is a screen an admin opens
-              at a desk.
-            */
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>

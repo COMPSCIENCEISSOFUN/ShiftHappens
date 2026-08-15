@@ -1,23 +1,5 @@
 /**
  * The `break_interval` work rule, which is a REST GAP between shifts.
- *
- * ## What it used to do
- *
- * Two things, neither of them a break rule.
- *
- * It asked `getHoursInLast24h`, whose window is anchored to `new Date()` — so a
- * shift three weeks out was judged on what the member had worked in the day
- * before the manager clicked Assign. That failed in both directions at once: a
- * double yesterday blocked a shift next month, while two back-to-back shifts
- * next Tuesday passed, because at the moment of judging nothing had been worked.
- *
- * And `breakHours` was never read by anything. The form demands it, validation
- * refuses to save the rule without it, the auto-schedule prompt quotes it — and
- * no enforcement path touched it. "A 1-hour break after 6 hours" was enforced
- * as "blocked after 6 hours", with no way to express the break at all.
- *
- * The tests below are anchored to the SHIFT, never to the clock, which is the
- * property that was missing.
  */
 import { describe, it, expect, beforeEach } from "vitest";
 import { EligibilityService } from "@/services/eligibility.service";

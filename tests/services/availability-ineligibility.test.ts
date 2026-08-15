@@ -1,18 +1,5 @@
 /**
  * Availability changes that put an assigned shift at risk.
- *
- * The gap this closes was an asymmetry. When a MANAGER rescheduled a task, the
- * system re-checked everyone assigned and warned if someone no longer fitted.
- * When a STAFF MEMBER changed their availability — the same event from the
- * other side — nothing was re-checked and nobody was told. The first anyone
- * knew was a no-show.
- *
- * Three properties are worth guarding here, and each fails silently:
- *
- *   1. it fires at all
- *   2. it only fires for NEWLY ineligible shifts, so correcting a typo does
- *      not re-alert on a problem the manager already has
- *   3. it never fails the staff member's own save
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { AvailabilityService } from "@/services/availability.service";

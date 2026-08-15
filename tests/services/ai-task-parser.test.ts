@@ -2,23 +2,6 @@
  * Tests for AI Task Parser Service (Control Layer)
  * Verifies input sanitization, prompt injection defense,
  * fallback parsing, and response validation.
- *
- * ## These tests never touch the network
- *
- * They used to. `parseTaskDescription` calls api.groq.com whenever GROQ_API_KEY
- * is set, so on any machine with a key configured this file made real API calls:
- * non-deterministic, quota-consuming, and offline-hostile. Worse, the
- * assertions had been loosened to tolerate BOTH outcomes — `expect(["urgent",
- * "high"]).toContain(...)` passes whichever path ran — and the three timezone
- * assertions were wrapped in `if (result.scheduledStart)`, so when the fallback
- * returned null they passed having executed no assertion at all. Those three
- * are the documented regression guard for the UTC incident that once marked
- * every casual employee unavailable, and they were guarding nothing.
- *
- * Both keys are now cleared before each test, which pins the deterministic
- * fallback path, and a separate block stubs `fetch` to exercise the AI path
- * explicitly. Between them both branches are covered on purpose rather than
- * whichever one the ambient environment happened to select.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { AITaskParserService } from "@/services/ai-task-parser.service";

@@ -15,9 +15,6 @@
  * worked would never be written, which is a payroll problem, not a billing
  * lever. The org can be suspended between clock-in and clock-out for reasons
  * the staff member has no control over.
- *
- * The suspension still bites: `complete` is guarded, so the assignment stops at
- * "clocked_out" until the org is reactivated. Nothing new is started.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { TaskAssignmentService } from "@/services/task-assignment.service";

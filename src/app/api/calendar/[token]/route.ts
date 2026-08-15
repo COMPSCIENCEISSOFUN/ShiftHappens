@@ -2,28 +2,6 @@
  * Calendar Subscribe Feed (Boundary Layer)
  * GET /api/calendar/[token] — the caller's shifts as iCalendar
  *
- * ## Public by necessity, not by choice
- *
- * Google Calendar and Apple Calendar poll a URL on a timer. They send no
- * cookie, no session and no Authorization header, and there is no negotiation
- * step in which one could be supplied. So the token in the path IS the
- * credential — the only bearer credential in the product.
- *
- * That makes this the one route where `getAuthenticatedUser` is deliberately
- * absent, and it is why everything the session would normally have proved is
- * proved in the service from the token instead: which membership, which
- * organisation, whether the member is still active, and whether the plan still
- * includes this. The route's only job is to refuse quickly and to say the right
- * thing in the two cases the protocol can express.
- *
- * ## Why an unknown token is a 404 and everything else is a 200
- *
- * A calendar client handed a 4xx shows its owner nothing — the shifts simply
- * stop appearing, which reads as an empty rota. So a deactivated member or a
- * downgraded organisation still gets a valid calendar, carrying one event that
- * explains itself. An unknown token gets a bare 404: it is a regenerated URL or
- * somebody guessing, and neither is owed an explanation.
- *
  * ## Rate limited even though it is idempotent
  *
  * Reading costs several queries and anybody holding the URL can call it as

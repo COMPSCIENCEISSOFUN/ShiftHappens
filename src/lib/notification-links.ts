@@ -1,53 +1,5 @@
 /**
  * Where clicking a notification takes you.
- *
- * ## Why this is a module and not two switch statements
- *
- * It WAS two switch statements — one in the notifications page, one in the bell
- * — each keyed on `entityType`, each written separately. They had drifted in
- * both directions: the page knew what to do with an hour-limit warning and the
- * bell did nothing, and neither had a case for `availability` at all, so four
- * notification types about leave were completely unclickable. One shared
- * resolver is the only arrangement in which they cannot disagree, which is the
- * same argument `assignment-status.ts` and `department-scope.ts` already make.
- *
- * ## Why it keys on TYPE rather than entityType
- *
- * `entityType` is too coarse to answer the question. All four leave and
- * availability notifications carry `"availability"`, but "your leave was
- * approved" belongs on the member's own availability page while "somebody
- * requested leave" belongs on the approvals queue — one is news, the other is a
- * job. The type says which; the entity type cannot.
- *
- * ## Why a destination has a fallback
- *
- * Several types reach BOTH audiences. `hour_limit_warning` goes to the member
- * and to every manager; `backfill_offered` goes to the replacement and to the
- * watchers. So the right page cannot be decided by the notification alone — it
- * depends on who is reading it.
- *
- * That was the live bug and it was not subtle. Seven staff-facing types —
- * a shift cancelled, a shift rescheduled, being removed from one, and the four
- * decline and withdrawal outcomes — all pushed to `/tasks`, which renders "You
- * don't have access to Tasks" for anybody without `TASK_LIST_READERS`. Staff
- * were told something had happened to their shift, tapped it, and hit a lock
- * screen. The identical bug had already been found and fixed for certificates
- * ten lines away, and never applied here.
- *
- * `requires` names the permissions the preferred page's own gate checks — not a
- * guess at them. Verified against each page:
- *
- *   - `/tasks` and `/calendar`  → `canAny(TASK_LIST_READERS)`
- *   - `/members`                → `canAny(MEMBER_LIST_READERS)`
- *   - `/leave`                  → `can("members:request_availability")`
- *   - `/certifications`         → `can("certifications:review")`
- *   - `/my-tasks`, `/my-history`, `/my-certifications`, `/availability`,
- *     `/my-schedule`            → no permission; self-service, and the sidebar
- *                                 gates them on `canBeRostered` instead
- *
- * The fallbacks are therefore all ungated pages, which is what makes this safe:
- * the worst case is a member landing somewhere useful rather than somewhere
- * forbidden.
  */
 import {
   MEMBER_LIST_READERS,

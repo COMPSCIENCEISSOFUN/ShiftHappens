@@ -4,45 +4,6 @@
  * The engine's deterministic opinion about who should take a shift. Used when
  * every AI provider fails, and on the paths that deliberately never call one —
  * so it is not a degraded mode, it is the answer the product can always give.
- *
- * ## The four dimensions, and why two of them were rewritten
- *
- * Two were sound. Workload balance separates people properly, and department
- * experience buckets real history. The other two did not do what their names
- * said:
- *
- * `scoreAvailability` returned 40 for "Not set" and 80 for anything else — a
- * yes/no, under a docblock claiming "tighter schedule match = higher score".
- * Once availability became a hard eligibility constraint, every candidate who
- * reached the ranker had it set, so the dimension returned 80 for EVERYONE. A
- * quarter of the score could not change anybody's position. It now measures
- * what it always claimed to.
- *
- * `scoreCertifications` counted certificates: three unrelated ones scored 100,
- * the single certificate the shift required scored 60. Since a missing required
- * certificate already fails eligibility, everybody being ranked holds what the
- * job needs — so counting only rewarded collecting extras, including irrelevant
- * ones. That is worse than the inert dimension: it was actively promoting the
- * wrong person, at 25% of the score. It now measures relevance to the work the
- * department actually does.
- *
- * ## Tightest fit wins
- *
- * Availability is scored so that the person whose free window most closely
- * wraps the shift ranks highest, and somebody free all week ranks lowest. That
- * is deliberate: it spends the constrained people on the shifts only they can
- * cover, and keeps the flexible ones for gaps that appear later. It also falls
- * out in the right direction for employment type — full-time staff default to
- * all seven days open, so they naturally sit below a casual who is free exactly
- * then, which is the "casuals get placed, full-timers fill the gaps" model
- * without a rule saying so.
- *
- * ## Neutral rather than arbitrary
- *
- * A dimension with nothing to measure — a shift with no scheduled time, a
- * department that requires no certifications — returns the SAME score for every
- * candidate and says so in the explanation. The alternative is a number that
- * reorders people for reasons nobody can name.
  */
 import type { StaffCandidate, RankedStaff } from "./ai-provider";
 import { pinnedExperienceFloor } from "@/lib/ranking-inputs";

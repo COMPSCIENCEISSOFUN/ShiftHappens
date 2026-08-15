@@ -13,13 +13,6 @@
  * the panels are inverted — leave first, the contract underneath as a fact to
  * consult rather than a form to fill in.
  *
- * ## Why the pattern is not seeded client-side any more
- *
- * The initial state used to be Monday–Friday 09:00–17:00, replaced only if the
- * server returned rows. That was a harmless starting point while the field was
- * editable. Read-only it became a lie: a contracted member whose pattern nobody
- * had set would read "Mon–Fri, 5 of 7, 40h" as though it were their contract.
- * `null` now means "not loaded", and an empty week says so.
  */
 "use client";
 

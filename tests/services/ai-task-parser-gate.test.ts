@@ -2,21 +2,6 @@
 /**
  * What the parser says it could not work out.
  *
- * ## Why this decides everything downstream
- *
- * `missing` is what makes an AI request create a shift unattended instead of
- * opening a form. Get it too eager and the product is a slower way to type a
- * task; get it too lax and a request that never said WHEN becomes a shift the
- * automation then ignores forever, because eligibility needs a window and the
- * hourly sweep skips undated work.
- *
- * ## Why priority and headcount are never in it
- *
- * The prompt gives both a default — "default = medium", "if headcount not
- * specified, default to 1". A returned value is therefore indistinguishable
- * from a filled-in blank, so gating on them would open the form on almost every
- * request. The last test pins that, because it is the rule most likely to be
- * "improved" by somebody adding a field they can see is unset.
  */
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { AITaskParserService } from "@/services/ai-task-parser.service";

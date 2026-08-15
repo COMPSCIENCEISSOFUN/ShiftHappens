@@ -1,20 +1,6 @@
 /**
  * Where a notification takes you, and — the point of the file — whether the
  * person reading it can open the page it chose.
- *
- * ## The bug
- *
- * Seven staff-facing types pushed to `/tasks`: a shift cancelled, a shift
- * rescheduled, being removed from one, and the four decline and withdrawal
- * outcomes. `/tasks` renders "You don't have access to Tasks" for anybody
- * without `TASK_LIST_READERS`. So a staff member was told something had
- * happened to their shift, tapped it, and hit a lock screen.
- *
- * The identical fix already existed ten lines away for certificates, with a
- * comment explaining the problem, and had never been applied to tasks.
- *
- * Four more types — everything about leave — had no case in either switch and
- * did nothing at all when clicked.
  */
 import { describe, it, expect } from "vitest";
 import {

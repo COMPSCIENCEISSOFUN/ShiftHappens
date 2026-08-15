@@ -2,26 +2,6 @@
 
 /**
  * The ShiftHappens mark, in one place.
- *
- * ## Why this exists
- *
- * The same brand mark was typed out five times — the landing header, the
- * landing footer, the auth page's mobile strip, the auth page's desktop link
- * and the sidebar — at three sizes, two corner radii and two different fills.
- * Nothing was broken; they had simply drifted, which is what five copies of one
- * thing do. Replacing the artwork meant finding all five, and the sixth would
- * have been written by whoever added the next page.
- *
- * ## Why it falls back rather than assuming the file is there
- *
- * The artwork is a file in `public/`, and until somebody puts it there the
- * image is a broken icon on the first screen a visitor sees — worse than the
- * letter tile it replaced. `onError` swaps in that tile, so this component is
- * correct before the file exists and correct after, and a bad deploy that
- * loses the asset degrades to something legible instead of to a broken image.
- *
- * That is also why it is a client component for what looks like static markup:
- * `onError` needs the browser.
  */
 import Image from "next/image";
 import { useState } from "react";

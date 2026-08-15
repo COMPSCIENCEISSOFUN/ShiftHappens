@@ -3,54 +3,6 @@
 /**
  * One dashboard, assembled from the registry.
  *
- * ## What this replaces
- *
- * Three components — admin, manager, staff — picked by a switch on the caller's
- * role. That is only correct while the population of callers is those three,
- * and custom roles make it combinatorial: a member holding
- * `certifications:review` without `reports:view` was routed to the personal
- * dashboard, the API returned the certification section because it gates that
- * independently, and nothing rendered it. A granted permission the screen
- * silently dropped.
- *
- * Here the reader states what they hold, `dashboard-cards` states what each
- * card needs, and this renders the intersection. Nothing maps a role to a
- * layout any more, so no grant can fail to surface.
- *
- * ## One request, and each card decides what its own absence means
- *
- * `GET /api/organizations/[orgId]/dashboard` answers with every section the
- * caller may see, settled independently. Three states reach a card and they are
- * not interchangeable:
- *
- *   - a value — it worked
- *   - `null` — the query THREW, and the card says so
- *   - `undefined` — the reader was never sent it, and the registry should not
- *     have offered the card at all
- *
- * Three cards fetch for themselves — billing, leave and the engine report —
- * because each is a separate route with its own gates, and folding them into
- * the dashboard payload would make the slowest of them the speed of the page.
- *
- * ## The `needs` band renders nothing when it is empty
- *
- * No heading, no "0 items need you". An empty top of the screen is the fastest
- * way to say you are clear, and a band that announces its own emptiness trains
- * people to skip the band.
- *
- * ## Whose data it is, said once
- *
- * The bands organise by when something matters, not by whose numbers you are
- * looking at — so each card was left to say that in its own title, and one did
- * not: "Tomorrow — nothing scheduled, tomorrow is clear" is the organisation's
- * rota in the second person, read by a company admin who can never hold a
- * shift. Cards now declare a `subject` and the layout puts a heading over each
- * group, so a new card cannot omit the answer.
- *
- * **Except in `needs`.** Every card there carries a verb and a count in its own
- * title, and the band exists to be scanned as ONE list — splitting it in two
- * would mean two places to look for what you have to do, which is the thing it
- * was built to prevent.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";

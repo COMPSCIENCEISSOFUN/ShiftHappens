@@ -1,24 +1,3 @@
-/**
- * The second attempt.
- *
- * ## The gap
- *
- * Auto allocation ran once — when a task was created or generated — and never
- * again. A shift a fortnight out that nobody was eligible for at that moment,
- * because availability had not been entered yet or a certificate had not been
- * verified, stayed empty until a human noticed. The organisation had asked the
- * system to do its rostering and the system tried once and gave up
- * permanently.
- *
- * ## What is pinned
- *
- * That the sweep fills what it can and only in `auto` mode; that it stops 48
- * hours out, because in `auto_accept` this ASSIGNS rather than offers and
- * putting somebody on tomorrow's rota by background job is a surprise the
- * product should not spring; that it counts occupancy with the shared rule
- * rather than by counting rows; and that it says NOTHING, which is the design
- * decision here most likely to be argued with.
- */
 import { describe, it, expect, beforeEach } from "vitest";
 import { AllocationService } from "@/services/allocation.service";
 import { prisma } from "@/lib/prisma";

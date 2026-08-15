@@ -1,22 +1,5 @@
 /**
  * Correcting a recorded clock time.
- *
- * ## The gap this closes
- *
- * A shift clocked into and never out of contributes no hours, and nothing could
- * put it right. The member's own history said the shift was not counted and
- * offered no route to fixing it — a page telling somebody their pay is short
- * and that nothing can be done about it. Worse, the note on that row used to
- * read "ask your manager to correct it", which pointed at a feature that did
- * not exist: they would go and ask, and the manager would find out the same way.
- *
- * ## What is being protected
- *
- * This writes the field the hours totals are built from, on somebody else's
- * record. So the tests here are less about the happy path than about the three
- * things that make an amendment legitimate rather than an edit: a stated
- * reason, a durable account of the before and after, and the member being told
- * it happened.
  */
 import { describe, it, expect, beforeEach } from "vitest";
 

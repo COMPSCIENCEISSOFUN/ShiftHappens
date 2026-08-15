@@ -4,28 +4,6 @@
  * Platform-wide totals and the spread of customers across subscription tiers.
  * Platform admins only — the layout enforces that.
  *
- * ## On the visual language
- *
- * Predates the Phase 12 overhaul: shadcn `Card` primitives, a bare `h1`, no
- * icons, no stat tiles. It now matches the org-level pages.
- *
- * ## What changed beyond the styling
- *
- * - **It fetched every organisation to produce three numbers.** The tier split
- *   was counted in the browser from `/api/platform/organizations`, which is
- *   paginated at fifty. So the distribution was right only while there were
- *   fewer than fifty customers, and would have started under-counting silently
- *   after that — the bar would still have drawn, just wrong. The counts are now
- *   grouped in the database and come back with the stats in one request.
- * - **Unknown tiers vanished.** The page iterated a hardcoded
- *   `["free", "pro", "enterprise"]`. An organisation on any other tier was
- *   counted into a map nothing read, so it was missing from the bar and the
- *   percentages did not add to 100. Whatever tiers exist are now rendered, with
- *   the three known ones kept in order and anything else appended.
- * - **The server's error message was discarded** in favour of "Failed to fetch
- *   stats". That is the habit that made a missing database column hard to
- *   diagnose on the deployed site. It now shows what the server said, with a
- *   retry.
  */
 "use client";
 

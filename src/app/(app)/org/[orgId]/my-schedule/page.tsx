@@ -3,35 +3,6 @@
  *
  * The member's own shifts, drawn as a week rather than listed.
  *
- * ## Why a second view of data My Tasks already shows
- *
- * A list answers "what am I on next". A grid answers "what does my week look
- * like" — where the gaps are, whether two shifts are back to back, whether
- * Thursday is free — and no amount of sorting a list produces that. The team
- * calendar has always drawn exactly this picture for managers; the people
- * actually working the shifts had no equivalent.
- *
- * ## Why it needs no permission
- *
- * This is the member's own data, and the catalogue deliberately holds no
- * permission for seeing your own: twelve such entries were retired precisely
- * because switching one off produces a broken member rather than a restricted
- * one. The gate is `canBeRostered` in the sidebar — a structural fact about who
- * can hold a shift, not an authority question.
- *
- * ## The endpoint this must NOT use
- *
- * `GET /tasks` requires `TASK_LIST_READERS` because a plain member typing that
- * URL used to receive the whole organisation's task board. This page reads
- * `/my-tasks`, which is scoped to the caller's own assignments by the service
- * and takes no membership id from the request. Widening the org endpoint to
- * populate a personal screen would trade a permission boundary for a
- * convenience, which is the exact swap the scoping audit was undoing.
- *
- * Operating hours come from `/settings/display`, the member-scoped read that
- * exists because the admin-only settings GET returned 403 to everybody else and
- * the calendar silently fell back to a hard-coded 6am–10pm — same organisation,
- * same page, different grid, no error.
  */
 "use client";
 

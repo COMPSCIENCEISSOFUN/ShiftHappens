@@ -1,19 +1,5 @@
 /**
  * What an audit row says it did.
- *
- * ## What this replaces
- *
- * A `formatDetails` on the page with four branches — `task.created`,
- * `task.assigned`, `assignment.rejected`, `task.updated` — returning `""` for
- * the other sixty-five actions. The services had been recording department
- * names, plan movements, decline reasons and staffing counts the whole time;
- * the screen showed a badge, a name and a time and threw the rest away.
- *
- * The failure was silent, which is why it lasted: a missing branch renders an
- * empty cell, not an error. So the completeness is now the compiler's job
- * (`Record<AuditAction, Summariser>`) and this file tests the behaviour that a
- * type cannot state — that the sentence is worth reading, and that no id ever
- * reaches it.
  */
 import { describe, it, expect } from "vitest";
 import { ACTIONS, type AuditAction } from "@/lib/audit-actions";

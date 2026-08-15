@@ -12,14 +12,6 @@
  * reach, and the task view, which shows whether the shift as it stands
  * satisfies them.
  *
- * ## Why the whole set, every time
- *
- * A composition rule is a property of the group. Checking only the person
- * being added would let two separately-fine assignments produce a roster that
- * breaks a rule neither of them broke alone — which is the exact failure the
- * per-candidate eligibility engine already has and the reason this is
- * separate from it.
- *
  * BCE: Service (Control) → Repository (Entity).
  */
 import { CertificationRepository } from "@/repositories/certification.repository";

@@ -7,18 +7,6 @@
  *
  * Notification preferences are stored as JSON string in the database
  * but accepted as objects in the API for ease of use.
- *
- * ## Operating hours are no longer range-checked
- *
- * This service used to reject any update whose merged result had
- * `operatingHoursEnd <= operatingHoursStart`. That rule looked like sensible
- * input validation and was in fact a modelling error: it made a window that
- * runs past midnight inexpressible, so a business trading 20:00–04:00 could
- * not enter its own hours, and every organisation was forced onto a day
- * boundary somewhere in the morning.
- *
- * Any pair of hours is now accepted and `end <= start` means the window wraps.
- * `@/lib/business-day` is the single place that interprets the pair.
  */
 import {
   parseWeights,

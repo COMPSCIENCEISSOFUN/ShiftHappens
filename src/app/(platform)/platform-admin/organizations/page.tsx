@@ -4,33 +4,6 @@
  * Every tenant on the platform, with the two controls a platform admin has over
  * them: subscription tier, and suspend / reinstate.
  *
- * ## On the visual language
- *
- * Predates the Phase 12 overhaul — shadcn `Card`, a bare `h1`, no stat tiles,
- * no icons. It now matches Members and Departments.
- *
- * ## What changed beyond the styling
- *
- * - **Suspending an organisation had no confirmation.** It is one click, next
- *   to a dropdown, and it locks every user in that tenant out of the product
- *   until someone reinstates it. Of everything in this application it is the
- *   action with the widest blast radius, and it was the least guarded. It now
- *   goes through the app's `ConfirmDialog`, naming the organisation and the
- *   number of people affected.
- * - **The server's message was discarded** in favour of "Failed to fetch
- *   organizations". Now shown, with a retry.
- * - **A failed tier change left the dropdown showing the new value.** The
- *   `<select>` is driven by `org.subscriptionTier`, so React re-renders it from
- *   state — but state only updates after a successful refetch, and on failure
- *   the browser's own uncontrolled paint of the chosen option stayed on screen.
- *   The list is now refetched on failure too, so the control returns to what
- *   the database actually holds.
- * - **No way to find anything.** The list is unpaginated in the UI and the API
- *   returns fifty. A name/slug filter and a status filter are cheap and make
- *   the page usable past a dozen tenants. Both are client-side over the loaded
- *   page — see the note on `filtered` below.
- * - **No empty state.** A plain grey sentence, where every other list in the
- *   app uses `EmptyState`.
  */
 "use client";
 

@@ -1,18 +1,6 @@
 // @vitest-environment jsdom
 /**
  * My Tasks after the split with My History.
- *
- * This page used to end with a "Finished" panel: the last three completed and
- * declined shifts behind a "show all" toggle. It was a second, smaller
- * implementation of the record — on the one screen in the product read standing
- * up, on a phone, to answer "am I on tonight". Finished work is noise against
- * that question, and the toggle made the "34 left to rate" tile on My History
- * point at a screen that would show three of them.
- *
- * So what is pinned here is a boundary rather than a feature: which rows this
- * page claims, which it has handed over, and that a member with nothing
- * outstanding is told that rather than being told they have never been given a
- * shift.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, within } from "@testing-library/react";

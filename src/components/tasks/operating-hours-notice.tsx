@@ -2,29 +2,6 @@
  * A warning — never a block — when a shift falls outside the organisation's
  * operating hours.
  *
- * ## Why this warns instead of refusing
- *
- * Blocking was the obvious option and it is the wrong one, for three reasons
- * worth recording so it is not "fixed" later:
- *
- *  1. Organisations legitimately schedule outside their opening hours. Setup,
- *     deliveries, deep cleaning, stocktakes and emergency cover all happen when
- *     the doors are shut. A shift-management product that cannot express those
- *     is not usable.
- *  2. Every task already in the database predates the rule. A hard block at
- *     validation would make an existing out-of-hours task uneditable — open it,
- *     change the title, hit save, get rejected on a field you never touched.
- *  3. Operating hours are a single pair of hours per organisation. They cannot
- *     describe a business whose hours differ by day, and most do. Enforcing a
- *     model that coarse would be enforcing an approximation.
- *
- * So the check informs the person making the decision and then gets out of the
- * way. The eligibility engine is where genuine refusals live, because its rules
- * are about people rather than premises.
- *
- * The notice renders nothing at all when it has nothing to say — no empty box,
- * no "looks fine" reassurance. It appears only when it is telling you something
- * you may not have noticed.
  */
 "use client";
 

@@ -2,26 +2,6 @@
  * Ask a Question API (Boundary Layer)
  * POST /api/questions — from the landing page, signed in or not
  *
- * ## The only unauthenticated write in the application
- *
- * Deliberately so. The FAQ is written for people who have not signed up, and
- * the only way to know what they want to know is to let them say it. Everything
- * else here is the consequence of that decision.
- *
- * - **Rate limited by address**, because there is no account to limit by. A
- *   person with a question sends one; anything sending six a minute is not a
- *   person.
- * - **A honeypot field.** Bots fill every input they find; a human never sees
- *   this one. A filled honeypot is answered 200 and dropped on the floor —
- *   telling a script it was detected only teaches the next version.
- * - **Nothing asked is ever published.** Answering means the platform admin
- *   writes an FAQ entry in their own words, so no stranger's text reaches the
- *   marketing site.
- * - **No session lookup at all.** `src/app/page.tsx` redirects a signed-in
- *   user to their dashboard, so nobody with an account ever reaches the form
- *   this serves. Asking for a session here would spend a query on every
- *   public request to learn something already known. `QuestionService.ask`
- *   still accepts an asker, for the day the app grows an in-app ask box.
  */
 import { NextRequest, NextResponse } from "next/server";
 

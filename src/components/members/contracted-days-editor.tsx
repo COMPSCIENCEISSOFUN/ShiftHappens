@@ -35,14 +35,6 @@ function openWeek(): DaySchedule[] {
  * so it is shown read-only with the nudge that already exists — asking them to
  * review it is the honest action, and overwriting it would be a change they
  * could undo the same evening without anyone knowing.
- *
- * ## Why a Save button here, when the rest of the drawer has none
- *
- * Everything else in the drawer is one control, one request. A week is seven
- * rows of three fields; applying each keystroke would be twenty-one requests
- * for one edit, and a half-applied week is a state the roster would act on. The
- * endpoint takes the whole week in one call, so the button matches the request
- * rather than contradicting the drawer's convention.
  */
 export function ContractedDaysEditor({
   orgId,

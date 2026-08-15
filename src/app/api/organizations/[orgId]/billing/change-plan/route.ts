@@ -4,22 +4,6 @@
  *
  * Body: { plan: "pro" | "enterprise" }
  *
- * ## Why this is not checkout
- *
- * `createCheckoutSession` refuses outright when a subscription already exists,
- * and rightly — two live subscriptions would bill one organisation twice for
- * the same product. Changing plans replaces the price on the existing
- * subscription item instead.
- *
- * ## Why it matters that this handles DOWNgrades
- *
- * It is the alternative offered to somebody about to cancel. Without it the
- * only route off Enterprise is off the product entirely, which turns every
- * "this is more than we need" into a lost customer rather than a smaller one.
- *
- * The tier is not written here. Stripe emits `customer.subscription.updated`
- * and that webhook applies it — the same single path every other tier change
- * takes.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { BillingService } from "@/services/billing.service";

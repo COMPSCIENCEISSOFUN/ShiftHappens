@@ -1,36 +1,6 @@
 /**
  * When an unanswered leave request stops being fine and starts being a problem.
  *
- * ## Two clocks, not one
- *
- * Anchoring only to the LEAVE DATE — "chase when it is three days away" — means
- * a request submitted in May for August sits silently for three months and then
- * becomes urgent overnight, with the first reminder arriving when it is nearly
- * too late to find cover.
- *
- * Anchoring only to SUBMISSION — the 48-hour SLA that HR tooling generally
- * settles on — misses the request made on Sunday night for next Tuesday: it is
- * not overdue, and the shift is gone before it becomes so.
- *
- * So both, whichever comes first. One is about the manager owing an answer; the
- * other is about the roster running out of time, and they are genuinely
- * different failures.
- *
- * ## The horizon is not a new number
- *
- * `DEFAULT_HORIZON_DAYS` is what this product already means by "soon":
- * recurring generation materialises that far ahead, auto-staffing fills that far
- * ahead, and the needs-attention list bounds itself there. A leave request for a
- * date inside it is a request about work the product already considers live.
- * Choosing a different number here would make this one feature disagree with the
- * other three for no reason.
- *
- * ## Why the boundaries are computed rather than the predicate exported alone
- *
- * The same rule has to run in two places: over a row already in memory, and as
- * a database query counting how many are affected. `chaseBoundaries` returns
- * the two instants both use, so the definition is one function and the SQL
- * cannot drift from the label.
  */
 import { DEFAULT_HORIZON_DAYS } from "@/lib/scheduling-horizon";
 

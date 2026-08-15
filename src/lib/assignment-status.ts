@@ -2,53 +2,6 @@
  * Assignment lifecycle statuses, and the one question everything asks of them:
  * does this row still hold a slot on the shift?
  *
- * ## Why this file exists
- *
- * "Which statuses count toward headcount" was written out by hand in seven
- * places, and at least three of them disagreed:
- *
- *   - The tasks page counted `assignments.length` — every row, including
- *     rejected ones. A shift both assignees had turned down displayed "2/3
- *     staff" with an amber progress bar.
- *   - The dashboard counted `["pending", "accepted"]`, so the same shift read
- *     "needs 3 more staff (0/3 assigned)" on the same data, at the same moment.
- *     Two pages, two numbers, one shift.
- *   - That list also omitted `withdrawal_requested`, which
- *     `TaskAssignmentService.requestWithdrawal` documents as deliberately
- *     holding the slot until a manager decides. A shift nobody had actually
- *     left was reported as needing a replacement.
- *   - The calendar page had it right, in a file-local constant nothing else
- *     could import.
- *
- * None of these were typos. Each was written correctly for the question in
- * front of its author, and the definitions drifted because nothing tied them
- * together. So the rule lives here once and the lists are derived from it.
- *
- * ## The rule
- *
- * A slot is occupied unless the assignment has been given back. Only two
- * statuses give it back: `rejected` (never taken up) and `withdrawn` (taken up
- * and released, with a manager's agreement). Everything else — including
- * `clocked_out` and `completed` — is a person who filled that slot, and a
- * finished shift is the least understaffed a shift can be.
- *
- * ## The same rule answers two questions
- *
- * "Does this hold a seat on the shift?" and "Does this tie up the person's
- * time?" have the same answer for every status, so they share one set rather
- * than two lists that would drift.
- *
- * They drifted once already. When `decline_requested` was added, only the
- * HEADCOUNT sites were routed through here; the eligibility engine, the
- * conflict finder and the allocation filter kept their own hand-written lists
- * on the grounds that they were future-facing and therefore equivalent. That
- * was true of the statuses existing at the time and stopped being true the
- * moment a new one appeared — a full-time member with a pending decline still
- * held the seat but no longer counted toward their own hours, so they could be
- * pushed over a limit or double-booked on a shift they were still rostered on.
- *
- * Which is exactly the failure this module exists to prevent. Anything asking
- * either question uses this set.
  */
 
 /** Lifecycle: pending → accepted → clocked_out → completed. */

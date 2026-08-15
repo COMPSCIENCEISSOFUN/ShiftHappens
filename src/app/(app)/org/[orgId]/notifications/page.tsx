@@ -88,15 +88,6 @@ const FILTER_NOUNS: Record<FilterKey, string> = {
 };
 
 
-/*
- * The badge label map used to be written out here, covered twenty of the
- * twenty-five types, and fell back to "Update" for the rest — so a
- * `leave_approved` row sat under the Assignments pill wearing a badge that said
- * "Update". It now comes from `lib/notification-types`, as a `Record` over the
- * type union, so a new type without a label fails the build rather than
- * quietly rendering as "Update".
- */
-
 function timeAgo(dateStr: string): string {
   const seconds = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
   if (seconds < 60) return "just now";
@@ -111,14 +102,6 @@ function timeAgo(dateStr: string): string {
 
 /**
  * Buckets a notification by the organisation's day, not the browser's.
- *
- * This used to take the reader's local midnight, on the reasoning that "Today"
- * should mean the day the person reading it is having. Defensible on its own —
- * and the "Today" TILE above the list counts against the organisation's
- * timezone, so for anybody outside it the two described different sets. A
- * notification could sit under the "Yesterday" heading while being counted in
- * the "Today" number, which reads as a broken page rather than as two
- * defensible definitions.
  *
  * The boundary now comes from the server, which is the only way the count and
  * the headings can agree by construction rather than by both being changed at

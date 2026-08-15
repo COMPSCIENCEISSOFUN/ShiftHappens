@@ -1,24 +1,5 @@
 /**
  * Star rating — read-only display and an interactive picker.
- *
- * ## Why stars rather than a number field
- *
- * The rating is given by a staff member on a phone at the end of a shift. A
- * number input asks them to think about a scale; five targets ask them to
- * point at one. The whole feature depends on people bothering, so the cost of
- * answering is the thing to minimise.
- *
- * ## Accessibility, which stars usually get wrong
- *
- * The picker is a radiogroup of real `<button>`s, not a row of icons with
- * click handlers on `<div>`s. That means it is reachable by Tab, operable by
- * Enter and Space, and announced as "3 out of 5" rather than as five unlabelled
- * images. `aria-checked` carries the state, so a screen reader user knows what
- * is currently selected before changing it.
- *
- * Colour is never the only signal: the selected count is written out beside
- * the stars, because a filled-versus-outlined distinction is invisible to
- * anyone who cannot see the fill.
  */
 "use client";
 

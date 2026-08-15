@@ -5,21 +5,6 @@ import { isMonday, mondayOf, shortDateLabel, weekdayName } from "@/lib/schedule-
 /**
  * Says so when the chosen week does not start on a Monday, and offers to move
  * it.
- *
- * ## Why not just snap the date
- *
- * `mondayOf` and `isMonday` were written, tested, and then left uncalled — the
- * decision at the time was that silently moving a date somebody had just picked
- * is worse than telling them. That was right, but only the half requiring no
- * work got done: the page neither snapped nor said anything, so picking a
- * Wednesday produced a Wednesday-to-Tuesday roster with nothing on screen
- * marking it as unusual.
- *
- * It is deliberately not an error and does not block generating. A seven-day
- * window starting on a Wednesday is a legitimate thing to want, and
- * `confirmSchedule` re-checks headcount so two overlapping drafts cannot
- * double-assign anyone. The problem was never that it is wrong — it is that it
- * is surprising, and a roster nobody thinks in should announce itself.
  */
 export function WeekStartNotice({
   weekStart,

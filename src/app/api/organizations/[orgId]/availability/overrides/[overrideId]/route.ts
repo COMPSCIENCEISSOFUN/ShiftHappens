@@ -3,20 +3,6 @@
  * DELETE /api/organizations/[orgId]/availability/overrides/[overrideId]
  *
  * Removes one of the caller's own date overrides.
- *
- * ## Why this did not exist
- *
- * `AvailabilityService.deleteOverride` and its repository method were both
- * written — with a docblock explaining that removing an "I CAN work the 14th"
- * override NARROWS availability and so has to run the ineligibility check —
- * and nothing could reach them. A member could add an override and never remove
- * it, including one added by mistake.
- *
- * ## Ownership, not permission
- *
- * There is no permission for this: overrides are personal, and the check is
- * that the row belongs to the caller's own membership. A 404 rather than a 403
- * for somebody else's override — the caller has no business knowing it exists.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { AvailabilityService } from "@/services/availability.service";

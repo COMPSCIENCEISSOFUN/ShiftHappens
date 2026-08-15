@@ -7,8 +7,6 @@
  * Self-demotion protection: current user cannot change
  * their own role or deactivate themselves.
  *
- * Phase 12 visual overhaul — stat tiles, avatar rows,
- * responsive layout, full-width.
  */
 "use client";
 
@@ -268,12 +266,6 @@ export default function MembersPage() {
   /**
    * Asks a casual member to check their own availability.
    *
-   * `POST .../request-availability` has existed since Phase 7 with no caller
-   * anywhere in the UI — the endpoint, its service method, its audit entry and
-   * its notification were all reachable only by curl. It is the right action
-   * for a casual whose pattern looks stale, precisely because their
-   * availability is theirs to set and an admin edit is one they could undo the
-   * same evening.
    */
   async function onRequestAvailabilityReview(userId: string) {
     try {
@@ -504,19 +496,6 @@ export default function MembersPage() {
 
   /**
    * Adds or removes ONE department, leaving the rest alone.
-   *
-   * This used to send `[deptId]` — the whole set replaced by a single entry —
-   * because the control was a single select. Everything underneath already
-   * worked on a set: `departmentIds` is an array through the API and the
-   * service, `departmentScopeFor` returns an array, and `isDepartmentInScope`
-   * tests membership of it. Only the screen insisted on one, and the row
-   * display read `departmentMemberships[0]`, so a second department would have
-   * been invisible even if something else had created it.
-   *
-   * That matters for real rosters: a small venue has one manager covering
-   * Kitchen and Bar. Without this the only ways to express that were a second
-   * account, or promoting them to company admin — which removes department
-   * scoping altogether and hands over billing and settings.
    */
   async function onToggleDepartment(
     userId: string,

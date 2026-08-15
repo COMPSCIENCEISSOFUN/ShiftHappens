@@ -1,45 +1,5 @@
 /**
  * Everything the assign panel needs to know, fetched once and shared.
- *
- * ## Why this exists
- *
- * Two screens let a manager put somebody on a shift: the tasks page's inline
- * panel and the calendar's modal. They already agreed on WHO is eligible —
- * both call `/eligibility` and `/suggest` — and disagreed on what the manager
- * is told before committing. The calendar loaded neither `/composition` nor
- * `/pending-leave`, so assigning from there could build a shift the composition
- * rules would have flagged, or roster somebody onto a day they had just asked
- * off, with no warning either time.
- *
- * The obvious fix was to add the two missing fetches to the calendar. That
- * makes them identical today and lets them drift the next time either changes
- * — which is what happened to `shiftOutcome`, whose second implementation
- * lives in a filter, and to the success banner, fixed in one file and left in
- * seven. So the fetching moved here instead, and there is now one of it.
- *
- * ## What did NOT move
- *
- * The markup. The tasks page renders an inline expander, the calendar renders
- * a dialog, and those genuinely differ — a single component switched by a
- * `variant` prop would be two layouts wearing one name, which is worse than
- * two components sharing their data. **The rule is shared; the frame is not.**
- *
- * Nor does selection: which people are ticked, and the override reasons typed
- * beside them, belong to whichever panel is open. This hook answers "what is
- * true about this shift", not "what has the manager chosen".
- *
- * ## The failure semantics are the tasks page's, deliberately
- *
- * Both screens had their own, and the tasks page's are the ones that were
- * argued for in comments:
- *
- *   - eligibility: an error body is not iterable, so a non-array response is
- *     ignored rather than iterated into an empty catch, which used to leave
- *     every member silently reading as "eligibility unknown"
- *   - composition and pending leave: failure CLEARS rather than leaves stale.
- *     Half a picture is worse than none — a candidate with no "would break"
- *     badge because a fetch failed reads as a candidate who is fine
- *   - suggestions: non-critical. The panel works without them.
  */
 "use client";
 

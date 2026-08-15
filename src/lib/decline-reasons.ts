@@ -6,28 +6,6 @@
  *   - REJECTING an offered assignment ("I can't take this")
  *   - WITHDRAWING from one already accepted ("I can no longer do this")
  *
- * ## Why this file exists
- *
- * The same eight values were written out in three places — the Zod enum in
- * `validations.ts`, a hard-coded `<option>` list in the My Tasks page, and a
- * label map in `pdf-report.service.ts`. Nothing kept them in step. Adding a
- * reason to the enum would not have offered it in the dropdown; removing one
- * would have left the dropdown offering a value the API rejects with a 400,
- * and the staff member would have seen "Validation failed" with no way to
- * proceed.
- *
- * Everything now derives from `DECLINE_REASONS`. The two label maps are typed
- * as `Record<DeclineReason, string>`, so adding a value here fails the build
- * until both are updated — the drift is caught by the compiler rather than by
- * a user.
- *
- * ## Why two sets of labels
- *
- * They are not stylistic variants of each other. `REASON_LABEL` is a UI label
- * that stands alone in a dropdown, so it is capitalised. `REASON_PHRASE` is
- * dropped into running prose in a generated report ("…mostly due to schedule
- * conflicts"), so it is lower case and plural. Sharing one map would make one
- * of the two read wrongly.
  */
 
 /**

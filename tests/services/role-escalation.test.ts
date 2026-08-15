@@ -1,22 +1,5 @@
 /**
  * Nobody may change a role in a way that reaches above themselves.
- *
- * ## The hole this closed
- *
- * `members:update_role` used to be reachable only by a company_admin, so no
- * guard was needed — an admin promoting themselves changes nothing. Making
- * permissions enforceable turned that into a live path: an org admin can grant
- * the permission to a custom role, and the picker describes it as "Update
- * member roles", which reads like "can move staff between Staff and Manager".
- *
- * What it actually allowed was one request. `userId` comes from the URL and was
- * never compared against the caller, and `company_admin` was an accepted value,
- * so the holder could PATCH their OWN membership to company_admin and become
- * the owner of the organisation.
- *
- * Not remotely exploitable — an admin has to grant the role deliberately. The
- * problem is that the label gives no hint that delegating it delegates
- * ownership.
  */
 import { describe, it, expect, beforeEach } from "vitest";
 import { UserManagementService } from "@/services/user-management.service";

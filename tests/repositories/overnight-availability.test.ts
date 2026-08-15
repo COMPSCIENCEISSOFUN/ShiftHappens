@@ -1,25 +1,5 @@
 /**
  * Shifts that cross midnight.
- *
- * ## The bug
- *
- * Availability windows and shift times are "HH:mm" STRINGS, compared lexically.
- * An overnight shift ends at a smaller string than it starts, so
- *
- *     startTime < schedule.startTime   "22:00" < "09:00"   false
- *     endTime   > schedule.endTime     "02:00" > "17:00"   false
- *
- * neither branch fired and the member came back AVAILABLE — for any window, on
- * any day, regardless of what they had declared. For a venue that closes after
- * midnight this is the closing shift, not an exotic case.
- *
- * ## The fix, and what it costs
- *
- * A shift ending before it starts occupies two calendar days, so it is split
- * and each half checked against that day's own override and window. That is the
- * truthful reading of the data — and it makes people INELIGIBLE who were
- * previously (wrongly) eligible, because somebody free until 23:00 on Saturday
- * has said nothing at all about Sunday morning.
  */
 import { describe, it, expect, beforeEach } from "vitest";
 import { AvailabilityRepository } from "@/repositories/availability.repository";

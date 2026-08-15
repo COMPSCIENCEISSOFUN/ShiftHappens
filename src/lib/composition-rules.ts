@@ -1,45 +1,6 @@
 /**
  * Composition constraints — rules about the SET of people on a shift.
  *
- * ## Why the eligibility engine could not do this
- *
- * `checkEligibilityForTask` asks one question per candidate, in isolation:
- * are they free, are they under their hours, do they hold the certificate. Two
- * people can each pass every check and still be the wrong pair — "they cannot
- * both be junior" is not a fact about either of them. No amount of per-person
- * checking reaches it, which is why this is a separate mechanism rather than a
- * sixth eligibility check.
- *
- * ## The three dimensions, and why exactly three
- *
- * They answer different questions and carry different weight, and the UI
- * always names which is in use so nobody mistakes one for another:
- *
- *   - **certification** — *is this person allowed to?* Verified by a manager,
- *     expires on a date. The strongest guarantee here; the system can stand
- *     behind it.
- *   - **seniority** — *has this person done it enough times?* Derived from
- *     completed shifts (see lib/seniority.ts). The supervisor's actual
- *     request; nothing else in the system expressed it.
- *   - **employment_type** — *what are they contracted as?* Already on the
- *     membership, costs one comparison.
- *
- * Free-text tags were considered and deliberately left out. A Certification
- * row is only a name, so an organisation wanting "Keyholder" can create and
- * verify one — the same capability with expiry and an audit trail attached.
- * A fourth kind with weaker guarantees would have been a second place to look
- * for the same thing.
- *
- * ## Why both `at_least` and `at_most`
- *
- * "They cannot both be junior" is a **maximum**. It is only interchangeable
- * with "at least one non-junior" when the headcount is exactly two: on a
- * four-person shift, "at most 1 junior" and "at least 1 senior" are entirely
- * different rules. Supporting only minimums would have quietly mistranslated
- * the requirement everywhere except the example it came from.
- *
- * The two also fail differently, which is what `evaluate` below is really
- * about — see `feasible`.
  */
 import { z } from "zod";
 import { EMPLOYMENT_TYPE_KEYS, EMPLOYMENT_TYPE_LABELS } from "@/lib/role-config";

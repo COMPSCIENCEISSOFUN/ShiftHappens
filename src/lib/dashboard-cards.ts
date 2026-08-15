@@ -1,45 +1,5 @@
 /**
  * What appears on a dashboard, and in what order.
- *
- * ## Why a registry rather than three components
- *
- * There used to be an admin dashboard, a manager dashboard and a staff
- * dashboard, chosen by a switch. That works only while the population of
- * callers is those three — and it is not. Custom roles ADD to the system
- * bundle, so the set of possible permission combinations is combinatorial. A
- * member holding `certifications:review` but not `reports:view` was routed to
- * the personal dashboard, the API cheerfully returned the certification section
- * because it gates that independently, and nothing rendered it. **A granted
- * permission that the screen silently dropped.**
- *
- * Each card now states what it needs. The dashboard renders the ones that
- * qualify. Adding a card is a line here; granting a permission cannot fail to
- * surface, because nothing maps roles to layouts any more.
- *
- * ## Scope is a requirement in its own right, not a proxy for seniority
- *
- * Three cards prove the dashboards are NOT nested — an admin is not a manager
- * plus extras:
- *
- *   - `department-workload` compares departments against one another, so it is
- *     meaningless to somebody who can see one. It needs an UNRESTRICTED reader.
- *   - `certification-summary` is counted organisation-wide and cannot be
- *     narrowed, so it needs the same.
- *   - `team-roster` is a scoped member's view of their own team. An admin has
- *     no "own team", so it needs a reader who HAS a scope.
- *
- * And the self-service cards need neither: they need somebody who can hold a
- * shift. An admin cannot, so they would render empty by construction.
- *
- * ## Bands, not a flat list
- *
- * `needs` is anything with a verb — accept this, approve that, this expires
- * Friday. `now` is what is happening. `trend` is how it is going. Everyone gets
- * the same three bands; what fills them depends on the reader.
- *
- * The `needs` band renders NOTHING when it is empty. No card saying "0 things
- * need you" — an empty top of the screen is the fastest way to say you are
- * clear.
  */
 
 import type { GatedFeature } from "@/lib/subscription-tiers";

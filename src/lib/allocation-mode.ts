@@ -8,35 +8,6 @@
  *   manual     — a human picks, and the system says only that cover is needed.
  *   suggested  — a human picks, shown the engine's ranking.
  *   auto       — the engine picks, and assigns.
- *
- * ## Why the stored value is not the answer
- *
- * `CompanySettings.allocationMode` records a preference. As of 2026-08-14
- * ranking is `smart_suggestions` and deciding is `auto_allocation`, both above
- * Free — so an organisation that was on Pro, chose `auto`, and later
- * downgraded still has `"auto"` in its settings row and must not still get the
- * behaviour.
- *
- * Two ways to handle that, and only one of them is safe. Rewriting the column
- * on downgrade loses the preference, so an organisation that upgrades again
- * silently comes back on `manual` and has to notice and re-choose. Resolving
- * it on READ keeps the preference intact and makes the plan the thing that
- * decides — which is also the only version that cannot be defeated by a
- * settings row written before the gate existed, by a hand-applied migration,
- * or by a webhook that changed the tier and did not think about this column.
- *
- * ## Why it steps down rather than falling to manual
- *
- * A plan that includes ranking but not automation should get ranking. The
- * ladder is ordered, so each missing feature costs exactly one rung:
- * `auto` without `auto_allocation` becomes `suggested`, and `suggested`
- * without `smart_suggestions` becomes `manual`. Free lacks both and therefore
- * lands on `manual` from any starting point, which is the positioning —
- * Free is manual allocation.
- *
- * Pure and DB-free so it can be unit-tested against every combination, and so
- * the decision is stated once rather than re-derived at each of the five
- * places that used to read the column directly.
  */
 
 export const ALLOCATION_MODES = ["manual", "suggested", "auto"] as const;

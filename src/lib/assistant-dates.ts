@@ -1,33 +1,6 @@
 /**
  * Reading a day out of a question, without asking a model.
  *
- * ## Why this is not the model's job
- *
- * The assistant's whole design is that the provider chooses an INTENT and
- * touches no data. Letting it also extract "which day" would hand it the one
- * remaining thing that decides what gets fetched — and a model that misreads
- * "next Saturday" produces a rota for the wrong day, rendered exactly like a
- * rota for the right one. Nobody would notice until somebody did not turn up.
- *
- * Dates are also the thing rules are genuinely good at. There is no judgement
- * here, only arithmetic, and arithmetic that this codebase already has strong
- * opinions about — see the timezone note below.
- *
- * ## Everything is the ORGANISATION's calendar
- *
- * "Tomorrow" means tomorrow where the shift is worked, not where the server is.
- * On Vercel the server runs in UTC, which is eight hours behind Singapore, so
- * for the whole Singapore morning `new Date()` names the previous day — the
- * exact defect that had every calendar column drawing the day before its own
- * heading. So `now` is resolved through `localDateInTimeZone` and every result
- * is a plain `YYYY-MM-DD` calendar date, never a timestamp.
- *
- * ## Day-first, deliberately
- *
- * "8/11" is 8 November. It matches `SERVER_LOCALE`, the timezone, and the way
- * everybody who uses this product writes a date — and it is stated here rather
- * than assumed, because the American reading of the same string is a different
- * day and nothing in the string says which was meant.
  */
 import { DEFAULT_TIMEZONE, localDateInTimeZone } from "@/lib/timezone";
 

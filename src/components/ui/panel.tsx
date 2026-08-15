@@ -5,31 +5,6 @@
  * pages: an icon, a heading, an optional count, an optional action on the
  * right, then a body.
  *
- * ## Why this is shared
- *
- * Four copies existed, in auto-schedule, my-tasks, work-rules and roles. Two
- * were identical; the other two had each grown a feature the others could not
- * use — auto-schedule an amber `tone` and a header `action`, my-tasks a `count`
- * pill and a dividing body. So the duplication had already cost something: a
- * page wanting a count next to its title had to reimplement the whole panel to
- * get one.
- *
- * The union is small enough to carry in one component, and every prop here is
- * in use by a real call site rather than added on speculation.
- *
- * ## Two decisions worth knowing
- *
- * It renders `<section>`. Three of the four copies used a `<div>`; my-tasks
- * used `<section>` and was right to. A titled thematic grouping is what the
- * element is for, and it gives screen readers something to navigate by.
- * `<section>` and `<div>` are both block-level with no default styling, so this
- * is free.
- *
- * The body is only wrapped in a `<div>` when `bodyClassName` is passed.
- * Wrapping unconditionally would be tidier to read, but it would insert a node
- * into three pages that render fine today, and an extra wrapper is exactly the
- * kind of change that breaks a layout in a way nobody thinks to check. Callers
- * that need the wrapper ask for it.
  */
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";

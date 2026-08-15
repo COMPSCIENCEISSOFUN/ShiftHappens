@@ -2,28 +2,6 @@
 /**
  * The order of the fields in the New Task form.
  *
- * ## Why order is worth a test when appearance is not
- *
- * jsdom does no layout, so nothing here can tell you whether something looks
- * cramped. It can tell you the sequence — and the sequence is what was wrong.
- *
- * The form is a two-column grid where every child takes one cell, so the shape
- * of the page is decided by DOM order and by which children span both columns.
- * Two fields grew tall — the certification picker (a chip per recognised
- * certificate) and the composition editor (a row per rule) — and each pushed
- * the field after it into the next column. The result:
- *
- *   - "Required headcount", a one-line number, sat beside a five-row chip
- *     cloud with a hole underneath it
- *   - START TIME landed at the right of one row and END TIME at the left of the
- *     next, diagonally opposite, with the composition editor between them
- *
- * Start and End are one decision. Splitting them is the part that is actually a
- * usability defect rather than an untidy one, and it is a defect no screenshot
- * catches until somebody tries to fill the form in.
- *
- * What is pinned below is therefore adjacency and grouping, not styling: the
- * things a future field inserted in the wrong place would break again.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen } from "@testing-library/react";

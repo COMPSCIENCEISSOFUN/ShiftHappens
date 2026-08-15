@@ -1,48 +1,6 @@
 /**
  * The guard for everything under `/org/[orgId]` (Boundary Layer).
  *
- * ## What was missing
- *
- * Nothing server-side read the org id from the URL. `middleware.ts` matches
- * `/api/:path*` only, so pages never reach it; `(app)/layout.tsx` checks that a
- * session exists and stops there; and every page beneath this point is a client
- * component that takes its org id from `useParams()`.
- *
- * So any signed-in user could type `/org/<someone-else's-id>/members` and be
- * served a 200 with the whole product: sidebar, org name, headings, stat tiles,
- * action buttons, modals. Only the XHRs behind it answered 403. The data was
- * never exposed — every route independently resolves the caller's membership
- * against the same id — but serving the page at all is wrong twice over. It
- * tells a stranger the URL is meaningful, and it renders THEIR org's name and
- * role badge onto a page about an organisation they have nothing to do with.
- *
- * ## What it does
- *
- * Resolves the membership for the org in the URL, once, on the server:
- *
- *   no membership   → `notFound()`
- *   suspended org   → the suspension banner, for THIS org
- *   otherwise       → the chrome, with THIS org's permissions
- *
- * `notFound()` rather than a redirect or a 403, deliberately. A non-member and
- * a non-existent organisation must be indistinguishable, or the URL becomes a
- * way to discover which organisation ids are real.
- *
- * ## Why the permissions are resolved here and not above
- *
- * They used to come from `orgs[0]` — the user's arbitrarily-first organisation,
- * with no `orderBy` behind it — while the page below read a different id from
- * the URL. For a single-org user those are the same value. For anyone in two
- * they are not, and it failed in both directions: an admin of org A visiting
- * org B's settings saw the screen fully unlocked, while an admin of org B whose
- * first org happened to be A was told settings are managed by company admins,
- * in their own organisation.
- *
- * ## Still not a security boundary
- *
- * This decides whether the PAGE is served. Every action on it is refused
- * independently by `requirePermission` at its own route — which is what would
- * still stop a hand-written request if this file were deleted tomorrow.
  */
 import { notFound, redirect } from "next/navigation";
 import { auth } from "@/lib/auth";

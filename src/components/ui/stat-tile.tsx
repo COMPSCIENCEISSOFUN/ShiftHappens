@@ -3,20 +3,6 @@
  *
  * The small metric card that heads most pages in the application — a label, a
  * number, a one-line detail, and a tinted corner.
- *
- * ## Why this is shared
- *
- * This component existed as seven byte-identical copies, one per page that used
- * it (calendar, members, members/import, departments, certifications,
- * my-certifications, notifications). Nothing had drifted yet, which is the only
- * reason the duplication was invisible: the first person to adjust the padding
- * or the dark-mode tint on one page would have silently created two different
- * house styles, and the diff would have looked entirely reasonable.
- *
- * The accent colours are exported alongside it for the same reason. Passing
- * `accentColour="rgba(99,102,241,.08)"` as a raw string at every call site means
- * the palette lives in twenty scattered literals; a typo produces a slightly
- * different indigo that nobody notices.
  */
 import { cn } from "@/lib/utils";
 

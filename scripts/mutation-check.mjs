@@ -1,44 +1,6 @@
 /**
  * Mutation check — breaks the code on purpose and confirms the right test notices.
- *
- * ## Why this exists
- *
- * A passing test proves that its assertions hold. It does not prove they CAN
- * fail. This project has found thirteen tests that passed while testing
- * nothing — several that could not fail under any input, one that pinned a bug
- * rather than catching it, and one that was the only thing in the codebase ever
- * writing the field it checked.
- *
- * The answer has always been to break the code by hand and watch for red. That
- * works and it does not scale: sixteen checks across six files is half an hour
- * of careful editing, and the step everyone skips is putting the line back.
- *
- * ## What it does
- *
- * For each mutation: replace an exact string in a source file, run ONLY the test
- * file that should care, and record whether the expected test failed. Then put
- * the file back — every time, in a `finally`, whether the run passed, failed or
- * threw.
- *
- * Three outcomes, and the middle one is the point:
- *
- *   KILLED    the expected test failed. The test does its job.
- *   SURVIVED  nothing failed. The test cannot catch this bug — a finding.
- *   MISFIRED  something failed, but not the test named. Usually a compile
- *             error from the mutation itself, meaning the mutation is wrong
- *             rather than the test.
- *
- * ## Safety
- *
- * Originals are copied to `.mutation-backup/` before anything is touched, and
- * every file is compared byte-for-byte at the end. If a restore ever fails the
- * script says so loudly and names the backup — because at the time of writing
- * none of this work was committed, so a botched restore would not have been
- * recoverable from git.
- *
- * Run:  node scripts/mutation-check.mjs
- *       node scripts/mutation-check.mjs withdraw plan     (substring filter)
- */
+**/
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { join, dirname, basename } from "node:path";
 import { spawnSync } from "node:child_process";

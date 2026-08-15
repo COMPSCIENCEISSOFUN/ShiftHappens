@@ -1,32 +1,5 @@
 /**
  * Waiting for work the service deliberately did not await.
- *
- * ## The defect this replaces
- *
- * Audit logging and notifications are fire-and-forget by design — they must
- * never block or fail the operation that triggered them. That leaves tests with
- * nothing to await, and ten files answered it the same way: sleep a fixed
- * number of milliseconds, then assert.
- *
- * A fixed sleep is a guess about somebody else's machine. `smart-swap.test.ts`
- * slept 500ms for work that takes 83ms on the CI sandbox — a six-fold margin —
- * and still failed on a Windows laptop immediately after a production build.
- * The test was not wrong about the code; it was wrong about the hardware.
- *
- * The reasoning here is not new. `task.service.test.ts` had a `waitForNotifications`
- * helper with a correct docblock — "polling beats a fixed sleep, fast when it
- * lands, tolerant when the DB is slow" — and it stayed file-local while nine
- * other files went on sleeping. Which is this codebase's most repeated lesson:
- * fixing a defect in one place does not fix the class.
- *
- * ## What this does NOT solve
- *
- * Asserting that something did **not** happen. You cannot poll for an absence —
- * the wait has to be long enough that the effect would have landed if it were
- * going to, and "long enough" is the same guess as before. Those sites still
- * sleep, and are marked. The difference is that a too-short sleep there causes
- * a false PASS rather than a false failure, which is worse but is a separate
- * problem needing a different answer.
  */
 
 /** How long to keep asking before giving up. Well under the 20s test timeout. */

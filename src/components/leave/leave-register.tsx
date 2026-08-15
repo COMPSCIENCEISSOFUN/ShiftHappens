@@ -3,25 +3,6 @@
 /**
  * The leave register — every request that went through review, filtered.
  *
- * ## Why this is not `LeaveRequestsPanel` with more props
- *
- * That panel is a compact card among a manager's dashboard action items: a few
- * rows, two buttons, no chrome, and it renders nothing when empty because an
- * action list that announces its own emptiness trains people to scroll past it.
- * This is a page: it must show an empty state, say what it is filtered to, page
- * through hundreds of rows, and render four statuses that carry no actions at
- * all.
- *
- * Those are different components wearing one name — the same argument made for
- * keeping the calendar's assign modal separate from the tasks page's inline
- * panel. What IS shared is the decision endpoint and the row shape, which is
- * where a disagreement would actually cost something.
- *
- * ## Filtering is the server's job
- *
- * Every control here writes to the query and refetches. Filtering an
- * already-loaded page in the browser would silently mean "filter the first
- * fifty", and the count beside it would be a count of the wrong thing.
  */
 
 import { useCallback, useEffect, useState } from "react";
