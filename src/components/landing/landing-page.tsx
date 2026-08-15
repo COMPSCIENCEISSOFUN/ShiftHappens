@@ -58,8 +58,8 @@ const VIDEO_SOURCES: Record<
   string,
   { url: string; type: "embed" | "file"; poster?: string } | null
 > = {
-  demo: { url: "/videos/product-demo.mp4", type: "file" },
-  technical: null,
+  demo:      { url: "/videos/product-demo.mp4", type: "file" },
+  technical: { url: "/videos/technical-guide.mp4", type: "file" },
 };
 
 // Industries for the typewriter effect
