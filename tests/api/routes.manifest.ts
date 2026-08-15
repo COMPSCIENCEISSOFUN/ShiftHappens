@@ -285,8 +285,11 @@ export const ROUTES: RouteSpec[] = [
   org("recurring-tasks/generate", "POST", MANAGER, { suspension: true }),
 
   // ── Scheduling & availability ───────────────────────────────────────
-  org("auto-schedule", "POST", ADMIN, { suspension: true }),
-  org("auto-schedule/confirm", "POST", ADMIN, { suspension: true }),
+  // MANAGER since 2026-08-15. A manager drafts and confirms their OWN
+  // departments — both handlers pass `departmentScopeFor` — so widening the
+  // role does not widen the data.
+  org("auto-schedule", "POST", MANAGER, { suspension: true }),
+  org("auto-schedule/confirm", "POST", MANAGER, { suspension: true }),
   org("availability", "GET", MEMBER),
   org("availability", "PUT", MEMBER, { suspension: true }),
   org("availability/overrides", "GET", MEMBER),

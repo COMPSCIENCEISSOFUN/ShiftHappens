@@ -44,7 +44,6 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { usePlan } from "@/components/layout/plan-provider";
 import type {
   CompositionCandidate,
   CompositionRule,
@@ -128,18 +127,27 @@ const EMPTY: AssignData = {
   loadingSuggestions: false,
 };
 
-export function useAssignData(orgId: string) {
-  const [data, setData] = useState<AssignData>(EMPTY);
-  /*
-   * Whether the plan includes ranked suggestions.
+export function useAssignData(
+  orgId: string,
+  /**
+   * May this caller ask the engine to rank? Permission AND plan, resolved by
+   * the CALLER.
    *
-   * Read HERE rather than at each caller, because the two callers reach
-   * `loadSuggestions` for different reasons — the tasks page on a button, the
-   * calendar modal on open — and only the first had a control that could
-   * carry a gate. Putting it in the hook means neither can forget it, and a
-   * third caller added later inherits it.
+   * This was briefly read inside the hook with `usePlan()`, which was a bug
+   * worth remembering: `usePlan` falls back to the FREE tier when it cannot
+   * reach its provider, so any tree where the context was not resolvable at
+   * this point silently produced no rankings — no error, no 403, no console
+   * line, just an assign panel that had quietly lost half its content on a
+   * plan that pays for it.
+   *
+   * A hook is the wrong place to source that answer. Both callers are
+   * components that already compute it correctly from real context, and
+   * passing it in means there is one source of truth rather than a second one
+   * that fails closed in silence.
    */
-  const hasSuggestions = usePlan().has("smart_suggestions");
+  canSuggest: boolean
+) {
+  const [data, setData] = useState<AssignData>(EMPTY);
 
   /**
    * The three things a panel needs the moment it opens.
@@ -229,7 +237,7 @@ export function useAssignData(orgId: string) {
        * ranked", and the panel renders eligibility alone — which is exactly
        * the Free product.
        */
-      if (!hasSuggestions) {
+      if (!canSuggest) {
         setData((d) => ({ ...d, suggestions: [], loadingSuggestions: false }));
         return [];
       }
@@ -267,7 +275,7 @@ export function useAssignData(orgId: string) {
         return null;
       }
     },
-    [orgId, hasSuggestions]
+    [orgId, canSuggest]
   );
 
   /** Clears everything. Called when a panel closes, so the next one starts blank. */

@@ -265,10 +265,26 @@ describe("SettingsService", () => {
         expect(display.operatingHoursEnd).toBe(18);
       });
 
-      it("leaks nothing else — this read is not admin-gated", async () => {
-        // The whole point of the narrow shape. Any member of the organisation
-        // can call this, so allocation strategy, notification policy and smart
-        // allocation weights must not travel with it.
+      /*
+       * The narrow shape, now three fields rather than two.
+       *
+       * `allocationMode` was deliberately excluded when this test was written,
+       * grouped with "allocation strategy, notification policy and smart
+       * allocation weights". Two of those three stay out and the exclusion is
+       * still asserted below; the mode joins the operating hours, and the
+       * distinction is worth stating.
+       *
+       * The WEIGHTS are strategy — how the organisation values hours against
+       * certifications against seniority — and nothing outside the admin
+       * screen has any business with them. The MODE is one of three words
+       * describing what already visibly happens to the reader: a member on an
+       * auto organisation is assigned to shifts without being asked, and can
+       * see that they were. It is not a secret, and treating it as one had a
+       * concrete cost — the tasks board is rendered for managers, could not
+       * read it, and fell back to the least permissive value, which hid the
+       * AI Suggest button from every manager on every paying organisation.
+       */
+      it("leaks no strategy — this read is not admin-gated", async () => {
         await settingsService.updateSettings(orgId, {
           allocationMode: "auto",
         });
@@ -276,9 +292,15 @@ describe("SettingsService", () => {
         const display = await settingsService.getDisplaySettings(orgId);
 
         expect(Object.keys(display).sort()).toEqual([
+          "allocationMode",
           "operatingHoursEnd",
           "operatingHoursStart",
         ]);
+        // The ones that stay admin-only, named so a future widening has to be
+        // deliberate too.
+        expect(display).not.toHaveProperty("smartAllocationWeights");
+        expect(display).not.toHaveProperty("notificationPreferences");
+        expect(display).not.toHaveProperty("experiencedShiftThreshold");
       });
 
       it("lazily creates settings for an organisation that has none", async () => {

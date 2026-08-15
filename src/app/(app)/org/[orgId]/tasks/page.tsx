@@ -456,7 +456,7 @@ export default function TasksPage() {
     load: loadAssignData,
     loadSuggestions,
     reset: resetAssignData,
-  } = useAssignData(orgId);
+  } = useAssignData(orgId, canSuggest);
   /*
    * Stays here: whether the ranking is on screen is this panel's state, not a
    * fact about the shift. The calendar shows its suggestions always and has no
@@ -495,6 +495,72 @@ export default function TasksPage() {
    * cheap to fix and the wrong direction to be wrong in.
    */
   const [allocationMode, setAllocationMode] = useState<string>("manual");
+
+  /*
+   * ── The reader's own choice between picking blind and picking ranked ──────
+   *
+   * Their preference, remembered per organisation, or null for "follow the
+   * organisation". Held in `localStorage` rather than on the server, and that
+   * is a statement about what it IS rather than a shortcut.
+   *
+   * `auto` is an organisation POLICY: it assigns people to shifts with no
+   * human present, through the cron sweep, the recurring materialiser and the
+   * backfill path, all three of which read one org-wide value. A per-person
+   * override of that would leave those jobs with no answer to "whose setting
+   * applies to this task", so auto stays where it is — with the admin.
+   *
+   * Manual versus suggested is not policy. It changes nothing about what the
+   * server will do and nothing anybody else can see; it decides whether THIS
+   * manager is shown a ranking while they choose. That is a display
+   * preference, and storing it as one keeps the org-wide setting meaning
+   * exactly what it meant before.
+   */
+  const allocationPrefKey = `shifthappens:allocation-pref:${orgId}`;
+  const [allocationPref, setAllocationPref] = useState<string | null>(null);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronising with an external system: reads the reader's stored preference for this organisation
+    setAllocationPref(
+      typeof window === "undefined"
+        ? null
+        : window.localStorage.getItem(allocationPrefKey)
+    );
+  }, [allocationPrefKey]);
+
+  function chooseAllocationPref(next: string) {
+    setAllocationPref(next);
+    try {
+      window.localStorage.setItem(allocationPrefKey, next);
+    } catch {
+      /* Private browsing, or storage full. The choice still holds for this
+         page view, which is the whole of what it affects. */
+    }
+  }
+
+  /*
+   * What this page actually behaves as.
+   *
+   * The organisation's mode, with the reader's preference allowed to move it
+   * between `manual` and `suggested` and never out of `auto`. The preference
+   * is ignored entirely when the org is on auto, and it cannot conjure
+   * `suggested` on a plan without ranking, because `canSuggest` — which
+   * carries the plan gate — is what decides whether the control is offered at
+   * all and what every downstream control is checked against.
+   */
+  const effectiveMode =
+    allocationMode === "auto"
+      ? "auto"
+      : allocationPref && canSuggest
+        ? allocationPref
+        : allocationMode;
+
+  /*
+   * Offered only when there is a real choice behind it: the organisation is
+   * not on auto, and this reader may ask the engine at all. On Free
+   * `canSuggest` is false, so no toggle appears and nothing hints at a
+   * feature that is not there.
+   */
+  const canChooseAllocation = canSuggest && allocationMode !== "auto";
   const [autoAssigningId, setAutoAssigningId] = useState<string | null>(null);
   /**
    * Ranked replacements, keyed by the ASSIGNMENT being decided rather than by
@@ -553,8 +619,7 @@ export default function TasksPage() {
     fetchTasks();
     fetchDepartments();
     fetchMembers();
-    fetchSettings();
-    fetchOperatingHours();
+    fetchDisplaySettings();
     fetchCertificationTypes();
   }, [orgId]);
 
@@ -657,30 +722,33 @@ export default function TasksPage() {
     } catch {}
   }
 
-  async function fetchSettings() {
-    try {
-      const res = await fetch(`/api/organizations/${orgId}/settings`);
-      if (!res.ok) return;
-      const data = await res.json();
-      // The same least-permissive fallback as the initial state above: a
-      // response missing the field must not grant the paid control.
-      setAllocationMode(data.allocationMode ?? "manual");
-    } catch {}
-  }
-
   /**
-   * Operating hours come from the member-scoped route, not `/settings`, because
-   * managers reach this page too and the admin-only read would 403 for them —
-   * leaving the out-of-hours notice silently comparing against the 6–22
-   * defaults instead of the organisation's actual hours.
+   * Operating hours AND the allocation mode, from the member-scoped route.
+   *
+   * Not `/settings`, which needs `settings:read` and is admin-only. Managers
+   * reach this page too, and the admin-only read 403s for them — which used to
+   * leave the out-of-hours notice comparing against the 6-22 defaults, and
+   * then, once the mode's initial value was hardened to the least permissive
+   * one, left every MANAGER on `manual` for good. The AI Suggest button is
+   * hidden in manual mode, so it silently disappeared for the entire role that
+   * uses it most, on organisations paying for it.
+   *
+   * A least-permissive default is still right — it is what stops a Free
+   * organisation flashing a paid control before the answer lands. The fix is
+   * that the answer now actually arrives for everybody.
    */
-  async function fetchOperatingHours() {
+  async function fetchDisplaySettings() {
     try {
       const res = await fetch(`/api/organizations/${orgId}/settings/display`);
       if (!res.ok) return;
       const data = await res.json();
       if (typeof data.operatingHoursStart === "number") setOpStart(data.operatingHoursStart);
       if (typeof data.operatingHoursEnd === "number") setOpEnd(data.operatingHoursEnd);
+      // Same least-permissive fallback: a response missing the field must not
+      // grant the paid control.
+      if (typeof data.allocationMode === "string") {
+        setAllocationMode(data.allocationMode);
+      }
     } catch {}
   }
 
@@ -1040,7 +1108,7 @@ export default function TasksPage() {
       toast.success(
         repeatFreq
           ? "Recurring task created — upcoming occurrences generated"
-          : canAssign && allocationMode !== "auto"
+          : canAssign && effectiveMode !== "auto"
             ? "Task created — now choose who works it"
             : "Task created successfully"
       );
@@ -1089,7 +1157,7 @@ export default function TasksPage() {
      * In auto mode the engine has already staffed it. And without the
      * permission there is nothing to press.
      */
-    if (!taskId || recurring || !canAssign || allocationMode === "auto") return;
+    if (!taskId || recurring || !canAssign || effectiveMode === "auto") return;
 
     /*
      * A status filter can hide the shift that was just created — it is open,
@@ -1107,7 +1175,7 @@ export default function TasksPage() {
     resetAssignData();
 
     await loadAssignData(taskId);
-    if (allocationMode === "suggested") {
+    if (effectiveMode === "suggested") {
       fetchSuggestions(taskId, true);
     }
 
@@ -1720,6 +1788,54 @@ export default function TasksPage() {
         task board is not the place to advertise it every time somebody
         creates a shift.
       */}
+      {/* ──────────────────────────────────────────────── */}
+      {/* 2b. How THIS reader wants to pick staff          */}
+      {/* ──────────────────────────────────────────────── */}
+      {/*
+        A manager's own choice, not a change to the organisation.
+
+        The org-wide setting is an admin's, and it stays that way — this moves
+        the reader between picking blind and picking with the engine's ranking
+        in front of them, which is a fact about their screen and nothing else.
+        `auto` is deliberately not offered: it assigns people without a human
+        present, three unattended jobs read one org-wide value for it, and a
+        per-person override would leave them with no answer to whose setting
+        applies.
+
+        Absent entirely on a plan without ranking, because then there is no
+        choice to make and a lone dead option is worse than none.
+      */}
+      {canChooseAllocation && (
+        <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-border bg-card px-4 py-2.5">
+          <span className="text-sm font-medium">When I assign staff</span>
+          <div className="flex items-center gap-1 rounded-lg bg-muted/60 p-0.5">
+            {[
+              { value: "suggested", label: "Show me a ranking" },
+              { value: "manual", label: "Let me pick" },
+            ].map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => chooseAllocationPref(option.value)}
+                aria-pressed={effectiveMode === option.value}
+                className={cn(
+                  "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+                  effectiveMode === option.value
+                    ? "bg-card text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+          <span className="text-xs text-muted-foreground">
+            Only changes your view — your organisation&apos;s setting is
+            unchanged.
+          </span>
+        </div>
+      )}
+
       {canAiCreate && (
       <div className="mb-4 flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-1 transition-shadow focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-500/10 dark:focus-within:border-indigo-500 dark:focus-within:ring-indigo-400/10">
         {/* Sparkle icon */}
@@ -2293,7 +2409,7 @@ export default function TasksPage() {
                               // run.
                               await loadAssignData(newId);
                               // In "suggested" mode, auto-fetch AI suggestions
-                              if (allocationMode === "suggested") {
+                              if (effectiveMode === "suggested") {
                                 fetchSuggestions(newId, true);
                               }
                             }
@@ -2322,7 +2438,7 @@ export default function TasksPage() {
                       */}
                       {/* Auto-assign */}
                       {canAutoAllocate &&
-                        allocationMode === "auto" &&
+                        effectiveMode === "auto" &&
                         task.status === "open" &&
                         assigned < needed && (
                           <button
@@ -2893,7 +3009,7 @@ export default function TasksPage() {
                               button and Import Members: a greyed control is
                               still an offer, and the answer here is no.
                             */}
-                            {canSuggest && allocationMode !== "manual" && (
+                            {canSuggest && effectiveMode !== "manual" && (
                             <Button
                               size="sm"
                               variant="outline"

@@ -188,11 +188,29 @@ describe("the role bundles", () => {
       "roles:manage",
       "audit:view",
       "billing:manage",
-      "allocation:auto_schedule",
     ];
     for (const p of adminOnly) {
       expect(ROLE_PERMISSIONS.manager, `manager should not hold ${p}`).not.toContain(p);
     }
+  });
+
+  /*
+   * Moved out of the admin-only list above on 2026-08-15.
+   *
+   * Asserted positively rather than just deleted from that array, because a
+   * silent absence is indistinguishable from an oversight — and the same array
+   * is what would catch it being granted by accident.
+   *
+   * Drafting next week's rota is manager work: it is what the people holding
+   * `tasks:assign` already do by hand. What keeps it safe is not the role but
+   * the SCOPE — both auto-schedule routes pass `departmentScopeFor`, so a
+   * manager drafts and confirms only their own departments. Rank and
+   * department scope are untouched by any permission, which is the property
+   * that makes granting this a change to who arrives rather than to what they
+   * may reach.
+   */
+  it("gives managers the weekly auto-schedule", () => {
+    expect(ROLE_PERMISSIONS.manager).toContain("allocation:auto_schedule");
   });
 
   it("leaves the staff bundle empty", () => {

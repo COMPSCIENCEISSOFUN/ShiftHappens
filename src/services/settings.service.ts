@@ -114,10 +114,30 @@ export class SettingsService {
    * different one, with no error anywhere to explain it.
    */
   async getDisplaySettings(organizationId: string) {
-    const settings = await this.settingsRepo.getOrCreate(organizationId);
+    const [settings, entitlements] = await Promise.all([
+      this.settingsRepo.getOrCreate(organizationId),
+      this.subscriptionService.allocationEntitlements(organizationId),
+    ]);
     return {
       operatingHoursStart: settings.operatingHoursStart,
       operatingHoursEnd: settings.operatingHoursEnd,
+      /*
+       * The allocation mode, added for the same reason the operating hours
+       * are here: the full settings read is admin-only, and the tasks board is
+       * rendered for managers too.
+       *
+       * Without it that page fell back to a hard-coded "suggested" and drew
+       * its Auto-assign and AI Suggest controls against a guess — the same
+       * defect the operating hours had, where an admin set 08:00–20:00 and
+       * their staff saw a 6–22 grid.
+       *
+       * The EFFECTIVE mode, so a manager is told what will actually happen
+       * rather than what the column says.
+       */
+      allocationMode: effectiveAllocationMode(
+        settings.allocationMode,
+        entitlements
+      ),
     };
   }
 

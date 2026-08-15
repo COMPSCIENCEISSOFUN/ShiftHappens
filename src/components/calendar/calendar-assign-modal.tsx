@@ -19,6 +19,8 @@ import {
 import { annotateSelection } from "@/lib/composition-rules";
 import { remainingFromOccupied } from "@/lib/assignment-status";
 import { apiErrorMessage } from "@/lib/api-error";
+import { usePermissions } from "@/components/layout/permission-provider";
+import { usePlan } from "@/components/layout/plan-provider";
 
 interface CalendarAssignModalProps {
   taskId: string;
@@ -100,6 +102,16 @@ export function CalendarAssignModal({
    * Selection stays local. Which people are ticked is this panel's business,
    * not the shared layer's.
    */
+  /*
+   * Permission AND plan, resolved here in the component rather than inside
+   * `useAssignData` — see the note on its `canSuggest` parameter. Both gates
+   * can only deny, and the `/suggest` route enforces the same pair itself.
+   */
+  const { can } = usePermissions();
+  const { has: planHas } = usePlan();
+  const canSuggest =
+    can("allocation:use_suggestions") && planHas("smart_suggestions");
+
   const {
     eligibility: eligibilityById,
     loadingEligibility,
@@ -109,7 +121,7 @@ export function CalendarAssignModal({
     composition,
     load,
     loadSuggestions,
-  } = useAssignData(orgId);
+  } = useAssignData(orgId, canSuggest);
 
   const [selected, setSelected] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);

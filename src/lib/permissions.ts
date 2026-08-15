@@ -349,6 +349,26 @@ const MANAGER_EXTRA_PERMISSIONS = [
    * a default that bills you is a bad default.
    */
   "assistant:use",
+  /*
+   * Managers as well as admins, from 2026-08-15.
+   *
+   * It was admin-only, alongside the organisation-shaping permissions —
+   * billing, roles, work rules, membership. It does not belong in that group.
+   * Those change what the ORGANISATION is; this drafts next week's rota, which
+   * is the most manager-shaped task in the product and the thing the people
+   * holding `tasks:assign` do by hand every week.
+   *
+   * Safe because the routes were already built for it. Both
+   * `POST /auto-schedule` and its confirm pass `departmentScopeFor(membership)`
+   * — a manager drafts and confirms only their own departments, an admin the
+   * whole organisation. That scoping was added when a manager could reach this
+   * through a CUSTOM role and draft across departments they had no authority
+   * over; granting it by default changes who arrives, not what they may touch.
+   *
+   * Still plan-gated: `PERMISSION_FEATURE` maps it to `auto_schedule`, so a
+   * manager on Free is refused before the permission is even consulted.
+   */
+  "allocation:auto_schedule",
 ] as const;
 
 export const ROLE_PERMISSIONS: Record<string, readonly string[]> = {

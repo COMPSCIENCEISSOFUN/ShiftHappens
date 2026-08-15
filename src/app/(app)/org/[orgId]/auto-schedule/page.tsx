@@ -263,7 +263,14 @@ export default function AutoSchedulePage() {
   if (!can("allocation:auto_schedule")) {
     return (
       <div className="w-full">
-        <EmptyState title="Whole-week scheduling is a company admin action" description="You can still assign shifts individually from the Tasks page." />
+        {/*
+          No longer "a company admin action" — managers hold
+          `allocation:auto_schedule` by default since 2026-08-15, and they
+          draft their own departments. So the only people who reach this are
+          staff, or a member whose admin has not granted it, and the honest
+          ending for both is who to ask rather than what the role is called.
+        */}
+        <EmptyState title="You cannot build a whole-week schedule" description="Ask a company admin for access, or assign shifts individually from the Tasks page." />
       </div>
     );
   }
